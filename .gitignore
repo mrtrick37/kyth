@@ -1,3 +1,8 @@
+# Ignore temporary build directories created by _build-bib
+_build-bib.*
+
+# Ignore local output directories (keep committed outputs explicit)
+output/previous-built-iso/
 cosign.key
 _build_*
 output
