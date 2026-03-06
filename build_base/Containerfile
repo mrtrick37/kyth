@@ -1,7 +1,9 @@
-FROM localhost/mt-os-base:stable
+# Pull the upstream Fedora bootc base and apply mt-OS branding.
+# Build with: podman build -t localhost/mt-os-base:stable build_base/
+# Override the base via: podman build --build-arg BASE_IMAGE=... build_base/
+ARG BASE_IMAGE=quay.io/fedora/fedora-bootc:43
+FROM ${BASE_IMAGE}
 
-# Copy our customization script into the image and run it
-COPY build.sh /tmp/build.sh
-RUN chmod +x /tmp/build.sh && /tmp/build.sh
-
-CMD ["/bin/bash"]
+# Use a bind-mount so the script is never written into any image layer
+RUN --mount=type=bind,source=build.sh,target=/run/build.sh,relabel=shared \
+    bash /run/build.sh

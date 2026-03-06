@@ -42,7 +42,7 @@ clean:
     rm -f previous.manifest.json
     rm -f changelog.md
     rm -f output.env
-    rm -f output/
+    rm -rf output
 
 # Sudo Clean Repo
 [group('Utility')]
@@ -113,6 +113,16 @@ sudoif command *args:
 #
 # This will build an image 'aurora:lts' with DX and GDX enabled.
 #
+
+# Build the base image from build_base/ and tag it as localhost/mt-os-base:stable
+# Run this once before 'just build' when working locally.
+# Override the upstream with: just build-base quay.io/fedora/fedora-bootc:43
+[group('Build')]
+build-base base_image="quay.io/fedora/fedora-bootc:43":
+    podman build \
+        --build-arg BASE_IMAGE={{ base_image }} \
+        --tag localhost/mt-os-base:stable \
+        build_base/
 
 # Build the image using the specified parameters
 build $target_image=image_name $tag=default_tag:

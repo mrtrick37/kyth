@@ -92,6 +92,13 @@ jobs:
           sep-tags: " "
           sep-annotations: " "
 
+      - name: Build base image
+        run: |
+          podman build \
+            --build-arg BASE_IMAGE=quay.io/fedora/fedora-bootc:43 \
+            --tag localhost/mt-os-base:stable \
+            build_base/
+
       - name: Build Image
         id: build_image
         uses: redhat-actions/buildah-build@7a95fa7ee0f02d552a32753e7414641a04307056 # v2
