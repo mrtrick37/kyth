@@ -166,8 +166,12 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     args+="--use-librepo=True "
     args+="--rootfs=btrfs"
 
-    BUILDTMP=$(mktemp -p "${PWD}" -d -t _build-bib.XXXXXXXXXX)
-        BUILDDIR=${PWD}
+    # Create build temp under $TMPDIR (fallback /tmp) so repository root isn't filled
+    TMPDIR=${TMPDIR:-/tmp}
+    BUILDTMP=$(mktemp -p "${TMPDIR}" -d -t _build-bib.XXXXXXXXXX)
+    # Ensure temporary build directory is cleaned on exit
+    trap 'sudo rm -rf "${BUILDTMP}" >/dev/null 2>&1 || true' EXIT
+    BUILDDIR=${PWD}
 
         # Allow providing the repo GPG key(s) in the workspace so dnf inside the builder
         # can access file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa (or other keys).
