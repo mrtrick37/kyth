@@ -45,6 +45,10 @@ sudo script -q -c "just build-iso-plasma" ~/mt-os-build.script.log
 
 If the build fails during DNF depsolve complaining about a missing GPG key, put the key file into this repository root (for example `RPM-GPG-KEY-terra43-mesa`) or a `pki/rpm-gpg/` subdirectory. The `_build-bib` recipe will mount those into the build container at `/etc/pki/rpm-gpg` when present.
 
+CI artifacts
+
+- When the GitHub Actions `build-disk.yml` workflow runs the ISO build it will upload a named artifact `mt-os-installer.iso` (in addition to the full output directory). You can download that artifact from the workflow run artifacts page.
+
 ## Installer notes
 
 Kickstart files live in `disk_config/`. They include a `%pre` which:

@@ -206,6 +206,10 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     # Move new build output into place
     sudo mv -f $BUILDTMP/* output/ || true
+    # Rename standard install ISO to a consistent mt-OS filename
+    if sudo test -f output/bootiso/install.iso; then
+        sudo mv -f output/bootiso/install.iso output/bootiso/mt-os-installer.iso || true
+    fi
     sudo rmdir $BUILDTMP || true
     sudo chown -R $USER:$USER output/
 
@@ -255,7 +259,7 @@ _run-vm $target_image $tag $type $config:
     # Determine the image file based on the type
     image_file="output/${type}/disk.${type}"
     if [[ $type == iso ]]; then
-        image_file="output/bootiso/install.iso"
+        image_file="output/bootiso/mt-os-installer.iso"
     fi
 
     # Build the image if it does not exist
