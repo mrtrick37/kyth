@@ -1,0 +1,10 @@
+NAME="mt-OS"
+PRETTY_NAME="mt-OS 43"
+ID=mt-os
+VERSION_ID=43
+HOME_URL="https://example.com/mt-os"
+SUPPORT_URL="https://example.com/mt-os/support"
+BUG_REPORT_URL="https://example.com/mt-os/bugs"
+ANSI_COLOR="0;34"
+VARIANT="desktop"
+VARIANT_ID=mt-os-desktop

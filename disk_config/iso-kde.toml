@@ -118,3 +118,8 @@ path = "/EFI/BOOT/grub.cfg"
 source = "iso_overlay/EFI/BOOT/grub.cfg"
 mode = "0644"
 
+[[customizations.files]]
+path = "/etc/os-release"
+source = "iso_overlay/etc/os-release"
+mode = "0644"
+
