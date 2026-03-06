@@ -102,3 +102,20 @@ enable = [
 disable = [
   "org.fedoraproject.Anaconda.Modules.Subscription",
 ]
+
+[customizations.files]
+[[customizations.files]]
+path = "/boot/grub2/grub.cfg"
+source = "iso_overlay/boot/grub2/grub.cfg"
+mode = "0644"
+
+[[customizations.files]]
+path = "/isolinux/isolinux.cfg"
+source = "iso_overlay/isolinux/isolinux.cfg"
+mode = "0644"
+
+[[customizations.files]]
+path = "/EFI/BOOT/grub.cfg"
+source = "iso_overlay/EFI/BOOT/grub.cfg"
+mode = "0644"
+
