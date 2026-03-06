@@ -45,6 +45,8 @@ rm -f /usr/share/applications/*waydroid*.desktop || true
 rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true
 rm -rf /usr/share/waydroid /var/lib/waydroid || true
+# Also remove common capitalized filenames
+rm -f /usr/share/applications/Waydroid.desktop || true
 
 # QA check: fail the build if any Waydroid desktop/menu files remain
 if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then
