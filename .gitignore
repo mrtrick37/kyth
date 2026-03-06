@@ -1,5 +1,9 @@
 # Ignore temporary build directories created by _build-bib
 _build-bib.*
+_build_podman_scp.*
+
+# Ignore build logs
+*.log
 
 # Ignore local output directories (keep committed outputs explicit)
 output/previous-built-iso/

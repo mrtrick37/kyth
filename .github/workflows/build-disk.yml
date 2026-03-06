@@ -21,6 +21,8 @@ on:
     paths:
       - './disk_config/disk.toml'
       - './disk_config/iso.toml'
+      - './disk_config/iso-kde.toml'
+      - './disk_config/iso-gnome.toml'
       - './.github/workflows/build-disk.yml'
 
 env:
