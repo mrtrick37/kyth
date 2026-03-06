@@ -81,6 +81,15 @@ if command -v nmcli >/dev/null 2>&1; then
   fi
 fi
 
+# Ensure installer runtime shows mt-OS branding
+cat > /etc/os-release <<'EOF' || true
+NAME="mt-OS"
+PRETTY_NAME="mt-OS 43"
+ID=mt-os
+VERSION_ID=43
+HOME_URL="https://example.com/mt-os"
+EOF
+
 %end
 
 %post
