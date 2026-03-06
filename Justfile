@@ -50,6 +50,34 @@ clean:
 sudo-clean:
     just sudoif just clean
 
+# Safely remove local build temp dirs and fix ownership of output/
+[group('Utility')]
+cleanup:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "This will remove any _build-bib.* directories in ${PWD} and fix ownership of output/."
+    if [[ "${AUTO_CONFIRM:-}" != "true" ]]; then
+        read -r -p "Proceed? [y/N]: " ans
+        if [[ ! "${ans}" =~ ^[Yy]$ ]]; then
+            echo "Aborted by user."; exit 1
+        fi
+    fi
+
+    if ls _build-bib.* 1> /dev/null 2>&1; then
+        echo "Removing _build-bib.*..."
+        sudo rm -rf _build-bib.* || true
+    else
+        echo "No _build-bib.* directories found."
+    fi
+
+    if [ -d output ]; then
+        echo "Fixing ownership of output/ to current user..."
+        sudo chown -R "$(id -u):$(id -g)" output/ || true
+    fi
+
+    echo "Cleanup complete."
+
 # sudoif bash function
 [group('Utility')]
 [private]
