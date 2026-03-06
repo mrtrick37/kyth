@@ -70,6 +70,9 @@ fi
 %post
 bootc switch --mutate-in-place --transport registry ghcr.io/ublue-os/mt-os:latest
 %end
+  """
+
+  # NOTE: the toml above ends the kickstart; adding runtime /etc/os-release is handled in the KDE/ISO-specific kickstart sections where needed.
 """
 
 [customizations.installer.modules]
