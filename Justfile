@@ -95,6 +95,7 @@ sudoif command *args:
         fi
     }
     sudoif {{ command }} {{ args }}
+        TMPDIR=${TMPDIR:-/var/tmp}
 
 # This Justfile recipe builds a container image using Podman.
 #
@@ -168,7 +169,7 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
         ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
         if [[ "$ID" != "$USER_IMG_ID" ]]; then
             # If the image ID is not found or different from user, copy the image from user podman to root podman
-            COPYTMP=$(mktemp -p "${PWD}" -d -t _build_podman_scp.XXXXXXXXXX)
+            COPYTMP=$(mktemp -p /var/tmp -d -t _build_podman_scp.XXXXXXXXXX)
             just sudoif TMPDIR=${COPYTMP} podman image scp ${UID}@localhost::"${target_image}:${tag}" root@localhost::"${target_image}:${tag}"
             rm -rf "${COPYTMP}"
         fi
@@ -194,8 +195,8 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     args+="--use-librepo=True "
     args+="--rootfs=btrfs "
 
-    # Create build temp under $TMPDIR (fallback /tmp) so repository root isn't filled
-    TMPDIR=${TMPDIR:-/tmp}
+    # Create build temp under $TMPDIR (fallback /var/tmp) so repository root isn't filled
+    TMPDIR=${TMPDIR:-/var/tmp}
     BUILDTMP=$(mktemp -p "${TMPDIR}" -d -t _build-bib.XXXXXXXXXX)
     # Ensure temporary build directory is cleaned on exit
     trap 'sudo rm -rf "${BUILDTMP}" >/dev/null 2>&1 || true' EXIT
