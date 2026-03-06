@@ -22,3 +22,33 @@ dnf5 install -y tmux
 #### Example for enabling a System Unit File
 
 systemctl enable podman.socket
+
+# Ensure the built image advertises the mt-OS product name. Some boot/installer
+# menus derive their display strings from `/etc/os-release` or similar metadata.
+# We overwrite or create `/etc/os-release` with mt-OS values so boot menus show
+# "mt-OS" instead of upstream branding.
+cat > /etc/os-release <<'EOF' || true
+NAME="mt-OS"
+PRETTY_NAME="mt-OS"
+ID=mt-os
+VERSION=""
+VERSION_ID=""
+ANSI_COLOR="0;34"
+HOME_URL="https://example.org/mt-os"
+SUPPORT_URL="https://example.org/mt-os"
+BUG_REPORT_URL="https://example.org/mt-os/issues"
+EOF
+
+# Remove Waydroid desktop/menu entries and related files if present
+# (some base images include a Waydroid helper that we don't ship in mt-OS)
+rm -f /usr/share/applications/*waydroid*.desktop || true
+rm -f /usr/local/share/applications/*waydroid*.desktop || true
+rm -f /usr/share/kservices5/*waydroid* || true
+rm -rf /usr/share/waydroid /var/lib/waydroid || true
+
+# QA check: fail the build if any Waydroid desktop/menu files remain
+if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then
+	echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
+	find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
+	exit 1
+fi
