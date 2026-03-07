@@ -6,41 +6,46 @@ set -ouex pipefail
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
 dnf5 copr enable -y bieszczaders/kernel-cachyos
 
-# Make dracut more tolerant in the container build environment
-mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-container-build.conf << 'DRACUTEOF'
-no_hostonly="yes"
-hostonly_cmdline="no"
-tmpdir="/var/tmp"
-DRACUTEOF
+# Install kernel packages with --noscripts to skip the %posttrans that calls
+# rpm-ostree kernel-install → dracut. That script fails in container builds
+# because it creates temp files in /tmp (tmpfs) then tries to rename them to the
+# overlay filesystem, hitting "Invalid cross-device link" (EXDEV). We do the
+# initramfs generation ourselves below with full control over the environment.
+dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
 
-# Step 1: Install the modules package first (separate transaction)
-# so that /usr/lib/modules/<kver>/ exists before depmod is called.
-dnf5 install -y kernel-cachyos-modules
-
-# Step 2: Generate modules.dep explicitly.
-# The %post scriptlet in the modules RPM may fail silently in a container,
-# leaving modules.dep missing and causing dracut to abort in the next step.
 CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
 depmod -a "${CACHYOS_KVER}"
 
-# Step 3: Now install the remaining packages.
-# The %posttrans of kernel-cachyos-core runs rpm-ostree kernel-install → dracut.
-# With modules.dep in place, dracut should succeed.
-dnf5 install -y --skip-unavailable \
+dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
     kernel-cachyos \
     kernel-cachyos-core \
     kernel-cachyos-devel
 
+# Run depmod again now that all module packages are installed
+depmod -a "${CACHYOS_KVER}"
+
+# Ensure vmlinuz is in the OSTree-expected location
+# (kernel RPMs may put it in /boot; bootc needs it at /usr/lib/modules/<kver>/vmlinuz)
+if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
+    if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
+        cp "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz"
+    fi
+fi
+
+# Generate initramfs directly — all paths stay on the overlay filesystem so
+# no cross-device link issues. TMPDIR=/var/tmp for safety.
+TMPDIR=/var/tmp dracut \
+    --no-hostonly \
+    --kver "${CACHYOS_KVER}" \
+    --force \
+    "/usr/lib/modules/${CACHYOS_KVER}/initrd"
+
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
-rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
-rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
+rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
+rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
 
 # Disable COPR after install
 dnf5 copr disable -y bieszczaders/kernel-cachyos
-
-# Clean up the temporary dracut config (no longer needed post-build)
-rm -f /etc/dracut.conf.d/99-container-build.conf
 
 ### Install packages
 
