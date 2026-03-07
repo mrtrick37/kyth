@@ -6,20 +6,40 @@ set -ouex pipefail
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
 dnf5 copr enable -y bieszczaders/kernel-cachyos
 
-# Install CachyOS kernel packages (only what the COPR actually provides)
+# Make dracut more tolerant in the container build environment
+mkdir -p /etc/dracut.conf.d
+cat > /etc/dracut.conf.d/99-container-build.conf << 'DRACUTEOF'
+no_hostonly="yes"
+hostonly_cmdline="no"
+DRACUTEOF
+
+# Step 1: Install the modules package first (separate transaction)
+# so that /usr/lib/modules/<kver>/ exists before depmod is called.
+dnf5 install -y kernel-cachyos-modules
+
+# Step 2: Generate modules.dep explicitly.
+# The %post scriptlet in the modules RPM may fail silently in a container,
+# leaving modules.dep missing and causing dracut to abort in the next step.
+CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
+depmod -a "${CACHYOS_KVER}"
+
+# Step 3: Now install the remaining packages.
+# The %posttrans of kernel-cachyos-core runs rpm-ostree kernel-install → dracut.
+# With modules.dep in place, dracut should succeed.
 dnf5 install -y --skip-unavailable \
     kernel-cachyos \
     kernel-cachyos-core \
-    kernel-cachyos-modules \
     kernel-cachyos-devel
 
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
-# This keeps the image lean and avoids grub confusion at boot
 rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
 rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y || true
 
 # Disable COPR after install
 dnf5 copr disable -y bieszczaders/kernel-cachyos
+
+# Clean up the temporary dracut config (no longer needed post-build)
+rm -f /etc/dracut.conf.d/99-container-build.conf
 
 ### Install packages
 
