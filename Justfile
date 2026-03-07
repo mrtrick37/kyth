@@ -315,9 +315,9 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtal Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build an ISO with Plasma DE by default
+# Build an ISO with Plasma DE by default (rebuilds base + main image first)
 [group('Build Virtal Machine Image')]
-build-iso-plasma $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
+build-iso-plasma $target_image=("localhost/" + image_name) $tag=default_tag: (build-base) (build target_image tag) && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
 
 # Rebuild a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
