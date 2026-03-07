@@ -62,8 +62,7 @@ Requires `podman` and `just`. Must run `build-base` before `build`.
 
 ## Why?
 
-Because stock Kinoite is great but I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) proved that building a custom atomic image is a perfectly reasonable way to do Linux in 2025.
-
+Because stock Kinoite is great but I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) proved that building a custom atomic image is a perfectly reasonable way to do Linux.
 ---
 
 *mt-OS is not affiliated with Universal Blue, Fedora, or anyone who actually knows what they're doing.*
