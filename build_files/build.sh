@@ -9,19 +9,89 @@ set -ouex pipefail
 # List of rpmfusion packages can be found here:
 # https://mirrors.rpmfusion.org/mirrorlist?path=free/fedora/updates/43/x86_64/repoview/index.html&protocol=https&redirect=1
 
-# this installs a package from fedora repos
-dnf5 install -y tmux 
+# Fedora packages (DX tooling — mirrors bluefin-dx)
+dnf5 install -y \
+    android-tools \
+    bcc \
+    bpftop \
+    bpftrace \
+    cascadia-code-fonts \
+    cockpit-bridge \
+    cockpit-machines \
+    cockpit-networkmanager \
+    cockpit-ostree \
+    cockpit-podman \
+    cockpit-selinux \
+    cockpit-storaged \
+    cockpit-system \
+    dbus-x11 \
+    edk2-ovmf \
+    flatpak-builder \
+    genisoimage \
+    git-subtree \
+    git-svn \
+    iotop \
+    libvirt \
+    libvirt-nss \
+    nicstat \
+    numactl \
+    osbuild-selinux \
+    p7zip \
+    p7zip-plugins \
+    podman-compose \
+    podman-machine \
+    podman-tui \
+    qemu \
+    qemu-char-spice \
+    qemu-device-display-virtio-gpu \
+    qemu-device-display-virtio-vga \
+    qemu-device-usb-redirect \
+    qemu-img \
+    qemu-system-x86-core \
+    qemu-user-binfmt \
+    qemu-user-static \
+    rocm-hip \
+    rocm-opencl \
+    rocm-smi \
+    sysprof \
+    incus \
+    incus-agent \
+    lxc \
+    tiptop \
+    trace-cmd \
+    udica \
+    util-linux-script \
+    virt-manager \
+    virt-v2v \
+    virt-viewer \
+    ydotool \
+    tmux
 
-# Use a COPR Example:
-#
-# dnf5 -y copr enable ublue-os/staging
-# dnf5 -y install package
-# Disable COPRs so they don't end up enabled on the final image:
-# dnf5 -y copr disable ublue-os/staging
+# Docker CE (repo added but disabled by default — install with --enablerepo=docker-ce-stable)
+dnf5 config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/docker-ce.repo
+dnf5 -y install --enablerepo=docker-ce-stable \
+    containerd.io \
+    docker-buildx-plugin \
+    docker-ce \
+    docker-ce-cli \
+    docker-compose-plugin
 
-#### Example for enabling a System Unit File
+# Visual Studio Code (repo added but disabled by default)
+tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'
+[code]
+name=Visual Studio Code
+baseurl=https://packages.microsoft.com/yumrepos/vscode
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+REPOEOF
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
+dnf5 -y install --enablerepo=code code
 
+systemctl enable docker.socket
 systemctl enable podman.socket
+systemctl enable libvirtd.socket
 
 # Ensure the built image advertises the mt-OS product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
