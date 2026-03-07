@@ -11,6 +11,7 @@ mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-container-build.conf << 'DRACUTEOF'
 no_hostonly="yes"
 hostonly_cmdline="no"
+tmpdir="/var/tmp"
 DRACUTEOF
 
 # Step 1: Install the modules package first (separate transaction)
