@@ -56,7 +56,6 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Fedora packages (DX tooling — mirrors bluefin-dx)
 dnf5 install -y \
-    android-tools \
     bcc \
     bpftop \
     bpftrace \
