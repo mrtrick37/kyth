@@ -2,6 +2,13 @@
 
 set -ouex pipefail
 
+### Pull all upstream package updates
+# Exclude kernel packages — the stock kernel is replaced by CachyOS below,
+# and upgrading it here would trigger dracut in the %posttrans scriptlet which
+# fails in container builds (EXDEV cross-device rename via tmpfs /tmp).
+# Exclude gamescope* — conflicts with Bazzite's gamescope-libs-ba147.
+dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
+
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
 dnf5 copr enable -y bieszczaders/kernel-cachyos
@@ -32,17 +39,36 @@ if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
     fi
 fi
 
+# Write dracut config before generating initramfs.
+# Force the ostree dracut module — required for bootc/ostree deployments.
+# Without this the initramfs cannot find or mount the root filesystem.
+# dracut skips it during container builds because there is no live ostree
+# deployment to auto-detect.
+mkdir -p /etc/dracut.conf.d
+cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree "
+# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
+# so add_drivers has no effect for them. Kept for documentation.
+add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
+DRACUTEOF
+
 # Generate initramfs directly — all paths stay on the overlay filesystem so
 # no cross-device link issues. TMPDIR=/var/tmp for safety.
+# Output to "initramfs" — bootc/ostree expects this exact filename.
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --kver "${CACHYOS_KVER}" \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
 
-# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
-rpm -qa | grep -E '^kernel-(core|modules|modules-core|modules-extra|devel)?-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
-rpm -qa | grep -E '^kernel-[0-9]' | grep -v cachyos | xargs -r dnf5 remove -y --setopt=tsflags=noscripts || true
+# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
+# dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
+# the container build environment, so we remove the module directory directly and
+# clean up the RPM DB with rpm --nodeps.
+for OLD_KVER in $(ls /usr/lib/modules/ | grep -v "${CACHYOS_KVER}"); do
+    rm -rf "/usr/lib/modules/${OLD_KVER}"
+done
+rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
 
 # Disable COPR after install
 dnf5 copr disable -y bieszczaders/kernel-cachyos
@@ -125,8 +151,8 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo
-dnf5 config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-steam.repo
+# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers)
+dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
 dnf5 install -y --skip-unavailable \
@@ -160,6 +186,8 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
+# /usr/local symlinks to /var/usrlocal — ensure the target dir exists
+mkdir -p /usr/local/bin
 curl -sL https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
     -o /usr/local/bin/winetricks
 chmod +x /usr/local/bin/winetricks
@@ -174,7 +202,7 @@ dnf5 copr disable -y ycollet/audinux
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 # Docker CE (repo added but disabled by default — install with --enablerepo=docker-ce-stable)
-dnf5 config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
+dnf5 config-manager addrepo --overwrite --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/docker-ce.repo
 dnf5 -y install --enablerepo=docker-ce-stable \
     containerd.io \
