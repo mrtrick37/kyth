@@ -130,7 +130,7 @@ dnf5 copr enable -y ycollet/audinux
 dnf5 config-manager addrepo --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
-dnf5 install -y \
+dnf5 install -y --skip-unavailable \
     gamescope \
     gamescope-libs.x86_64 \
     gamescope-libs.i686 \
@@ -154,8 +154,7 @@ dnf5 install -y \
     steam \
     lutris \
     gamemode \
-    gamemode.i686 \
-    gamescope-session
+    gamemode.i686
 
 # KDE-specific gaming integrations
 dnf5 install -y \
