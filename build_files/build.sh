@@ -6,14 +6,12 @@ set -ouex pipefail
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
 dnf5 copr enable -y bieszczaders/kernel-cachyos
 
-# Install CachyOS kernel packages
-dnf5 install -y \
+# Install CachyOS kernel packages (only what the COPR actually provides)
+dnf5 install -y --skip-unavailable \
     kernel-cachyos \
     kernel-cachyos-core \
     kernel-cachyos-modules \
-    kernel-cachyos-modules-core \
-    kernel-cachyos-modules-extra \
-    kernel-cachyos-headers
+    kernel-cachyos-devel
 
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel
 # This keeps the image lean and avoids grub confusion at boot
