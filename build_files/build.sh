@@ -201,6 +201,12 @@ dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
+# Brave Browser — replaces Firefox
+dnf5 remove -y firefox || true
+dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+dnf5 install -y brave-browser
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
+
 # Docker CE (repo added but disabled by default — install with --enablerepo=docker-ce-stable)
 dnf5 config-manager addrepo --overwrite --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/docker-ce.repo
