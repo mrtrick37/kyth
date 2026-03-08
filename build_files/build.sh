@@ -238,21 +238,36 @@ fi
 BREWEOF
 chmod +x /etc/profile.d/homebrew.sh
 
-# Ensure the built image advertises the mt-OS product name. Some boot/installer
+# Ensure the built image advertises the Forge product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
-# We overwrite or create `/etc/os-release` with mt-OS values so boot menus show
-# "mt-OS" instead of upstream branding.
+# We overwrite or create `/etc/os-release` with Forge values so boot menus show
+# "Forge" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
-NAME="mt-OS"
-PRETTY_NAME="mt-OS 43"
+NAME="Forge"
+PRETTY_NAME="Forge 43"
 ID=fedora
 VERSION="43"
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/mt-os"
-SUPPORT_URL="https://example.com/mt-os/support"
-BUG_REPORT_URL="https://example.com/mt-os/issues"
+HOME_URL="https://example.com/forge"
+SUPPORT_URL="https://example.com/forge/support"
+BUG_REPORT_URL="https://example.com/forge/issues"
 EOF
+
+# Set Breeze Dark as the default KDE theme for all new users via /etc/skel
+mkdir -p /etc/skel/.config
+cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
+[General]
+ColorScheme=BreezeDark
+
+[KDE]
+LookAndFeelPackage=org.kde.breezedark.desktop
+KDEEOF
+
+cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
+[Theme]
+name=breeze-dark
+PLASMAEOF
 
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in mt-OS)
