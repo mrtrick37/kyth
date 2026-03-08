@@ -1,101 +1,115 @@
-# mt-OS
+# Forge
 
-> **⚠️ Hey, you.Seriously, don't install this on anything you care about yet. You have been warned. Proceed with chaotic enthusiasm.**
+> **⚠️ Don't install this on anything you care about. You've been warned. Proceed with chaotic enthusiasm.**
 
-mt-OS is a custom atomic desktop Linux image built on top of [Universal Blue's Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma, immutable). Think of it as highly customized gaming, productivity, and development powerhouse baked into an atomic image — opinionated, fast, and perpetually a work in progress.
+Forge is a custom atomic desktop Linux image built on [Universal Blue Kinoite](https://universal-blue.org/) (Fedora 43, KDE Plasma). It's an opinionated gaming and development workstation OS — immutable, container-native, and perpetually a work in progress.
 
-## What is this?
+## What's in it
 
-- **Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma, atomic/immutable via bootc
-- **Kernel:** [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) (BORE scheduler, sched-ext, BBRv3, NTSYNC) for better desktop and gaming performance
-- **Delivery:** OCI container image at `ghcr.io/mrtrick37/mt-os`
-- **Updates:** `bootc upgrade` — like a system package update, but for your whole OS
-
-## What's included
+**Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma via bootc
+**Kernel:** [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) — BORE scheduler, sched-ext, BBRv3, NTSYNC
+**Theme:** Breeze Dark by default
+**Browser:** Brave
 
 ### Gaming
-- **gamescope** — Valve's micro-compositor for HDR, upscaling, and frame limiting
-- **mangohud** — in-game performance overlay (x86_64 + i686)
-- **vkBasalt** — post-processing layer for Vulkan games (x86_64 + i686)
-- **umu-launcher** — unified game launcher (Proton/Wine wrapper)
-- **steam** — it's Steam
-- **lutris** — open gaming platform
-- **gamemode** — CPU/GPU performance profile switching on game launch
-- **winetricks** — always-latest from upstream
-- **libFAudio**, **libobs_vkcapture/glcapture**, **openxr** — supporting cast
+- Steam, Lutris, GameMode
+- gamescope, mangohud (x86_64 + i686), vkBasalt (x86_64 + i686)
+- umu-launcher, winetricks (always latest from upstream)
+- libFAudio, libobs_vkcapture/glcapture, openxr, xrandr, evtest
 
-### Developer Tooling (bluefin-dx-style)
-- **cockpit** (bridge, machines, networkmanager, ostree, podman, selinux, storaged, system)
-- **Docker CE** — repo added, disabled by default; install with `--enablerepo=docker-ce-stable`
-- **Visual Studio Code** — repo added, disabled by default; install with `--enablerepo=code`
+### Developer Tooling
+- **Cockpit** — machines, podman, networkmanager, ostree, selinux, storaged
+- **Visual Studio Code** — repo added, disabled by default; enable with `--enablerepo=code`
+- **Homebrew** — system-wide install at `/home/linuxbrew/.linuxbrew`; any wheel user can run `brew`
 - **podman-compose**, **podman-tui**, **podman-machine**
-- **incus**, **incus-agent**, **lxc** — system containers
-- **libvirt**, **virt-manager**, **virt-viewer**, **virt-v2v** — full VM stack
-- **QEMU** (with spice, virtio-gpu, usb-redirect, x86 core, user-static)
+- **incus**, **lxc** — system containers
+- **libvirt**, **virt-manager**, **virt-viewer**, **virt-v2v**, **QEMU** — full VM stack
 - **bcc**, **bpftop**, **bpftrace**, **tiptop**, **trace-cmd**, **sysprof** — system observability
 - **rocm-hip**, **rocm-opencl**, **rocm-smi** — AMD GPU compute
-- **flatpak-builder**, **git-subtree**, **git-svn**, **p7zip**, **tmux**, and more
+- **flatpak-builder**, **git-subtree**, **git-svn**, **p7zip**, **tmux**
 
-### KDE integrations
-- **kdeconnect**, **kdeplasma-addons**, **rom-properties-kf6**
-
-## Current State
-
-- [x] Builds
-- [x] Installs
-- [x] Boots to KDE Plasma
-- [x] CachyOS kernel (BORE scheduler)
-- [x] Gaming stack (Steam, gamescope, mangohud, vkBasalt, umu-launcher, lutris)
-- [x] Full dev tooling (Docker, VSCode, libvirt, cockpit, bpf tools, ROCm)
-- [ ] Actually tested on more than one machine
-- [ ] Everything else
+### KDE Integrations
+- kdeconnect, kdeplasma-addons, rom-properties-kf6
 
 ## Installation
 
-If you're still here — respect. You can rebase an existing Fedora atomic system onto mt-OS:
+### Rebase from an existing Fedora atomic system
 
 ```bash
-bootc switch ghcr.io/mrtrick37/mt-os:latest
+bootc switch ghcr.io/mrtrick37/forge:latest
 ```
 
-Or build and flash the installer ISO locally if you enjoy living dangerously.
+### Live ISO
+
+Boot the live ISO to try Forge without installing. The full KDE desktop with all packages runs from RAM. Click **Install Forge** on the desktop to install.
+
+See [Building Locally](#building-locally) to build the live ISO, or grab it from [GitHub Releases](https://github.com/mrtrick37/forge/releases).
+
+### Installer ISO
+
+For a traditional installer experience (Anaconda), use the installer ISO instead of the live ISO.
 
 ## Building Locally
 
-```bash
-# Full pipeline — builds base, main image, and KDE Plasma installer ISO
-sudo just bip
-```
-
-Or step by step:
+Requires `podman`, `just`.
 
 ```bash
-# 1. Build the base layer (pulls kinoite-main:43, applies branding)
+# 1. Build the base layer
 just build-base
 
-# 2. Build the main image (installs all packages, CachyOS kernel, gaming tweaks)
+# 2. Build the main image
 just build
 
-# 3. Build the KDE Plasma installer ISO
-sudo just bip
+# 3a. Build the live desktop ISO (boots to full KDE; "Install Forge" icon on desktop)
+#     Also requires: xorriso squashfs-tools mtools dosfstools
+just build-live-iso
+
+# 3b. Build the Anaconda installer ISO instead
+just build-iso
+
+# 3c. Build a QCOW2 VM image
+just build-qcow2
 ```
 
-Requires `podman` and `just`.
+```bash
+# All recipes
+just --list
+```
 
 ## Project Structure
 
-- `build_base/` — base image layer, pulls from `ghcr.io/ublue-os/kinoite-main:43`
-- `Containerfile` — main image, runs `build_files/build.sh` on top of the base
-- `build_files/build.sh` — kernel swap, package installs, branding, tweaks
-- `disk_config/` — bootc-image-builder TOML configs for ISO/qcow2/raw artifacts
-- `iso_overlay/` — grub/isolinux/os-release branding for the installer ISO
-- `Justfile` — local build recipes (`just --list` for all commands)
-- `.github/workflows/` — CI: builds and publishes the container image
+```
+build_base/              Base image layer (pulls kinoite-main:43, applies branding)
+Containerfile            Main image (runs build_files/build.sh on top of base)
+build_files/
+  build.sh               Kernel swap, package installs, branding, tweaks
+  Containerfile.live     Live ISO variant (adds dracut-live, liveuser, auto-login)
+  build-live-iso.sh      Builds the live ISO from the container image
+  forge-install.sh       bootc-based installer launched from the live ISO desktop
+disk_config/
+  forge-install.ks       Anaconda kickstart used by the live ISO installer
+  iso-kde.toml           BIB config for the Anaconda KDE installer ISO
+  iso.toml               BIB config for the Anaconda installer ISO
+  disk.toml              BIB config for qcow2/raw disk images
+iso_overlay/             GRUB/isolinux/os-release branding for installer ISOs
+Justfile                 Local build recipes
+.github/workflows/       CI: builds and publishes the container image
+```
 
-## Why?
+## Updates
 
-Because stock Kinoite is great but I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) proved that building a custom atomic image is a perfectly reasonable way to do Linux. So here we are.
+Once installed, Forge updates like any bootc system:
+
+```bash
+bootc upgrade
+```
+
+Or let it update automatically via the `bootc-fetch-apply-updates` timer.
+
+## Why
+
+Stock Kinoite is great. I wanted my own thing. [Universal Blue](https://universal-blue.org/) and [Bazzite](https://bazzite.gg/) showed that rolling your own atomic image is reasonable. So here we are.
 
 ---
 
-*mt-OS is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.*
+*Forge is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.*

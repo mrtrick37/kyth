@@ -1,0 +1,83 @@
+#!/usr/bin/bash
+# forge-install — Live ISO installer for Forge
+#
+# Uses 'bootc install to-disk' to write Forge to the selected disk.
+# Pulls the final image from ghcr.io/mrtrick37/forge:latest (requires network).
+#
+# Runs via the "Install Forge" desktop icon on the live ISO.
+
+set -euo pipefail
+
+TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
+
+# Escalate if not root
+if [[ $EUID -ne 0 ]]; then
+    exec pkexec "$0" "$@"
+fi
+
+# ── Disk selection ────────────────────────────────────────────────────────────
+# Build a list of real block devices (exclude loop, CD-ROM, and the live media)
+mapfile -t DISKS < <(lsblk -dpno NAME,SIZE,MODEL \
+    | grep -Ev 'loop|sr[0-9]' \
+    | awk '{printf "%s\t%s %s\n", $1, $2, $3}')
+
+if [[ ${#DISKS[@]} -eq 0 ]]; then
+    if command -v kdialog &>/dev/null; then
+        kdialog --title "Install Forge" --error "No suitable disks found."
+    else
+        echo "ERROR: No suitable disks found." >&2
+    fi
+    exit 1
+fi
+
+if command -v kdialog &>/dev/null; then
+    # Build kdialog --menu args: tag description tag description ...
+    MENU_ARGS=()
+    for entry in "${DISKS[@]}"; do
+        DEV=$(echo "${entry}" | cut -f1)
+        DESC=$(echo "${entry}" | cut -f2)
+        MENU_ARGS+=("${DEV}" "${DEV}  ${DESC}")
+    done
+
+    SELECTED=$(kdialog \
+        --title "Install Forge" \
+        --menu "Select the disk to install Forge onto.\n\nWARNING: ALL DATA on the selected disk will be erased." \
+        "${MENU_ARGS[@]}") || exit 0
+
+    kdialog \
+        --title "Install Forge" \
+        --warningyesno "ERASE ALL DATA on ${SELECTED} and install Forge?\n\nThis cannot be undone." \
+        || exit 0
+else
+    # Fallback: plain terminal UI
+    echo ""
+    echo "=== Install Forge ==="
+    echo ""
+    echo "Available disks:"
+    for entry in "${DISKS[@]}"; do
+        echo "  ${entry}"
+    done
+    echo ""
+    read -r -p "Enter target disk (e.g. /dev/sda): " SELECTED
+    [[ -z "${SELECTED}" ]] && exit 0
+    read -r -p "WARNING: ALL DATA on ${SELECTED} will be erased. Type 'yes' to confirm: " CONFIRM
+    [[ "${CONFIRM}" != "yes" ]] && { echo "Aborted."; exit 0; }
+fi
+
+# ── Install ───────────────────────────────────────────────────────────────────
+echo "Installing Forge to ${SELECTED} from ${TARGET_IMGREF} ..."
+echo "This will take a while depending on your internet connection."
+echo ""
+
+bootc install to-disk \
+    --target-imgref "${TARGET_IMGREF}" \
+    "${SELECTED}"
+
+echo ""
+echo "Installation complete. You can now reboot into Forge."
+
+if command -v kdialog &>/dev/null; then
+    kdialog \
+        --title "Install Forge" \
+        --msgbox "Installation complete!\n\nRemove the live USB and reboot to start Forge."
+fi
