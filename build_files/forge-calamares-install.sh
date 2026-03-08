@@ -1,25 +1,36 @@
 #!/usr/bin/bash
 # forge-calamares-install — Called by Calamares shellprocess module.
 #
-# Reads the target disk from /tmp/forge-target-disk (written by
-# forge-install-launcher before Calamares was started), then runs
-# 'bootc install to-disk' to pull and write Forge to that disk.
+# The Calamares partition + mount modules have already partitioned the chosen
+# disk and mounted it under /tmp/calamares-root.  This script:
+#   1. Derives the disk device from those mounts (e.g. /dev/sda2 → /dev/sda)
+#   2. Unmounts /tmp/calamares-root so bootc can take over the disk
+#   3. Runs 'bootc install to-disk' to pull and write Forge
 
 set -euo pipefail
 
-DISK_FILE="/tmp/forge-target-disk"
 TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
+CALAMARES_ROOT="/tmp/calamares-root"
 
-if [[ ! -f "${DISK_FILE}" ]]; then
-    echo "ERROR: ${DISK_FILE} not found." \
-         "Run the installer via the desktop icon, not directly." >&2
-    exit 1
+# ── Find the target disk ──────────────────────────────────────────────────────
+DISK=""
+
+# Primary method: derive disk from what the mount module mounted to calamares-root
+if findmnt -n -o SOURCE "${CALAMARES_ROOT}" &>/dev/null; then
+    ROOT_PART=$(findmnt -n -o SOURCE "${CALAMARES_ROOT}" | head -1)
+    # lsblk PKNAME gives the parent disk of a partition (e.g. sda1 → sda)
+    PARENT=$(lsblk -no PKNAME "${ROOT_PART}" 2>/dev/null | head -1)
+    [[ -n "${PARENT}" ]] && DISK="/dev/${PARENT}"
 fi
 
-DISK=$(tr -d '[:space:]' < "${DISK_FILE}")
+# Fallback: /tmp/forge-target-disk written by the legacy kdialog launcher
+if [[ -z "${DISK}" ]] && [[ -f /tmp/forge-target-disk ]]; then
+    DISK=$(tr -d '[:space:]' < /tmp/forge-target-disk)
+fi
 
 if [[ -z "${DISK}" ]]; then
-    echo "ERROR: ${DISK_FILE} is empty — no target disk was selected." >&2
+    echo "ERROR: Could not determine the target disk." >&2
+    echo "       Nothing was mounted to ${CALAMARES_ROOT}." >&2
     exit 1
 fi
 
@@ -32,6 +43,12 @@ echo "=== Forge 43 Installation ==="
 echo "Target disk : ${DISK}"
 echo "Image       : ${TARGET_IMGREF}"
 echo ""
+
+# ── Unmount calamares-root so bootc can repartition the disk ─────────────────
+echo "Unmounting temporary partitions..."
+umount -R -l "${CALAMARES_ROOT}" 2>/dev/null || true
+
+# ── Install ───────────────────────────────────────────────────────────────────
 echo "Pulling image and writing to disk — this will take a while..."
 echo ""
 
