@@ -315,15 +315,48 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtal Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a full live desktop ISO (boots to the complete mt-OS KDE environment;
-# "Install mt-OS" desktop icon installs from ghcr.io/mrtrick37/mt-os:latest)
+# Build a full live desktop ISO (boots to the complete Forge KDE environment;
+# "Install Forge" desktop icon installs from ghcr.io/mrtrick37/forge:latest)
 # Requires: xorriso squashfs-tools mtools dosfstools
-# Run 'just build' first to have localhost/mt-os:latest available.
+# Run 'just build' first to have localhost/forge:latest available.
 [group('Build Virtal Machine Image')]
 build-live-iso:
     #!/usr/bin/env bash
     set -euo pipefail
     bash build_files/build-live-iso.sh
+
+# Boot the live desktop ISO in a VM (UEFI, web UI at http://localhost:PORT)
+# Builds the ISO first if it does not exist.
+[group('Run Virtal Machine')]
+run-live-iso:
+    #!/usr/bin/bash
+    set -eoux pipefail
+
+    image_file="output/live-iso/forge-live.iso"
+    if [[ ! -f "${image_file}" ]]; then
+        just build-live-iso
+    fi
+
+    port=8006
+    while grep -q :${port} <<< $(ss -tunalp); do
+        port=$(( port + 1 ))
+    done
+    echo "Using Port: ${port}"
+    echo "Connect to http://localhost:${port}"
+
+    (sleep 30 && xdg-open http://localhost:"$port") &
+    podman run \
+        --rm --privileged \
+        --pull=newer \
+        --publish "127.0.0.1:${port}:8006" \
+        --env "CPU_CORES=4" \
+        --env "RAM_SIZE=8G" \
+        --env "DISK_SIZE=64G" \
+        --env "TPM=Y" \
+        --env "GPU=Y" \
+        --device=/dev/kvm \
+        --volume "${PWD}/${image_file}:/boot.iso" \
+        docker.io/qemux/qemu
 
 # Build an ISO with Plasma DE by default (rebuilds base + main image first)
 [group('Build Virtal Machine Image')]
