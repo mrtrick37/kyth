@@ -3,7 +3,11 @@
 set -ouex pipefail
 
 ### Pull all upstream package updates
-dnf5 upgrade -y
+# Exclude kernel packages — the stock kernel is replaced by CachyOS below,
+# and upgrading it here would trigger dracut in the %posttrans scriptlet which
+# fails in container builds (EXDEV cross-device rename via tmpfs /tmp).
+# Exclude gamescope* — conflicts with Bazzite's gamescope-libs-ba147.
+dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -35,15 +39,13 @@ if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
     fi
 fi
 
-# Ensure virtio and common storage drivers are always included in the initramfs.
-# Without this, the disk is invisible when booting in QEMU/KVM (virtio_blk/scsi)
-# or on bare-metal NVMe/SATA hardware.
-mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
-# Force ostree dracut module — required for bootc/ostree deployments.
+# Write dracut config before generating initramfs.
+# Force the ostree dracut module — required for bootc/ostree deployments.
 # Without this the initramfs cannot find or mount the root filesystem.
 # dracut skips it during container builds because there is no live ostree
 # deployment to auto-detect.
+mkdir -p /etc/dracut.conf.d
+cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
@@ -52,11 +54,12 @@ DRACUTEOF
 
 # Generate initramfs directly — all paths stay on the overlay filesystem so
 # no cross-device link issues. TMPDIR=/var/tmp for safety.
+# Output to "initramfs" — bootc/ostree expects this exact filename.
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --kver "${CACHYOS_KVER}" \
     --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initrd"
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
 
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
 # dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
@@ -148,7 +151,7 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo
+# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers)
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
@@ -183,6 +186,7 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
+# /usr/local symlinks to /var/usrlocal — ensure the target dir exists
 mkdir -p /usr/local/bin
 curl -sL https://raw.githubusercontent.com/Winetricks/winetricks/master/src/winetricks \
     -o /usr/local/bin/winetricks
@@ -197,15 +201,11 @@ dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
-# Docker CE (repo added but disabled by default — install with --enablerepo=docker-ce-stable)
-dnf5 config-manager addrepo --from-repofile=https://download.docker.com/linux/fedora/docker-ce.repo
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/docker-ce.repo
-dnf5 -y install --enablerepo=docker-ce-stable \
-    containerd.io \
-    docker-buildx-plugin \
-    docker-ce \
-    docker-ce-cli \
-    docker-compose-plugin
+# Brave Browser — replaces Firefox
+dnf5 remove -y firefox || true
+dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
+dnf5 install -y brave-browser
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
 
 # Visual Studio Code (repo added but disabled by default)
 tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'
@@ -219,9 +219,24 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-systemctl enable docker.socket
 systemctl enable podman.socket
 systemctl enable libvirtd.socket
+
+# Homebrew — system-wide install to /home/linuxbrew (= /var/home/linuxbrew at runtime)
+# Wheel group members can install/update formulae without sudo.
+dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew
+# Make wheel group the owner so any wheel user can run brew
+chown -R root:wheel /home/linuxbrew/.linuxbrew
+chmod -R g+w /home/linuxbrew/.linuxbrew
+find /home/linuxbrew/.linuxbrew -type d -exec chmod g+s {} \;
+# Add brew to PATH for all login shells
+cat > /etc/profile.d/homebrew.sh <<'BREWEOF'
+if [ -d /home/linuxbrew/.linuxbrew ]; then
+    eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
+fi
+BREWEOF
+chmod +x /etc/profile.d/homebrew.sh
 
 # Ensure the built image advertises the mt-OS product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
