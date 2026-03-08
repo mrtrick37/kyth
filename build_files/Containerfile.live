@@ -4,10 +4,9 @@
 
 FROM localhost/mt-os:latest
 
-# dracut-live provides the dmsquash-live module required for squashfs live boot.
-# Everything else (syslinux, squashfs-tools, mtools, dosfstools) is already
-# present in the base Kinoite image.
-RUN dnf5 install -y dracut-live && dnf5 clean all
+# dracut-live: dmsquash-live module for squashfs live boot.
+# syslinux: provides isolinux.bin needed for BIOS El Torito boot record.
+RUN dnf5 install -y dracut-live syslinux && dnf5 clean all
 
 # Create live user with passwordless sudo
 RUN useradd -c "Live User" -G wheel liveuser \

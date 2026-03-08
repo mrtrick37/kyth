@@ -117,12 +117,14 @@ GRUBEOF
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
 
-# Find GRUB/shim EFI binary in the rootfs
+# Use grubx64.efi directly as BOOTX64.EFI.
+# Shim is intentionally skipped: this image is unsigned and shim would
+# fail to chain-load an unverified grub binary.  grubx64.efi works on
+# both real UEFI hardware and QEMU+OVMF without secure-boot concerns.
 GRUB_EFI=""
 for candidate in \
-    "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
-    "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
-    "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi"; do
+    "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
+    "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI"; do
     if sudo test -f "${candidate}"; then
         GRUB_EFI="${candidate}"
         break
@@ -130,7 +132,7 @@ for candidate in \
 done
 
 if [[ -z "${GRUB_EFI}" ]]; then
-    echo "WARNING: No UEFI EFI binary found in rootfs — EFI boot will not work" >&2
+    echo "WARNING: grubx64.efi not found in rootfs — UEFI boot will not work" >&2
 else
     sudo cp "${GRUB_EFI}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
     echo "    EFI binary: ${GRUB_EFI##*/}"
