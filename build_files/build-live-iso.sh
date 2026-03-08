@@ -63,7 +63,8 @@ podman export "${CONTAINER}" \
         --exclude='./proc/*' \
         --exclude='./sys/*' \
         --exclude='./dev/*' \
-        --exclude='./run/*'
+        --exclude='./run/*' \
+        2> >(grep -v 'xattr' >&2)
 podman rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
@@ -87,11 +88,13 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp xz \
     -noappend \
     -no-progress \
+    -no-xattrs \
     -e proc -e sys -e dev -e run
 
 # ── 5a. GRUB config (shared between EFI and BIOS-GRUB) ──────────────────────
 echo "==> Writing GRUB config"
 LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 splash"
+PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=forge-overlay rd.live.overlayfs=1 selinux=0 splash"
 INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0"
 
 cat > "${ISO_DIR}/EFI/BOOT/grub.cfg" << GRUBEOF
@@ -100,6 +103,11 @@ set timeout=10
 
 menuentry "Try Forge Live" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
+    initrd /images/pxeboot/initrd.img
+}
+
+menuentry "Try Forge Live (Persistent)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${PERSISTENT_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
@@ -179,6 +187,11 @@ label live
   menu label Try Forge Live
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
+
+label persistent
+  menu label Try Forge Live (Persistent)
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${PERSISTENT_ARGS}
 
 label install
   menu label Install Forge

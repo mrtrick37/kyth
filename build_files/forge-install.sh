@@ -10,9 +10,10 @@ set -euo pipefail
 
 TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
 
-# Escalate if not root
+# Must run as root
 if [[ $EUID -ne 0 ]]; then
-    exec pkexec "$0" "$@"
+    echo "ERROR: Run with sudo." >&2
+    exit 1
 fi
 
 # ── Disk selection ────────────────────────────────────────────────────────────

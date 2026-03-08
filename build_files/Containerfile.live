@@ -15,18 +15,22 @@ RUN useradd -c "Live User" -G wheel liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
 
-# SDDM auto-login into Plasma Wayland
+# SDDM auto-login into Plasma Wayland, with Breeze theme (override Bazzite theme)
 RUN mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasmawayland\n' \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasma\n\n[Theme]\nCurrent=breeze\n' \
         > /etc/sddm.conf.d/autologin.conf
 
 # Liveuser home: Breeze Dark + "Install Forge" desktop shortcut
+# Disable Steam autostart — it crashes in the live tmpfs environment.
 RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
+        /home/liveuser/.config/autostart \
+    && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/steam.desktop \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Forge\nComment=Install Forge 43 to this computer\nExec=/usr/bin/forge-install\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Forge\nComment=Install Forge 43 to this computer\nExec=konsole --hold -e sudo /usr/bin/forge-install\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-forge.desktop \
     && chmod +x /home/liveuser/Desktop/install-forge.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
@@ -51,6 +55,9 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
 # Update branding for the live session
 RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Forge 43 Live"/' /etc/os-release
 
+# Replace Bazzite plymouth theme with generic spinner
+RUN plymouth-set-default-theme spinner
+
 # Prepare for squashfs live boot.
 # machine-id must be "uninitialized" so systemd generates a volatile one;
 # a real machine-id from the container build causes systemd to abort in a
@@ -65,4 +72,10 @@ RUN echo "uninitialized" > /etc/machine-id \
         rpm-ostree-countme.timer \
         bootc-fetch-apply-updates.service \
         bootc-fetch-apply-updates.timer \
+        systemd-firstboot.service \
     || true
+
+# Set locale and timezone so firstboot has nothing to ask about
+RUN echo "LANG=en_US.UTF-8" > /etc/locale.conf \
+    && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
+    && echo "KEYMAP=us" > /etc/vconsole.conf
