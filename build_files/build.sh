@@ -143,6 +143,11 @@ dnf5 install -y \
     "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
     "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
 
+# Install gamescope from Fedora/RPMFusion BEFORE enabling Bazzite COPR.
+# The Bazzite COPR ships gamescope-libs-ba147 which conflicts with the stock
+# gamescope package. Installing first pins us to the Fedora version.
+dnf5 install -y gamescope
+
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
 dnf5 copr enable -y ublue-os/bazzite-multilib
@@ -156,7 +161,6 @@ dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/r
 
 # Gaming packages
 dnf5 install -y --skip-unavailable \
-    gamescope \
     gamescope-shaders \
     umu-launcher \
     mangohud.x86_64 \
