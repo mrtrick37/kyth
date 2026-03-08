@@ -193,6 +193,7 @@ XORRISO_ARGS=(
     -as mkisofs
     -o "${OUTPUT_DIR}/${ISO_NAME}"
     -V "${VOLID}"
+    -iso-level 3
     -R -J -joliet-long
     --efi-boot images/efiboot.img
     -efi-boot-part --efi-boot-image
