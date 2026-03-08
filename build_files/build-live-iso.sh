@@ -124,7 +124,8 @@ echo "==> Creating UEFI EFI boot image"
 GRUB_EFI=""
 for candidate in \
     "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
-    "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI"; do
+    "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+    "${ROOTFS}/usr/lib/grub/x86_64-efi/grub.efi"; do
     if sudo test -f "${candidate}"; then
         GRUB_EFI="${candidate}"
         break
@@ -146,6 +147,16 @@ mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
 [[ -f "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ]] \
     && mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
+
+# ── 5b-ii. startup.nsh — UEFI shell fallback ────────────────────────────────
+# Some UEFI implementations ignore the El Torito EFI entry and fall through
+# to the UEFI shell. The shell auto-executes startup.nsh from the first
+# readable filesystem (FS0 = the ISO). This launches GRUB directly.
+cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
+@echo -off
+echo Booting Forge...
+fs0:\EFI\BOOT\BOOTX64.EFI
+NSHEOF
 
 # ── 5c. BIOS boot (syslinux) ─────────────────────────────────────────────────
 echo "==> Setting up BIOS boot (syslinux)"
@@ -197,10 +208,9 @@ XORRISO_ARGS=(
     -V "${VOLID}"
     -iso-level 3
     -R -J -joliet-long
-    --efi-boot images/efiboot.img
-    -efi-boot-part --efi-boot-image
 )
 
+# BIOS El Torito entry (must come before EFI entry)
 if [[ "${HAVE_ISOLINUX}" == "true" ]]; then
     XORRISO_ARGS+=(
         -b isolinux/isolinux.bin
@@ -208,6 +218,15 @@ if [[ "${HAVE_ISOLINUX}" == "true" ]]; then
         -no-emul-boot -boot-load-size 4 -boot-info-table
     )
 fi
+
+# EFI El Torito entry — -eltorito-alt-boot separates it from the BIOS entry
+# -e specifies the EFI boot image path (relative to ISO root) in mkisofs mode
+XORRISO_ARGS+=(
+    -eltorito-alt-boot
+    -e images/efiboot.img
+    -no-emul-boot
+    --efi-boot-part --efi-boot-image
+)
 
 XORRISO_ARGS+=("${ISO_DIR}")
 

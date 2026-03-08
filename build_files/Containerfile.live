@@ -5,8 +5,9 @@
 FROM localhost/mt-os:latest
 
 # dracut-live: dmsquash-live module for squashfs live boot.
-# syslinux: provides isolinux.bin needed for BIOS El Torito boot record.
-RUN dnf5 install -y dracut-live syslinux && dnf5 clean all
+# syslinux: isolinux.bin for BIOS El Torito boot.
+# grub2-efi-x64: grubx64.efi for UEFI boot (may not be present in the base container).
+RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 && dnf5 clean all
 
 # Create live user with passwordless sudo
 RUN useradd -c "Live User" -G wheel liveuser \
