@@ -37,6 +37,7 @@ kdialog \
 # Write selected disk for Calamares shellprocess to read
 printf '%s' "${SELECTED}" > /tmp/forge-target-disk
 
-# ── Launch Calamares (as liveuser — no root needed for the wizard UI) ─────────
-# The forge-calamares-install script inside Calamares uses sudo for bootc.
-exec calamares
+# ── Launch Calamares as root, preserving the display environment ─────────────
+# Calamares must run as root so it can perform chroot checks and call bootc.
+# liveuser has passwordless sudo; -E preserves Wayland/X11 display vars.
+exec sudo -E calamares

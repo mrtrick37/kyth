@@ -51,10 +51,10 @@ COPY build_files/calamares/settings.conf            /etc/calamares/settings.conf
 COPY build_files/calamares/modules/                 /etc/calamares/modules/
 COPY build_files/calamares/branding/forge/          /usr/share/calamares/branding/forge/
 
-# Allow liveuser to run forge-calamares-install as root (needed by the
-# Calamares shellprocess step, which runs as liveuser).
-# Calamares itself runs as liveuser — only the bootc install step needs root.
-RUN echo "liveuser ALL=(root) NOPASSWD: /usr/bin/forge-calamares-install" \
+# Allow liveuser to launch Calamares as root.
+# forge-install-launcher uses 'sudo -E calamares' so calamares gets root
+# privileges for chroot checks and bootc install.
+RUN echo "liveuser ALL=(root) NOPASSWD: /usr/bin/calamares" \
         > /etc/sudoers.d/liveuser-calamares \
     && chmod 440 /etc/sudoers.d/liveuser-calamares
 
