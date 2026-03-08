@@ -1,0 +1,31 @@
+---
+componentName: forge
+
+strings:
+    productName: Forge
+    shortProductName: Forge
+    version: "43"
+    shortVersion: "43"
+    versionedName: "Forge 43"
+    shortVersionedName: "Forge 43"
+    bootloaderEntryName: Forge
+    productUrl: "https://example.com/forge"
+    supportUrl: "https://example.com/forge"
+    knownIssuesUrl: "https://example.com/forge"
+    releaseNotesUrl: "https://example.com/forge"
+
+images:
+    productLogo: "logo.png"
+    productIcon: "logo.png"
+    productWelcome: "welcome.png"
+
+slideshow: "show.qml"
+slideshowAPI: 1
+
+style:
+    SidebarBackground:          "#1e1e2e"
+    SidebarText:                "#cdd6f4"
+    SidebarTextSelect:          "#cdd6f4"
+    SidebarTextHighlight:       "#89b4fa"
+    SidebarBackgroundSelected:  "#313244"
+    SidebarBackgroundHighlight: "#45475a"
