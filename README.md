@@ -13,14 +13,14 @@ Forge is a custom atomic desktop Linux image built on [Universal Blue Kinoite](h
 
 ### Gaming
 - Steam, Lutris, GameMode
-- gamescope, mangohud (x86_64 + i686), vkBasalt (x86_64 + i686)
+- gamescope + gamescope-shaders, mangohud (x86_64 + i686), vkBasalt (x86_64 + i686)
 - umu-launcher, winetricks (always latest from upstream)
 - libFAudio, libobs_vkcapture/glcapture, openxr, xrandr, evtest
 
 ### Developer Tooling
 - **Cockpit** — machines, podman, networkmanager, ostree, selinux, storaged
-- **Visual Studio Code** — repo added, disabled by default; enable with `--enablerepo=code`
-- **Homebrew** — system-wide install at `/home/linuxbrew/.linuxbrew`; any wheel user can run `brew`
+- **Visual Studio Code** — pre-installed
+- **Homebrew** — system-wide at `/home/linuxbrew/.linuxbrew`; any wheel user can run `brew`
 - **podman-compose**, **podman-tui**, **podman-machine**
 - **incus**, **lxc** — system containers
 - **libvirt**, **virt-manager**, **virt-viewer**, **virt-v2v**, **QEMU** — full VM stack
@@ -33,21 +33,28 @@ Forge is a custom atomic desktop Linux image built on [Universal Blue Kinoite](h
 
 ## Installation
 
+### Live ISO (recommended)
+
+Boot the live ISO to try Forge without installing. The full KDE desktop runs from RAM. Click **Install Forge** on the desktop to launch the graphical installer.
+
+The installer wizard walks through:
+1. **Timezone** — interactive world map with GeoIP auto-detection
+2. **Disk selection** — automatic erase-disk mode by default; manual partitioning available
+3. **Install** — pulls `ghcr.io/mrtrick37/forge:latest` and writes it to disk via `bootc`
+
+GParted is available in the live session for pre-install partition management.
+
+Grab the live ISO from [GitHub Releases](https://github.com/mrtrick37/forge/releases) or build it locally (see below).
+
 ### Rebase from an existing Fedora atomic system
 
 ```bash
 bootc switch ghcr.io/mrtrick37/forge:latest
 ```
 
-### Live ISO
-
-Boot the live ISO to try Forge without installing. The full KDE desktop with all packages runs from RAM. Click **Install Forge** on the desktop to install.
-
-See [Building Locally](#building-locally) to build the live ISO, or grab it from [GitHub Releases](https://github.com/mrtrick37/forge/releases).
-
 ### Installer ISO
 
-For a traditional installer experience (Anaconda), use the installer ISO instead of the live ISO.
+For a traditional Anaconda installer experience, use the installer ISO instead.
 
 ## Building Locally
 
@@ -60,14 +67,17 @@ just build-base
 # 2. Build the main image
 just build
 
-# 3a. Build the live desktop ISO (boots to full KDE; "Install Forge" icon on desktop)
-#     Also requires: xorriso squashfs-tools mtools dosfstools
+# 3a. Build the live desktop ISO
+#     Also requires: xorriso squashfs-tools mtools dosfstools grub2-tools-minimal
 just build-live-iso
 
-# 3b. Build the Anaconda installer ISO instead
+# 3b. Run the live ISO in a VM (UEFI, web UI)
+just run-live-iso
+
+# 3c. Build the Anaconda installer ISO
 just build-iso
 
-# 3c. Build a QCOW2 VM image
+# 3d. Build a QCOW2 VM image
 just build-qcow2
 ```
 
@@ -83,11 +93,13 @@ build_base/              Base image layer (pulls kinoite-main:43, applies brandi
 Containerfile            Main image (runs build_files/build.sh on top of base)
 build_files/
   build.sh               Kernel swap, package installs, branding, tweaks
-  Containerfile.live     Live ISO variant (adds dracut-live, liveuser, auto-login)
-  build-live-iso.sh      Builds the live ISO from the container image
-  forge-install.sh       bootc-based installer launched from the live ISO desktop
+  Containerfile.live     Live ISO variant (adds live session, Calamares installer)
+  build-live-iso.sh      Assembles the live ISO (squashfs + GRUB2 + UEFI/BIOS boot)
+  forge-calamares-install.sh   Calamares shellprocess: runs bootc install, applies timezone
+  forge-install-launcher       Launches Calamares as root from the live desktop
+  forge-install.sh       Fallback terminal installer
+  calamares/             Calamares wizard config (settings, modules, branding)
 disk_config/
-  forge-install.ks       Anaconda kickstart used by the live ISO installer
   iso-kde.toml           BIB config for the Anaconda KDE installer ISO
   iso.toml               BIB config for the Anaconda installer ISO
   disk.toml              BIB config for qcow2/raw disk images
@@ -101,10 +113,12 @@ Justfile                 Local build recipes
 Once installed, Forge updates like any bootc system:
 
 ```bash
+ujust update
+# or
 bootc upgrade
 ```
 
-Or let it update automatically via the `bootc-fetch-apply-updates` timer.
+Updates pull the latest image from `ghcr.io/mrtrick37/forge:latest`. The CI rebuilds and publishes a fresh image (including all upstream package updates) on every push to `main`.
 
 ## Why
 
