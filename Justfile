@@ -352,6 +352,7 @@ run-live-iso:
         --env "CPU_CORES=4" \
         --env "RAM_SIZE=8G" \
         --env "DISK_SIZE=64G" \
+        --env "BOOT=UEFI" \
         --env "TPM=Y" \
         --env "GPU=Y" \
         --device=/dev/kvm \
