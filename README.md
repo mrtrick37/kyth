@@ -6,10 +6,10 @@ Forge is a custom atomic desktop Linux image built on [Universal Blue Kinoite](h
 
 ## What's in it
 
-**Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma via bootc
-**Kernel:** [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) — BORE scheduler, sched-ext, BBRv3, NTSYNC
-**Theme:** Breeze Dark by default
-**Browser:** Brave
+- **Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma via bootc
+- **Kernel:** [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) — BORE scheduler, sched-ext, BBRv3, NTSYNC
+- **Theme:** Breeze Dark by default
+- **Browser:** Brave
 
 ### Gaming
 - Steam, Lutris, GameMode
