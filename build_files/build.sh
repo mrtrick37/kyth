@@ -59,7 +59,8 @@ TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --kver "${CACHYOS_KVER}" \
     --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
+    2> >(grep -Ev 'xattr|fail to copy' >&2)
 
 # Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
 # dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
