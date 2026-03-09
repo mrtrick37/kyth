@@ -1,44 +1,49 @@
 #!/usr/bin/bash
 # forge-calamares-install — Called by Calamares shellprocess module.
 #
-# The Calamares partition + mount modules have already partitioned the chosen
-# disk and mounted it under /tmp/calamares-root.  This script:
-#   1. Derives the disk device from those mounts (e.g. /dev/sda2 → /dev/sda)
-#   2. Unmounts /tmp/calamares-root so bootc can take over the disk
-#   3. Runs 'bootc install to-disk' to pull and write Forge
-#   4. Mounts the installed root and applies the selected timezone
+# Arguments (passed via shellprocess @@@@ substitution from globalStorage):
+#   $1 — bootLoaderInstallPath (e.g. /dev/sda1 for EFI, /dev/sda for BIOS)
+#   $2 — timezone              (e.g. "America/New_York"; empty if locale skipped)
+#
+# Steps:
+#   1. Derive the whole disk from $1 (strip partition number)
+#   2. Run 'bootc install to-disk' to pull and write Forge
+#   3. Mount the installed root and apply the selected timezone
 
 set -euo pipefail
 
 TARGET_IMGREF="ghcr.io/mrtrick37/forge:latest"
-CALAMARES_ROOT="/tmp/calamares-root"
 
-# Timezone passed as $1 by Calamares via @@timezone@@ substitution.
-# Guard against the literal placeholder in case the locale module was skipped.
-TIMEZONE="${1:-}"
-if [[ "${TIMEZONE}" == *"@@"* ]]; then
-    TIMEZONE=""
-fi
+# ── Arguments ─────────────────────────────────────────────────────────────────
+BOOT_DEVICE="${1:-}"
+TIMEZONE="${2:-}"
 
-# ── Find the target disk ──────────────────────────────────────────────────────
+# Guard against literal Calamares placeholder (module skipped / substitution failed)
+[[ "${BOOT_DEVICE}" == *"@@"* ]] && BOOT_DEVICE=""
+[[ "${TIMEZONE}"    == *"@@"* ]] && TIMEZONE=""
+
+# ── Derive whole-disk device from the EFI/boot partition path ─────────────────
+# partition module sets bootLoaderInstallPath to the ESP (/dev/sda1, /dev/nvme0n1p1)
+# or the disk itself (/dev/sda) for BIOS.  lsblk PKNAME gives the parent disk;
+# if PKNAME is empty the device is already a whole disk.
 DISK=""
-
-# Primary method: derive disk from what the mount module mounted to calamares-root
-if findmnt -n -o SOURCE "${CALAMARES_ROOT}" &>/dev/null; then
-    ROOT_PART=$(findmnt -n -o SOURCE "${CALAMARES_ROOT}" | head -1)
-    # lsblk PKNAME gives the parent disk of a partition (e.g. sda1 → sda)
-    PARENT=$(lsblk -no PKNAME "${ROOT_PART}" 2>/dev/null | head -1)
-    [[ -n "${PARENT}" ]] && DISK="/dev/${PARENT}"
+if [[ -b "${BOOT_DEVICE}" ]]; then
+    PARENT=$(lsblk -no PKNAME "${BOOT_DEVICE}" 2>/dev/null | head -1)
+    if [[ -n "${PARENT}" ]]; then
+        DISK="/dev/${PARENT}"
+    else
+        DISK="${BOOT_DEVICE}"
+    fi
 fi
 
-# Fallback: /tmp/forge-target-disk written by the legacy kdialog launcher
+# Fallback: legacy file written by older launcher variants
 if [[ -z "${DISK}" ]] && [[ -f /tmp/forge-target-disk ]]; then
     DISK=$(tr -d '[:space:]' < /tmp/forge-target-disk)
 fi
 
 if [[ -z "${DISK}" ]]; then
     echo "ERROR: Could not determine the target disk." >&2
-    echo "       Nothing was mounted to ${CALAMARES_ROOT}." >&2
+    echo "       bootLoaderInstallPath was: '${BOOT_DEVICE}'" >&2
     exit 1
 fi
 
@@ -48,14 +53,11 @@ if [[ ! -b "${DISK}" ]]; then
 fi
 
 echo "=== Forge 43 Installation ==="
-echo "Target disk : ${DISK}"
-echo "Image       : ${TARGET_IMGREF}"
-[[ -n "${TIMEZONE}" ]] && echo "Timezone    : ${TIMEZONE}"
+echo "Target disk  : ${DISK}"
+echo "Boot device  : ${BOOT_DEVICE}"
+echo "Image        : ${TARGET_IMGREF}"
+[[ -n "${TIMEZONE}" ]] && echo "Timezone     : ${TIMEZONE}"
 echo ""
-
-# ── Unmount calamares-root so bootc can repartition the disk ─────────────────
-echo "Unmounting temporary partitions..."
-umount -R -l "${CALAMARES_ROOT}" 2>/dev/null || true
 
 # ── Install ───────────────────────────────────────────────────────────────────
 echo "Pulling image and writing to disk — this will take a while..."
@@ -69,16 +71,15 @@ echo ""
 echo "=== Installation complete ==="
 
 # ── Apply timezone to the installed ostree deployment ─────────────────────────
-# bootc creates three partitions: EFI, /boot, root (xfs — the largest).
-# Mount the root partition and write /etc/localtime into the ostree deployment.
+# bootc creates: EFI | /boot | root (xfs — the largest).
+# Mount the root (last xfs partition on the disk) and write /etc/localtime
+# into the ostree deployment's /etc directory.
 if [[ -n "${TIMEZONE}" ]]; then
     echo "Applying timezone: ${TIMEZONE}"
 
-    # Validate timezone exists in the live ISO's zoneinfo database
     if [[ ! -f "/usr/share/zoneinfo/${TIMEZONE}" ]]; then
         echo "WARNING: Unknown timezone '${TIMEZONE}' — skipping." >&2
     else
-        # Find the root partition: the xfs partition on the target disk
         ROOT_PART=$(lsblk -no NAME,FSTYPE "${DISK}" | \
             awk '$2=="xfs" {last=$1} END { if (last) print "/dev/"last }')
 
@@ -87,7 +88,6 @@ if [[ -n "${TIMEZONE}" ]]; then
             mkdir -p "${SYSROOT}"
             mount "${ROOT_PART}" "${SYSROOT}"
 
-            # Locate the ostree deployment's /etc
             DEPLOY_ETC=$(find "${SYSROOT}/ostree/deploy"/*/deploy/*/etc \
                 -maxdepth 0 -type d 2>/dev/null | head -1)
 
@@ -100,7 +100,7 @@ if [[ -n "${TIMEZONE}" ]]; then
 
             umount "${SYSROOT}"
         else
-            echo "WARNING: Could not find root partition on ${DISK} — timezone not applied." >&2
+            echo "WARNING: Could not find root xfs partition on ${DISK} — timezone not applied." >&2
         fi
     fi
 fi
