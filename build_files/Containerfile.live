@@ -3,6 +3,7 @@
 # Built by build-live-iso.sh; not pushed to the registry.
 
 FROM localhost/forge:latest
+SHELL ["/bin/bash", "-c"]
 
 # dracut-live: dmsquash-live module for squashfs live boot.
 # syslinux: isolinux.bin for BIOS El Torito boot.
@@ -67,6 +68,7 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
         --kver "${KVER}" \
         --force \
         "/usr/lib/modules/${KVER}/initramfs-live" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2) \
     && echo "Live initramfs built for ${KVER}"
 
 # Update branding for the live session
