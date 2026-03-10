@@ -96,7 +96,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 echo "==> Writing GRUB config and theme"
 LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
 PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=forge-overlay rd.live.overlayfs=1 selinux=0 quiet splash"
-INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet splash"
+INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet systemd.unit=anaconda.target inst.webui inst.ks=file:///run/install/ks.cfg"
 
 # Write the theme file
 cat > "${ISO_DIR}/boot/grub2/themes/forge/theme.txt" << 'THEMEEOF'
