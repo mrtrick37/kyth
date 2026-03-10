@@ -233,6 +233,12 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
+# Install Claude Code VS Code extension into the system extensions directory
+# so it is available to all users without a per-user install.
+code --no-sandbox --user-data-dir=/tmp/vscode-install \
+    --extensions-dir /usr/share/code/extensions \
+    --install-extension anthropic.claude-code
+
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
 # causing steamwebhelper to SEGV at startup.
