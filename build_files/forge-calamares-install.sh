@@ -59,6 +59,27 @@ echo "Image        : ${TARGET_IMGREF}"
 [[ -n "${TIMEZONE}" ]] && echo "Timezone     : ${TIMEZONE}"
 echo ""
 
+# ── Dismantle Calamares-created partitions so bootc can repartition cleanly ──
+# The Calamares partition module creates and formats EFI+root partitions in its
+# exec phase.  udisks2 may auto-mount these immediately.  bootc install to-disk
+# calls sfdisk to wipe and repartition the whole disk; it will fail with EBUSY
+# if any partition on the disk is still mounted.  Stop udisks2 first to prevent
+# re-mounting, then lazy-unmount everything currently mounted from the disk.
+echo "Preparing disk — unmounting any existing mounts on ${DISK}..."
+systemctl stop udisks2.service 2>/dev/null || true
+
+# Unmount by mount-point (covers udisks auto-mounts)
+while IFS= read -r mp; do
+    [[ -n "${mp}" ]] && umount -l "${mp}" 2>/dev/null || true
+done < <(lsblk -lno MOUNTPOINT "${DISK}" 2>/dev/null | grep -v '^$')
+
+# Also unmount by device path in case MOUNTPOINT column was blank
+for part in $(lsblk -lno NAME "${DISK}" 2>/dev/null | tail -n +2); do
+    umount -l "/dev/${part}" 2>/dev/null || true
+done
+
+udevadm settle 2>/dev/null || true
+
 # ── Install ───────────────────────────────────────────────────────────────────
 echo "Pulling image and writing to disk — this will take a while..."
 echo ""
