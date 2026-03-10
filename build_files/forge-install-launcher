@@ -1,15 +1,20 @@
 #!/usr/bin/bash
-# forge-install-launcher — Forge live ISO installer launcher
+# forge-install-launcher — Start Anaconda WebUI and open the installer in Brave.
 #
-# Runs as liveuser; escalates Calamares to root.
-# Disk selection happens inside the Calamares wizard (partition module).
-#
-# Display note: Wayland compositors reject root client connections, so we
-# force Qt to use XWayland (xcb) where root access is unrestricted.
+# Runs as liveuser; escalates Anaconda services to root via sudo.
+# The WebUI is served by webui-cockpit-ws on port 80 (localhost only).
 
 set -euo pipefail
 
-exec sudo \
-    --preserve-env=DISPLAY,WAYLAND_DISPLAY,XDG_RUNTIME_DIR,DBUS_SESSION_BUS_ADDRESS,XAUTHORITY \
-    env QT_QPA_PLATFORM=xcb XDG_CONFIG_HOME=/etc \
-    calamares
+# Start Anaconda backend (requires root)
+sudo systemctl start anaconda.service
+
+# Start the WebUI front-end web server (requires root)
+sudo systemctl start webui-cockpit-ws.service
+
+# Give the services a moment to bind before opening the browser
+sleep 2
+
+# Open the installer in Brave (runs as liveuser — no root needed)
+brave-browser --no-sandbox \
+    --app="http://127.0.0.1/cockpit/@localhost/anaconda-webui/index.html"

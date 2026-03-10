@@ -1,26 +1,53 @@
-# Live ISO variant of mt-OS
-# Extends the full mt-OS image with live session support.
+# Live ISO variant of Forge
+# Extends the full Forge image with live session + Anaconda WebUI installer.
 # Built by build-live-iso.sh; not pushed to the registry.
 
 FROM localhost/forge:latest
 
-# dracut-live: dmsquash-live module for squashfs live boot.
-# syslinux: isolinux.bin for BIOS El Torito boot.
-# grub2-efi-x64: grubx64.efi for UEFI boot (may not be present in the base container).
-RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc calamares calamares-libs gparted && dnf5 clean all
+# ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
+# dracut-live:    dmsquash-live module for squashfs live boot
+# syslinux:       isolinux.bin for BIOS El Torito boot
+# grub2-efi-x64:  grubx64.efi for UEFI boot
+# grub2-pc:       i386-pc GRUB modules for BIOS GRUB2
+# gparted:        disk utility available on live desktop
+RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-pc gparted && dnf5 clean all
 
-# Create live user with passwordless sudo
+# ── Anaconda WebUI installer (F44 packages) ───────────────────────────────────
+# F43's anaconda-webui is incomplete for KDE/Atomic Desktop installs.
+# Pull the full set from Fedora 44, including blivet (storage backend).
+RUN dnf5 install -y \
+        --releasever=44 \
+        --setopt=install_weak_deps=False \
+        anaconda-webui \
+        anaconda-core \
+        anaconda-tui \
+        anaconda-dracut \
+        anaconda-install-env-deps \
+        cockpit-ws \
+        python3-blivet \
+        blivet-data \
+        dnsconfd \
+        dnsconfd-dracut \
+    && dnf5 clean all
+
+# ── Create live user with passwordless sudo ───────────────────────────────────
 RUN useradd -c "Live User" -G wheel liveuser \
     && passwd -d liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
 
-# SDDM auto-login into Plasma Wayland, with Breeze theme (override Bazzite theme)
+# ── Allow liveuser to start Anaconda services as root ─────────────────────────
+RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start anaconda.service\n\
+liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start webui-cockpit-ws.service\n' \
+    > /etc/sudoers.d/liveuser-anaconda \
+    && chmod 440 /etc/sudoers.d/liveuser-anaconda
+
+# ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
 RUN mkdir -p /etc/sddm.conf.d \
     && printf '[Autologin]\nUser=liveuser\nSession=plasma\n\n[Theme]\nCurrent=breeze\n' \
         > /etc/sddm.conf.d/autologin.conf
 
-# Liveuser home: Breeze Dark + "Install Forge" desktop shortcut
+# ── Liveuser home: Breeze Dark + "Install Forge" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.
 RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         /home/liveuser/.config/autostart \
@@ -35,60 +62,37 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && chmod +x /home/liveuser/Desktop/install-forge.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
 
-# ── Forge installers ──────────────────────────────────────────────────────────
-# forge-install-launcher: disk selection GUI (kdialog) → launches Calamares
-# forge-calamares-install: called by Calamares shellprocess to run bootc install
-# forge-install: legacy terminal-only installer (kept as fallback)
-COPY build_files/forge-install-launcher        /usr/bin/forge-install-launcher
-COPY build_files/forge-calamares-install.sh    /usr/bin/forge-calamares-install
-COPY build_files/forge-install.sh              /usr/bin/forge-install
-RUN chmod +x /usr/bin/forge-install-launcher \
-    && chmod +x /usr/bin/forge-calamares-install \
-    && chmod +x /usr/bin/forge-install
+# ── Forge installer launcher ──────────────────────────────────────────────────
+COPY build_files/forge-install-launcher  /usr/bin/forge-install-launcher
+RUN chmod +x /usr/bin/forge-install-launcher
 
-# ── Calamares configuration ───────────────────────────────────────────────────
-# Remove any Calamares config the RPM may have installed — its settings.conf can
-# reference scripts we don't ship (e.g. /usr/local/bin/slowloris) and takes
-# precedence over /etc/calamares/ in Qt's XDG search path.
-RUN rm -rf /etc/calamares /etc/xdg/calamares \
-    && rm -f /usr/share/calamares/modules/shellprocess.conf \
-             /usr/share/calamares/settings.conf
+# ── Kickstart file for Anaconda ───────────────────────────────────────────────
+# Placed at /etc/anaconda/forge.ks; dracut --include embeds it into the
+# live initramfs at /run/install/ks.cfg so inst.ks=file:///run/install/ks.cfg works.
+COPY build_files/anaconda/forge.ks  /etc/anaconda/forge.ks
 
-COPY build_files/calamares/settings.conf            /etc/calamares/settings.conf
-COPY build_files/calamares/modules/                 /etc/calamares/modules/
-COPY build_files/calamares/branding/forge/          /usr/share/calamares/branding/forge/
-
-# Allow liveuser to launch Calamares as root.
-# forge-install-launcher uses 'sudo -E calamares' so calamares gets root
-# privileges for chroot checks and bootc install.
-RUN echo "liveuser ALL=(root) NOPASSWD: /usr/bin/calamares" \
-        > /etc/sudoers.d/liveuser-calamares \
-    && chmod 440 /etc/sudoers.d/liveuser-calamares
-
-# Rebuild initramfs with dmsquash-live for live boot.
+# ── Rebuild initramfs with dmsquash-live + anaconda modules ───────────────────
 # TMPDIR=/var/tmp avoids the EXDEV cross-device rename issue on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live livenet" \
+        --add "dmsquash-live livenet anaconda" \
+        --include /etc/anaconda/forge.ks /run/install/ks.cfg \
         --kver "${KVER}" \
         --force \
         "/usr/lib/modules/${KVER}/initramfs-live" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
     && echo "Live initramfs built for ${KVER}"
 
-# Update branding for the live session
+# ── OS-release branding ───────────────────────────────────────────────────────
 RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Forge 43 Live"/' /etc/os-release
 
-# Replace Bazzite plymouth theme with generic spinner
+# ── Plymouth theme ────────────────────────────────────────────────────────────
 RUN plymouth-set-default-theme spinner
 
-# Prepare for squashfs live boot.
-# machine-id must be "uninitialized" so systemd generates a volatile one;
-# a real machine-id from the container build causes systemd to abort in a
-# plain-rootfs (non-ostree) live environment.
-# Mask ostree/bootc services that require a real ostree deployment — they
-# don't exist in the squashfs live root and will cause early systemd failure.
+# ── Prepare for squashfs live boot ───────────────────────────────────────────
+# machine-id must be "uninitialized" so systemd generates a volatile one.
+# Mask ostree/bootc services that require a real ostree deployment.
 RUN echo "uninitialized" > /etc/machine-id \
     && systemctl mask \
         ostree-remount.service \
@@ -100,7 +104,7 @@ RUN echo "uninitialized" > /etc/machine-id \
         systemd-firstboot.service \
     || true
 
-# Set locale and timezone so firstboot has nothing to ask about
+# ── Locale / timezone defaults ────────────────────────────────────────────────
 RUN echo "LANG=en_US.UTF-8" > /etc/locale.conf \
     && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
     && echo "KEYMAP=us" > /etc/vconsole.conf
