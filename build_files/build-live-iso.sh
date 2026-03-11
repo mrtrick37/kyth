@@ -215,26 +215,34 @@ cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg"
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
 
-# Use grubx64.efi directly as BOOTX64.EFI.
-# Shim is intentionally skipped: this image is unsigned and shim would
-# fail to chain-load an unverified grub binary.  grubx64.efi works on
-# both real UEFI hardware and QEMU+OVMF without secure-boot concerns.
-GRUB_EFI=""
-for candidate in \
-    "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
-    "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
-    "${ROOTFS}/usr/lib/grub/x86_64-efi/grub.efi"; do
-    if sudo test -f "${candidate}"; then
-        GRUB_EFI="${candidate}"
-        break
-    fi
-done
+# Build a standalone GRUB EFI binary with an embedded config that searches
+# for grub.cfg on the ISO.  The system grubx64.efi is compiled with a
+# hardcoded prefix pointing at an installed OS and cannot find configs on an
+# ISO — a standalone image with grub2-mkimage is required.
+GRUB_EFI_BUILT=false
+GRUB_X64_MODS="/usr/lib/grub/x86_64-efi"
 
-if [[ -z "${GRUB_EFI}" ]]; then
-    echo "WARNING: grubx64.efi not found in rootfs — UEFI boot will not work" >&2
+if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
+    # Embed a tiny config that searches all CD-ROM and disk paths for our grub.cfg
+    GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
+    cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
+search --no-floppy --label --set=root Kyth-43-Live
+set prefix=($root)/boot/grub2
+source ($root)/boot/grub2/grub.cfg
+EMBEDEOF
+
+    grub2-mkimage \
+        -O x86_64-efi \
+        -o "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        -p /boot/grub2 \
+        -c "${GRUB_EMBED_CFG}" \
+        -d "${GRUB_X64_MODS}" \
+        linux normal iso9660 search search_label all_video gfxterm gfxmenu \
+        png echo test ls part_gpt part_msdos fat
+    GRUB_EFI_BUILT=true
+    echo "    UEFI EFI binary: built with grub2-mkimage (x86_64-efi)"
 else
-    sudo cp "${GRUB_EFI}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
-    echo "    EFI binary: ${GRUB_EFI##*/}"
+    echo "WARNING: grub2-mkimage or /usr/lib/grub/x86_64-efi not found — UEFI boot will not work" >&2
 fi
 
 # Create a small FAT image containing the EFI files (El Torito EFI boot)
@@ -242,8 +250,9 @@ EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
 mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
-[[ -f "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ]] \
-    && mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+if "${GRUB_EFI_BUILT}"; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
+fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 
 # ── 5b-ii. startup.nsh — UEFI shell fallback ────────────────────────────────

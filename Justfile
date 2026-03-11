@@ -325,7 +325,7 @@ build-live-iso:
     set -euo pipefail
     bash build_files/build-live-iso.sh
 
-# Boot the live desktop ISO in a VM (UEFI, web UI at http://localhost:PORT)
+# Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist.
 [group('Run Virtal Machine')]
 run-live-iso:
@@ -352,8 +352,6 @@ run-live-iso:
         --env "CPU_CORES=4" \
         --env "RAM_SIZE=8G" \
         --env "DISK_SIZE=64G" \
-        --env "BOOT=UEFI" \
-        --env "TPM=Y" \
         --env "GPU=Y" \
         --device=/dev/kvm \
         --volume "${PWD}/${image_file}:/boot.iso" \
