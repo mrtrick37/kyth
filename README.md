@@ -9,7 +9,8 @@ Kyth is a custom atomic desktop Linux image. It's an opinionated gaming and deve
 
 - Should install directly and rebase from existing bootc works (still needs love though)
 - Live iso boots to plasma desktop just fine
-- Calamares installer inside live iso is currently broken**
+- Working on Anaconda installer fixes
+
 
 ## What's in it
 
