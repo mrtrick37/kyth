@@ -79,8 +79,8 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
-sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz"
-sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img"
+sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
+sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
 # ── 4. Squashfs ──────────────────────────────────────────────────────────────
@@ -155,7 +155,7 @@ for unicode_src in \
     "${ROOTFS}/boot/grub2/fonts/unicode.pf2" \
     "/usr/share/grub/unicode.pf2"; do
     if [[ -f "${unicode_src}" ]]; then
-        cp "${unicode_src}" "${ISO_DIR}/boot/grub2/unicode.pf2"
+        cp "${unicode_src}" "${ISO_DIR}/boot/grub2/unicode.pf2" 2>/dev/null
         break
     fi
 done
@@ -210,7 +210,7 @@ menuentry "Check media and boot Kyth Live" --class fedora --class gnu-linux --cl
 GRUBEOF
 
 # EFI GRUB reads from /EFI/BOOT/grub.cfg — copy the shared config there
-cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg"
+cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
 
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
@@ -304,10 +304,10 @@ fi
 ISOLINUX_BIN="${ROOTFS}/usr/share/syslinux/isolinux.bin"
 if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     echo "    Falling back to syslinux"
-    sudo cp "${ISOLINUX_BIN}" "${ISO_DIR}/isolinux/"
+    sudo cp "${ISOLINUX_BIN}" "${ISO_DIR}/isolinux/" 2>/dev/null
     for f in ldlinux.c32 vesamenu.c32 libcom32.c32 libutil.c32; do
         src="${ROOTFS}/usr/share/syslinux/${f}"
-        sudo test -f "${src}" && sudo cp "${src}" "${ISO_DIR}/isolinux/" || true
+        sudo test -f "${src}" && sudo cp "${src}" "${ISO_DIR}/isolinux/" 2>/dev/null || true
     done
 
     # Dark color scheme for vesamenu fallback

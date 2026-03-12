@@ -1,3 +1,8 @@
+# Early check for clang-devel before mesa-git build
+if ! rpm -q clang-devel >/dev/null 2>&1; then
+    echo "clang-devel not found, installing..."
+    dnf5 install -y clang-devel || { echo "ERROR: Failed to install clang-devel. Mesa-git build will fail."; exit 1; }
+fi
 #!/bin/bash
 
 set -ouex pipefail
@@ -116,12 +121,8 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         tmux
 
 ## Gaming tweaks — Bazzite-style
-## Enable RPM Fusion (free + nonfree) for multimedia/gaming packages
-dnf5 install -y \
-    "https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm" \
-    "https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm"
-
-# Install gamescope from Fedora/RPMFusion BEFORE enabling Bazzite COPR.
+## Gaming tweaks — Bazzite-style
+# Install gamescope from Fedora BEFORE enabling Bazzite COPR.
 # The Bazzite COPR ships gamescope-libs-ba147 which conflicts with the stock
 # gamescope package. Installing first pins us to the Fedora version.
 dnf5 install -y gamescope
@@ -196,40 +197,30 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 ### GPU drivers
 
-## mesa-git (build from source) ───────────────────────────────────────────────
-# Custom build options for mesa-git
-MESA_GIT_REPO="https://gitlab.freedesktop.org/mesa/mesa.git"
-MESA_GIT_BRANCH="main"
-MESA_BUILD_OPTIONS=${MESA_BUILD_OPTIONS:-"-Dbuildtype=release -Dllvm=true -Dvulkan-drivers=all -Dgallium-drivers=all"}
-
-echo "Cloning mesa-git from upstream..."
-git clone --depth=1 --branch "$MESA_GIT_BRANCH" "$MESA_GIT_REPO" /tmp/mesa-git
-cd /tmp/mesa-git
-
-# Install build dependencies (Fedora)
-dnf5 install -y --skip-unavailable meson ninja-build gcc gcc-c++ python3-mako python3-ply python3-six libdrm-devel libX11-devel libXext-devel libXdamage-devel libXfixes-devel libXrandr-devel libXrender-devel libxcb-devel libxshmfence-devel libXxf86vm-devel expat-devel libvdpau-devel libva-devel wayland-devel wayland-protocols-devel elfutils-libelf-devel llvm-devel spirv-tools-devel zlib-devel zlib-ng-devel libselinux-devel libffi-devel libglvnd-devel libgbm-devel libEGL-devel libGL-devel glslang rustc cargo bindgen
-# Build mesa-git with custom options
-echo "Building mesa-git with options: $MESA_BUILD_OPTIONS"
-meson setup build $MESA_BUILD_OPTIONS
-ninja -C build
-
-# Install mesa-git (system-wide)
-echo "Installing mesa-git..."
-ninja -C build install
-cd -
-rm -rf /tmp/mesa-git
-
-# To customize build options, set MESA_BUILD_OPTIONS before running this script.
-# Example: MESA_BUILD_OPTIONS="-Dbuildtype=debug -Dvulkan-drivers=amd,intel" ./build.sh
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
 dnf5 install -y \
     libva-utils \
+    || {
+        echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
+        sudo dnf5 install -y \
+            https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+            https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
+            echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
+            exit 1
+        }
+    }
     radeontop
 
+
 # ── NVIDIA ────────────────────────────────────────────────────────────────────
+# Enable RPMFusion repositories for NVIDIA drivers (must be root)
+sudo dnf5 install -y \
+    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
+
 # akmod-nvidia installs the NVIDIA akmod framework; the actual kernel module is
 # built on first boot by the akmods service using the running kernel's headers.
 # kernel-cachyos-devel is already in this image so akmods has what it needs.
@@ -237,6 +228,7 @@ dnf5 install -y \
 # Covers all Maxwell+ GPUs (GTX 750 and newer).
 # For Turing+ (RTX 20xx+), nvidia-open (NVIDIA's open-source module) is an
 # alternative but akmod-nvidia works universally across all generations.
+# Only install NVIDIA drivers from RPMFusion; Fedora-provided NVIDIA packages are skipped to avoid conflicts.
 dnf5 install -y \
     akmod-nvidia \
     xorg-x11-drv-nvidia \
@@ -300,6 +292,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
+sudo dnf5 install -y libclc
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
@@ -313,14 +306,8 @@ THPEOF
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
-# Enable NTSYNC globally for all Proton/Wine sessions
-cat > /etc/environment.d/ntsync.conf <<'NTSYNCEOF'
-PROTON_USE_NTSYNC=1
-NTSYNCEOF
-
-# ── zram — compressed swap in RAM ─────────────────────────────────────────────
-# Prevents OOM kills during heavy gaming/dev sessions without the latency of
-# disk swap. zstd gives the best compression/speed tradeoff.
+## Prefer fedora-multimedia stack for NVIDIA packages, exclude rpmfusion for nvidia-settings
+dnf5 install -y --skip-unavailable akmod-nvidia xorg-x11-drv-nvidia xorg-x11-drv-nvidia-cuda xorg-x11-drv-nvidia-cuda-libs xorg-x11-drv-nvidia-power nvidia-settings nvidia-vaapi-driver
 # Capped at 8 GB so zram doesn't eat all RAM on large-memory systems.
 cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
 [zram0]
@@ -428,6 +415,9 @@ dnf5 remove -y firefox || true
 dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 dnf5 install -y brave-browser
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
+# Set Brave as the default browser for all users
+update-alternatives --set x-www-browser /usr/bin/brave-browser || true
+xdg-settings set default-web-browser brave-browser.desktop || true
 
 # Visual Studio Code (repo added but disabled by default)
 tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'

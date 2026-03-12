@@ -30,7 +30,22 @@ for i in $(seq 1 90); do
     sleep 1
 done
 
-# ── Open browser ───────────────────────────────────────────────────────────────
-# Cockpit will prompt for login; enter "liveuser" with no password.
-# After login, cockpit redirects to the Anaconda WebUI.
-xdg-open http://localhost:9090/anaconda-webui
+# ── Open browser in fullscreen and auto-login ───────────────────────────────
+# Launch Brave browser in fullscreen, auto-login as liveuser, and redirect to Anaconda WebUI.
+brave-browser --app=http://localhost:9090/anaconda-webui --start-fullscreen &
+sleep 2
+# Attempt auto-login using xdotool (if available)
+if command -v xdotool >/dev/null 2>&1; then
+    # Wait for browser window
+    for i in $(seq 1 20); do
+        WIN_ID=$(xdotool search --name 'Cockpit' | head -1)
+        if [ -n "$WIN_ID" ]; then
+            break
+        fi
+        sleep 1
+    done
+    # Type username and submit
+    xdotool type --window "$WIN_ID" "liveuser"
+    xdotool key --window "$WIN_ID" Tab
+    xdotool key --window "$WIN_ID" Return
+fi
