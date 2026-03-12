@@ -298,6 +298,14 @@ vm.page_lock_unfairness = 1
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
+# Network socket buffers — raise caps for high-throughput workloads and gaming
+net.core.rmem_max = 67108864
+net.core.wmem_max = 67108864
+net.ipv4.tcp_rmem = 4096 87380 67108864
+net.ipv4.tcp_wmem = 4096 65536 67108864
+# TCP Fast Open — reduce connection latency for repeat destinations
+net.ipv4.tcp_fastopen = 3
+
 # Scheduler
 kernel.sched_autogroup_enabled = 1
 
@@ -356,6 +364,65 @@ pin_cores = yes
 apply_gpu_optimisations = accept-responsibility
 amd_performance_level = high
 GAMEMODEEOF
+
+# ── scx userspace schedulers ──────────────────────────────────────────────────
+# sched-ext (scx) is a BPF-based schedulder framework in the CachyOS kernel.
+# scx_lavd is optimised for interactive + gaming — it prioritises latency-
+# sensitive threads (audio, input, render) while keeping throughputs tasks warm.
+dnf5 copr enable -y bieszczaders/scx-scheds
+dnf5 install -y --skip-unavailable scx-scheds
+dnf5 copr disable -y bieszczaders/scx-scheds
+
+# Configure scxd to use lavd by default, then enable the service
+mkdir -p /etc/scx
+cat > /etc/scx/config <<'SCXEOF'
+SCX_SCHEDULER=scx_lavd
+SCX_FLAGS=--auto-mode
+SCXEOF
+systemctl enable scxd.service 2>/dev/null || true
+
+# ── I/O schedulers ────────────────────────────────────────────────────────────
+# 'none' on NVMe — the drive's own internal queues are better than any kernel
+#   scheduler overhead; multi-queue hardware makes mq-deadline redundant.
+# 'mq-deadline' on SATA SSD — adds deadline fairness with minimal latency.
+# 'bfq' on rotational — budget fair queuing prevents seek storms.
+mkdir -p /etc/udev/rules.d
+cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
+# NVMe: bypass scheduler entirely
+ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+# SATA/NVMe-HDD SSDs (non-rotational, non-nvme): deadline with low latency
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
+# HDDs: BFQ to avoid seek storms
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
+IOEOF
+
+# ── PipeWire low-latency audio ─────────────────────────────────────────────────
+# Default quantum 1024 (~21 ms at 48 kHz) is a reasonable starting point for
+# gaming — low enough to avoid audio lag, high enough to avoid xruns.
+# Apps that need <1 ms (e.g. JACK DAW) can request smaller buffers directly.
+mkdir -p /etc/pipewire/pipewire.conf.d
+cat > /etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
+context.properties = {
+    default.clock.rate          = 48000
+    default.clock.quantum       = 1024
+    default.clock.min-quantum   = 32
+    default.clock.max-quantum   = 8192
+}
+PWEOF
+
+# ── Proton / RADV environment variables ───────────────────────────────────────
+# PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
+#   Forces 32-bit Windows games to use the full 4 GB address space, reducing
+#   OOM crashes in memory-heavy titles (e.g. Skyrim modded, DayZ).
+# RADV_PERFTEST=gpl:
+#   Enables Vulkan Graphics Pipeline Library on RADV — pre-compiles pipeline
+#   shaders during load rather than at draw time, eliminating compilation stutter.
+mkdir -p /etc/environment.d
+cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
+PROTON_FORCE_LARGE_ADDRESS_AWARE=1
+WINE_LARGE_ADDRESS_AWARE=1
+RADV_PERFTEST=gpl
+PROTONEOF
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
