@@ -381,6 +381,24 @@ SCX_FLAGS=--auto-mode
 SCXEOF
 systemctl enable scxd.service 2>/dev/null || true
 
+# ── WiFi — disable power management ──────────────────────────────────────────
+# Linux WiFi power-save throttles the radio when idle, reducing signal
+# sensitivity and causing apparent "weak signal" even close to the AP.
+# NetworkManager powersave=2 disables it at the connection level (all adapters).
+mkdir -p /etc/NetworkManager/conf.d
+cat > /etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
+[connection]
+wifi.powersave = 2
+NMEOF
+
+# iwlwifi (Intel WiFi) specific: disable driver power-save and BT coexistence.
+# bt_coex_active=0 stops the driver from halving WiFi throughput when Bluetooth
+# is active (common cause of dropped signal during BT headset/controller use).
+mkdir -p /etc/modprobe.d
+cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
+options iwlwifi power_save=0 bt_coex_active=0
+IWLEOF
+
 # ── I/O schedulers ────────────────────────────────────────────────────────────
 # 'none' on NVMe — the drive's own internal queues are better than any kernel
 #   scheduler overhead; multi-queue hardware makes mq-deadline redundant.
