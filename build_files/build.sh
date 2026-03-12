@@ -220,12 +220,31 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 
 ### GPU drivers
 
-# ── AMD ───────────────────────────────────────────────────────────────────────
-# amdgpu is in the CachyOS kernel; radv (Vulkan) comes from the base image.
-# Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y \
+# ── mesa-git (kisak-mesa) ─────────────────────────────────────────────────────
+# Replaces Fedora's stable mesa with builds from mesa git master.
+# Primary benefit is RADV (AMD Vulkan) — actively developed, often 10-20%
+# faster than stable in benchmarks, and gets new Vulkan extensions first.
+# Also improves ACO shader compiler, NVK (NVIDIA open Vulkan), and Zink.
+dnf5 copr enable -y kisak/mesa
+# Use --allowerasing so dnf5 can replace stable mesa packages with git builds
+dnf5 upgrade -y --allowerasing \
+    mesa-libGL \
+    mesa-libGL.i686 \
+    mesa-libEGL \
+    mesa-libgbm \
+    mesa-libglapi \
+    mesa-dri-drivers \
+    mesa-dri-drivers.i686 \
+    mesa-vulkan-drivers \
     mesa-va-drivers \
     mesa-vdpau-drivers \
+    --skip-unavailable
+dnf5 copr disable -y kisak/mesa
+
+# ── AMD ───────────────────────────────────────────────────────────────────────
+# amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
+# Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
+dnf5 install -y \
     libva-utils \
     radeontop
 
