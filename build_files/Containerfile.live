@@ -37,10 +37,13 @@ RUN useradd -c "Live User" -G wheel liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
 
-# ── Allow liveuser to start Anaconda services as root ─────────────────────────
-RUN printf 'liveuser ALL=(root) NOPASSWD: /usr/bin/systemctl start cockpit.socket anaconda.service\n' \
-    > /etc/sudoers.d/liveuser-anaconda \
-    && chmod 440 /etc/sudoers.d/liveuser-anaconda
+# ── Allow liveuser to authenticate to cockpit without a password ──────────────
+# pam_succeed_if with 'sufficient': if user=liveuser, PAM succeeds immediately
+# without checking the password. The cockpit login form still appears but the
+# user only needs to enter "liveuser" and click Login (no password required).
+RUN if [ -f /etc/pam.d/cockpit ]; then \
+        sed -i '1s/^/auth\tsufficient\tpam_succeed_if.so user = liveuser\n/' /etc/pam.d/cockpit; \
+    fi
 
 # ── SDDM auto-login into Plasma Wayland, Breeze theme ────────────────────────
 RUN mkdir -p /etc/sddm.conf.d \
@@ -62,17 +65,34 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/
 
-# ── Kyth installer launcher ──────────────────────────────────────────────────
+# ── Kyth install launcher (desktop icon handler) ──────────────────────────────
 COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
 RUN chmod +x /usr/bin/kyth-install-launcher
 
-# ── Kickstart file for Anaconda ───────────────────────────────────────────────
-# Placed at /etc/anaconda/kyth.ks; dracut --include embeds it into the
-# live initramfs at /run/install/ks.cfg so inst.ks=file:///run/install/ks.cfg works.
+# ── Anaconda live wrapper ─────────────────────────────────────────────────────
+# Starts anaconda with the Kyth kickstart when invoked from the live desktop.
+# See build_files/kyth-anaconda-live for details.
+COPY build_files/kyth-anaconda-live  /usr/libexec/kyth-anaconda-live
+RUN chmod +x /usr/libexec/kyth-anaconda-live
+
+# ── Kickstart for Anaconda ────────────────────────────────────────────────────
+# /etc/anaconda/kyth.ks   — used by kyth-anaconda-live (live desktop session)
+# /run/install/ks.cfg     — populated from the above by the wrapper; also
+#                           embedded in the initramfs by dracut --include so
+#                           inst.ks=file:///run/install/ks.cfg works on direct boot.
 COPY build_files/anaconda/kyth.ks  /etc/anaconda/kyth.ks
 
+# ── anaconda.service drop-in: use Kyth kickstart in live session ──────────────
+# When anaconda.service is started via systemctl from the live desktop,
+# /proc/cmdline won't have inst.ks=. The drop-in overrides ExecStart to call
+# kyth-anaconda-live, which copies the kickstart and passes --kickstart to anaconda.
+RUN mkdir -p /etc/systemd/system/anaconda.service.d \
+    && printf '[Service]\nExecStart=\nExecStart=/usr/libexec/kyth-anaconda-live\n' \
+        > /etc/systemd/system/anaconda.service.d/live-kickstart.conf
+
 # ── Rebuild initramfs with dmsquash-live + anaconda modules ───────────────────
-# TMPDIR=/var/tmp avoids the EXDEV cross-device rename issue on tmpfs /tmp.
+# --include embeds kyth.ks at /run/install/ks.cfg for the direct-boot path.
+# TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \

@@ -1,22 +1,36 @@
 #!/usr/bin/bash
-# kyth-install-launcher — Launch Anaconda WebUI installer for Kyth
+# kyth-install-launcher — Launch Anaconda WebUI installer from the live desktop.
 #
-# Starts the Anaconda backend + cockpit-ws, then opens the WebUI in a browser.
-# Runs as liveuser; escalates service start via sudo.
+# Flow:
+#   1. Start cockpit.socket + anaconda.service
+#      anaconda.service uses a drop-in (/etc/systemd/system/anaconda.service.d/)
+#      that calls kyth-anaconda-live, which passes the Kyth kickstart to anaconda.
+#   2. Wait for the WebUI to respond
+#   3. Open browser → cockpit login → log in as "liveuser" (no password) → Anaconda
 
 set -euo pipefail
 
-# ── Start Anaconda + cockpit services ─────────────────────────────────────────
-sudo systemctl start cockpit.socket anaconda.service
+# ── Notify the user about the cockpit login step ──────────────────────────────
+notify-send \
+    --icon=drive-harddisk \
+    "Install Kyth" \
+    "Anaconda is starting. When the browser opens, log in with:\n  Username: liveuser\n  Password: (leave blank)" \
+    2>/dev/null || true
 
-# ── Wait for the WebUI to respond (up to 20 seconds) ─────────────────────────
+# ── Start services ─────────────────────────────────────────────────────────────
+sudo systemctl start cockpit.socket
+sudo systemctl start anaconda.service
+
+# ── Wait for the Anaconda WebUI to respond (up to 90 seconds) ─────────────────
 echo "Waiting for Anaconda WebUI..."
-for i in $(seq 1 20); do
+for i in $(seq 1 90); do
     if curl -sf --max-time 1 http://localhost:9090/anaconda-webui/ &>/dev/null; then
         break
     fi
     sleep 1
 done
 
-# ── Open in browser ───────────────────────────────────────────────────────────
+# ── Open browser ───────────────────────────────────────────────────────────────
+# Cockpit will prompt for login; enter "liveuser" with no password.
+# After login, cockpit redirects to the Anaconda WebUI.
 xdg-open http://localhost:9090/anaconda-webui
