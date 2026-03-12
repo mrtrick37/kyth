@@ -94,12 +94,6 @@ bootc upgrade
 Latest image is published on every push to `main`.
 
 ---
-
-Kyth is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.
-- **bcc**, **bpftop**, **bpftrace**, **tiptop**, **trace-cmd**, **sysprof** — system observability
-- **rocm-hip**, **rocm-opencl**, **rocm-smi** — AMD GPU compute
-- **flatpak-builder**, **git-subtree**, **git-svn**, **p7zip**, **tmux**
-
 ### KDE Integrations
 - kdeconnect, kdeplasma-addons, rom-properties-kf6
 
