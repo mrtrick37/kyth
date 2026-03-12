@@ -1,43 +1,101 @@
 # Kyth
 
-Custom atomic desktop Linux image. It's an opinionated gaming and development container-native desktop OS. 
+**Kyth** is a custom atomic desktop Linux image, focused on gaming and development, built for container-native workflows. It leverages Fedora Kinoite, swaps in the CachyOS kernel, and adds a curated set of tools for both gamers and developers.
 
+> ⚠️ Work in progress! ⚠️
+> Don't install on anything you care about. Chaotic enthusiasm encouraged.
 
-⚠️ Work in progres ⚠️
+## Project Highlights
 
-Don't install this on anything you care about. 
-
-You've been warned. 
-
-Proceed with chaotic enthusiasm 
-
-## Current state: 
-
-- Should install directly and rebase from existing bootc works (still needs love though)
-- Live iso boots to plasma desktop just fine
-- Working on Anaconda installer fixes
-
-
-## What's in it
-
-- **Base:** `ghcr.io/ublue-os/kinoite-main:43` — Fedora 43 KDE Plasma via bootc
-- **Kernel:** [CachyOS kernel](https://github.com/CachyOS/linux-cachyos) — BORE scheduler, sched-ext, BBRv3, NTSYNC
-- **Theme:** Breeze Dark by default
+- **Base:** Fedora 43 KDE Plasma (via bootc, ublue-os/kinoite-main)
+- **Kernel:** CachyOS (BORE scheduler, sched-ext, BBRv3, NTSYNC)
+- **Theme:** Breeze Dark
 - **Browser:** Brave
+- **Gaming:** Steam, Lutris, GameMode, gamescope, mangohud, vkBasalt, umu-launcher, winetricks, libFAudio, openxr, xrandr, evtest
+- **Dev Tools:** Cockpit, Visual Studio Code, Homebrew, podman-compose/tui/machine, incus/lxc, libvirt/virt-manager/virt-viewer/virt-v2v/QEMU
+- **Observability:** bcc, bpftop, bpftrace, tiptop, trace-cmd, sysprof
+- **AMD GPU Compute:** rocm-hip, rocm-opencl, rocm-smi
+- **Flatpak/KDE:** flatpak-builder, kdeconnect, kdeplasma-addons, rom-properties-kf6
 
-### Gaming
-- Steam, Lutris, GameMode
-- gamescope + gamescope-shaders, mangohud (x86_64 + i686), vkBasalt (x86_64 + i686)
-- umu-launcher, winetricks (always latest from upstream)
-- libFAudio, libobs_vkcapture/glcapture, openxr, xrandr, evtest
+## Repo Structure
 
-### Developer Tooling
-- **Cockpit** — machines, podman, networkmanager, ostree, selinux, storaged
-- **Visual Studio Code** — pre-installed
-- **Homebrew** — system-wide at `/home/linuxbrew/.linuxbrew`; any wheel user can run `brew`
-- **podman-compose**, **podman-tui**, **podman-machine**
-- **incus**, **lxc** — system containers
-- **libvirt**, **virt-manager**, **virt-viewer**, **virt-v2v**, **QEMU** — full VM stack
+```
+build_base/              Base image layer (branding, os-release)
+build_files/             Main build scripts, kernel swap, package installs
+  build.sh               Main build logic
+  build-live-iso.sh      Live ISO assembly (squashfs, GRUB2, UEFI/BIOS boot)
+  Containerfile.live     Live session container config
+disk_config/             Disk image configs (TOML)
+iso_overlay/             Branding overlays for installer ISOs
+Justfile                 Local build recipes
+Containerfile            Main image container config
+```
+
+## Build & Install
+
+### Build Locally
+
+Requires: `podman`, `just`, plus ISO tools for live builds (`xorriso`, `squashfs-tools`, `mtools`, `dosfstools`, `grub2-tools-minimal`).
+
+```bash
+# Build base layer
+just build-base
+# Build main image
+just build
+# Build live desktop ISO
+just build-live-iso
+# Run live ISO in VM
+just run-live-iso
+# Build Anaconda installer ISO
+just build-iso
+# Build QCOW2 VM image
+just build-qcow2
+```
+
+List all recipes:
+
+```bash
+just --list
+```
+
+### Install via Live ISO (Recommended)
+
+Boot the live ISO (KDE desktop runs from RAM). Click **Install Kyth** to launch the graphical installer.
+
+Installer steps:
+1. Timezone selection (GeoIP auto-detect)
+2. Disk selection (auto erase/manual partitioning)
+3. Pulls `ghcr.io/mrtrick37/kyth:latest` and installs via `bootc`
+
+GParted is available for partition management.
+
+Download from [GitHub Releases](https://github.com/mrtrick37/kyth/releases) or build locally.
+
+### Rebase from Existing Fedora Atomic System
+
+```bash
+bootc switch ghcr.io/mrtrick37/kyth:latest
+```
+
+### Traditional Installer ISO
+
+For classic Anaconda installer, use the installer ISO.
+
+## Updates
+
+Update like any bootc system:
+
+```bash
+ujust update
+# or
+bootc upgrade
+```
+
+Latest image is published on every push to `main`.
+
+---
+
+Kyth is not affiliated with Universal Blue, Fedora, CachyOS, or anyone who actually knows what they're doing.
 - **bcc**, **bpftop**, **bpftrace**, **tiptop**, **trace-cmd**, **sysprof** — system observability
 - **rocm-hip**, **rocm-opencl**, **rocm-smi** — AMD GPU compute
 - **flatpak-builder**, **git-subtree**, **git-svn**, **p7zip**, **tmux**
