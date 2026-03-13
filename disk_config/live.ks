@@ -82,7 +82,7 @@ mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/autologin.conf << 'SDDMEOF'
 [Autologin]
 User=liveuser
-Session=plasmawayland
+Session=plasma
 SDDMEOF
 
 # ── liveuser home ──────────────────────────────────────────────────────────
