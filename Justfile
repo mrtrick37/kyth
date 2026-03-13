@@ -120,6 +120,7 @@ sudoif command *args:
 [group('Build')]
 build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     podman build \
+    --pull=never \
     --build-arg BASE_IMAGE={{ base_image }} \
     --tag kyth-base:stable \
         build_base/
@@ -133,9 +134,9 @@ build $target_image=image_name $tag=default_tag: build-base
         BUILD_ARGS+=("--build-arg" "SHA_HEAD_SHORT=$(git rev-parse --short HEAD)")
     fi
 
-    docker build \
+    podman build \
+        --pull=never \
         "${BUILD_ARGS[@]}" \
-        --pull \
         --tag "${target_image}:${tag}" \
         .
 
@@ -168,26 +169,26 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
 
     # Try to resolve the image tag using podman inspect
     set +e
-        resolved_tag=$(docker inspect --format '{{.RepoTags}}' "${target_image}:${tag}" | jq -r '.[0]')
+        resolved_tag=$(podman inspect --format '{{"{{.RepoTags}}"}}' "${target_image}:${tag}" | jq -r '.[0]')
     return_code=$?
     set -e
 
-        USER_IMG_ID=$(docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+        USER_IMG_ID=$(podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
 
     if [[ $return_code -eq 0 ]]; then
         # If the image is found, load it into rootful podman
         ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
-            ID=$(just sudoif docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
+            ID=$(just sudoif podman images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
         if [[ "$ID" != "$USER_IMG_ID" ]]; then
             # If the image ID is not found or different from user, copy the image from user podman to root podman
             COPYTMP=$(mktemp -p /var/tmp -d -t _build_podman_scp.XXXXXXXXXX)
             just sudoif TMPDIR=${COPYTMP} podman image scp ${UID}@localhost::"${target_image}:${tag}" root@localhost::"${target_image}:${tag}"
-                # Docker does not support image scp; use docker save/load if needed
+                # Podman supports image scp; use podman image scp if needed
             rm -rf "${COPYTMP}"
         fi
     else
         # If the image is not found, pull it from the repository
-        just sudoif docker pull "${target_image}:${tag}"
+        just sudoif podman pull "${target_image}:${tag}"
     fi
 
 # Build a bootc bootable image using Bootc Image Builder (BIB)
