@@ -68,7 +68,9 @@ jobs:
           set -x
           sudo apt update -y
           sudo apt install -y \
-            podman
+            docker.io
+          sudo systemctl start docker
+          sudo systemctl enable docker
 
       - name: Maximize build space
         if: inputs.platform != 'arm64'
