@@ -96,25 +96,7 @@ sudoif command *args:
     sudoif {{ command }} {{ args }}
         TMPDIR=${TMPDIR:-/var/tmp}
 
-# This Justfile recipe builds a container image using Podman.
-#
-# Arguments:
-#   $target_image - The tag you want to apply to the image (default: $image_name).
-#   $tag - The tag for the image (default: $default_tag).
-#
-# The script constructs the version string using the tag and the current date.
-# If the git working directory is clean, it also includes the short SHA of the current HEAD.
-#
-# just build $target_image $tag
-#
-# Example usage:
-#   just build aurora lts
-#
-# This will build an image 'aurora:lts' with DX and GDX enabled.
-#
-
-# Build the base image from build_base/ and tag it as localhost/mt-os-base:stable
-# Run this once before 'just build' when working locally.
+# Build the base image from build_base/ and tag it as localhost/kyth:latest
 # Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
 [group('Build')]
 build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
@@ -137,21 +119,15 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
 
 
 # Command: _rootful_load_image
-# Description: This script checks if the current user is root or running under sudo. If not, it attempts to resolve the image tag using podman inspect.
-#              If the image is found, it loads it into rootful podman. If the image is not found, it pulls it from the repository.
+# Description: Ensures the target image is available to the root Docker daemon.
+#              If already running as root/sudo, exits immediately (image is already accessible).
+#              Otherwise, checks if the image exists in the user Docker store and, if so,
+#              copies it to the root store via docker image save/load. Falls back to pulling
+#              from the registry if the image is not found locally.
 #
 # Parameters:
 #   $target_image - The name of the target image to be loaded or pulled.
 #   $tag - The tag of the target image to be loaded or pulled. Default is 'default_tag'.
-#
-# Example usage:
-#   _rootful_load_image my_image latest
-#
-# Steps:
-# 1. Check if the script is already running as root or under sudo.
-# 2. Check if target image is in the non-root podman container storage)
-# 3. If the image is found, load it into rootful podman using podman scp.
-# 4. If the image is not found, pull it from the remote repository into reootful podman.
 
 _rootful_load_image $target_image=image_name $tag=default_tag:
     #!/usr/bin/bash
@@ -159,7 +135,7 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
 
     # Check if already running as root or under sudo
     if [[ -n "${SUDO_USER:-}" || "${UID}" -eq "0" ]]; then
-        echo "Already root or running under sudo, no need to load image from user podman."
+        echo "Already root or running under sudo; image is already accessible to the root Docker daemon."
         exit 0
     fi
 
@@ -226,8 +202,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         PRODUCT_NAME="mt-OS"
         PRODUCT_VERSION="43"
         set +e
-        # Use podman inspect JSON and jq to avoid Justfile interpolation issues
-        labels_json=$(podman inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
+        labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
         set -e
         if [[ -n "${labels_json}" && "${labels_json}" != "null" ]]; then
             PRODUCT_NAME=$(echo "${labels_json}" | jq -r '."org.opencontainers.image.title" // empty' || true)
@@ -239,9 +214,18 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         # Enable debug logging from bootc-image-builder to surface why lorax product/version are empty
         args+="--log-level=debug "
 
-        sudo podman run \
+        # BIB needs to pull the image from a registry. Push to a temporary local
+        # registry so BIB can reach it via --net=host without touching the image store.
+        REG_PORT=5099
+        docker run -d --rm --name kyth-bib-registry \
+            -p "127.0.0.1:${REG_PORT}:5000" registry:2
+        trap 'docker stop kyth-bib-registry 2>/dev/null || true' EXIT
+        BIB_IMAGE_REF="localhost:${REG_PORT}/${target_image##*/}:${tag}"
+        docker tag "${target_image}:${tag}" "${BIB_IMAGE_REF}"
+        docker push "${BIB_IMAGE_REF}"
+
+        sudo docker run \
             --rm \
-            -it \
             --privileged \
             --pull=newer \
             --net=host \
@@ -249,10 +233,11 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             $KEY_MOUNT \
             -v $(pwd)/${config}:/config.toml:ro \
             -v $BUILDTMP:/output \
-            -v /var/lib/containers/storage:/var/lib/containers/storage \
             "${bib_image}" \
             ${args} \
-            "${target_image}:${tag}"
+            "${BIB_IMAGE_REF}"
+
+        docker stop kyth-bib-registry 2>/dev/null || true
 
     mkdir -p output
     # If bootc produced a manifest but lorax product/version are empty, patch them
@@ -387,7 +372,7 @@ _run-vm $target_image $tag $type $config:
 
     # Run the VM and open the browser to connect
     (sleep 30 && xdg-open http://localhost:"$port") &
-    podman run "${run_args[@]}"
+    docker run "${run_args[@]}"
 
 # Run a virtual machine from a QCOW2 image
 [group('Run Virtal Machine')]

@@ -16,28 +16,28 @@ set -ouex pipefail
 
 
 
-### Install Podman and Docker for container operations
-dnf5 install -y docker podman || true
+### Install Docker for container operations
+dnf5 install -y docker || true
 
 # Automated cleanup: keep only the latest build image
 LATEST_IMAGE="kyth-base:stable"
 
-# Remove all stopped containers (prefer Docker, fallback to Podman)
-docker container prune -f 2>/dev/null || podman container prune -f 2>/dev/null || true
+# Remove all stopped containers
+docker container prune -f 2>/dev/null || true
 
 # Remove all images except the latest build
 for img in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep -v "$LATEST_IMAGE"); do
-    docker rmi "$img" 2>/dev/null || podman rmi "$img" 2>/dev/null || true
+    docker rmi "$img" 2>/dev/null || true
 done
 
 # Remove all unused volumes
-docker volume prune -f 2>/dev/null || podman volume prune -f 2>/dev/null || true
+docker volume prune -f 2>/dev/null || true
 
 # Remove all unused networks
-docker network prune -f 2>/dev/null || podman network prune -f 2>/dev/null || true
+docker network prune -f 2>/dev/null || true
 
 # Remove build cache
-docker system prune -af 2>/dev/null || podman system prune -af 2>/dev/null || true
+docker system prune -af 2>/dev/null || true
 
 # Add rpmfusion free and nonfree repositories for Fedora 43 and 44
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
