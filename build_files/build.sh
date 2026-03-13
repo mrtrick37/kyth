@@ -3,21 +3,14 @@ if ! rpm -q clang-devel >/dev/null 2>&1; then
     echo "clang-devel not found, installing..."
     dnf5 install -y clang-devel || { echo "ERROR: Failed to install clang-devel. Mesa-git build will fail."; exit 1; }
 fi
+# Enable RPM Fusion free and nonfree for Fedora 43
+dnf5 install -y \
+  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm \
+  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm
 # Install AMD and Nvidia drivers
 # AMD drivers (already included in mesa, mesa-dri-drivers, mesa-vulkan-drivers)
 dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
-# Nvidia drivers
-if ! rpm -q akmod-nvidia >/dev/null 2>&1; then
-    echo "Installing Nvidia drivers..."
-    dnf5 install -y akmod-nvidia xorg-x11-drv-nvidia xorg-x11-drv-nvidia-cuda || { echo "ERROR: Failed to install Nvidia drivers."; exit 1; }
-fi
-
-# Copy Nvidia detection script and systemd unit
-install -m 755 /build_files/nvidia-detect.sh /usr/local/bin/nvidia-detect.sh
-install -m 644 /build_files/nvidia-detect.service /etc/systemd/system/nvidia-detect.service
-
-# Enable Nvidia detection service
-systemctl enable nvidia-detect.service
+# Nvidia driver installation temporarily removed
 #!/bin/bash
 
 set -ouex pipefail
