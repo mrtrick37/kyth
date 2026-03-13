@@ -139,14 +139,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
             exit 1
         }
 
-        dnf5 install -y akmods kmodtool grubby nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable --setopt=optional_metadata_types=filelists --skip-broken || {
-            echo "Failed to install NVIDIA dependencies. Attempting fallback." >&2
-            echo "Trying grubby-minimal and improved options..."
-            dnf5 install -y akmods kmodtool grubby-minimal nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable --setopt=optional_metadata_types=filelists --skip-broken || {
-                echo "Fallback also failed."
-                exit 1
-            }
-        }
+# ...existing code...
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
