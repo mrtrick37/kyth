@@ -113,7 +113,9 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && chown -R liveuser:liveuser /home/liveuser/
+    && chown -R liveuser:liveuser /home/liveuser/ \
+    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
+    && chown liveuser:liveuser /home/liveuser/.bash_profile
 
 # ── Kyth install launcher (desktop icon handler) ──────────────────────────────
 COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
