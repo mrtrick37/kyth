@@ -119,6 +119,7 @@ sudoif command *args:
 # Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:43
 [group('Build')]
 build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
+    podman pull {{ base_image }} || true
     podman build \
     --pull=never \
     --build-arg BASE_IMAGE={{ base_image }} \
