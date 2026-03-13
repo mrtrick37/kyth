@@ -55,13 +55,14 @@ mkdir -p \
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
 podman build \
+    --userns=host \
     -f "${SCRIPT_DIR}/Containerfile.live" \
     -t kyth-live:build \
     "${REPO_ROOT}"
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
-CONTAINER=$(podman create kyth-live:build /bin/true)
+CONTAINER=$(podman create --userns=host kyth-live:build /bin/true)
 if command -v pv >/dev/null 2>&1; then
     echo "==> Using pv to show export progress."
     podman export "${CONTAINER}" | pv | \
