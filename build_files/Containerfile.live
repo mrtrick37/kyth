@@ -54,6 +54,8 @@ RUN systemctl enable sddm && systemctl set-default graphical.target
 # ── Anaconda WebUI installer (F44 packages) ───────────────────────────────────
 # F43's anaconda-webui is incomplete for KDE/Atomic Desktop installs.
 # Pull the full set from Fedora 44, including blivet (storage backend).
+# brave-browser is already present from the base image; firefox is a fallback.
+# xdotool is used by kyth-install-launcher to auto-fill the cockpit login form.
 RUN dnf5 install -y \
         --releasever=44 \
         --setopt=install_weak_deps=False \
@@ -67,8 +69,8 @@ RUN dnf5 install -y \
         blivet-data \
         dnsconfd \
         dnsconfd-dracut \
-        # brave-browser (not available) \
         firefox \
+        xdotool \
     && dnf5 clean all
 
 # ── Create live user with passwordless sudo ───────────────────────────────────
