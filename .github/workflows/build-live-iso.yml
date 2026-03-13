@@ -17,7 +17,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          dnf install -y podman just xorriso squashfs-tools mtools dosfstools git
+          dnf install -y docker just xorriso squashfs-tools mtools dosfstools git
+          systemctl start docker || true
 
       - name: Ensure permissions and directories
         run: |

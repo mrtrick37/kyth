@@ -105,7 +105,7 @@ jobs:
 
       - name: Build base image
         run: |
-          podman build \
+          docker build \
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43 \
             --tag localhost/kyth-base:stable \
             build_base/
@@ -125,37 +125,39 @@ jobs:
 
       # These `if` statements are so that pull requests for your custom images do not make it publish any packages under your name without you knowing
       # They also check if the runner is on the default branch so that things like the merge queue (if you enable it), are going to work
-      - name: Ensure podman
+      - name: Ensure Docker
         run: |
-          if ! command -v podman >/dev/null 2>&1; then
+          if ! command -v docker >/dev/null 2>&1; then
             sudo apt-get update
-            sudo apt-get install -y podman
+            sudo apt-get install -y docker.io
+            sudo systemctl start docker
+            sudo systemctl enable docker
           fi
 
-      - name: Login to GitHub Container Registry (podman)
+      - name: Login to GitHub Container Registry (docker)
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Push To GHCR
         if: github.event_name != 'pull_request' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
         id: push
         timeout-minutes: 60
         run: |
-          echo "${{ github.token }}" | podman login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           DIGEST=""
           for tag in ${{ steps.metadata.outputs.tags }}; do
             for attempt in 1 2 3; do
               echo "Pushing ${{ env.IMAGE_NAME }}:$tag (attempt $attempt)..."
-              if podman push "${{ env.IMAGE_NAME }}:$tag" "${IMAGE_FULL}:${tag}"; then
+              if docker push "${{ env.IMAGE_NAME }}:$tag"; then
                 break
               fi
               [ $attempt -lt 3 ] && sleep 30
             done
           done
           # Capture digest of the primary tag for cosign
-          DIGEST=$(podman inspect --format='{{index .RepoDigests 0}}' "${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" 2>/dev/null | cut -d@ -f2 || true)
+          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "${{ env.IMAGE_NAME }}:${{ env.DEFAULT_TAG }}" 2>/dev/null | cut -d@ -f2 || true)
           echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
 
       # This section is optional and only needs to be enabled if you plan on distributing
