@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+
 # build-live-iso.sh — Build a full live desktop ISO for Kyth.
 #
 # Flow:
@@ -28,7 +29,9 @@ ISO_DIR="${WORK}/iso"
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    docker rmi kyth-live:build 2>/dev/null || true
+    podman rmi kyth-live:build 2>/dev/null || true
+    # Deep cleanup: remove all unused containers, images, volumes, networks, and build cache
+    podman system prune -af 2>/dev/null || true
 }
 trap cleanup EXIT
 
@@ -51,22 +54,34 @@ mkdir -p \
 
 # ── 1. Build live variant container ─────────────────────────────────────────
 echo "==> Building live container variant (this takes a while)"
-docker build \
+podman build \
     -f "${SCRIPT_DIR}/Containerfile.live" \
     -t kyth-live:build \
     "${REPO_ROOT}"
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
-echo "==> Exporting container filesystem to ${ROOTFS}"
-CONTAINER=$(docker create kyth-live:build /bin/true)
-docker export "${CONTAINER}" \
-    | sudo tar -xC "${ROOTFS}" \
-        --exclude='./proc/*' \
-        --exclude='./sys/*' \
-        --exclude='./dev/*' \
-        --exclude='./run/*' \
-        2> >(grep -v 'xattr' >&2)
-docker rm "${CONTAINER}"
+echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
+CONTAINER=$(podman create kyth-live:build /bin/true)
+if command -v pv >/dev/null 2>&1; then
+    echo "==> Using pv to show export progress."
+    podman export "${CONTAINER}" | pv | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
+else
+    podman export "${CONTAINER}" | \
+        sudo tar -xC "${ROOTFS}" \
+            --exclude='proc/*' \
+            --exclude='sys/*' \
+            --exclude='dev/*' \
+            --exclude='run/*' \
+            2> >(grep -v 'xattr' >&2)
+fi
+echo "==> Container export complete."
+podman rm "${CONTAINER}"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
@@ -99,7 +114,7 @@ PERSISTENT_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=LABEL=
 INSTALL_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet systemd.unit=anaconda.target inst.webui inst.ks=file:///run/install/ks.cfg"
 
 # Write the theme file
-cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" << 'THEMEEOF'
+cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # Kyth GRUB2 dark theme
 
 title-text: ""

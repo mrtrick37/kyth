@@ -12,6 +12,33 @@ dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
 
 set -ouex pipefail
 
+
+
+
+
+### Install Podman and Docker for container operations
+dnf5 install -y podman docker || true
+
+# Automated cleanup: keep only the latest build image
+LATEST_IMAGE="kyth-base:stable"
+
+# Remove all stopped containers
+podman container prune -f 2>/dev/null || true
+
+# Remove all images except the latest build
+for img in $(podman images --format '{{.Repository}}:{{.Tag}}' | grep -v "$LATEST_IMAGE"); do
+    podman rmi "$img" 2>/dev/null || true
+done
+
+# Remove all unused volumes
+podman volume prune -f 2>/dev/null || true
+
+# Remove all unused networks
+podman network prune -f 2>/dev/null || true
+
+# Remove build cache
+podman system prune -af 2>/dev/null || true
+
 # Add rpmfusion free and nonfree repositories for Fedora 43 and 44
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
@@ -24,7 +51,6 @@ dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 # Ensure latest mesa and graphics drivers
 dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
 dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
-
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
