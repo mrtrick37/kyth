@@ -9,18 +9,15 @@ on:
 jobs:
   build-live-iso:
     runs-on: ubuntu-latest
+    container:
+      image: fedora:39
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Fedora container
-        uses: fedora-actions/setup-fedora@v2
-        with:
-          version: 39
-
       - name: Install dependencies
         run: |
-          sudo dnf install -y podman just xorriso squashfs-tools mtools dosfstools
+          dnf install -y podman just xorriso squashfs-tools mtools dosfstools git
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
       - name: Build Live ISO
         run: |
