@@ -16,9 +16,18 @@
 set -euo pipefail
 
 # Ensure base image exists locally before building live ISO
+
+# Ensure base image exists locally as localhost/kyth:latest before building live ISO
 if ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
     echo "Base image localhost/kyth:latest not found. Building base image..."
     just build-base || { echo "Failed to build base image."; exit 1; }
+fi
+
+# If ghcr.io/mrtrick37/kyth:latest exists but localhost/kyth:latest does not, retag it
+if docker image inspect ghcr.io/mrtrick37/kyth:latest >/dev/null 2>&1 && \
+   ! docker image inspect localhost/kyth:latest >/dev/null 2>&1; then
+    echo "Retagging ghcr.io/mrtrick37/kyth:latest as localhost/kyth:latest..."
+    docker tag ghcr.io/mrtrick37/kyth:latest localhost/kyth:latest
 fi
 
 
@@ -45,7 +54,13 @@ cleanup() {
     sudo rm -rf "${WORK}" 2>/dev/null || true
     docker rmi kyth-live:build 2>/dev/null || true
     # Deep cleanup: remove all unused containers, images, volumes, networks, and build cache
-    docker system prune -af 2>/dev/null || true
+    # But keep the base image (localhost/kyth:latest) for reuse
+    docker image prune -af 2>/dev/null || true
+    docker container prune -f 2>/dev/null || true
+    docker volume prune -f 2>/dev/null || true
+    docker network prune -f 2>/dev/null || true
+    docker builder prune -af 2>/dev/null || true
+    # Do NOT run 'docker system prune -af' as it would remove the base image
 }
 trap cleanup EXIT
 
