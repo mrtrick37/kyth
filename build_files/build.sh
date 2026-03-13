@@ -3,10 +3,6 @@ if ! rpm -q clang-devel >/dev/null 2>&1; then
     echo "clang-devel not found, installing..."
     dnf5 install -y clang-devel || { echo "ERROR: Failed to install clang-devel. Mesa-git build will fail."; exit 1; }
 fi
-# Enable RPM Fusion free and nonfree for Fedora 43
-dnf5 install -y \
-  https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm \
-  https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm
 # Install AMD and Nvidia drivers
 # AMD drivers (already included in mesa, mesa-dri-drivers, mesa-vulkan-drivers)
 dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
@@ -131,13 +127,6 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
 ## Gaming tweaks — Bazzite-style
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-        # Ensure RPMFusion repositories are enabled before NVIDIA dependency install
-        sudo dnf5 install -y \
-            https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-            https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
-            echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
-            exit 1
-        }
 
 # ...existing code...
 
@@ -215,63 +204,10 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y libva-utils radeontop || {
-    echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
-    sudo dnf5 install -y \
-        https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-        https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
-        echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
-        exit 1
-    }
-}
+dnf5 install -y libva-utils radeontop
+# ...existing code...
 # ...existing code...
 
-
-# ── NVIDIA ────────────────────────────────────────────────────────────────────
-# Enable RPMFusion repositories for NVIDIA drivers (must be root)
-sudo dnf5 install -y \
-    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm
-
-# akmod-nvidia installs the NVIDIA akmod framework; the actual kernel module is
-# built on first boot by the akmods service using the running kernel's headers.
-# kernel-cachyos-devel is already in this image so akmods has what it needs.
-#
-# Covers all Maxwell+ GPUs (GTX 750 and newer).
-# For Turing+ (RTX 20xx+), nvidia-open (NVIDIA's open-source module) is an
-# alternative but akmod-nvidia works universally across all generations.
-# Only install NVIDIA drivers from RPMFusion; Fedora-provided NVIDIA packages are skipped to avoid conflicts.
-dnf5 install -y akmods kmodtool grubby nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable || {
-    echo "Failed to install NVIDIA dependencies. Attempting fallback." >&2
-    exit 1
-}
-dnf5 install -y \
-    akmod-nvidia \
-    xorg-x11-drv-nvidia \
-    xorg-x11-drv-nvidia-cuda \
-    xorg-x11-drv-nvidia-cuda-libs \
-    xorg-x11-drv-nvidia-power \
-    nvidia-settings \
-    --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable
-
-# Enable DRM kernel mode-setting for NVIDIA — required for Wayland and for
-# suspend/resume. Set via modprobe.d (no kernel cmdline changes needed).
-# nouveau is automatically blacklisted by the nvidia packages.
-mkdir -p /etc/modprobe.d
-cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVIDIAEOF'
-# Enable KMS for Wayland and proper suspend/resume
-options nvidia-drm modeset=1 fbdev=1
-# Preserve video memory across suspend so the display recovers cleanly
-options nvidia NVreg_PreserveVideoMemoryAllocations=1
-NVIDIAEOF
-
-# Enable NVIDIA power management service for suspend/resume
-systemctl enable nvidia-suspend.service \
-                 nvidia-hibernate.service \
-                 nvidia-resume.service \
-                 nvidia-persistenced.service 2>/dev/null || true
-
-### Performance tuning
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
 mkdir -p /etc/sysctl.d
@@ -322,8 +258,6 @@ THPEOF
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
-## Prefer fedora-multimedia stack for NVIDIA packages, exclude rpmfusion for nvidia-settings
-dnf5 install -y --skip-unavailable akmod-nvidia xorg-x11-drv-nvidia xorg-x11-drv-nvidia-cuda xorg-x11-drv-nvidia-cuda-libs xorg-x11-drv-nvidia-power nvidia-settings nvidia-vaapi-driver
 # Capped at 8 GB so zram doesn't eat all RAM on large-memory systems.
 cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
 [zram0]
@@ -349,21 +283,24 @@ apply_gpu_optimisations = accept-responsibility
 amd_performance_level = high
 GAMEMODEEOF
 
+
 # ── scx userspace schedulers ──────────────────────────────────────────────────
-# sched-ext (scx) is a BPF-based schedulder framework in the CachyOS kernel.
+# sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughputs tasks warm.
-dnf5 copr enable -y bieszczaders/scx-scheds
-dnf5 install -y --skip-unavailable scx-scheds
-dnf5 copr disable -y bieszczaders/scx-scheds
+# (COPR repo bieszczaders/scx-scheds is unavailable; skipping scx-scheds install.)
+## If/when scx-scheds becomes available, re-enable the following:
+# dnf5 copr enable -y bieszczaders/scx-scheds
+# dnf5 install -y --skip-unavailable scx-scheds
+# dnf5 copr disable -y bieszczaders/scx-scheds
 
 # Configure scxd to use lavd by default, then enable the service
-mkdir -p /etc/scx
-cat > /etc/scx/config <<'SCXEOF'
-SCX_SCHEDULER=scx_lavd
-SCX_FLAGS=--auto-mode
-SCXEOF
-systemctl enable scxd.service 2>/dev/null || true
+# mkdir -p /etc/scx
+# cat > /etc/scx/config <<'SCXEOF'
+# SCX_SCHEDULER=scx_lavd
+# SCX_FLAGS=--auto-mode
+# SCXEOF
+# systemctl enable scxd.service 2>/dev/null || true
 
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
