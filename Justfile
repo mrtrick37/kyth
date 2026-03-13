@@ -3,7 +3,6 @@ export default_tag := env("DEFAULT_TAG", "latest")
 export bib_image := env("BIB_IMAGE", "quay.io/centos-bootc/bootc-image-builder:latest")
 
 alias build-vm := build-qcow2
-alias rebuild-vm := rebuild-qcow2
 alias run-vm := run-vm-qcow2
 
 [private]
@@ -136,20 +135,6 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
     fi
     docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth:latest build_base/
 
-# Build the image using the specified parameters
-build $target_image="ghcr.io/mrtrick37/kyth" $tag=default_tag: build-base
-    #!/usr/bin/env bash
-
-    BUILD_ARGS=()
-    if [[ -z "$(git status -s)" ]]; then
-        BUILD_ARGS+=("--build-arg" "SHA_HEAD_SHORT=$(git rev-parse --short HEAD)")
-    fi
-
-    docker build \
-        
-        "${BUILD_ARGS[@]}" \
-        --tag "${target_image}:${tag}" \
-        .
 
 # Command: _rootful_load_image
 # Description: This script checks if the current user is root or running under sudo. If not, it attempts to resolve the image tag using podman inspect.
@@ -306,15 +291,6 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         echo "Produced ISO: ${ISO_PATH}"
     fi
 
-# Podman builds the image from the Containerfile and creates a bootable image
-# Parameters:
-#   target_image: The name of the image to build (ex. localhost/fedora)
-#   tag: The tag of the image to build (ex. latest)
-#   type: The type of image to build (ex. qcow2, raw, iso)
-#   config: The configuration file to use for the build (deafult: disk_config/disk.toml)
-
-# Example: just _rebuild-bib localhost/fedora latest qcow2 disk_config/disk.toml
-_rebuild-bib $target_image $tag $type $config: (build target_image tag) && (_build-bib target_image tag type config)
 
 # Build a QCOW2 virtual machine image
 [group('Build Virtal Machine Image')]
@@ -331,7 +307,7 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # Build a full live desktop ISO (boots to the complete Kyth KDE environment;
 # "Install Kyth" desktop icon installs from ghcr.io/mrtrick37/kyth:latest)
 # Requires: xorriso squashfs-tools mtools dosfstools
-# Run 'just build' first to have localhost/kyth:latest available.
+# Builds localhost/kyth:latest automatically if not already present.
 [group('Build Virtal Machine Image')]
 build-live-iso:
     #!/usr/bin/env bash
@@ -360,7 +336,7 @@ run-live-iso:
     (sleep 30 && xdg-open http://localhost:"$port") &
     docker run \
         --rm --privileged \
-        --pull always \
+        --pull missing \
         --publish "127.0.0.1:${port}:8006" \
         --env "CPU_CORES=4" \
         --env "RAM_SIZE=8G" \
@@ -370,21 +346,6 @@ run-live-iso:
         --volume "${PWD}/${image_file}:/boot.iso" \
         docker.io/qemux/qemu
 
-# Build an ISO with Plasma DE by default (rebuilds base + main image first)
-[group('Build Virtal Machine Image')]
-bip $target_image=("localhost/" + image_name) $tag=default_tag: (build-base) (build target_image tag) && (_build-bib target_image tag "iso" "disk_config/iso-kde.toml")
-
-# Rebuild a QCOW2 virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "qcow2" "disk_config/disk.toml")
-
-# Rebuild a RAW virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "raw" "disk_config/disk.toml")
-
-# Rebuild an ISO virtual machine image
-[group('Build Virtal Machine Image')]
-rebuild-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_rebuild-bib target_image tag "iso" "disk_config/iso.toml")
 
 # Run a virtual machine with the specified image type and configuration
 _run-vm $target_image $tag $type $config:
