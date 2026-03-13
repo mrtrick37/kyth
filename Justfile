@@ -135,7 +135,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
         echo "Base image {{ base_image }} already present locally. Skipping pull."
     fi
     docker buildx build \
-        --load \
+        
         --pull \
         --build-arg BASE_IMAGE={{ base_image }} \
         --tag ghcr.io/mrtrick37/kyth:latest \
@@ -151,7 +151,7 @@ build $target_image="ghcr.io/mrtrick37/kyth" $tag=default_tag: build-base
     fi
 
     docker build \
-        --load \
+        
         "${BUILD_ARGS[@]}" \
         --tag "${target_image}:${tag}" \
         .
