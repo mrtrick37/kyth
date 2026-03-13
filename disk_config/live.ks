@@ -104,19 +104,22 @@ PLASMAEOF
 
 # ── Install mt-OS desktop shortcut ─────────────────────────────────────────
 cat > /home/liveuser/Desktop/install-mt-os.desktop << 'DESKEOF'
+cat > /home/liveuser/Desktop/install-kyth.desktop << 'DESKEOF'
 [Desktop Entry]
-Name=Install mt-OS
-Comment=Install mt-OS 43 to this computer
-Exec=/usr/bin/mt-os-install
+Name=Install Kyth
+Comment=Install Kyth 43 to this computer
+Exec=/usr/bin/kyth-install-launcher
 Icon=anaconda
 Terminal=false
 Type=Application
 Categories=System;
 X-KDE-RunOnDiscreteGpu=false
 DESKEOF
-chmod +x /home/liveuser/Desktop/install-mt-os.desktop
+chmod +x /home/liveuser/Desktop/install-kyth.desktop
 
 chown -R liveuser:liveuser /home/liveuser/
+# Set Firefox as default browser for liveuser
+sudo -u liveuser xdg-settings set default-web-browser firefox.desktop || true
 
 # ── mt-OS install wrapper script ───────────────────────────────────────────
 cat > /usr/bin/mt-os-install << 'SCRIPTEOF'
