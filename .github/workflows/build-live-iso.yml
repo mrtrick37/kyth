@@ -9,8 +9,6 @@ on:
 jobs:
   build-live-iso:
     runs-on: ubuntu-latest
-    container:
-      image: fedora:39
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
