@@ -123,6 +123,14 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
 ## Gaming tweaks — Bazzite-style
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
+        # Ensure RPMFusion repositories are enabled before NVIDIA dependency install
+        sudo dnf5 install -y \
+            https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+            https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
+            echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
+            exit 1
+        }
+
         dnf5 install -y akmods kmodtool grubby nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable --setopt=optional_metadata_types=filelists --skip-broken || {
             echo "Failed to install NVIDIA dependencies. Attempting fallback." >&2
             echo "Trying grubby-minimal and improved options..."
