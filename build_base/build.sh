@@ -21,3 +21,25 @@ rm -f /usr/share/kservices5/*waydroid* || true
 rm -rf /usr/share/waydroid /var/lib/waydroid || true
 
 echo "mt-OS base customization applied"
+
+# --- CachyOS kernel installation (copied from build_files/build.sh) ---
+echo "Installing CachyOS kernel..."
+dnf5 copr enable -y bieszczaders/kernel-cachyos
+dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
+
+CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
+depmod -a "${CACHYOS_KVER}"
+
+dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
+	kernel-cachyos \
+	kernel-cachyos-core \
+	kernel-cachyos-devel
+
+depmod -a "${CACHYOS_KVER}"
+
+# Ensure vmlinuz is in the OSTree-expected location
+if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
+	if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
+		cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
+	fi
+fi
