@@ -201,18 +201,16 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
-dnf5 install -y \
-    libva-utils \
-    || {
-        echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
-        sudo dnf5 install -y \
-            https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
-            https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
-            echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
-            exit 1
-        }
+dnf5 install -y libva-utils radeontop || {
+    echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
+    sudo dnf5 install -y \
+        https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-$(rpm -E %fedora).noarch.rpm \
+        https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-$(rpm -E %fedora).noarch.rpm || {
+        echo "ERROR: RPMFusion repository enablement failed. Check URLs and network." >&2
+        exit 1
     }
-    radeontop
+}
+# ...existing code...
 
 
 # ── NVIDIA ────────────────────────────────────────────────────────────────────
@@ -229,6 +227,10 @@ sudo dnf5 install -y \
 # For Turing+ (RTX 20xx+), nvidia-open (NVIDIA's open-source module) is an
 # alternative but akmod-nvidia works universally across all generations.
 # Only install NVIDIA drivers from RPMFusion; Fedora-provided NVIDIA packages are skipped to avoid conflicts.
+dnf5 install -y akmods kmodtool grubby nvidia-kmod-common --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable || {
+    echo "Failed to install NVIDIA dependencies. Attempting fallback." >&2
+    exit 1
+}
 dnf5 install -y \
     akmod-nvidia \
     xorg-x11-drv-nvidia \
@@ -236,7 +238,7 @@ dnf5 install -y \
     xorg-x11-drv-nvidia-cuda-libs \
     xorg-x11-drv-nvidia-power \
     nvidia-settings \
-    nvidia-vaapi-driver
+    --repo=rpmfusion-nonfree --repo=rpmfusion-nonfree-updates --repo=rpmfusion-free --skip-unavailable
 
 # Enable DRM kernel mode-setting for NVIDIA — required for Wayland and for
 # suspend/resume. Set via modprobe.d (no kernel cmdline changes needed).
