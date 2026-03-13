@@ -88,19 +88,24 @@ RUN if [ -f /etc/pam.d/cockpit ]; then \
     fi
 
 # ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
+# Force X11 only: both xsessions and wayland-sessions ship a file named
+# plasma.desktop, so SDDM's ambiguous Session=plasma lookup may pick the
+# Wayland session, which fails in QEMU (kwin_wayland needs EGL/virgl).
+# Setting [X11] SessionDir and clearing [Wayland] SessionDir makes SDDM
+# resolve "plasma" exclusively against /usr/share/xsessions/plasma.desktop.
+# We also override /usr/lib/sddm/sddm.conf.d/kde_settings.conf (shipped by
+# Fedora's kde-settings package), which defaults the SDDM greeter to Wayland.
 RUN mkdir -p /etc/sddm.conf.d \
     && if [ -f /usr/share/xsessions/plasma.desktop ]; then \
         session="plasma"; \
     elif [ -f /usr/share/xsessions/plasma-x11.desktop ]; then \
         session="plasma-x11"; \
-    elif [ -f /usr/share/wayland-sessions/plasma.desktop ]; then \
-        session="plasma"; \
-    elif [ -f /usr/share/wayland-sessions/plasma-wayland.desktop ]; then \
-        session="plasma-wayland"; \
     else \
         session="plasma"; \
     fi; \
-    printf '[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf
+    printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
+    && mkdir -p /etc/sddm.conf.d \
+    && printf '[General]\nDisplayServer=x11\n' > /etc/sddm.conf.d/00-force-x11.conf
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
 # Disable Steam autostart — it crashes in the live tmpfs environment.

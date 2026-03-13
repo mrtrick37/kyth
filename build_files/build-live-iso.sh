@@ -52,15 +52,9 @@ echo "==> Using container engine: docker"
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    docker rmi kyth-live:build 2>/dev/null || true
-    # Deep cleanup: remove all unused containers, images, volumes, networks, and build cache
-    # But keep the base image (localhost/kyth:latest) for reuse
-    docker image prune -af 2>/dev/null || true
-    docker container prune -f 2>/dev/null || true
-    docker volume prune -f 2>/dev/null || true
-    docker network prune -f 2>/dev/null || true
-    docker builder prune -af 2>/dev/null || true
-    # Do NOT run 'docker system prune -af' as it would remove the base image
+    # kyth-live:build is kept intentionally so Docker layer cache is preserved
+    # for the next build. Run 'docker rmi kyth-live:build' manually to force
+    # a full rebuild from scratch.
 }
 trap cleanup EXIT
 
@@ -82,11 +76,17 @@ mkdir -p \
     "${ISO_DIR}/isolinux"
 
 # ── 1. Build live variant container ─────────────────────────────────────────
-echo "==> Building live container variant (this takes a while)"
-docker build \
-    -f "${SCRIPT_DIR}/Containerfile.live" \
-    -t kyth-live:build \
-    "${REPO_ROOT}"
+# Set REBUILD_IMAGE=1 to force a full rebuild even if kyth-live:build exists.
+# Without that flag, Docker layer caching makes subsequent builds very fast.
+if [[ "${REBUILD_IMAGE:-}" == "1" ]] || ! docker image inspect kyth-live:build >/dev/null 2>&1; then
+    echo "==> Building live container variant (this takes a while)"
+    docker build \
+        -f "${SCRIPT_DIR}/Containerfile.live" \
+        -t kyth-live:build \
+        "${REPO_ROOT}"
+else
+    echo "==> Reusing existing kyth-live:build image (set REBUILD_IMAGE=1 to force rebuild)"
+fi
 
 # ── 2. Export container filesystem ──────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS} (this may take several minutes...)"
@@ -128,9 +128,16 @@ sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
 # ── 4. Squashfs ──────────────────────────────────────────────────────────────
-echo "==> Creating squashfs (this takes a while — the full OS is ~several GB)"
+# zstd compresses ~5-10x faster than xz with comparable ratios and is
+# supported by Fedora's kernel and dracut-live. -Xcompression-level 3 is
+# a good speed/size balance; raise to 19 for maximum compression if time
+# isn't a concern. -processors $(nproc) is explicit but mksquashfs already
+# defaults to all cores.
+echo "==> Creating squashfs (zstd, $(nproc) cores — the full OS is ~several GB)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
-    -comp xz \
+    -comp zstd \
+    -Xcompression-level 3 \
+    -processors "$(nproc)" \
     -noappend \
     -no-progress \
     -no-xattrs \
