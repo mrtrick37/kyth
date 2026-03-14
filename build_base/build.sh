@@ -36,9 +36,32 @@ dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
 
 depmod -a "${CACHYOS_KVER}"
 
+# Remove every non-CachyOS kernel from /usr/lib/modules/ so bootc sees
+# exactly one kernel (it errors out if multiple subdirectories are present).
+echo "Removing non-CachyOS kernels from /usr/lib/modules/ ..."
+for kdir in /usr/lib/modules/*/; do
+    kver=$(basename "$kdir")
+    if [[ "$kver" != *cachyos* ]]; then
+        echo "  removing: $kver"
+        rm -rf "$kdir"
+    fi
+done
+
 # Ensure vmlinuz is in the OSTree-expected location
 if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
 	if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
 		cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
 	fi
 fi
+
+# Generate a standard disk-boot initramfs at the OSTree-expected location.
+# tsflags=noscripts skipped dracut during kernel install, so we run it manually.
+# This initramfs is used by bootc when installing the image to disk — without it
+# the installed system kernel panics with "Unable to mount root fs on unknown-block(0,0)".
+echo "Generating disk-boot initramfs for ${CACHYOS_KVER}..."
+TMPDIR=/var/tmp dracut \
+    --no-hostonly \
+    --kver "${CACHYOS_KVER}" \
+    --force \
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs.img"
+echo "initramfs.img generated at /usr/lib/modules/${CACHYOS_KVER}/initramfs.img"

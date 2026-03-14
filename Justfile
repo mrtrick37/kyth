@@ -416,6 +416,14 @@ build-live-iso:
     set -euo pipefail
     bash build_files/build-live-iso.sh
 
+# Force a full rebuild of the live ISO, ignoring the cached kyth-live:build layer.
+# Use this after changing Containerfile.live or any file it COPYs (modules, main.py, etc.)
+[group('Build Virtal Machine Image')]
+rebuild-live-iso:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
+
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist.
 [group('Run Virtal Machine')]
