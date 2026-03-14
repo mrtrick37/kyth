@@ -1,96 +1,206 @@
 #!/usr/bin/bash
-# kyth-install-launcher — Launch Anaconda WebUI installer from the live desktop.
+# kyth-install-launcher — Multi-step graphical installer for Kyth.
 #
-# Flow:
-#   1. Start cockpit.socket + anaconda.service
-#      anaconda.service uses a drop-in (/etc/systemd/system/anaconda.service.d/)
-#      that calls kyth-anaconda-live, which passes the Kyth kickstart to anaconda.
-#   2. Wait for the WebUI to respond
-#   3. Open browser → cockpit login → log in as "liveuser" (no password) → Anaconda
+# Wizard flow:
+#   1. Welcome
+#   2. Disk selection
+#   3. Hostname
+#   4. User account (full name, username, password)
+#   5. Summary + final confirmation
+#   6. Install in Konsole (bootc + post-install user/hostname setup)
 
-LOG=/tmp/kyth-install-launcher.log
-exec > >(tee -a "$LOG") 2>&1
-echo "=== kyth-install-launcher started at $(date) ==="
+IMGREF="ghcr.io/mrtrick37/kyth:latest"
+TITLE="Install Kyth"
 
-# ── Notify the user about the cockpit login step ──────────────────────────────
-notify-send \
-    --icon=drive-harddisk \
-    "Install Kyth" \
-    "Anaconda is starting. When the browser opens, log in with:\n  Username: liveuser\n  Password: (leave blank)" \
-    2>/dev/null || true
+die() { kdialog --title "$TITLE" --error "$1"; exit 1; }
+sorry() { kdialog --title "$TITLE" --sorry "$1"; }
 
-# ── Start services ─────────────────────────────────────────────────────────────
-echo "Starting cockpit.socket..."
-if ! sudo systemctl start cockpit.socket; then
-    echo "ERROR: cockpit.socket failed to start"
-    sudo systemctl status cockpit.socket --no-pager || true
-    notify-send --icon=dialog-error "Install Kyth" "Failed to start cockpit. Check $LOG for details." 2>/dev/null || true
-    exit 1
-fi
+# ── Step 1: Welcome ───────────────────────────────────────────────────────────
+kdialog --title "$TITLE" \
+    --msgbox "Welcome to the Kyth installer.\n\nThis wizard will guide you through installing Kyth to your computer. The OS image will be downloaded from the internet and written to the disk you select.\n\nClick OK to begin." \
+    || exit 0
 
-echo "Starting anaconda.service..."
-if ! sudo systemctl start anaconda.service; then
-    echo "ERROR: anaconda.service failed to start"
-    sudo systemctl status anaconda.service --no-pager || true
-    sudo journalctl -u anaconda.service -n 50 --no-pager || true
-    notify-send --icon=dialog-error "Install Kyth" "Failed to start Anaconda. Check $LOG for details." 2>/dev/null || true
-    exit 1
-fi
+# ── Step 2: Disk selection ────────────────────────────────────────────────────
+ITEMS=()
+while read -r name size model; do
+    ITEMS+=("/dev/$name" "${size}  ${model:-Unknown}" "off")
+done < <(lsblk -d -n -o NAME,SIZE,MODEL | grep -Ev '^(loop|sr)')
 
-echo "anaconda.service started. Waiting for WebUI..."
+[ "${#ITEMS[@]}" -eq 0 ] && die "No writable disks found."
 
-# ── Wait for the Anaconda WebUI to respond (up to 120 seconds) ─────────────────
-READY=0
-for i in $(seq 1 120); do
-    if curl -sf --max-time 1 http://localhost:9090/anaconda-webui/ &>/dev/null; then
-        READY=1
-        echo "WebUI ready after ${i}s"
-        break
-    fi
-    # Check if anaconda.service crashed mid-wait
-    if [ $((i % 10)) -eq 0 ]; then
-        if ! sudo systemctl is-active --quiet anaconda.service; then
-            echo "ERROR: anaconda.service stopped unexpectedly after ${i}s"
-            sudo journalctl -u anaconda.service -n 50 --no-pager || true
-            notify-send --icon=dialog-error "Install Kyth" "Anaconda stopped unexpectedly. Check $LOG for details." 2>/dev/null || true
-            exit 1
-        fi
-    fi
-    sleep 1
+DISK=$(kdialog --title "$TITLE" \
+    --radiolist "Select the installation disk.\n\nAll data on the selected disk will be permanently erased." \
+    "${ITEMS[@]}") || exit 0
+[ -z "$DISK" ] && exit 0
+
+# ── Step 3: Hostname ──────────────────────────────────────────────────────────
+while true; do
+    HOSTNAME=$(kdialog --title "$TITLE" \
+        --inputbox "Enter a hostname for this computer:" \
+        "kyth") || exit 0
+    HOSTNAME=$(echo "$HOSTNAME" | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9-]/-/g; s/^-//; s/-$//')
+    [ -n "$HOSTNAME" ] && break
+    sorry "Hostname cannot be empty."
 done
 
-if [ "$READY" -eq 0 ]; then
-    echo "WARNING: WebUI did not respond after 120s — opening browser anyway"
-    notify-send --icon=dialog-warning "Install Kyth" "Anaconda is taking longer than expected. Trying to open browser..." 2>/dev/null || true
-fi
+# ── Step 4: User account ──────────────────────────────────────────────────────
+FULLNAME=$(kdialog --title "$TITLE" \
+    --inputbox "Enter your full name:" "") || exit 0
 
-# ── Open browser ─────────────────────────────────────────────────────────────
-if command -v brave-browser >/dev/null 2>&1; then
-    echo "Opening Brave..."
-    brave-browser --app=http://localhost:9090/anaconda-webui --start-fullscreen &
-elif command -v firefox >/dev/null 2>&1; then
-    echo "Opening Firefox..."
-    firefox --kiosk http://localhost:9090/anaconda-webui &
+DEFAULT_USER=$(echo "$FULLNAME" | awk '{print tolower($1)}' | tr -cd 'a-z0-9_')
+[ -z "$DEFAULT_USER" ] && DEFAULT_USER="user"
+
+while true; do
+    USERNAME=$(kdialog --title "$TITLE" \
+        --inputbox "Choose a username:" \
+        "$DEFAULT_USER") || exit 0
+    [ -z "$USERNAME" ] && { sorry "Username cannot be empty."; continue; }
+    echo "$USERNAME" | grep -qE '^[a-z][a-z0-9_-]{0,30}$' && break
+    sorry "Invalid username. Must start with a lowercase letter and contain only lowercase letters, numbers, underscores, or hyphens (max 31 chars)."
+done
+
+while true; do
+    PASS1=$(kdialog --title "$TITLE" --password "Enter a password for '$USERNAME':") || exit 0
+    PASS2=$(kdialog --title "$TITLE" --password "Confirm password:") || exit 0
+    [ -z "$PASS1" ] && { sorry "Password cannot be empty."; continue; }
+    [ "$PASS1" = "$PASS2" ] && break
+    sorry "Passwords do not match. Please try again."
+done
+PASSWORD="$PASS1"
+unset PASS1 PASS2
+
+# ── Step 5: Summary + confirmation ───────────────────────────────────────────
+DISK_INFO=$(lsblk -d -n -o SIZE,MODEL "$DISK" 2>/dev/null | head -1 | xargs)
+kdialog --title "$TITLE" \
+    --warningyesno "Ready to install Kyth.\n\nDisk:      $DISK  ($DISK_INFO)\nHostname:  $HOSTNAME\nUsername:  $USERNAME  ($FULLNAME)\n\n⚠  ALL DATA ON $DISK WILL BE PERMANENTLY DESTROYED.\n\nProceed?" \
+    || exit 0
+
+# ── Step 6: Write install script to temp file and open Konsole ────────────────
+# Writing to a temp script avoids passing the password via environment variables
+# (which would be visible in /proc). The temp file is chmod 700 and deleted
+# inside the script itself as soon as the password has been used.
+TMPSCRIPT=$(mktemp /tmp/kyth-install.XXXXXX.sh)
+chmod 700 "$TMPSCRIPT"
+
+cat > "$TMPSCRIPT" << SCRIPT_EOF
+#!/usr/bin/bash
+set -euo pipefail
+
+_DISK="${DISK}"
+_HOSTNAME="${HOSTNAME}"
+_USERNAME="${USERNAME}"
+_FULLNAME="${FULLNAME}"
+_PASSWORD="${PASSWORD}"
+_IMGREF="${IMGREF}"
+
+echo "========================================"
+echo "  Installing Kyth"
+echo "  Disk:     \$_DISK"
+echo "  Hostname: \$_HOSTNAME"
+echo "  User:     \$_USERNAME"
+echo "========================================"
+echo ""
+
+# ── Phase 1: Install OS ───────────────────────────────────────────────────────
+echo "Phase 1/2 — Downloading and writing OS image..."
+echo "Source: \$_IMGREF"
+echo "This may take 10-30 minutes depending on your internet connection."
+echo ""
+
+sudo bootc install to-disk \
+    --source-imgref "\$_IMGREF" \
+    --target-imgref "\$_IMGREF" \
+    "\$_DISK"
+
+echo ""
+echo "Phase 2/2 — Configuring user account and hostname..."
+
+# ── Phase 2: Post-install configuration ──────────────────────────────────────
+MNT=\$(mktemp -d /tmp/kyth-root.XXXXXX)
+
+# bootc creates a GPT with an EFI partition and a Linux root partition.
+# Identify root by partition type GUID (linux filesystem = 0fc63daf-...).
+ROOT_PART=\$(sudo lsblk -n -o NAME,PARTTYPE "\$_DISK" \
+    | awk '\$2 == "0fc63daf-8483-4772-8e79-3d69d8477de4" {print "/dev/"\$1}' \
+    | tail -1)
+
+if [ -z "\$ROOT_PART" ]; then
+    echo ""
+    echo "WARNING: Could not identify root partition — skipping user/hostname setup."
+    echo "After booting, log in as root and run: useradd -m -G wheel \$_USERNAME"
 else
-    notify-send --icon=dialog-error "Install Kyth" "No supported browser found (Brave or Firefox)." 2>/dev/null || true
-    echo "ERROR: No supported browser found." >&2
-    exit 1
-fi
+    sudo mount "\$ROOT_PART" "\$MNT"
 
-sleep 2
+    # Locate the ostree stateroot and deployment directory.
+    # bootc uses stateroot name "default" by convention.
+    STATEROOT=\$(ls "\$MNT/ostree/deploy/" 2>/dev/null | head -1)
+    DEPLOY=\$(ls "\$MNT/ostree/deploy/\$STATEROOT/deploy/" 2>/dev/null \
+        | grep -v '\.origin\$' | head -1)
+    DEPLOY_DIR="\$MNT/ostree/deploy/\$STATEROOT/deploy/\$DEPLOY"
+    VAR_DIR="\$MNT/ostree/deploy/\$STATEROOT/var"
 
-# ── Auto-login via xdotool ────────────────────────────────────────────────────
-if command -v xdotool >/dev/null 2>&1; then
-    for i in $(seq 1 20); do
-        WIN_ID=$(xdotool search --name 'Cockpit' 2>/dev/null | head -1)
-        if [ -n "$WIN_ID" ]; then
-            break
-        fi
-        sleep 1
-    done
-    if [ -n "${WIN_ID:-}" ]; then
-        xdotool type --window "$WIN_ID" "liveuser"
-        xdotool key --window "$WIN_ID" Tab
-        xdotool key --window "$WIN_ID" Return
+    if [ -d "\$DEPLOY_DIR/usr" ]; then
+        # Bind-mount the stateroot var over the deployment's /var symlink so
+        # that useradd -m creates the home directory in the right place.
+        CHROOT=\$(mktemp -d /tmp/kyth-chroot.XXXXXX)
+        sudo mount --bind "\$DEPLOY_DIR" "\$CHROOT"
+        sudo mount --bind /proc          "\$CHROOT/proc"
+        sudo mount --bind /sys           "\$CHROOT/sys"
+        sudo mount --bind /dev           "\$CHROOT/dev"
+        sudo mount --bind "\$VAR_DIR"    "\$CHROOT/var"
+
+        sudo chroot "\$CHROOT" useradd \
+            -m -G wheel -c "\$_FULLNAME" "\$_USERNAME" 2>/dev/null \
+            || sudo chroot "\$CHROOT" useradd \
+                -G wheel -c "\$_FULLNAME" "\$_USERNAME"
+
+        # Erase the plaintext password as soon as chpasswd is done
+        printf '%s:%s\n' "\$_USERNAME" "\$_PASSWORD" \
+            | sudo chroot "\$CHROOT" chpasswd
+        unset _PASSWORD
+
+        sudo chroot "\$CHROOT" passwd -l root
+
+        sudo umount "\$CHROOT/var"
+        sudo umount "\$CHROOT/dev"
+        sudo umount "\$CHROOT/sys"
+        sudo umount "\$CHROOT/proc"
+        sudo umount "\$CHROOT"
+        sudo rmdir  "\$CHROOT"
+
+        echo "  User '\$_USERNAME' created."
+    else
+        unset _PASSWORD
+        echo "WARNING: Deployment directory not found — skipping user setup."
     fi
+
+    # Hostname lives in the deployment's /etc on a fresh install.
+    echo "\$_HOSTNAME" | sudo tee "\$DEPLOY_DIR/etc/hostname" > /dev/null
+    echo "  Hostname set to '\$_HOSTNAME'."
+
+    sudo umount "\$MNT"
 fi
+
+sudo rmdir "\$MNT"
+
+# Delete this script now that it's no longer needed
+rm -f "\$0"
+
+echo ""
+echo "========================================"
+echo "  Installation complete!"
+echo ""
+echo "  Remove the live media and reboot"
+echo "  to start Kyth."
+echo "========================================"
+echo ""
+read -rp "Press Enter to close..."
+SCRIPT_EOF
+
+unset PASSWORD
+
+konsole \
+    --noclose \
+    --hide-tabbar \
+    --title "Installing Kyth" \
+    -e bash "$TMPSCRIPT"

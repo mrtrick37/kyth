@@ -1,5 +1,6 @@
 # Live ISO variant of Kyth
-# Extends the full Kyth image with live session + Anaconda WebUI installer.
+# Extends the full Kyth image with live session support.
+# Installation is handled by 'bootc install to-disk' via the desktop icon.
 # Built by build-live-iso.sh; not pushed to the registry.
 
 FROM localhost/kyth:latest
@@ -12,7 +13,6 @@ FROM localhost/kyth:latest
 # grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
 # gparted:              disk utility available on live desktop
 RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted && dnf5 clean all
-
 
 # ── Ensure Plasma, SDDM, and session dependencies are installed ───────────────
 RUN dnf5 install -y \
@@ -52,41 +52,11 @@ RUN dnf5 install -y \
 # ── Enable SDDM and graphical.target ─────────────────────────────────────────
 RUN systemctl enable sddm && systemctl set-default graphical.target
 
-# ── Anaconda WebUI installer (F44 packages) ───────────────────────────────────
-# F43's anaconda-webui is incomplete for KDE/Atomic Desktop installs.
-# Pull the full set from Fedora 44, including blivet (storage backend).
-# brave-browser is already present from the base image; firefox is a fallback.
-# xdotool is used by kyth-install-launcher to auto-fill the cockpit login form.
-RUN dnf5 install -y \
-        --releasever=44 \
-        --setopt=install_weak_deps=False \
-        anaconda-webui \
-        anaconda-core \
-        anaconda-tui \
-        anaconda-dracut \
-        anaconda-install-env-deps \
-        cockpit-ws \
-        python3-blivet \
-        blivet-data \
-        dnsconfd \
-        dnsconfd-dracut \
-        firefox \
-        xdotool \
-    && dnf5 clean all
-
 # ── Create live user with passwordless sudo ───────────────────────────────────
 RUN useradd -c "Live User" -G wheel liveuser \
     && passwd -d liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
-
-# ── Allow liveuser to authenticate to cockpit without a password ──────────────
-# pam_succeed_if with 'sufficient': if user=liveuser, PAM succeeds immediately
-# without checking the password. The cockpit login form still appears but the
-# user only needs to enter "liveuser" and click Login (no password required).
-RUN if [ -f /etc/pam.d/cockpit ]; then \
-        sed -i '1s/^/auth\tsufficient\tpam_succeed_if.so user = liveuser\n/' /etc/pam.d/cockpit; \
-    fi
 
 # ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
 # Force X11 only: both xsessions and wayland-sessions ship a file named
@@ -105,7 +75,6 @@ RUN mkdir -p /etc/sddm.conf.d \
         session="plasma"; \
     fi; \
     printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
-    && mkdir -p /etc/sddm.conf.d \
     && printf '[General]\nDisplayServer=x11\n' > /etc/sddm.conf.d/00-force-x11.conf
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────
@@ -118,7 +87,7 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth 43 to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/ \
@@ -129,35 +98,12 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
 COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
 RUN chmod +x /usr/bin/kyth-install-launcher
 
-# ── Anaconda live wrapper ─────────────────────────────────────────────────────
-# Starts anaconda with the Kyth kickstart when invoked from the live desktop.
-# See build_files/kyth-anaconda-live for details.
-COPY build_files/kyth-anaconda-live  /usr/libexec/kyth-anaconda-live
-RUN chmod +x /usr/libexec/kyth-anaconda-live
-
-# ── Kickstart for Anaconda ────────────────────────────────────────────────────
-# /etc/anaconda/kyth.ks   — used by kyth-anaconda-live (live desktop session)
-# /run/install/ks.cfg     — populated from the above by the wrapper; also
-#                           embedded in the initramfs by dracut --include so
-#                           inst.ks=file:///run/install/ks.cfg works on direct boot.
-COPY build_files/anaconda/kyth.ks  /etc/anaconda/kyth.ks
-
-# ── anaconda.service drop-in: use Kyth kickstart in live session ──────────────
-# When anaconda.service is started via systemctl from the live desktop,
-# /proc/cmdline won't have inst.ks=. The drop-in overrides ExecStart to call
-# kyth-anaconda-live, which copies the kickstart and passes --kickstart to anaconda.
-RUN mkdir -p /etc/systemd/system/anaconda.service.d \
-    && printf '[Service]\nExecStart=\nExecStart=/usr/libexec/kyth-anaconda-live\n' \
-        > /etc/systemd/system/anaconda.service.d/live-kickstart.conf
-
-# ── Rebuild initramfs with dmsquash-live + anaconda modules ───────────────────
-# --include embeds kyth.ks at /run/install/ks.cfg for the direct-boot path.
+# ── Rebuild initramfs with dmsquash-live ──────────────────────────────────────
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
 RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live livenet anaconda" \
-        --include /etc/anaconda/kyth.ks /run/install/ks.cfg \
+        --add "dmsquash-live livenet" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \
