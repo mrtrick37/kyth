@@ -1,0 +1,5 @@
+---
+type:      jobmodule
+name:      kyth-umount
+interface: python
+requires:  []
