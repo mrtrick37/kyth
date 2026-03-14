@@ -40,8 +40,13 @@ BUNDLED_IMGREF = "oci:/usr/share/kyth/image"
 # `bootc upgrade` knows where to pull future updates from.
 TARGET_IMGREF = "ghcr.io/mrtrick37/kyth:latest"
 
-# Linux filesystem data GUID — identifies the root partition bootc creates.
-LINUX_FS_GUID = "0fc63daf-8483-4772-8e79-3d69d8477de4"
+# Partition type GUIDs that bootc uses for the root partition.
+# bootc creates "Linux root (x86-64)" (4f68...) on modern installs;
+# the generic "Linux filesystem data" (0fc6...) is kept as a fallback.
+ROOT_PART_GUIDS = {
+    "4f68bce3-e8cd-4db1-96e7-fbcaf984b709",  # Linux root (x86-64)
+    "0fc63daf-8483-4772-8e79-3d69d8477de4",  # Linux filesystem data
+}
 
 
 def pretty_name():
@@ -98,16 +103,32 @@ def _find_disk(gs):
 
 
 def _find_root_partition(disk):
-    """Return the device path of the Linux-FS partition bootc created."""
+    """Return the device path of the Linux root partition bootc created."""
+    # Let udev finish processing the new partition table before querying.
+    subprocess.run(["udevadm", "settle"], capture_output=True)
+
     result = subprocess.run(
-        ["lsblk", "-n", "-o", "NAME,PARTTYPE", disk],
+        ["lsblk", "-ln", "-o", "NAME,PARTTYPE,FSTYPE", disk],
         capture_output=True, text=True, check=True,
     )
+    _log(f"lsblk output:\n{result.stdout}")
+
     root_part = ""
     for line in result.stdout.splitlines():
-        parts = line.split()
-        if len(parts) == 2 and parts[1].lower() == LINUX_FS_GUID:
-            root_part = f"/dev/{parts[0].strip()}"
+        cols = line.split()
+        name = cols[0] if len(cols) >= 1 else ""
+        parttype = cols[1].lower() if len(cols) >= 2 else ""
+        fstype = cols[2].lower() if len(cols) >= 3 else ""
+
+        if parttype in ROOT_PART_GUIDS:
+            root_part = f"/dev/{name}"
+            break
+
+        # Fallback: largest xfs partition is the root (bootc always formats it xfs)
+        if fstype == "xfs" and not root_part:
+            root_part = f"/dev/{name}"
+
+    _log(f"root partition: {root_part!r}")
     return root_part
 
 
@@ -202,7 +223,7 @@ def run():
     ):
         try:
             subprocess.run(cmd, check=True, capture_output=True)
-        except subprocess.CalledProcessError:
+        except (subprocess.CalledProcessError, FileNotFoundError):
             pass  # best-effort; bootc will fail with a clear error if disk is unusable
 
     # Pre-flight: confirm the bundled OCI image directory exists.
