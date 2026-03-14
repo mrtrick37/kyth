@@ -79,7 +79,7 @@ fi
 # dracut skips it during container builds because there is no live ostree
 # deployment to auto-detect.
 mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-mt-os.conf <<'DRACUTEOF'
+cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
@@ -551,7 +551,7 @@ Color=0,0,0,255
 PLASMADESKTOPEOF
 
 # Remove Waydroid desktop/menu entries and related files if present
-# (some base images include a Waydroid helper that we don't ship in mt-OS)
+# (some base images include a Waydroid helper that we don't ship in Kyth)
 rm -f /usr/share/applications/*waydroid*.desktop || true
 rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true

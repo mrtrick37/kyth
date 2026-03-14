@@ -196,9 +196,9 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # Attempt to extract product metadata from the image's OCI labels and pass
         # them to bootc/lorax so lorax receives a valid product.name/product.version.
-        # Provide sensible defaults so installer UI shows mt-OS even when labels
+        # Provide sensible defaults so installer UI shows Kyth even when labels
         # are missing from the base image.
-        PRODUCT_NAME="mt-OS"
+        PRODUCT_NAME="Kyth"
         PRODUCT_VERSION="43"
         set +e
         labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
@@ -262,7 +262,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
     # Move new build output into place
     sudo mv -f $BUILDTMP/* output/ || true
-    # Rename standard install ISO to a consistent mt-OS filename
+    # Rename standard install ISO to a consistent Kyth filename
     if sudo test -f output/bootiso/install.iso; then
         sudo mv -f output/bootiso/install.iso output/bootiso/kyth-installer.iso || true
     fi

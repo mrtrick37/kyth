@@ -5,7 +5,7 @@ COPY build_files /
 # Base Image
 FROM localhost/kyth-base:stable
 
-# Override upstream OCI labels so downstream tooling (lorax/bootc) sees mt-OS product metadata
+# Override upstream OCI labels so downstream tooling (lorax/bootc) sees Kyth product metadata
 LABEL org.opencontainers.image.title="Kyth"
 LABEL org.opencontainers.image.version="43"
 LABEL org.opencontainers.image.description="Kyth — atomic gaming and dev workstation built on Fedora Kinoite"

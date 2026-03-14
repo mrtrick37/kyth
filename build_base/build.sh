@@ -1,16 +1,16 @@
 #!/bin/bash
 set -euo pipefail
 
-# Apply mt-OS branding to the base image
+# Apply Kyth branding to the base image
 cat > /etc/os-release <<'EOF' || true
-NAME="mt-OS"
-PRETTY_NAME="mt-OS 43"
+NAME="Kyth"
+PRETTY_NAME="Kyth 43"
 ID=fedora
 VERSION_ID="43"
 ANSI_COLOR="0;34"
-HOME_URL="https://example.com/mt-os"
-SUPPORT_URL="https://example.com/mt-os/support"
-BUG_REPORT_URL="https://example.com/mt-os/issues"
+HOME_URL="https://example.com/kyth"
+SUPPORT_URL="https://example.com/kyth/support"
+BUG_REPORT_URL="https://example.com/kyth/issues"
 EOF
 
 # Remove Waydroid artifacts if present
@@ -19,7 +19,7 @@ rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true
 rm -rf /usr/share/waydroid /var/lib/waydroid || true
 
-echo "mt-OS base customization applied"
+echo "Kyth base customization applied"
 
 # --- CachyOS kernel installation (copied from build_files/build.sh) ---
 echo "Installing CachyOS kernel..."
