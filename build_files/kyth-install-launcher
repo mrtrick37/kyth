@@ -8,7 +8,9 @@
 #   2. Wait for the WebUI to respond
 #   3. Open browser → cockpit login → log in as "liveuser" (no password) → Anaconda
 
-set -euo pipefail
+LOG=/tmp/kyth-install-launcher.log
+exec > >(tee -a "$LOG") 2>&1
+echo "=== kyth-install-launcher started at $(date) ==="
 
 # ── Notify the user about the cockpit login step ──────────────────────────────
 notify-send \
@@ -18,42 +20,77 @@ notify-send \
     2>/dev/null || true
 
 # ── Start services ─────────────────────────────────────────────────────────────
-sudo systemctl start cockpit.socket
-sudo systemctl start anaconda.service
+echo "Starting cockpit.socket..."
+if ! sudo systemctl start cockpit.socket; then
+    echo "ERROR: cockpit.socket failed to start"
+    sudo systemctl status cockpit.socket --no-pager || true
+    notify-send --icon=dialog-error "Install Kyth" "Failed to start cockpit. Check $LOG for details." 2>/dev/null || true
+    exit 1
+fi
 
-# ── Wait for the Anaconda WebUI to respond (up to 90 seconds) ─────────────────
-echo "Waiting for Anaconda WebUI..."
-for i in $(seq 1 90); do
+echo "Starting anaconda.service..."
+if ! sudo systemctl start anaconda.service; then
+    echo "ERROR: anaconda.service failed to start"
+    sudo systemctl status anaconda.service --no-pager || true
+    sudo journalctl -u anaconda.service -n 50 --no-pager || true
+    notify-send --icon=dialog-error "Install Kyth" "Failed to start Anaconda. Check $LOG for details." 2>/dev/null || true
+    exit 1
+fi
+
+echo "anaconda.service started. Waiting for WebUI..."
+
+# ── Wait for the Anaconda WebUI to respond (up to 120 seconds) ─────────────────
+READY=0
+for i in $(seq 1 120); do
     if curl -sf --max-time 1 http://localhost:9090/anaconda-webui/ &>/dev/null; then
+        READY=1
+        echo "WebUI ready after ${i}s"
         break
+    fi
+    # Check if anaconda.service crashed mid-wait
+    if [ $((i % 10)) -eq 0 ]; then
+        if ! sudo systemctl is-active --quiet anaconda.service; then
+            echo "ERROR: anaconda.service stopped unexpectedly after ${i}s"
+            sudo journalctl -u anaconda.service -n 50 --no-pager || true
+            notify-send --icon=dialog-error "Install Kyth" "Anaconda stopped unexpectedly. Check $LOG for details." 2>/dev/null || true
+            exit 1
+        fi
     fi
     sleep 1
 done
 
-# ── Open browser in fullscreen and auto-login ───────────────────────────────
-# Launch Brave browser in fullscreen, auto-login as liveuser, and redirect to Anaconda WebUI.
+if [ "$READY" -eq 0 ]; then
+    echo "WARNING: WebUI did not respond after 120s — opening browser anyway"
+    notify-send --icon=dialog-warning "Install Kyth" "Anaconda is taking longer than expected. Trying to open browser..." 2>/dev/null || true
+fi
+
+# ── Open browser ─────────────────────────────────────────────────────────────
 if command -v brave-browser >/dev/null 2>&1; then
+    echo "Opening Brave..."
     brave-browser --app=http://localhost:9090/anaconda-webui --start-fullscreen &
 elif command -v firefox >/dev/null 2>&1; then
+    echo "Opening Firefox..."
     firefox --kiosk http://localhost:9090/anaconda-webui &
 else
-    notify-send --icon=dialog-error "Install Kyth" "No supported browser found (Brave or Firefox). Please install a browser and restart the installer." 2>/dev/null || true
-    echo "ERROR: No supported browser found (Brave or Firefox)." >&2
+    notify-send --icon=dialog-error "Install Kyth" "No supported browser found (Brave or Firefox)." 2>/dev/null || true
+    echo "ERROR: No supported browser found." >&2
     exit 1
 fi
+
 sleep 2
-# Attempt auto-login using xdotool (if available)
+
+# ── Auto-login via xdotool ────────────────────────────────────────────────────
 if command -v xdotool >/dev/null 2>&1; then
-    # Wait for browser window
     for i in $(seq 1 20); do
-        WIN_ID=$(xdotool search --name 'Cockpit' | head -1)
+        WIN_ID=$(xdotool search --name 'Cockpit' 2>/dev/null | head -1)
         if [ -n "$WIN_ID" ]; then
             break
         fi
         sleep 1
     done
-    # Type username and submit
-    xdotool type --window "$WIN_ID" "liveuser"
-    xdotool key --window "$WIN_ID" Tab
-    xdotool key --window "$WIN_ID" Return
+    if [ -n "${WIN_ID:-}" ]; then
+        xdotool type --window "$WIN_ID" "liveuser"
+        xdotool key --window "$WIN_ID" Tab
+        xdotool key --window "$WIN_ID" Return
+    fi
 fi
