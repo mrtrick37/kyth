@@ -15,9 +15,9 @@ strings:
     releaseNotesUrl:     "https://github.com/mrtrick37/kyth"
 
 images:
-    productLogo:    ""
-    productIcon:    ""
-    productWelcome: ""
+    productLogo:    "kyth-logo.svg"
+    productIcon:    "kyth-logo.svg"
+    productWelcome: "kyth-logo.svg"
 
 slideshow:              "show.qml"
 slideshowAPI:           2
