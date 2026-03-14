@@ -15,12 +15,14 @@ strings:
     releaseNotesUrl:     "https://github.com/mrtrick37/kyth"
 
 images:
-    productLogo:    "logo.png"
-    productIcon:    "logo.png"
-    productWelcome: "languages.png"
+    productLogo:    ""
+    productIcon:    ""
+    productWelcome: ""
 
 slideshow:              "show.qml"
 slideshowAPI:           2
+
+stylesheet: stylesheet.qss
 
 style:
     SidebarBackground:      "#1a1b26"
