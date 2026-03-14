@@ -31,7 +31,14 @@ import tempfile
 
 import libcalamares
 
-IMGREF = "ghcr.io/mrtrick37/kyth:latest"
+# Source image: bundled inside the live squashfs at boot time.
+# At live boot this path is read-only inside the squashfs overlay.
+# bootc reads it as an OCI directory without requiring internet access.
+BUNDLED_IMGREF = "oci:/usr/share/kyth/image"
+
+# Target image: the registry ref written into the installed OS so that
+# `bootc upgrade` knows where to pull future updates from.
+TARGET_IMGREF = "ghcr.io/mrtrick37/kyth:latest"
 
 # Linux filesystem data GUID — identifies the root partition bootc creates.
 LINUX_FS_GUID = "0fc63daf-8483-4772-8e79-3d69d8477de4"
@@ -174,16 +181,15 @@ def run():
     try:
         _run([
             "bootc", "install", "to-disk",
-            "--source-imgref", IMGREF,
-            "--target-imgref", IMGREF,
+            "--source-imgref", BUNDLED_IMGREF,
+            "--target-imgref", TARGET_IMGREF,
             disk,
         ])
     except subprocess.CalledProcessError as e:
         return (
             "Installation failed",
             f"bootc install to-disk failed (exit code {e.returncode}).\n"
-            "Check that the selected disk is not in use and that you have "
-            "an active internet connection.",
+            "Check that the selected disk is not in use and try again.",
         )
 
     libcalamares.job.setprogress(0.90)

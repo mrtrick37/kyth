@@ -59,10 +59,10 @@ cleanup() {
 trap cleanup EXIT
 
 # Check host dependencies
-for cmd in xorriso mksquashfs mkfs.fat mcopy mmd; do
+for cmd in xorriso mksquashfs mkfs.fat mcopy mmd skopeo; do
     if ! command -v "${cmd}" &>/dev/null; then
         echo "ERROR: '${cmd}' not found." >&2
-        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools" >&2
+        echo "       Install with: sudo dnf install xorriso squashfs-tools mtools dosfstools skopeo" >&2
         exit 1
     fi
 done
@@ -126,6 +126,19 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
+
+# ── 3b. Bundle OCI image for offline install ─────────────────────────────────
+# Embed localhost/kyth:latest as an OCI directory inside the live squashfs so
+# that kyth-bootcinstall can run `bootc install to-disk` without internet access.
+# skopeo copies the image from the local Docker daemon into the rootfs at
+# /usr/share/kyth/image — mksquashfs picks it up automatically in step 4.
+echo "==> Bundling OCI image into rootfs (this may take a while)"
+sudo mkdir -p "${ROOTFS}/usr/share/kyth"
+sudo skopeo copy \
+    --insecure-policy \
+    docker-daemon:localhost/kyth:latest \
+    "oci:${ROOTFS}/usr/share/kyth/image"
+echo "==> OCI image bundled at /usr/share/kyth/image"
 
 # ── 4. Squashfs ──────────────────────────────────────────────────────────────
 # zstd compresses ~5-10x faster than xz with comparable ratios and is
