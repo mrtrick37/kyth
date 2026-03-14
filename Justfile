@@ -150,7 +150,6 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
     if [[ $return_code -eq 0 ]]; then
         # If the image is found, load it into rootful docker
         ID=$(just sudoif docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
-            ID=$(just sudoif docker images --filter reference="${target_image}:${tag}" --format "'{{ '{{.ID}}' }}'")
         if [[ "$ID" != "$USER_IMG_ID" ]]; then
             # If the image ID is not found or different from user, copy the image from user docker to root docker
             COPYTMP=$(mktemp -p /var/tmp -d -t _build_docker_scp.XXXXXXXXXX)
