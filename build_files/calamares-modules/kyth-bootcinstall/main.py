@@ -173,8 +173,20 @@ def run():
     _umount_recursive(old_root_mount)
 
     # ── 3. Run bootc install to-disk ─────────────────────────────────────────
-    # bootc wipes the disk, creates its own GPT + EFI + root partitions, and
-    # writes the OS image.  This is the only step that touches the disk.
+    # The Calamares partition exec job already formatted the disk before this
+    # module runs.  Destroy its partition table and filesystem signatures so
+    # bootc sees a completely blank disk and creates its own layout from scratch.
+    _log(f"zapping partition table on {disk}")
+    for cmd in (
+        ["sgdisk", "--zap-all", disk],   # destroy GPT + MBR partition tables
+        ["wipefs", "-a", disk],           # remove any remaining filesystem signatures
+        ["partprobe", disk],              # tell the kernel to reread the (now empty) table
+    ):
+        try:
+            subprocess.run(cmd, check=True, capture_output=True)
+        except subprocess.CalledProcessError:
+            pass  # best-effort; bootc will fail with a clear error if disk is unusable
+
     _log(f"running: bootc install to-disk {disk}")
     libcalamares.job.setprogress(0.03)
 
