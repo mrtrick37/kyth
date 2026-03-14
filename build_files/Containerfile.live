@@ -1,6 +1,7 @@
 # Live ISO variant of Kyth
 # Extends the full Kyth image with live session support.
-# Installation is handled by 'bootc install to-disk' via the desktop icon.
+# Installation is handled by Calamares (via the desktop icon), which calls
+# 'bootc install to-disk' through the kyth-bootcinstall job module.
 # Built by build-live-iso.sh; not pushed to the registry.
 
 FROM localhost/kyth:latest
@@ -13,6 +14,10 @@ FROM localhost/kyth:latest
 # grub2-pc:             i386-pc GRUB modules for BIOS GRUB2
 # gparted:              disk utility available on live desktop
 RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted && dnf5 clean all
+
+# ── Calamares graphical installer ─────────────────────────────────────────────
+# calamares pulls kpmcore (partition module) as a dependency.
+RUN dnf5 install -y calamares && dnf5 clean all
 
 # ── Ensure Plasma, SDDM, and session dependencies are installed ───────────────
 RUN dnf5 install -y \
@@ -87,16 +92,34 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/kdeglobals \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
-    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-install-launcher\nIcon=drive-harddisk\nTerminal=false\nType=Application\nCategories=System;\n' \
+    && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-calamares\nIcon=calamares\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
     && chown liveuser:liveuser /home/liveuser/.bash_profile
 
-# ── Kyth install launcher (desktop icon handler) ──────────────────────────────
-COPY build_files/kyth-install-launcher  /usr/bin/kyth-install-launcher
-RUN chmod +x /usr/bin/kyth-install-launcher
+# ── Calamares configuration ───────────────────────────────────────────────────
+COPY build_files/calamares/settings.conf        /etc/calamares/settings.conf
+COPY build_files/calamares/branding/kyth        /etc/calamares/branding/kyth
+COPY build_files/calamares/modules              /etc/calamares/modules
+
+# ── Custom Calamares modules ──────────────────────────────────────────────────
+# kyth-bootcinstall: the "script" in the scripted front-end strategy.
+#   Runs `bootc install to-disk`, then mounts the ostree deployment as
+#   rootMountPoint so the standard Calamares users exec jobs can chroot in
+#   to create the user account and write the hostname.
+# kyth-umount: recursive umount of the outer root-partition mount when done.
+COPY build_files/calamares-modules/kyth-bootcinstall \
+     /usr/lib/calamares/modules/kyth-bootcinstall
+COPY build_files/calamares-modules/kyth-umount \
+     /usr/lib/calamares/modules/kyth-umount
+
+# ── Kyth Calamares launcher (desktop icon handler) ────────────────────────────
+# Wraps 'sudo -E calamares' so liveuser's passwordless sudo runs it as root
+# while preserving the X11 display environment.
+COPY build_files/kyth-launch-calamares  /usr/bin/kyth-launch-calamares
+RUN chmod +x /usr/bin/kyth-launch-calamares
 
 # ── Rebuild initramfs with dmsquash-live ──────────────────────────────────────
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors on tmpfs /tmp.
