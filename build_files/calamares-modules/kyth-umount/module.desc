@@ -2,4 +2,5 @@
 type:      jobmodule
 name:      kyth-umount
 interface: python
+script:    main.py
 requires:  []
