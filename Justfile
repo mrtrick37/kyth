@@ -49,6 +49,70 @@ clean:
 sudo-clean:
     just sudoif just clean
 
+# Show a disk-usage summary: Docker images, build cache, and output/ ISOs
+[group('Utility')]
+disk-usage:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "── Docker ────────────────────────────────────────────────────────────────"
+    docker system df
+    echo ""
+    echo "── Output ISOs ───────────────────────────────────────────────────────────"
+    find output -name "*.iso" -o -name "*.qcow2" -o -name "*.raw" 2>/dev/null \
+        | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
+    echo ""
+    echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
+    find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
+
+# Remove old output ISOs — keeps only the current live ISO and current BIB ISO.
+# Deletes: output/previous-built-iso/, output/archive/, stale manifest backups.
+[group('Utility')]
+clean-output:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Cleaning stale output artefacts..."
+    sudo rm -rf output/previous-built-iso output/archive 2>/dev/null || true
+    sudo rm -f  output/manifest-iso.json.bak 2>/dev/null || true
+    sudo chown -R "$(id -u):$(id -g)" output/ 2>/dev/null || true
+    echo "Remaining output files:"
+    find output -name "*.iso" -o -name "*.qcow2" -o -name "*.raw" 2>/dev/null \
+        | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
+
+# Prune Docker build cache and dangling (unreferenced) image layers.
+# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:43).
+# Run after a build to recover the reclaimable space shown in 'just disk-usage'.
+[group('Utility')]
+clean-docker:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Pruning Docker build cache..."
+    docker builder prune -f
+    echo ""
+    echo "Pruning dangling image layers..."
+    docker image prune -f
+    echo ""
+    docker system df
+
+# Drop the kyth-live:build cache image so the next 'just build-live-iso' does a
+# full container rebuild from scratch.  Use this when the Containerfile.live has
+# changed in ways that Docker layer caching would miss (e.g. base image bumps).
+[group('Utility')]
+clean-live-cache:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if docker image inspect kyth-live:build >/dev/null 2>&1; then
+        docker rmi kyth-live:build
+        echo "Removed kyth-live:build. Next build-live-iso will rebuild from scratch."
+    else
+        echo "kyth-live:build not present — nothing to remove."
+    fi
+
+# Full local cleanup: stale outputs + Docker cache + live build cache.
+# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:43
+# since those are needed to build.
+[group('Utility')]
+clean-all: clean-output clean-docker clean-live-cache
+
 # Safely remove local build temp dirs and fix ownership of output/
 [group('Utility')]
 cleanup:
