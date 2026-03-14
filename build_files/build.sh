@@ -1,12 +1,3 @@
-# Early check for clang-devel before mesa-git build
-if ! rpm -q clang-devel >/dev/null 2>&1; then
-    echo "clang-devel not found, installing..."
-    dnf5 install -y clang-devel || { echo "ERROR: Failed to install clang-devel. Mesa-git build will fail."; exit 1; }
-fi
-# Install AMD and Nvidia drivers
-# AMD drivers (already included in mesa, mesa-dri-drivers, mesa-vulkan-drivers)
-dnf5 install -y mesa-dri-drivers mesa-vulkan-drivers
-# ...existing code...
 #!/bin/bash
 
 
@@ -156,10 +147,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         tmux
 
 ## Gaming tweaks — Bazzite-style
-## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-
-# ...existing code...
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -236,8 +224,6 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # amdgpu is in the CachyOS kernel; radv (Vulkan) is now from mesa-git above.
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
 dnf5 install -y libva-utils radeontop
-# ...existing code...
-# ...existing code...
 
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
@@ -275,7 +261,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
-sudo dnf5 install -y libclc
+dnf5 install -y libclc
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
