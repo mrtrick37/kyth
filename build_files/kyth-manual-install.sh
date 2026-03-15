@@ -2,135 +2,125 @@
 # kyth-manual-install.sh — Manual installer for Kyth from a live ISO session.
 #
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
-# Creates a scratch partition on the live USB, pulls the Kyth image there,
-# then installs to the target disk via bootc inside podman.
+#
+# Strategy: partition the target NVMe into a temporary scratch area + final
+# root/EFI partitions. Pull the image to scratch, then use
+# bootc install to-filesystem to write to the root partition — no conflict
+# since scratch and root are separate partitions on the same disk.
 #
 # Usage:
-#   sudo ./kyth-manual-install.sh [USB_DISK] [TARGET_DISK]
+#   sudo ./kyth-manual-install.sh [TARGET_DISK]
 #
-# Defaults:
-#   USB_DISK    /dev/sda        (live USB — free space used as scratch)
-#   TARGET_DISK /dev/nvme0n1    (disk to install Kyth onto — ALL DATA ERASED)
+# Default TARGET_DISK: /dev/nvme0n1
 
 set -euo pipefail
 
-USB="${1:-/dev/sda}"
-TARGET="${2:-/dev/nvme0n1}"
+TARGET="${1:-/dev/nvme0n1}"
 IMAGE="ghcr.io/mrtrick37/kyth:latest"
-MOUNT="/mnt/kyth-scratch"
+SCRATCH_MOUNT="/mnt/kyth-scratch"
+ROOT_MOUNT="/mnt/kyth-root"
 
 # ── Sanity checks ─────────────────────────────────────────────────────────────
 
-if [[ $EUID -ne 0 ]]; then
-    echo "ERROR: Run as root (sudo)." >&2
-    exit 1
-fi
-
-for dev in "$USB" "$TARGET"; do
-    if [[ ! -b "$dev" ]]; then
-        echo "ERROR: $dev is not a block device." >&2
-        exit 1
-    fi
-done
-
-if [[ "$USB" == "$TARGET" ]]; then
-    echo "ERROR: USB scratch disk and install target must be different devices." >&2
-    exit 1
-fi
+[[ $EUID -eq 0 ]]   || { echo "ERROR: Run as root (sudo)."; exit 1; }
+[[ -b "$TARGET" ]]  || { echo "ERROR: $TARGET is not a block device."; exit 1; }
 
 echo ""
 echo "=== Kyth Manual Installer ==="
 echo ""
-echo "  Scratch USB : $USB"
-echo "  Install to  : $TARGET"
-echo "  Image       : $IMAGE"
+echo "  Install to : $TARGET"
+echo "  Image      : $IMAGE"
+echo ""
+echo "  Partition layout that will be created on $TARGET:"
+echo "    p1  1MB    BIOS boot"
+echo "    p2  512MB  EFI"
+echo "    p3  20GB   Scratch (temporary — for pulling the image)"
+echo "    p4  rest   Root (Kyth OS)"
 echo ""
 echo "WARNING: ALL DATA on $TARGET will be erased."
-echo "         A new partition will be added to $USB (existing partitions untouched)."
 echo ""
 read -r -p "Type 'yes' to continue: " CONFIRM
 [[ "$CONFIRM" == "yes" ]] || { echo "Aborted."; exit 0; }
 
-# ── Unmount any existing mounts on the target disk ────────────────────────────
+# ── Unmount anything on the target disk ───────────────────────────────────────
 
 echo ""
 echo "==> Unmounting any existing mounts on $TARGET..."
-# Unmount in reverse order (deepest first)
+# Unmount deepest paths first
 while IFS= read -r mp; do
-    echo "    Unmounting $mp"
+    echo "    $mp"
     umount -l "$mp" 2>/dev/null || true
-done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp" | sort -r || true)
+done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp|^${SCRATCH_MOUNT}|^${ROOT_MOUNT}" | sort -r || true)
 
-# ── Create scratch partition on USB ───────────────────────────────────────────
+# ── Partition the target disk ─────────────────────────────────────────────────
 
 echo ""
-echo "==> Creating scratch partition on $USB using all free space..."
+echo "==> Partitioning $TARGET..."
+sgdisk --zap-all "$TARGET"
+sgdisk \
+    -n 1:0:+1M    -t 1:ef02 \
+    -n 2:0:+512M  -t 2:ef00 \
+    -n 3:0:+20G   -t 3:8300 \
+    -n 4:0:0      -t 4:8300 \
+    "$TARGET"
 
-# Clean up any ghost partition entries left by previous failed attempts
-echo "    Cleaning up any previous partition attempts..."
-for i in 4 5 6 7 8; do
-    sgdisk -d "$i" "$USB" 2>/dev/null || true
-done
-
-# Fix GPT backup header and create new partition in one operation
-echo "    Fixing GPT and creating scratch partition..."
-sgdisk -e -n 4:0:0 -t 4:8300 "$USB"
-
-# Drop stale kernel partition entries, then re-add from updated GPT
-partx -d --nr 4-8 "$USB" 2>/dev/null || true
-partx -a "$USB" 2>/dev/null || partprobe "$USB" 2>/dev/null || true
-sleep 2
+partx -u "$TARGET" 2>/dev/null || partprobe "$TARGET" 2>/dev/null || true
+sleep 3
 udevadm settle 2>/dev/null || true
 
-SCRATCH_PART="${USB}4"
+# ── Format partitions ─────────────────────────────────────────────────────────
 
-if [[ -z "$SCRATCH_PART" || "$SCRATCH_PART" == "$USB" ]]; then
-    echo "ERROR: Could not identify the new scratch partition on $USB." >&2
-    exit 1
-fi
+echo "==> Formatting partitions..."
+mkfs.fat -F32 "${TARGET}p2"
+mkfs.ext4 -F  "${TARGET}p3"
+mkfs.ext4 -F  "${TARGET}p4"
 
-echo "    Scratch partition: $SCRATCH_PART"
-
-# ── Format and mount ──────────────────────────────────────────────────────────
-
-echo "==> Formatting $SCRATCH_PART as ext4..."
-mkfs.ext4 -F "$SCRATCH_PART"
-
-echo "==> Mounting $SCRATCH_PART at $MOUNT..."
-mkdir -p "$MOUNT"
-mount "$SCRATCH_PART" "$MOUNT"
-mkdir -p "$MOUNT/tmp" "$MOUNT/containers"
-
-# ── Pull image ────────────────────────────────────────────────────────────────
+# ── Mount scratch and pull image ──────────────────────────────────────────────
 
 echo ""
-echo "==> Pulling $IMAGE to $SCRATCH_PART..."
+echo "==> Mounting scratch partition (${TARGET}p3)..."
+mkdir -p "$SCRATCH_MOUNT"
+mount "${TARGET}p3" "$SCRATCH_MOUNT"
+mkdir -p "$SCRATCH_MOUNT/tmp" "$SCRATCH_MOUNT/containers"
+
+echo ""
+echo "==> Pulling $IMAGE to scratch partition..."
 echo "    This will take a while depending on your connection."
 echo ""
-
-TMPDIR="$MOUNT/tmp" podman \
-    --root "$MOUNT/containers" \
-    --tmpdir "$MOUNT/tmp" \
+TMPDIR="$SCRATCH_MOUNT/tmp" podman \
+    --root "$SCRATCH_MOUNT/containers" \
+    --tmpdir "$SCRATCH_MOUNT/tmp" \
     pull "$IMAGE"
 
-# ── Install ───────────────────────────────────────────────────────────────────
+# ── Mount target root and install ─────────────────────────────────────────────
+
+echo ""
+echo "==> Mounting target root (${TARGET}p4) and EFI (${TARGET}p2)..."
+mkdir -p "$ROOT_MOUNT"
+mount "${TARGET}p4" "$ROOT_MOUNT"
+mkdir -p "$ROOT_MOUNT/boot/efi"
+mount "${TARGET}p2" "$ROOT_MOUNT/boot/efi"
 
 echo ""
 echo "==> Installing Kyth to $TARGET..."
 echo ""
-
 podman \
-    --root "$MOUNT/containers" \
+    --root "$SCRATCH_MOUNT/containers" \
     run --rm --privileged \
     --pid=host \
     --security-opt label=disable \
     -v /dev:/dev \
+    -v "${ROOT_MOUNT}:/target" \
     "$IMAGE" \
-    bootc install to-disk "$TARGET"
+    bootc install to-filesystem /target
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
 echo ""
 echo "Installation complete!"
-echo "Remove the live USB and reboot to start Kyth."
+echo ""
+echo "NOTE: ${TARGET}p3 is a 20GB scratch partition that can be deleted after"
+echo "      first boot with: sudo sgdisk -d 3 $TARGET"
+echo ""
+echo "Reboot now to start Kyth."
 echo ""
