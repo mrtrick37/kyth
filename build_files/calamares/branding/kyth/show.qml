@@ -64,7 +64,10 @@ Rectangle {
             }
         }
 
-        // Cycling status messages
+        // Phase-aware status messages.
+        // Each entry is [message, duration in ms].  The sequence mirrors the
+        // actual bootc install phases so the displayed text roughly tracks what
+        // is happening on disk.  The last message loops until install finishes.
         Text {
             id: statusText
             anchors.horizontalCenter: parent.horizontalCenter
@@ -72,23 +75,97 @@ Rectangle {
             color: "#9aa5ce"
             horizontalAlignment: Text.AlignHCenter
 
-            property var messages: [
-                "Writing OS image to disk…",
-                "Setting up bootloader…",
-                "Configuring ostree deployment…",
-                "Almost there…"
+            property var phases: [
+                ["Preparing target disk…",            3000],
+                ["Partitioning and formatting…",      4000],
+                ["Extracting OS image — this takes a few minutes…", 120000],
+                ["Writing filesystem layers…",        30000],
+                ["Committing ostree deployment…",     8000],
+                ["Installing bootloader…",            6000],
+                ["Configuring system…",               5000],
+                ["Finalizing installation…",          5000]
             ]
-            property int msgIndex: 0
-            text: messages[msgIndex]
+            property int phaseIndex: 0
+            text: phases[0][0]
 
             Timer {
-                interval: 4000
+                id: phaseTimer
+                interval: statusText.phases[0][1]
+                running: true
+                repeat: false
+                onTriggered: {
+                    var next = statusText.phaseIndex + 1
+                    if (next < statusText.phases.length) {
+                        statusText.phaseIndex = next
+                        statusText.text = statusText.phases[next][0]
+                        phaseTimer.interval = statusText.phases[next][1]
+                        // Loop on the last phase until Calamares closes the slideshow
+                        phaseTimer.repeat = (next === statusText.phases.length - 1)
+                        phaseTimer.restart()
+                    }
+                }
+            }
+        }
+
+        // Sub-progress bar — shows bytes written to the target disk in real time.
+        // Reads /sys/block/<dev>/stat sector count every 500 ms.
+        // Gives the user concrete evidence that something is happening.
+        Rectangle {
+            id: subProgressTrack
+            anchors.horizontalCenter: parent.horizontalCenter
+            width: 320
+            height: 4
+            radius: 2
+            color: "#313244"
+
+            property real writtenFraction: 0.0
+
+            // Sector counter from /sys/block/<dev>/stat field 7 (sectors written)
+            // We find the largest block device that is being written to.
+            Timer {
+                interval: 500
                 running: true
                 repeat: true
                 onTriggered: {
-                    statusText.msgIndex = (statusText.msgIndex + 1) % statusText.messages.length
+                    // Qt doesn't expose /sys directly; use XMLHttpRequest to read
+                    // the file synchronously (works for /sys on Linux).
+                    var devices = ["vda","sda","sdb","nvme0n1","nvme1n1"]
+                    var maxWritten = 0
+                    for (var i = 0; i < devices.length; i++) {
+                        var xhr = new XMLHttpRequest()
+                        xhr.open("GET", "file:///sys/block/" + devices[i] + "/stat", false)
+                        try {
+                            xhr.send()
+                            if (xhr.status === 0 && xhr.responseText.length > 0) {
+                                var fields = xhr.responseText.trim().split(/\s+/)
+                                // field index 6 = sectors written (512-byte sectors)
+                                var sectors = parseInt(fields[6]) || 0
+                                if (sectors > maxWritten) maxWritten = sectors
+                            }
+                        } catch(e) {}
+                    }
+                    // 25 GB target image → ~52 428 800 sectors; cap at 90% so bar
+                    // never appears complete before Calamares closes the slideshow.
+                    var TARGET_SECTORS = 52428800
+                    subProgressTrack.writtenFraction =
+                        Math.min(maxWritten / TARGET_SECTORS, 0.90)
                 }
             }
+
+            Rectangle {
+                width: subProgressTrack.width * subProgressTrack.writtenFraction
+                height: parent.height
+                radius: parent.radius
+                color: "#7aa2f7"
+                Behavior on width { SmoothedAnimation { velocity: 8 } }
+            }
+        }
+
+        Text {
+            anchors.horizontalCenter: parent.horizontalCenter
+            font.pixelSize: 11
+            color: "#565f89"
+            text: Math.round(subProgressTrack.writtenFraction * 100) + "% written to disk"
         }
 
         Text {

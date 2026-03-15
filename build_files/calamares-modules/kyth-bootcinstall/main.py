@@ -244,22 +244,89 @@ def run():
     os.close(log_fd)
     _log(f"bootc output log: {log_path}")
 
+    # ── Stream bootc output and derive real progress ───────────────────────────
+    # bootc log lines contain keywords that map to distinct install phases.
+    # Progress moves from 0.05 → 0.88 as the phases advance; the remaining
+    # 0.88 → 1.0 is used by the mount/chroot setup steps below.
+    #
+    # Within the layer-copying phase (0.20 → 0.76) we use an asymptotic curve
+    # so the bar advances visibly on every layer line without overshooting.
+    #
+    # Patterns are intentionally broad so they survive minor bootc log changes.
+    _PHASE_PATTERNS = [
+        # (regex,                           progress_floor)
+        (r"[Vv]erif|[Pp]repar",            0.05),
+        (r"[Pp]artition|sgdisk|gdisk",     0.10),
+        (r"[Ff]ormat|mkfs",                0.15),
+        (r"[Pp]ull|[Ff]etch|[Cc]opy|layer|sha256", 0.20),  # layer region handled below
+        (r"ostree|commit",                 0.77),
+        (r"bootload|grub|[Ee][Ff][Ii]",   0.81),
+        (r"[Cc]onfigur",                   0.85),
+        (r"[Ff]inaliz|[Cc]omplete|[Dd]one", 0.88),
+    ]
+    _LAYER_RE = re.compile(
+        r"[Pp]ull|[Ff]etch|[Cc]opy|layer|sha256", re.IGNORECASE
+    )
+    _POSTLAYER_RE = re.compile(
+        r"ostree|commit|bootload|grub|efi|configur|finaliz|complete|done",
+        re.IGNORECASE,
+    )
+
     try:
         with open(log_path, "w") as log_fh:
-            result = subprocess.run(
+            proc = subprocess.Popen(
                 [
                     "bootc", "install", "to-disk",
                     "--source-imgref", BUNDLED_IMGREF,
                     "--target-imgref", TARGET_IMGREF,
                     "--filesystem", "xfs",
-                    "--skip-fetch-check",   # don't reach out to registry during install
+                    "--skip-fetch-check",
                     disk,
                 ],
-                check=True,
-                stdout=log_fh,
-                stderr=subprocess.STDOUT,  # merge stderr into same log
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
                 env={**os.environ, "TMPDIR": "/var/tmp"},
             )
+
+            current_progress = 0.05
+            in_layers = False
+            layer_count = 0
+            _LAYER_START = 0.20
+            _LAYER_END   = 0.76
+
+            for raw in proc.stdout:
+                line = raw.decode("utf-8", errors="replace").rstrip()
+                log_fh.write(line + "\n")
+                log_fh.flush()
+
+                if in_layers:
+                    if _POSTLAYER_RE.search(line):
+                        # Exited layer phase — jump to next milestone
+                        in_layers = False
+                        current_progress = max(current_progress, 0.77)
+                        libcalamares.job.setprogress(current_progress)
+                    elif _LAYER_RE.search(line):
+                        # Each layer line pushes the bar asymptotically toward LAYER_END
+                        layer_count += 1
+                        span = _LAYER_END - _LAYER_START
+                        current_progress = _LAYER_END - span * (0.93 ** layer_count)
+                        libcalamares.job.setprogress(current_progress)
+                else:
+                    for pattern, floor in _PHASE_PATTERNS:
+                        if re.search(pattern, line, re.IGNORECASE):
+                            if floor == 0.20:
+                                in_layers = True
+                                layer_count = 0
+                                current_progress = _LAYER_START
+                            elif floor > current_progress:
+                                current_progress = floor
+                            libcalamares.job.setprogress(current_progress)
+                            break
+
+            proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, "bootc")
+
     except subprocess.CalledProcessError as e:
         try:
             with open(log_path) as lf:
