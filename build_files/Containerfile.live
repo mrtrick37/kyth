@@ -63,8 +63,21 @@ RUN systemctl enable sddm && systemctl set-default graphical.target
 # ── Create live user with passwordless sudo ───────────────────────────────────
 RUN useradd -c "Live User" -G wheel liveuser \
     && passwd -d liveuser \
+    && usermod -aG autologin liveuser 2>/dev/null || true \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser
+
+# ── PAM: allow SDDM autologin without a password ─────────────────────────────
+# Without pam_permit.so in the auth stack, SDDM falls back to the greeter
+# even when Autologin is configured and the account has no password.
+RUN printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
+    > /etc/pam.d/sddm-autologin
+
+# ── Mask kyth-sddm-setup so it doesn't run in the live session ───────────────
+# kyth-sddm-setup (from the base image) detects VMs and writes an X11 override.
+# The live session already has X11 forced via autologin.conf, so the service
+# is redundant here and could cause ordering conflicts.
+RUN systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
 # ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
 # Force X11 only: both xsessions and wayland-sessions ship a file named

@@ -4,8 +4,18 @@ on:
   workflow_dispatch:
 
 jobs:
-  build-live-iso:
+  # ── Job 1: Build the live container image and push it to GHCR ───────────────
+  # Isolated so the Docker overlay2 storage never competes with the rootfs
+  # export + squashfs that happen in job 2.
+  build-live-container:
+    name: Build live container
     runs-on: ubuntu-latest
+    permissions:
+      packages: write
+
+    outputs:
+      image-ref: ${{ steps.push.outputs.image-ref }}
+
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,33 +30,14 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Move Docker data directory to /mnt
-        # /mnt on GitHub runners is ~65 GB; / is only ~14 GB after cleanup.
-        # The live ISO build needs ~25 GB for Docker layers + rootfs + squashfs.
+      - name: Install just
         run: |
-          sudo systemctl stop docker
-          sudo mkdir -p /mnt/docker
-          echo '{"data-root":"/mnt/docker"}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl start docker
-          sudo systemctl is-active docker
-
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            xorriso squashfs-tools mtools dosfstools git skopeo \
-            grub-common grub-pc-bin grub-efi-amd64-bin
-          # Install just via official script (not in Ubuntu default repos)
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
             | sudo bash -s -- --to /usr/local/bin
-          # build-live-iso.sh uses Fedora-style grub2-* command names; symlink them
-          sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
-          sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
 
       - name: Pull base image from GHCR
         # Reuse the image already built and pushed by build.yml instead of
         # rebuilding from kinoite-main:43 (saves ~10 GB of disk and build time).
-        # Falls back to building locally if the GHCR image is not yet available.
         run: |
           GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
           if docker pull "${GHCR_IMAGE}"; then
@@ -57,17 +48,90 @@ jobs:
             just build-base
           fi
 
+      - name: Build live container image
+        run: |
+          docker build \
+            -f build_files/Containerfile.live \
+            -t kyth-live:build \
+            .
+
+      - name: Push live container to GHCR
+        id: push
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
+          docker tag kyth-live:build "${IMAGE}"
+          docker push "${IMAGE}"
+          echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
+
+  # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
+  # Fresh runner — Docker image is pulled then immediately removed after export
+  # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
+  build-iso:
+    name: Build ISO
+    needs: build-live-container
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xorriso squashfs-tools mtools dosfstools git skopeo \
+            grub-common grub-pc-bin grub-efi-amd64-bin
+          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
+            | sudo bash -s -- --to /usr/local/bin
+          sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
+          sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
+
+      - name: Pull pre-built live container
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull "${{ needs.build-live-container.outputs.image-ref }}"
+          docker tag  "${{ needs.build-live-container.outputs.image-ref }}" kyth-live:build
+
       - name: Ensure permissions and directories
         run: |
           mkdir -p output/live-iso
           chmod -R 777 output
           chmod -R 777 build_files
           chmod +x build_files/build-live-iso.sh
-          chmod +x build_files/build.sh
 
       - name: Build Live ISO
+        # kyth-live:build already exists so build-live-iso.sh skips the Docker
+        # build step and goes straight to container export + squashfs + ISO.
+        # Prune Docker storage right after the container is exported to reclaim
+        # the ~10 GB overlay2 footprint before squashfs runs.
         run: |
-          just build-live-iso
+          just build-live-iso &
+          BUILD_PID=$!
+
+          # Wait for the container export to finish (ROOTFS will appear),
+          # then prune Docker to free overlay2 space before squashfs starts.
+          while kill -0 $BUILD_PID 2>/dev/null; do
+            ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
+            if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
+              echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
+              docker system prune -af || true
+              break
+            fi
+            sleep 5
+          done
+
+          wait $BUILD_PID
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4

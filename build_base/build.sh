@@ -81,6 +81,54 @@ cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
 kargs = ["plymouth.enable=0"]
 KARGSEOF
 
+# ── SDDM — ensure graphical target ───────────────────────────────────────────
+systemctl enable sddm 2>/dev/null || true
+systemctl set-default graphical.target 2>/dev/null || true
+
+# ── VM-aware display server detection ────────────────────────────────────────
+# On real hardware: SDDM uses Wayland (KDE default, best experience).
+# In a VM (QEMU/VirtualBox/VMware): force X11 since kwin_wayland needs
+# virgl/EGL which most VMs don't provide, causing a black screen.
+# systemd-detect-virt runs at boot so the choice is made at runtime,
+# not baked into the image.
+mkdir -p /usr/lib/kyth
+cat > /usr/lib/kyth/sddm-display-setup <<'SETUPEOF'
+#!/bin/bash
+CONF=/etc/sddm.conf.d/10-vm-display.conf
+if systemd-detect-virt -q 2>/dev/null; then
+    mkdir -p /etc/sddm.conf.d
+    cat > "${CONF}" <<'EOF'
+[General]
+DisplayServer=x11
+
+[X11]
+SessionDir=/usr/share/xsessions
+
+[Wayland]
+SessionDir=
+EOF
+else
+    rm -f "${CONF}"
+fi
+SETUPEOF
+chmod +x /usr/lib/kyth/sddm-display-setup
+
+cat > /usr/lib/systemd/system/kyth-sddm-setup.service <<'UNITEOF'
+[Unit]
+Description=Kyth: configure SDDM display server for current hardware
+Before=sddm.service
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/lib/kyth/sddm-display-setup
+RemainAfterExit=yes
+
+[Install]
+WantedBy=graphical.target
+UNITEOF
+systemctl enable kyth-sddm-setup.service 2>/dev/null || true
+
 # ── Kyth wallpaper ────────────────────────────────────────────────────────────
 # Install the wallpaper and set it as the default for all new users via skel.
 # KDE's org.kde.image plugin supports SVG natively — no PNG conversion needed.

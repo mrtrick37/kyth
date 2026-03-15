@@ -107,9 +107,8 @@ Rectangle {
             }
         }
 
-        // Sub-progress bar — shows bytes written to the target disk in real time.
-        // Reads /sys/block/<dev>/stat sector count every 500 ms.
-        // Gives the user concrete evidence that something is happening.
+        // Sub-progress bar — driven by /tmp/kyth-install-progress written by
+        // the Python install module every 1.5 s.  First line is a 0.0–1.0 float.
         Rectangle {
             id: subProgressTrack
             anchors.horizontalCenter: parent.horizontalCenter
@@ -118,46 +117,29 @@ Rectangle {
             radius: 2
             color: "#313244"
 
-            property real writtenFraction: 0.0
+            property real fraction: 0.0
 
-            // Sector counter from /sys/block/<dev>/stat field 7 (sectors written)
-            // We find the largest block device that is being written to.
             Timer {
-                interval: 500
+                interval: 1500
                 running: true
                 repeat: true
                 onTriggered: {
-                    // Qt doesn't expose /sys directly; use XMLHttpRequest to read
-                    // the file synchronously (works for /sys on Linux).
-                    var devices = ["vda","sda","sdb","nvme0n1","nvme1n1"]
-                    var maxWritten = 0
-                    for (var i = 0; i < devices.length; i++) {
-                        var xhr = new XMLHttpRequest()
-                        xhr.open("GET", "file:///sys/block/" + devices[i] + "/stat", false)
-                        try {
-                            xhr.send()
-                            if (xhr.status === 0 && xhr.responseText.length > 0) {
-                                var fields = xhr.responseText.trim().split(/\s+/)
-                                // field index 6 = sectors written (512-byte sectors)
-                                var sectors = parseInt(fields[6]) || 0
-                                if (sectors > maxWritten) maxWritten = sectors
-                            }
-                        } catch(e) {}
-                    }
-                    // 25 GB target image → ~52 428 800 sectors; cap at 90% so bar
-                    // never appears complete before Calamares closes the slideshow.
-                    var TARGET_SECTORS = 52428800
-                    subProgressTrack.writtenFraction =
-                        Math.min(maxWritten / TARGET_SECTORS, 0.90)
+                    var xhr = new XMLHttpRequest()
+                    xhr.open("GET", "file:///tmp/kyth-install-progress", false)
+                    try {
+                        xhr.send()
+                        var val = parseFloat(xhr.responseText) || 0
+                        if (val > 0) subProgressTrack.fraction = Math.min(val, 1.0)
+                    } catch(e) {}
                 }
             }
 
             Rectangle {
-                width: subProgressTrack.width * subProgressTrack.writtenFraction
+                width: subProgressTrack.width * subProgressTrack.fraction
                 height: parent.height
                 radius: parent.radius
                 color: "#7aa2f7"
-                Behavior on width { SmoothedAnimation { velocity: 8 } }
+                Behavior on width { SmoothedAnimation { velocity: 6 } }
             }
         }
 
@@ -165,7 +147,7 @@ Rectangle {
             anchors.horizontalCenter: parent.horizontalCenter
             font.pixelSize: 11
             color: "#565f89"
-            text: Math.round(subProgressTrack.writtenFraction * 100) + "% written to disk"
+            text: Math.round(subProgressTrack.fraction * 100) + "% complete"
         }
 
         Text {
