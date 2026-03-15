@@ -4,7 +4,8 @@
 # 'bootc install to-disk' through the kyth-bootcinstall job module.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-FROM localhost/kyth:latest
+ARG BASE_IMAGE=localhost/kyth:latest
+FROM ${BASE_IMAGE}
 
 # ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
 # dracut-live:          dmsquash-live module for squashfs live boot
