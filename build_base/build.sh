@@ -85,19 +85,19 @@ KARGSEOF
 systemctl enable sddm 2>/dev/null || true
 systemctl set-default graphical.target 2>/dev/null || true
 
-# ── VM-aware display server detection ────────────────────────────────────────
-# On real hardware: SDDM uses Wayland (KDE default, best experience).
-# In a VM (QEMU/VirtualBox/VMware): force X11 since kwin_wayland needs
-# virgl/EGL which most VMs don't provide, causing a black screen.
-# systemd-detect-virt runs at boot so the choice is made at runtime,
-# not baked into the image.
-mkdir -p /usr/lib/kyth
-cat > /usr/lib/kyth/sddm-display-setup <<'SETUPEOF'
-#!/bin/bash
-CONF=/etc/sddm.conf.d/10-vm-display.conf
-if systemd-detect-virt -q 2>/dev/null; then
-    mkdir -p /etc/sddm.conf.d
-    cat > "${CONF}" <<'EOF'
+# Mask bootloader-update.service: this ostree/rpm-ostree service tries to
+# update the bootloader on every boot but always fails in our bootc image,
+# producing noisy FAILED entries in the boot log.
+systemctl mask bootloader-update.service 2>/dev/null || true
+
+# ── SDDM display server: X11 default, Wayland on confirmed real hardware ─────
+# X11 is baked in as the image default so SDDM always has a working config
+# even if kyth-sddm-setup fails to run (e.g. during the D-Bus race at boot).
+# kyth-sddm-setup then upgrades to Wayland only when systemd-detect-virt
+# confirms the system is NOT a VM, giving the best experience on real hardware
+# without risking a blank screen in VMs.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/10-display-server.conf <<'EOF'
 [General]
 DisplayServer=x11
 
@@ -108,8 +108,23 @@ MinimumVT=1
 [Wayland]
 SessionDir=
 EOF
+
+mkdir -p /usr/lib/kyth
+cat > /usr/lib/kyth/sddm-display-setup <<'SETUPEOF'
+#!/bin/bash
+CONF=/etc/sddm.conf.d/10-display-server.conf
+# Only switch to Wayland if we are confirmed to be on real hardware.
+# If systemd-detect-virt exits non-zero (not a VM), upgrade to Wayland.
+# Any other outcome leaves the X11 default in place.
+if systemd-detect-virt -q 2>/dev/null; then
+    # Running in a VM — keep the X11 default already in ${CONF}
+    echo "kyth-sddm-setup: VM detected, keeping X11 display server"
 else
-    rm -f "${CONF}"
+    echo "kyth-sddm-setup: bare-metal detected, switching to Wayland"
+    cat > "${CONF}" <<'EOF'
+[General]
+DisplayServer=wayland
+EOF
 fi
 SETUPEOF
 chmod +x /usr/lib/kyth/sddm-display-setup
