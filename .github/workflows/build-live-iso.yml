@@ -17,14 +17,24 @@ jobs:
           dotnet: true
           haskell: true
           large-packages: true
-          docker-images: false
+          docker-images: true
           swap-storage: true
+
+      - name: Move Docker data directory to /mnt
+        # /mnt on GitHub runners is ~65 GB; / is only ~14 GB after cleanup.
+        # The live ISO build needs ~25 GB for Docker layers + rootfs + squashfs.
+        run: |
+          sudo systemctl stop docker
+          sudo mkdir -p /mnt/docker
+          echo '{"data-root":"/mnt/docker"}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          sudo systemctl is-active docker
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            xorriso squashfs-tools mtools dosfstools git \
+            xorriso squashfs-tools mtools dosfstools git skopeo \
             grub-common grub-pc-bin grub-efi-amd64-bin
           # Install just via official script (not in Ubuntu default repos)
           curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
@@ -32,6 +42,20 @@ jobs:
           # build-live-iso.sh uses Fedora-style grub2-* command names; symlink them
           sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
           sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
+
+      - name: Pull base image from GHCR
+        # Reuse the image already built and pushed by build.yml instead of
+        # rebuilding from kinoite-main:43 (saves ~10 GB of disk and build time).
+        # Falls back to building locally if the GHCR image is not yet available.
+        run: |
+          GHCR_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          if docker pull "${GHCR_IMAGE}"; then
+            docker tag "${GHCR_IMAGE}" localhost/kyth:latest
+            echo "Using GHCR image: ${GHCR_IMAGE}"
+          else
+            echo "GHCR image not available; building base image locally..."
+            just build-base
+          fi
 
       - name: Ensure permissions and directories
         run: |
