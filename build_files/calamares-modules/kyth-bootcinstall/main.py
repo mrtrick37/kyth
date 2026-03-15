@@ -24,10 +24,13 @@
 # (which chroot into rootMountPoint to create the user account and write the
 # hostname), then `kyth-umount` cleans up the mounts.
 
+import math
 import os
 import re
 import subprocess
 import tempfile
+import threading
+import time
 
 import libcalamares
 
@@ -239,42 +242,48 @@ def run():
     _log(f"running: bootc install to-disk {disk}")
     libcalamares.job.setprogress(0.03)
 
-    import tempfile as _tempfile
-    log_fd, log_path = _tempfile.mkstemp(prefix="bootc-install.", suffix=".log")
+    log_fd, log_path = tempfile.mkstemp(prefix="bootc-install.", suffix=".log")
     os.close(log_fd)
     _log(f"bootc output log: {log_path}")
 
-    # ── Stream bootc output and derive real progress ───────────────────────────
-    # bootc log lines contain keywords that map to distinct install phases.
-    # Progress moves from 0.05 → 0.88 as the phases advance; the remaining
-    # 0.88 → 1.0 is used by the mount/chroot setup steps below.
-    #
-    # Within the layer-copying phase (0.20 → 0.76) we use an asymptotic curve
-    # so the bar advances visibly on every layer line without overshooting.
-    #
-    # Patterns are intentionally broad so they survive minor bootc log changes.
-    _PHASE_PATTERNS = [
-        # (regex,                           progress_floor)
-        (r"[Vv]erif|[Pp]repar",            0.05),
-        (r"[Pp]artition|sgdisk|gdisk",     0.10),
-        (r"[Ff]ormat|mkfs",                0.15),
-        (r"[Pp]ull|[Ff]etch|[Cc]opy|layer|sha256", 0.20),  # layer region handled below
-        (r"ostree|commit",                 0.77),
-        (r"bootload|grub|[Ee][Ff][Ii]",   0.81),
-        (r"[Cc]onfigur",                   0.85),
-        (r"[Ff]inaliz|[Cc]omplete|[Dd]one", 0.88),
-    ]
-    _LAYER_RE = re.compile(
-        r"[Pp]ull|[Ff]etch|[Cc]opy|layer|sha256", re.IGNORECASE
-    )
-    _POSTLAYER_RE = re.compile(
-        r"ostree|commit|bootload|grub|efi|configur|finaliz|complete|done",
-        re.IGNORECASE,
-    )
+    # Status file read by show.qml to drive the sub-progress bar.
+    STATUS_FILE = "/tmp/kyth-install-progress"
+
+    def _write_status(value, label=""):
+        try:
+            with open(STATUS_FILE, "w") as f:
+                f.write(f"{value:.4f}\n{label}\n")
+        except OSError:
+            pass
+
+    # ── Time-based progress thread ─────────────────────────────────────────────
+    # bootc block-buffers stdout when piped, so log lines arrive only at the end.
+    # Instead, drive the Calamares progress bar from elapsed time using an
+    # asymptotic curve: fast early movement that slows as it approaches 0.88.
+    # The thread writes the same value to STATUS_FILE so the QML sub-bar can
+    # read it without needing sysfs access.
+    _stop_event = threading.Event()
+
+    def _progress_thread():
+        TARGET    = 0.88   # leave 0.88→1.0 for mount/chroot steps
+        HALF_TIME = 120    # seconds to reach 50% of TARGET (typical install ~4 min)
+        start     = time.monotonic()
+        while not _stop_event.is_set():
+            elapsed  = time.monotonic() - start
+            # Exponential approach: progress = TARGET * (1 - e^(-k*t))
+            k        = math.log(2) / HALF_TIME
+            value    = TARGET * (1.0 - math.exp(-k * elapsed))
+            value    = min(value, TARGET)
+            libcalamares.job.setprogress(value)
+            _write_status(value / TARGET)   # 0→1 fraction for QML
+            time.sleep(1.5)
+
+    t = threading.Thread(target=_progress_thread, daemon=True)
+    t.start()
 
     try:
         with open(log_path, "w") as log_fh:
-            proc = subprocess.Popen(
+            result = subprocess.run(
                 [
                     "bootc", "install", "to-disk",
                     "--source-imgref", BUNDLED_IMGREF,
@@ -283,51 +292,13 @@ def run():
                     "--skip-fetch-check",
                     disk,
                 ],
-                stdout=subprocess.PIPE,
+                check=True,
+                stdout=log_fh,
                 stderr=subprocess.STDOUT,
                 env={**os.environ, "TMPDIR": "/var/tmp"},
             )
-
-            current_progress = 0.05
-            in_layers = False
-            layer_count = 0
-            _LAYER_START = 0.20
-            _LAYER_END   = 0.76
-
-            for raw in proc.stdout:
-                line = raw.decode("utf-8", errors="replace").rstrip()
-                log_fh.write(line + "\n")
-                log_fh.flush()
-
-                if in_layers:
-                    if _POSTLAYER_RE.search(line):
-                        # Exited layer phase — jump to next milestone
-                        in_layers = False
-                        current_progress = max(current_progress, 0.77)
-                        libcalamares.job.setprogress(current_progress)
-                    elif _LAYER_RE.search(line):
-                        # Each layer line pushes the bar asymptotically toward LAYER_END
-                        layer_count += 1
-                        span = _LAYER_END - _LAYER_START
-                        current_progress = _LAYER_END - span * (0.93 ** layer_count)
-                        libcalamares.job.setprogress(current_progress)
-                else:
-                    for pattern, floor in _PHASE_PATTERNS:
-                        if re.search(pattern, line, re.IGNORECASE):
-                            if floor == 0.20:
-                                in_layers = True
-                                layer_count = 0
-                                current_progress = _LAYER_START
-                            elif floor > current_progress:
-                                current_progress = floor
-                            libcalamares.job.setprogress(current_progress)
-                            break
-
-            proc.wait()
-            if proc.returncode != 0:
-                raise subprocess.CalledProcessError(proc.returncode, "bootc")
-
     except subprocess.CalledProcessError as e:
+        _stop_event.set()
         try:
             with open(log_path) as lf:
                 detail = lf.read().strip()
@@ -340,7 +311,10 @@ def run():
             "Installation failed",
             f"bootc install to-disk failed (exit code {e.returncode}).\n\n{body}",
         )
+    finally:
+        _stop_event.set()
 
+    _write_status(1.0)
     libcalamares.job.setprogress(0.90)
 
     # ── 4. Find the root partition bootc created ──────────────────────────────
