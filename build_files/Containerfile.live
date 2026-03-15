@@ -95,7 +95,7 @@ RUN mkdir -p /etc/sddm.conf.d \
     else \
         session="plasma"; \
     fi; \
-    printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
+    printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\nMinimumVT=1\n\n[Wayland]\nSessionDir=\n\n[Autologin]\nUser=liveuser\nSession=%s\nRelogin=true\n\n[Theme]\nCurrent=breeze\n' "$session" > /etc/sddm.conf.d/autologin.conf \
     && printf '[General]\nDisplayServer=x11\n' > /etc/sddm.conf.d/00-force-x11.conf
 
 # ── Liveuser home: Breeze Dark + "Install Kyth" desktop shortcut ─────────────

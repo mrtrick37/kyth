@@ -103,6 +103,7 @@ DisplayServer=x11
 
 [X11]
 SessionDir=/usr/share/xsessions
+MinimumVT=1
 
 [Wayland]
 SessionDir=
