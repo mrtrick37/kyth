@@ -97,10 +97,19 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/.config/plasmarc \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-calamares\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
+    && printf '[Containments][1]\nwallpaperplugin=org.kde.image\n\n[Containments][1][Wallpaper][org.kde.image][General]\nImage=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg\n' \
+        > /home/liveuser/.config/plasma-org.kde.plasma.desktop-appletsrc \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
     && chown liveuser:liveuser /home/liveuser/.bash_profile
+
+# ── Kyth wallpaper ────────────────────────────────────────────────────────────
+RUN mkdir -p /usr/share/wallpapers/kyth/contents/images
+COPY build_files/wallpaper/kyth-wallpaper.svg \
+     /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+RUN printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+    > /usr/share/wallpapers/kyth/metadata.json
 
 # ── Kyth icon — hicolor app icon + application launcher branding ──────────────
 # Installed to three places:
