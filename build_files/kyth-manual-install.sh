@@ -73,13 +73,13 @@ sgdisk -e "$USB" 2>/dev/null || true
 # Create a new partition using all remaining free space (partition number 0 = next available)
 sgdisk -n 0:0:0 -t 0:8300 "$USB"
 
-# Re-read partition table and wait for the new partition node to appear
-partprobe "$USB" 2>/dev/null || true
-sleep 2
+# Force kernel to reread partition table
+partx -u "$USB" 2>/dev/null || partprobe "$USB" 2>/dev/null || true
+sleep 3
 udevadm settle 2>/dev/null || true
 
-# Find highest-numbered partition on USB (the one we just created)
-SCRATCH_PART=$(lsblk -pno NAME "$USB" | grep -v "^${USB}$" | sort -V | tail -1)
+# Find highest-numbered partition on USB using glob (avoids lsblk tree chars)
+SCRATCH_PART=$(ls "${USB}"?* 2>/dev/null | sort -V | tail -1)
 
 if [[ -z "$SCRATCH_PART" || "$SCRATCH_PART" == "$USB" ]]; then
     echo "ERROR: Could not identify the new scratch partition on $USB." >&2
