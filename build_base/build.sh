@@ -68,8 +68,8 @@ TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --kver "${CACHYOS_KVER}" \
     --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs.img"
-echo "initramfs.img generated at /usr/lib/modules/${CACHYOS_KVER}/initramfs.img"
+    "/usr/lib/modules/${CACHYOS_KVER}/initramfs"
+echo "initramfs generated at /usr/lib/modules/${CACHYOS_KVER}/initramfs"
 
 # Disable Plymouth on the installed system — bootc inherits kernel args from
 # the running live ISO (which includes 'quiet splash'), causing plymouthd to
