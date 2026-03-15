@@ -120,7 +120,9 @@ podman run --rm --privileged \
     -v "${ROOT_MOUNT}:/target" \
     -v /run/containers:/run/containers \
     "$IMAGE" \
-    bootc install to-filesystem /target
+    bootc install to-filesystem \
+        --source-imgref "containers-storage:${IMAGE}" \
+        /target
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
