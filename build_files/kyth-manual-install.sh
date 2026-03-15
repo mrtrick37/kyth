@@ -2,15 +2,15 @@
 # kyth-manual-install.sh — Manual installer for Kyth from a live ISO session.
 #
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
-# Pulls the Kyth image onto free space on the live USB, then installs to the
-# target NVMe/SATA disk via bootc.
+# Creates a scratch partition on the live USB, pulls the Kyth image there,
+# then installs to the target disk via bootc inside podman.
 #
 # Usage:
 #   sudo ./kyth-manual-install.sh [USB_DISK] [TARGET_DISK]
 #
 # Defaults:
 #   USB_DISK    /dev/sda        (live USB — free space used as scratch)
-#   TARGET_DISK /dev/nvme0n1    (disk to install Kyth onto)
+#   TARGET_DISK /dev/nvme0n1    (disk to install Kyth onto — ALL DATA ERASED)
 
 set -euo pipefail
 
@@ -26,15 +26,12 @@ if [[ $EUID -ne 0 ]]; then
     exit 1
 fi
 
-if [[ ! -b "$USB" ]]; then
-    echo "ERROR: $USB is not a block device." >&2
-    exit 1
-fi
-
-if [[ ! -b "$TARGET" ]]; then
-    echo "ERROR: $TARGET is not a block device." >&2
-    exit 1
-fi
+for dev in "$USB" "$TARGET"; do
+    if [[ ! -b "$dev" ]]; then
+        echo "ERROR: $dev is not a block device." >&2
+        exit 1
+    fi
+done
 
 if [[ "$USB" == "$TARGET" ]]; then
     echo "ERROR: USB scratch disk and install target must be different devices." >&2
@@ -49,30 +46,51 @@ echo "  Install to  : $TARGET"
 echo "  Image       : $IMAGE"
 echo ""
 echo "WARNING: ALL DATA on $TARGET will be erased."
-echo "         A new partition will be added to $USB (existing data untouched)."
+echo "         A new partition will be added to $USB (existing partitions untouched)."
 echo ""
 read -r -p "Type 'yes' to continue: " CONFIRM
 [[ "$CONFIRM" == "yes" ]] || { echo "Aborted."; exit 0; }
 
+# ── Unmount any existing mounts on the target disk ────────────────────────────
+
+echo ""
+echo "==> Unmounting any existing mounts on $TARGET..."
+# Unmount in reverse order (deepest first)
+while IFS= read -r mp; do
+    echo "    Unmounting $mp"
+    umount -l "$mp" 2>/dev/null || true
+done < <(findmnt -rno TARGET | grep -E "^/var/mnt/tmp" | sort -r || true)
+
 # ── Create scratch partition on USB ───────────────────────────────────────────
 
 echo ""
-echo "==> Creating scratch partition on $USB (using free space)..."
+echo "==> Creating scratch partition on $USB using all free space..."
 
-# Append a new partition covering all remaining free space
-echo ',,L' | sfdisk --append --no-reread "$USB"
+# Use parted to create a partition in the remaining free space
+START_MB=$(parted -s "$USB" unit MB print free \
+    | awk '/Free Space/ {print $1}' \
+    | tail -1 \
+    | tr -d 'MB')
 
-# Re-read partition table
+if [[ -z "$START_MB" ]]; then
+    echo "ERROR: No free space found on $USB." >&2
+    echo "       Check 'parted $USB unit MB print free'" >&2
+    exit 1
+fi
+
+echo "    Free space starts at ${START_MB}MB"
+parted -s "$USB" mkpart primary ext4 "${START_MB}MB" 100%
+
+# Re-read partition table and wait for the new partition node to appear
 partprobe "$USB" 2>/dev/null || true
 sleep 2
+udevadm settle 2>/dev/null || true
 
-# Find the new partition (highest-numbered on the device)
-SCRATCH_PART=$(lsblk -dpno NAME "$USB" | sort -V | tail -1)
-# lsblk on the disk itself returns the disk; list partitions instead
+# Find highest-numbered partition on USB (the one we just created)
 SCRATCH_PART=$(lsblk -pno NAME "$USB" | grep -v "^${USB}$" | sort -V | tail -1)
 
 if [[ -z "$SCRATCH_PART" || "$SCRATCH_PART" == "$USB" ]]; then
-    echo "ERROR: Could not identify new scratch partition on $USB." >&2
+    echo "ERROR: Could not identify the new scratch partition on $USB." >&2
     exit 1
 fi
 
@@ -83,10 +101,9 @@ echo "    Scratch partition: $SCRATCH_PART"
 echo "==> Formatting $SCRATCH_PART as ext4..."
 mkfs.ext4 -F "$SCRATCH_PART"
 
-echo "==> Mounting at $MOUNT..."
+echo "==> Mounting $SCRATCH_PART at $MOUNT..."
 mkdir -p "$MOUNT"
 mount "$SCRATCH_PART" "$MOUNT"
-
 mkdir -p "$MOUNT/tmp" "$MOUNT/containers"
 
 # ── Pull image ────────────────────────────────────────────────────────────────
