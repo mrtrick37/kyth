@@ -4,9 +4,9 @@
 # Use this when the graphical installer is unavailable (e.g. broken Wayland).
 #
 # Strategy: partition the target NVMe into a temporary scratch area + final
-# root/EFI partitions. Pull the image to scratch, then use
-# bootc install to-filesystem to write to the root partition — no conflict
-# since scratch and root are separate partitions on the same disk.
+# root/EFI partitions. Bind-mount the scratch partition over
+# /var/lib/containers (podman's default storage path) so the image is pulled
+# there once — no second copy, no path remapping, no overlay-config mismatch.
 #
 # Usage:
 #   sudo ./kyth-manual-install.sh [TARGET_DISK]
@@ -75,29 +75,31 @@ mkfs.fat -F32 "${TARGET}p2"
 mkfs.ext4 -F  "${TARGET}p3"
 mkfs.ext4 -F  "${TARGET}p4"
 
-# ── Mount scratch and pull image ──────────────────────────────────────────────
+# ── Mount scratch as the default container storage path ───────────────────────
+#
+# Bind-mounting over /var/lib/containers means podman uses the scratch
+# partition for image storage without any --root remapping. bootc running
+# inside the container sees /var/lib/containers at the same standard path,
+# so containers-storage lookup works without overlay-config mismatches.
 
 echo ""
 echo "==> Mounting scratch partition (${TARGET}p3)..."
 mkdir -p "$SCRATCH_MOUNT"
 mount "${TARGET}p3" "$SCRATCH_MOUNT"
-mkdir -p "$SCRATCH_MOUNT/tmp" "$SCRATCH_MOUNT/containers"
+mkdir -p "$SCRATCH_MOUNT/containers" "$SCRATCH_MOUNT/tmp"
+
+mkdir -p /var/lib/containers
+mount --bind "$SCRATCH_MOUNT/containers" /var/lib/containers
+
+# ── Pull image ────────────────────────────────────────────────────────────────
 
 echo ""
 echo "==> Pulling $IMAGE to scratch partition..."
 echo "    This will take a while depending on your connection."
 echo ""
 TMPDIR="$SCRATCH_MOUNT/tmp" podman \
-    --root "$SCRATCH_MOUNT/containers" \
     --tmpdir "$SCRATCH_MOUNT/tmp" \
     pull "$IMAGE"
-
-echo ""
-echo "==> Exporting image to OCI directory on scratch..."
-mkdir -p "$SCRATCH_MOUNT/kyth-oci"
-podman \
-    --root "$SCRATCH_MOUNT/containers" \
-    push "$IMAGE" "oci:${SCRATCH_MOUNT}/kyth-oci:latest"
 
 # ── Mount target root and install ─────────────────────────────────────────────
 
@@ -111,19 +113,14 @@ mount "${TARGET}p2" "$ROOT_MOUNT/boot/efi"
 echo ""
 echo "==> Installing Kyth to $TARGET..."
 echo ""
-podman \
-    --root "$SCRATCH_MOUNT/containers" \
-    run --rm --privileged \
+podman run --rm --privileged \
     --pid=host \
     --security-opt label=disable \
     -v /dev:/dev \
     -v "${ROOT_MOUNT}:/target" \
     -v /run/containers:/run/containers \
-    -v "${SCRATCH_MOUNT}/kyth-oci:/var/kyth-oci:ro" \
     "$IMAGE" \
-    bootc install to-filesystem \
-        --source-imgref "oci:/var/kyth-oci:latest" \
-        /target
+    bootc install to-filesystem /target
 
 # ── Done ──────────────────────────────────────────────────────────────────────
 
