@@ -7,7 +7,7 @@
 ARG BASE_IMAGE=localhost/kyth:latest
 FROM ${BASE_IMAGE}
 
-# ── Live boot + BIOS/EFI boot helpers ────────────────────────────────────────
+# ── All package installs in one layer ────────────────────────────────────────
 # dracut-live:          dmsquash-live module for squashfs live boot
 # syslinux:             isolinux.bin for BIOS El Torito boot
 # grub2-efi-x64:        grubx64.efi pre-built EFI binary
@@ -16,15 +16,11 @@ FROM ${BASE_IMAGE}
 # gparted:              disk utility available on live desktop
 # plymouth-plugin-script: provides /usr/lib64/plymouth/script.so for script themes
 # librsvg2-tools:       rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
-RUN dnf5 install -y dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
-    plymouth-plugin-script librsvg2-tools podman gdisk && dnf5 clean all
-
-# ── Calamares graphical installer ─────────────────────────────────────────────
-# calamares pulls kpmcore (partition module) as a dependency.
-RUN dnf5 install -y calamares && dnf5 clean all
-
-# ── Ensure Plasma, SDDM, and session dependencies are installed ───────────────
+# calamares:            pulls kpmcore (partition module) as a dependency
 RUN dnf5 install -y \
+    dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
+    plymouth-plugin-script librsvg2-tools podman gdisk \
+    calamares \
     plasma-workspace \
     plasma-desktop \
     sddm \
@@ -58,27 +54,20 @@ RUN dnf5 install -y \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
 
-# ── Enable SDDM and graphical.target ─────────────────────────────────────────
-RUN systemctl enable sddm && systemctl set-default graphical.target
-
-# ── Create live user with passwordless sudo ───────────────────────────────────
-RUN useradd -c "Live User" -G wheel liveuser \
+# ── System setup: SDDM, live user, PAM autologin, mask setup service ─────────
+# Combines: enable sddm, set graphical target, create liveuser with passwordless
+# sudo, write PAM autologin stack, mask kyth-sddm-setup (base-image service
+# that would overwrite the X11 config we set below).
+RUN systemctl enable sddm \
+    && systemctl set-default graphical.target \
+    && useradd -c "Live User" -G wheel liveuser \
     && passwd -d liveuser \
     && usermod -aG autologin liveuser 2>/dev/null || true \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
-    && chmod 440 /etc/sudoers.d/liveuser
-
-# ── PAM: allow SDDM autologin without a password ─────────────────────────────
-# Without pam_permit.so in the auth stack, SDDM falls back to the greeter
-# even when Autologin is configured and the account has no password.
-RUN printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
-    > /etc/pam.d/sddm-autologin
-
-# ── Mask kyth-sddm-setup so it doesn't run in the live session ───────────────
-# kyth-sddm-setup (from the base image) detects VMs and writes an X11 override.
-# The live session already has X11 forced via autologin.conf, so the service
-# is redundant here and could cause ordering conflicts.
-RUN systemctl mask kyth-sddm-setup.service 2>/dev/null || true
+    && chmod 440 /etc/sudoers.d/liveuser \
+    && printf 'auth\t    required\tpam_env.so\nauth\t    required\tpam_permit.so\naccount\t required\tpam_nologin.so\naccount\t include\tsystem-auth\npassword include\tsystem-auth\nsession\t include\tsystem-auth\n' \
+        > /etc/pam.d/sddm-autologin \
+    && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
 # ── SDDM auto-login into Plasma X11 session, Breeze theme ────────────────────
 # Force X11 only: both xsessions and wayland-sessions ship a file named
@@ -118,58 +107,36 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
     && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
     && chown liveuser:liveuser /home/liveuser/.bash_profile
 
-# ── Kyth wallpaper ────────────────────────────────────────────────────────────
-RUN mkdir -p /usr/share/wallpapers/kyth/contents/images
+# ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
      /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
-RUN printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
-    > /usr/share/wallpapers/kyth/metadata.json
-
-# ── Kyth icon — hicolor app icon + application launcher branding ──────────────
-# Installed to three places:
-#   hicolor/scalable/apps/kyth.svg       → "Install Kyth" desktop shortcut icon
-#   hicolor/scalable/apps/start-here.svg → fallback application launcher icon
-#   breeze-dark/apps/scalable/start-here.svg → overrides Breeze Dark launcher icon
 COPY build_files/calamares/branding/kyth/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
-RUN cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
-       /usr/share/icons/hicolor/scalable/apps/start-here.svg \
-    && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
-       /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
-    && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
-    && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
-
-# ── Calamares configuration ───────────────────────────────────────────────────
 COPY build_files/calamares/settings.conf        /etc/calamares/settings.conf
 COPY build_files/calamares/branding/kyth        /etc/calamares/branding/kyth
 COPY build_files/calamares/modules              /etc/calamares/modules
-
-# ── Custom Calamares modules ──────────────────────────────────────────────────
-# kyth-bootcinstall: the "script" in the scripted front-end strategy.
-#   Runs `bootc install to-disk`, then mounts the ostree deployment as
-#   rootMountPoint so the standard Calamares users exec jobs can chroot in
-#   to create the user account and write the hostname.
-# kyth-umount: recursive umount of the outer root-partition mount when done.
 COPY build_files/calamares-modules/kyth-bootcinstall \
      /usr/lib64/calamares/modules/kyth-bootcinstall
 COPY build_files/calamares-modules/kyth-umount \
      /usr/lib64/calamares/modules/kyth-umount
-
-# ── Kyth Calamares launcher (desktop icon handler) ────────────────────────────
-# Wraps 'sudo -E calamares' so liveuser's passwordless sudo runs it as root
-# while preserving the X11 display environment.
 COPY build_files/kyth-launch-calamares  /usr/bin/kyth-launch-calamares
-RUN chmod +x /usr/bin/kyth-launch-calamares
-
-# ── Plymouth theme files ──────────────────────────────────────────────────────
-# The PNG is generated from the SVG at build time (requires librsvg2-tools).
-# Theme is activated before dracut so it is baked into the live initramfs.
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
-# ── OS-release branding ───────────────────────────────────────────────────────
-RUN sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
+# ── Post-COPY setup: wallpaper metadata, icons, launcher chmod, OS branding ──
+# Combines all post-COPY fixups into one layer to reduce image depth.
+RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
+    && printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+        > /usr/share/wallpapers/kyth/metadata.json \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here.svg \
+    && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
+    && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
+    && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
+    && chmod +x /usr/bin/kyth-launch-calamares \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
 
 # ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
 # Steps combined so the initramfs is built exactly once, after Plymouth is ready:
@@ -191,7 +158,7 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
     && echo "Live initramfs built for $KVER (Plymouth: kyth)"
 
-# ── Prepare for squashfs live boot ───────────────────────────────────────────
+# ── Finalize: machine-id, mask services, locale / timezone ───────────────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.
 # Mask ostree/bootc services that require a real ostree deployment.
 RUN echo "uninitialized" > /etc/machine-id \
@@ -203,9 +170,7 @@ RUN echo "uninitialized" > /etc/machine-id \
         bootc-fetch-apply-updates.service \
         bootc-fetch-apply-updates.timer \
         systemd-firstboot.service \
-    || true
-
-# ── Locale / timezone defaults ────────────────────────────────────────────────
-RUN echo "LANG=en_US.UTF-8" > /etc/locale.conf \
+    || true \
+    && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
     && ln -sf /usr/share/zoneinfo/UTC /etc/localtime \
     && echo "KEYMAP=us" > /etc/vconsole.conf
