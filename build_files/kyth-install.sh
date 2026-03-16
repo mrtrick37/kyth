@@ -65,14 +65,25 @@ else
     [[ "${CONFIRM}" != "yes" ]] && { echo "Aborted."; exit 0; }
 fi
 
+# ── Unmount ───────────────────────────────────────────────────────────────────
+echo "Unmounting any existing mounts on ${SELECTED} ..."
+umount -R /mnt 2>/dev/null || true
+umount -R /sysroot 2>/dev/null || true
+umount -R /target 2>/dev/null || true
+# Unmount any partitions on the target disk
+while IFS= read -r part; do
+    umount -R "${part}" 2>/dev/null || true
+done < <(lsblk -lnpo NAME "${SELECTED}" | tail -n +2)
+
 # ── Install ───────────────────────────────────────────────────────────────────
 echo "Installing Kyth to ${SELECTED} from ${TARGET_IMGREF} ..."
 echo "This will take a while depending on your internet connection."
 echo ""
 
 bootc install to-disk \
-    --source-imgref "${TARGET_IMGREF}" \
-    --target-imgref "${TARGET_IMGREF}" \
+    --source-imgref "docker://${TARGET_IMGREF}" \
+    --target-imgref "docker://${TARGET_IMGREF}" \
+    --filesystem btrfs \
     "${SELECTED}"
 
 echo ""
