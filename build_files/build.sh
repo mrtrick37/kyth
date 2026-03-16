@@ -203,6 +203,7 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # Add VA-API/VDPAU for hardware video decode and radeontop for monitoring.
 dnf5 install -y \
     libva-utils \
+    radeontop \
     || {
         echo "Failed to enable RPMFusion repositories. Attempting fallback." >&2
         sudo dnf5 install -y \
@@ -212,7 +213,6 @@ dnf5 install -y \
             exit 1
         }
     }
-    radeontop
 
 
 # ── NVIDIA ────────────────────────────────────────────────────────────────────
