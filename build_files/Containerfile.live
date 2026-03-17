@@ -184,7 +184,7 @@ RUN KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1) \
     && plymouth-set-default-theme kyth \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live livenet" \
+        --add "dmsquash-live" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \
