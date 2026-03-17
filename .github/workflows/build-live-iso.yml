@@ -38,25 +38,36 @@ jobs:
         # Docker's overlay2 driver hard-limits images to 128 layers total, so
         # Containerfile.live's additional layers cause "max depth exceeded" on pull.
         # Flattening the base into a single layer brings the total to ~19 layers.
+        # Push the flat image to GHCR so buildx can use it as a remote base,
+        # then remove it locally to reclaim the ~10 GB before the live build.
         run: |
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:latest"
+          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-build"
           docker pull "${BASE_IMAGE}"
           CID=$(docker create "${BASE_IMAGE}")
-          docker export "${CID}" | docker import - kyth-flat:latest
+          docker export "${CID}" | docker import - "${FLAT_IMAGE}"
           docker rm "${CID}"
+          docker push "${FLAT_IMAGE}"
+          docker rmi "${BASE_IMAGE}" "${FLAT_IMAGE}" || true
+          docker system prune -f || true
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Build and push live container directly to GHCR
-        # Build from the flattened single-layer base so the final image stays
-        # well under Docker's 128-layer overlay2 limit.
+        # Use buildx --push so BuildKit streams layers straight to GHCR without
+        # writing the final ~15 GB image into the local Docker daemon overlay2
+        # storage — this is what caused the previous SIGTERM (disk exhaustion).
         id: push
         run: |
+          FLAT_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:flat-build"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
-          docker build \
+          docker buildx build \
             --tag "${IMAGE}" \
-            --build-arg BASE_IMAGE="kyth-flat:latest" \
+            --build-arg BASE_IMAGE="${FLAT_IMAGE}" \
             -f build_files/Containerfile.live \
+            --push \
             .
-          docker push "${IMAGE}"
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
