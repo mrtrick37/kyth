@@ -96,6 +96,7 @@ DisplayServer=x11
 
 [X11]
 SessionDir=/usr/share/xsessions
+ServerPath=/usr/bin/Xorg
 MinimumVT=1
 
 [Wayland]
