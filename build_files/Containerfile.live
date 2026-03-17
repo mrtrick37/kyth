@@ -140,6 +140,8 @@ COPY build_files/calamares/branding/kyth/kyth-logo.svg \
 COPY build_files/calamares/settings.conf        /etc/calamares/settings.conf
 COPY build_files/calamares/branding/kyth        /etc/calamares/branding/kyth
 COPY build_files/calamares/modules              /etc/calamares/modules
+COPY build_files/calamares-modules/kyth-predisksetup \
+     /usr/lib64/calamares/modules/kyth-predisksetup
 COPY build_files/calamares-modules/kyth-bootcinstall \
      /usr/lib64/calamares/modules/kyth-bootcinstall
 COPY build_files/calamares-modules/kyth-umount \
