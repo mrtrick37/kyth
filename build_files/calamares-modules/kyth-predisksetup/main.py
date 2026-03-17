@@ -29,28 +29,59 @@ def _run_best_effort(cmd):
         _log(f"  (ignored error: {e})")
 
 
+_DISK_RE = re.compile(
+    r"^(/dev/(?:sd[a-z]+|vd[a-z]+|hd[a-z]+|nvme\d+n\d+))(?:p?\d+)?$"
+)
+
+
+def _disk_from_device(value):
+    """Strip any partition suffix from a device path and return the base disk."""
+    if not value:
+        return ""
+    value = value.strip()
+    m = _DISK_RE.match(value)
+    return m.group(1) if m else value
+
+
 def run():
     gs = libcalamares.globalstorage
 
-    disk = (gs.value("bootLoaderInstallPath") or "").strip()
+    # Log all candidate globalStorage keys so failures are diagnosable.
+    for key in ("installationDevice", "bootLoaderInstallPath",
+                "selectedStorageDevice", "device"):
+        _log(f"gs[{key!r}] = {gs.value(key)!r}")
+    partitions = gs.value("partitions") or []
+    _log(f"gs['partitions'] ({len(partitions)} entries) = {partitions!r}")
+
+    # Try every known key name the Calamares partition module might set.
+    disk = ""
+    for key in ("installationDevice", "selectedStorageDevice",
+                "bootLoaderInstallPath", "device"):
+        val = (gs.value(key) or "").strip()
+        if val:
+            disk = _disk_from_device(val)
+            _log(f"disk from gs[{key!r}]: {disk!r}")
+            break
 
     if not disk:
-        for part in (gs.value("partitions") or []):
-            device = part.get("device", "") if isinstance(part, dict) else ""
-            m = re.match(
-                r"^(/dev/(?:sd[a-z]+|vd[a-z]+|hd[a-z]+|nvme\d+n\d+))(?:p?\d+)?$",
-                device,
-            )
-            if m:
-                disk = m.group(1)
+        for part in partitions:
+            # Try both 'device' and 'path' keys used by different Calamares versions.
+            for k in ("device", "path"):
+                val = part.get(k, "") if isinstance(part, dict) else ""
+                if val:
+                    m = _DISK_RE.match(val)
+                    if m:
+                        disk = m.group(1)
+                        _log(f"disk from partitions[{k!r}]: {disk!r}")
+                        break
+            if disk:
                 break
 
     if not disk:
-        return (
-            "Installation error",
-            "Could not determine the target disk.\n"
-            "Please go back and select a disk, then try again.",
-        )
+        # Pre-cleanup is best-effort: if we can't find the disk, log a warning
+        # and let the partition module proceed — it will handle a clean disk fine.
+        _log("WARNING: could not determine target disk — skipping pre-cleanup")
+        return None
 
     _log(f"target disk: {disk}")
 

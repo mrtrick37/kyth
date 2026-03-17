@@ -487,6 +487,23 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
+# ── Kyth wallpaper package ────────────────────────────────────────────────────
+# Install as a proper KDE wallpaper package so the L&F lookup 'Image=kyth' works.
+mkdir -p /usr/share/wallpapers/kyth/contents/images
+cp /ctx/wallpaper/kyth-wallpaper.svg \
+    /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+    > /usr/share/wallpapers/kyth/metadata.json
+
+# Patch Breeze Dark L&F defaults to use Kyth wallpaper instead of the stock
+# 'Next' wallpaper, so applying the theme never overrides the Kyth background.
+BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults"
+if [ -f "$BREEZE_DARK_DEFAULTS" ]; then
+    sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"
+    grep -q '^Image=' "$BREEZE_DARK_DEFAULTS" \
+        || printf '\n[Wallpaper]\nImage=kyth\n' >> "$BREEZE_DARK_DEFAULTS"
+fi || true
+
 # ── Kyth logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
