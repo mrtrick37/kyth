@@ -652,12 +652,17 @@ TMPDIR=/var/tmp dracut \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
 echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
-# Ensure supplemental groups exist in /etc/group (useradd only reads /etc/group,
-# not /usr/lib/group where Fedora system groups may live)
-grep -q '^users:'    /etc/group || groupadd users
-grep -q '^video:'    /etc/group || groupadd video
-grep -q '^audio:'    /etc/group || groupadd audio
-grep -q '^gamemode:' /etc/group || groupadd gamemode
+# useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
+# Copy any missing groups into /etc/group; create with groupadd if absent entirely.
+for grp in users video audio gamemode; do
+    if ! grep -q "^${grp}:" /etc/group; then
+        if getent group "$grp" > /dev/null 2>&1; then
+            getent group "$grp" >> /etc/group
+        else
+            groupadd "$grp"
+        fi
+    fi
+done
 
 # Create default user
 useradd -m -G wheel,users,video,audio,gamemode -s /bin/bash kyth
