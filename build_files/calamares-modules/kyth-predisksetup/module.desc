@@ -1,5 +1,5 @@
 ---
-type:      jobmodule
-name:      kyth-predisksetup
-interface: python
-requires:  []
+type:       "job"
+name:       "kyth-predisksetup"
+interface:  "python"
+script:     "main.py"

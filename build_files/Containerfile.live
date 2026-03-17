@@ -54,24 +54,28 @@ RUN dnf5 install -y \
     breeze-cursor-theme \
     --skip-broken && dnf5 clean all
 
-# ── System setup: SDDM, live user, PAM autologin, mask setup service ─────────
-# Combines: enable sddm, set graphical target, create liveuser with passwordless
-# sudo, write PAM autologin stack, mask kyth-sddm-setup (base-image service
-# that would overwrite the X11 config we set below).
-RUN systemctl enable sddm \
-    && systemctl set-default graphical.target \
+# ── System setup: live user, getty autologin, mask setup service ─────────────
+# SDDM autologin is unreliable in QEMU/live environments (X11 VT handoff races
+# with Plymouth; autologin config is fragile across Plasma versions).
+# Instead: getty on tty1 autologins liveuser → .bash_profile → exec startx →
+# .xinitrc → startplasma-x11.  SDDM stays installed for the post-install system
+# but is not started in the live session.
+RUN systemctl disable sddm 2>/dev/null || true \
+    && systemctl set-default multi-user.target \
     && groupadd -r autologin \
     && useradd -c "Live User" -G wheel,autologin liveuser \
     && passwd -d liveuser \
     && echo "liveuser ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/liveuser \
     && chmod 440 /etc/sudoers.d/liveuser \
-    && printf 'auth\trequired\tpam_env.so\nauth\trequired\tpam_succeed_if.so user ingroup autologin quiet\naccount\tinclude\tsystem-auth\npassword\tinclude\tsystem-auth\nsession\toptional\tpam_keyinit.so force revoke\nsession\tinclude\tsystem-auth\n' \
-        > /etc/pam.d/sddm-autologin \
+    && mkdir -p /etc/systemd/system/getty@tty1.service.d \
+    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I $TERM\n' \
+        > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     && systemctl mask kyth-sddm-setup.service 2>/dev/null || true
 
-# ── SDDM: single authoritative config, X11 autologin as liveuser ─────────────
-# Drop every conf.d fragment (from the base image and kde-settings) so there is
-# no ordering ambiguity, then write one /etc/sddm.conf that owns everything.
+# ── SDDM: config for the post-install system (not used in live session) ───────
+# SDDM is installed but disabled in live mode (getty autologin is used instead).
+# This config is written so the installed system has sane defaults when SDDM is
+# re-enabled after 'bootc install to-disk'.
 # X11 is used because kwin_wayland requires EGL/virgl and fails in plain QEMU.
 #
 # Session name detection: Plasma 6 on Fedora uses plasmax11.desktop; earlier
@@ -128,9 +132,13 @@ RUN mkdir -p /home/liveuser/Desktop /home/liveuser/.config \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
+    && cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
+        /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
+    && printf 'exec /usr/bin/startplasma-x11\n' > /home/liveuser/.xinitrc \
+    && chmod +x /home/liveuser/.xinitrc \
     && chown -R liveuser:liveuser /home/liveuser/ \
-    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  startx\nfi\n' > /home/liveuser/.bash_profile \
+    && printf '\nif [ -z "$DISPLAY" ] && [ "$XDG_VTNR" = "1" ]; then\n  exec startx\nfi\n' > /home/liveuser/.bash_profile \
     && chown liveuser:liveuser /home/liveuser/.bash_profile
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
@@ -164,7 +172,14 @@ RUN mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
     && chmod +x /usr/bin/kyth-launch-calamares \
-    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="Kyth 43 Live"/' /etc/os-release \
+    && BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults" \
+    && if [ -f "$BREEZE_DARK_DEFAULTS" ]; then \
+           sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"; \
+           grep -q '^Image=' "$BREEZE_DARK_DEFAULTS" \
+               || printf '\n[Wallpaper]\nImage=kyth\n' >> "$BREEZE_DARK_DEFAULTS"; \
+       fi \
+    || true
 
 # ── Rebuild initramfs with dmsquash-live + Kyth Plymouth theme ────────────────
 # Steps combined so the initramfs is built exactly once, after Plymouth is ready:

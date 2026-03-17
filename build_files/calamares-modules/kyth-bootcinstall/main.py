@@ -96,7 +96,8 @@ def _find_disk(gs):
     partition — strip the partition suffix to get the bare disk.
     Falls back to deriving from the `partitions` list.
     """
-    disk = (gs.value("bootLoaderInstallPath") or "").strip()
+    disk = (gs.value("installationDevice") or
+            gs.value("bootLoaderInstallPath") or "").strip()
 
     if disk:
         m = re.match(

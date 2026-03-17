@@ -15,6 +15,23 @@
 
 set -euo pipefail
 
+# ── Sudo setup: ask once, work fully unattended for the rest of the build ─────
+# The docker build + export + squashfs steps can take 30–60 min. sudo's cache
+# (per-TTY on Fedora) can't be refreshed from a background subshell, so we ask
+# for the password now, store it in a temp askpass helper, and override sudo()
+# so every subsequent call gets credentials non-interactively via SUDO_ASKPASS.
+IFS= read -rsp "Enter sudo password (needed for export, squashfs, and ISO assembly): " _build_pw
+echo
+printf '%s\n' "$_build_pw" | command sudo -S true 2>/dev/null \
+    || { echo "error: incorrect sudo password"; exit 1; }
+export _KYTH_BUILD_PW="$_build_pw"
+unset _build_pw
+_ASKPASS=$(mktemp --tmpdir kyth-build-askpass.XXXXXXXX)
+chmod 0700 "$_ASKPASS"
+printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
+export SUDO_ASKPASS="$_ASKPASS"
+sudo() { command sudo -A "$@"; }
+
 # Ensure base image exists locally before building live ISO
 
 # Ensure base image exists locally as localhost/kyth:latest before building live ISO
@@ -52,6 +69,8 @@ echo "==> Using container engine: docker"
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
+    rm -f "$_ASKPASS" 2>/dev/null || true
+    unset _KYTH_BUILD_PW
     # kyth-live:build is kept intentionally so Docker layer cache is preserved
     # for the next build. Run 'docker rmi kyth-live:build' manually to force
     # a full rebuild from scratch.
@@ -182,7 +201,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
 
 # ── 5a. GRUB config + dark theme (shared by EFI and BIOS GRUB2) ─────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs selinux=0 quiet plymouth.enable=0"
+LIVE_ARGS="root=live:CDLABEL=${VOLID} rd.live.image selinux=0 quiet plymouth.enable=0"
 
 # Write the theme file
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
