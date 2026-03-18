@@ -604,6 +604,26 @@ wallpaperplugin=org.kde.image
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
+# ── Kyth Welcome app ──────────────────────────────────────────────────────────
+# PyQt6 welcome centre + branch switcher.  Autostarts on first login via skel.
+dnf5 install -y python3-pyqt6
+
+install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/local/bin/kyth-welcome
+install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
+    /usr/share/applications/kyth-welcome.desktop
+
+# Autostart on first login — removes itself after running once (like kyth-set-resolution).
+mkdir -p /etc/skel/.config/autostart
+cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
+[Desktop Entry]
+Type=Application
+Name=Kyth Welcome
+Exec=/usr/local/bin/kyth-welcome
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+WELCOMEEOF
+
 # ── Outlook PWA ───────────────────────────────────────────────────────────────
 # Adds Microsoft Outlook to the Internet section of the app launcher via a
 # .desktop file that opens it as a Brave PWA (no browser chrome).
