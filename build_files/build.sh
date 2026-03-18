@@ -19,9 +19,9 @@ dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
 # Mesa-git from xxmitsu/mesa-git COPR (supports Fedora 43, rebuilds every few hours from upstream).
 dnf5 copr enable -y xxmitsu/mesa-git
-dnf5 upgrade -y mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libxatracker mesa-libOpenCL || true
+dnf5 upgrade -y --skip-unavailable mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libOpenCL || true
 dnf5 copr disable -y xxmitsu/mesa-git
-dnf5 upgrade -y xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vesa xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+dnf5 upgrade -y --skip-unavailable xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -193,7 +193,7 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
 # without them the driver falls back to basic/non-accelerated mode.
 # libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
-dnf5 install -y linux-firmware libva-utils libva-mesa-driver radeontop
+dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
 dnf5 upgrade -y linux-firmware libdrm
 
 
@@ -601,6 +601,27 @@ wallpaperplugin=org.kde.image
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 PLASMADESKTOPEOF
 
+# ── Outlook PWA ───────────────────────────────────────────────────────────────
+# Adds Microsoft Outlook to the Internet section of the app launcher via a
+# .desktop file that opens it as a Brave PWA (no browser chrome).
+mkdir -p /usr/share/applications
+cat > /usr/share/applications/outlook-pwa.desktop <<'OUTLOOKEOF'
+[Desktop Entry]
+Version=1.0
+Name=Outlook
+Comment=Microsoft Outlook — email and calendar
+Exec=brave-browser --app=https://outlook.live.com/mail/ %U
+Icon=outlook-pwa
+Terminal=false
+Type=Application
+Categories=Network;Email;
+StartupWMClass=outlook.live.com__mail_
+StartupNotify=true
+OUTLOOKEOF
+mkdir -p /usr/share/icons/hicolor/192x192/apps
+cp /ctx/build_files/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
+gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in Kyth)
 rm -f /usr/share/applications/*waydroid*.desktop || true
@@ -689,6 +710,12 @@ TMPDIR=/var/tmp dracut \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
 echo "Initramfs rebuilt with Plymouth (theme: kyth)"
+
+# ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
+# rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
+# Disable it and use bootc's native update timer instead.
+systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
+systemctl enable bootc-fetch-apply-updates.timer 2>/dev/null || true
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
