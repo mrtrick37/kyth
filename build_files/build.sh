@@ -636,6 +636,7 @@ dnf5 install -y \
     appstream-devel \
     libxmlb-devel \
     glycin-devel \
+    glycin-gtk4-devel \
     libyaml-devel \
     libsoup3-devel \
     json-glib-devel \
@@ -656,7 +657,7 @@ rm -rf /tmp/bazaar-build
 dnf5 remove -y \
     meson ninja-build git \
     libadwaita-devel libdex-devel flatpak-devel appstream-devel \
-    libxmlb-devel glycin-devel libyaml-devel libsoup3-devel \
+    libxmlb-devel glycin-devel glycin-gtk4-devel libyaml-devel libsoup3-devel \
     json-glib-devel md4c-devel webkitgtk6.0-devel libsecret-devel \
     libproxy-devel malcontent-devel glib2-devel || true
 dnf5 autoremove -y || true
