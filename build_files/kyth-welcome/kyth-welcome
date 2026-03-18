@@ -768,10 +768,154 @@ class BranchPage(QWidget):
         self._refresh_status()
         self._worker = None
 
-        for card in self.cards.values():
-            card.set_switching(False)
 
-        self._refresh_status()
+# ── Update page ─────────────────────────────────────────────────────────────────
+class UpdatePage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("content")
+        self._worker: BootcWorker | None = None
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_count = 0
+        self._stage_text = ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 28)
+        root.setSpacing(0)
+
+        title = QLabel("System Update")
+        title.setObjectName("page-title")
+        root.addWidget(title)
+
+        self._lbl_current = QLabel()
+        self._lbl_current.setObjectName("page-sub")
+        root.addWidget(self._lbl_current)
+
+        root.addSpacing(6)
+        root.addWidget(_sep())
+
+        # Update button row
+        btn_row = QHBoxLayout()
+        self._btn_update = QPushButton("Update Now")
+        self._btn_update.setObjectName("btn-primary")
+        self._btn_update.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._btn_update.clicked.connect(self._on_update)
+        btn_row.addWidget(self._btn_update)
+
+        self._btn_reboot = QPushButton("Reboot to Apply")
+        self._btn_reboot.setObjectName("btn-ghost")
+        self._btn_reboot.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._btn_reboot.clicked.connect(
+            lambda: subprocess.Popen(["sudo", "systemctl", "reboot"])
+        )
+        self._btn_reboot.hide()
+        btn_row.addWidget(self._btn_reboot)
+
+        btn_row.addStretch()
+        root.addLayout(btn_row)
+
+        root.addSpacing(16)
+
+        # Status area
+        self._status_widget = QWidget()
+        status_layout = QVBoxLayout(self._status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+
+        self._lbl_stage = QLabel()
+        self._lbl_stage.setStyleSheet(
+            "color: #7aa2f7; font-size: 12px; font-weight: 600;"
+        )
+        status_layout.addWidget(self._lbl_stage)
+
+        self._progress = QProgressBar()
+        self._progress.setObjectName("switch-progress")
+        self._progress.setRange(0, 0)
+        self._progress.setFixedHeight(6)
+        self._progress.setTextVisible(False)
+        status_layout.addWidget(self._progress)
+
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
+
+        root.addSpacing(12)
+
+        self._log = QTextEdit()
+        self._log.setObjectName("log")
+        self._log.setReadOnly(True)
+        self._log.setPlaceholderText("Output will appear here when updating…")
+        self._log.setMinimumHeight(200)
+        root.addWidget(self._log)
+
+        root.addStretch()
+        self._refresh_current()
+
+    def _refresh_current(self):
+        status = _bootc_status()
+        ref    = _current_ref(status)
+        if ref:
+            self._lbl_current.setText(f"Current image: {ref}")
+        else:
+            self._lbl_current.setText("Current image: not available (live session?)")
+
+    def _set_stage(self, text: str):
+        self._stage_text = text
+        self._dot_count  = 0
+        self._lbl_stage.setText(text)
+
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        base = self._stage_text.rstrip(".")
+        self._lbl_stage.setText(base + "." * self._dot_count)
+
+    def _on_update(self):
+        self._log.clear()
+        self._log.append("→ sudo bootc upgrade\n")
+        self._btn_update.setEnabled(False)
+        self._btn_reboot.hide()
+        self._set_stage("Connecting to registry…")
+        self._status_widget.show()
+        self._dot_timer.start()
+
+        self._worker = BootcWorker(["sudo", "bootc", "upgrade"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+        stage = _infer_stage(text)
+        if stage:
+            self._set_stage(stage)
+
+    def _on_done(self, code: int):
+        self._dot_timer.stop()
+        self._btn_update.setEnabled(True)
+
+        if code == 0:
+            self._set_stage("Done — reboot to apply")
+            self._lbl_stage.setStyleSheet(
+                "color: #9ece6a; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
+            self._log.append(
+                "\n✓ Update staged successfully.  Reboot to boot into the new image."
+            )
+            self._btn_reboot.show()
+        else:
+            self._set_stage("Update failed")
+            self._lbl_stage.setStyleSheet(
+                "color: #f7768e; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
+            self._log.append(f"\n✗ bootc upgrade exited with code {code}.")
+
+        self._refresh_current()
         self._worker = None
 
 
@@ -779,6 +923,7 @@ class BranchPage(QWidget):
 class MainWindow(QMainWindow):
     _PAGES = [
         ("Welcome",  WelcomePage),
+        ("Update",   UpdatePage),
         ("Branches", BranchPage),
     ]
 
