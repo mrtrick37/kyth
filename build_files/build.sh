@@ -619,7 +619,7 @@ StartupWMClass=outlook.live.com__mail_
 StartupNotify=true
 OUTLOOKEOF
 mkdir -p /usr/share/icons/hicolor/192x192/apps
-cp /ctx/build_files/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
+cp /ctx/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
 gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
 
 # Remove Waydroid desktop/menu entries and related files if present
