@@ -17,11 +17,8 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
-# Mesa-git from xxmitsu/mesa-git COPR (supports Fedora 43, rebuilds every few hours from upstream).
-dnf5 copr enable -y xxmitsu/mesa-git
-dnf5 upgrade -y --skip-unavailable mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libOpenCL || true
-dnf5 copr disable -y xxmitsu/mesa-git
-dnf5 upgrade -y --skip-unavailable xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+# Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
+# so daily mesa updates only re-download that small layer, not this entire layer.
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -126,7 +123,9 @@ dnf5 copr enable -y ycollet/audinux
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
-dnf5 install -y --skip-unavailable \
+# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
+# 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
+dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope-shaders \
     umu-launcher \
     mangohud.x86_64 \
@@ -195,7 +194,7 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # without them the driver falls back to basic/non-accelerated mode.
 # libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
 dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
-dnf5 upgrade -y linux-firmware libdrm
+dnf5 upgrade -y libdrm
 
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
@@ -396,13 +395,8 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
     /usr/share/applications/steam.desktop \
     > /usr/local/share/applications/steam.desktop
 
-# ── GE-Proton ────────────────────────────────────────────────────────────────
-# Installed system-wide so Steam picks it up for all users without manual setup.
-# Steam looks in /usr/share/steam/compatibilitytools.d/ in addition to ~/.steam.
-GE_PROTON_VER="GE-Proton10-33"
-mkdir -p /usr/share/steam/compatibilitytools.d
-curl -fsSL "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VER}/${GE_PROTON_VER}.tar.gz" \
-    | tar -xz -C /usr/share/steam/compatibilitytools.d/
+# GE-Proton is installed in a separate image layer (build_files/scripts/ge-proton.sh)
+# so version bumps only re-download that layer, not this entire layer.
 
 systemctl enable libvirtd.socket
 
@@ -722,9 +716,12 @@ echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
 # ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
 # rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
-# Disable it and use bootc's native update timer instead.
+# Disable it entirely — bootc-fetch-apply-updates.timer is also disabled because
+# its default behaviour (bootc upgrade --apply) reboots the system automatically
+# whenever a new image is available, causing unexpected reboots ~1h after boot.
+# Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
-systemctl enable bootc-fetch-apply-updates.timer 2>/dev/null || true
+systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
@@ -742,6 +739,14 @@ done
 useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
 echo 'kyth:kyth' | chpasswd
 echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
+
+# Hide the kyth system user from the SDDM login screen.
+# Users should only see their own account (created during installation).
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/20-hide-users.conf <<'EOF'
+[Users]
+HideUsers=kyth
+EOF
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
