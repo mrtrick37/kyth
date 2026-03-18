@@ -1,0 +1,869 @@
+#!/usr/bin/env python3
+"""kyth-helper — Helper app for Kyth Linux.
+
+A welcome centre and system management tool.  Runs on first login (via
+/etc/skel autostart) and is always accessible from the application menu.
+"""
+
+import sys
+import os
+import json
+import subprocess
+import re
+
+from PyQt6.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QFrame, QTextEdit, QStackedWidget,
+    QSizePolicy, QScrollArea, QSpacerItem, QProgressBar,
+)
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QUrl, QSize, QTimer
+from PyQt6.QtGui import QFont, QDesktopServices, QColor, QCursor, QIcon
+
+# ── Constants ──────────────────────────────────────────────────────────────────
+REGISTRY  = "ghcr.io/mrtrick37/kyth"
+APP_NAME  = "Kyth"
+APP_VER   = "0.1.0"
+
+BRANCHES = [
+    {
+        "tag":   "latest",
+        "label": "Stable",
+        "desc":  "Thoroughly tested updates.\nRecommended for most users.",
+        "color": "#9ece6a",
+    },
+    {
+        "tag":   "testing",
+        "label": "Testing",
+        "desc":  "Latest features and changes.\nMay occasionally be unstable.",
+        "color": "#e0af68",
+    },
+]
+
+LINKS = [
+    ("GitHub",         "https://github.com/mrtrick37/kyth"),
+    ("Report an Issue","https://github.com/mrtrick37/kyth/issues/new"),
+]
+
+# ── Tokyo Night stylesheet ─────────────────────────────────────────────────────
+QSS = """
+* {
+    font-family: "Noto Sans", "Segoe UI", sans-serif;
+    font-size: 13px;
+    color: #cdd6f4;
+}
+
+QMainWindow, QWidget#root {
+    background: #1e1e2e;
+}
+
+/* ── Sidebar ──────────────────────────────────────────────────────────────── */
+QWidget#sidebar {
+    background: #1a1b26;
+    border-right: 1px solid #313244;
+}
+
+QLabel#brand-k {
+    color: #7aa2f7;
+    font-size: 32px;
+    font-weight: 900;
+    padding: 24px 20px 4px;
+}
+
+QLabel#brand-name {
+    color: #cdd6f4;
+    font-size: 15px;
+    font-weight: 700;
+    letter-spacing: 2px;
+    padding: 0 20px 2px;
+}
+
+QLabel#brand-tagline {
+    color: #565f89;
+    font-size: 11px;
+    padding: 0 20px 20px;
+}
+
+QFrame#sidebar-divider {
+    background: #313244;
+    max-height: 1px;
+    margin: 0 16px 8px;
+}
+
+QPushButton#navbtn {
+    background: transparent;
+    color: #a9b1d6;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    text-align: left;
+    padding: 11px 20px;
+    font-size: 13px;
+    min-height: 36px;
+}
+
+QPushButton#navbtn:hover {
+    background: #24283b;
+    color: #cdd6f4;
+}
+
+QPushButton#navbtn[active=true] {
+    background: #24283b;
+    border-left-color: #7aa2f7;
+    color: #7aa2f7;
+    font-weight: 600;
+}
+
+QLabel#sidebar-version {
+    color: #313244;
+    font-size: 11px;
+    padding: 12px 20px;
+}
+
+/* ── Content area ─────────────────────────────────────────────────────────── */
+QWidget#content {
+    background: #1e1e2e;
+}
+
+QScrollArea {
+    background: transparent;
+    border: none;
+}
+
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+}
+
+QLabel#page-title {
+    color: #cdd6f4;
+    font-size: 22px;
+    font-weight: 700;
+}
+
+QLabel#page-sub {
+    color: #565f89;
+    font-size: 12px;
+    padding-bottom: 8px;
+}
+
+QFrame#page-divider {
+    background: #313244;
+    max-height: 1px;
+    margin: 4px 0 16px;
+}
+
+/* ── Cards ────────────────────────────────────────────────────────────────── */
+QFrame#card {
+    background: #24283b;
+    border-radius: 8px;
+    border: 1px solid #313244;
+}
+
+QFrame#card-active {
+    background: #24283b;
+    border-radius: 8px;
+    border: 2px solid #7aa2f7;
+}
+
+QLabel#card-label {
+    font-size: 15px;
+    font-weight: 700;
+}
+
+QLabel#card-desc {
+    color: #a9b1d6;
+    font-size: 12px;
+}
+
+QLabel#badge {
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+/* ── Buttons ──────────────────────────────────────────────────────────────── */
+QPushButton#btn-primary {
+    background: #7aa2f7;
+    color: #1e1e2e;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 22px;
+    font-weight: 700;
+    font-size: 13px;
+    min-height: 34px;
+}
+
+QPushButton#btn-primary:hover   { background: #89b4fa; }
+QPushButton#btn-primary:pressed { background: #6a8edf; }
+QPushButton#btn-primary:disabled {
+    background: #2a2e42;
+    color: #565f89;
+}
+
+QPushButton#btn-ghost {
+    background: transparent;
+    color: #7aa2f7;
+    border: 1px solid #45475a;
+    border-radius: 6px;
+    padding: 7px 22px;
+    font-size: 13px;
+    min-height: 34px;
+}
+
+QPushButton#btn-ghost:hover {
+    border-color: #7aa2f7;
+    background: rgba(122,162,247,0.08);
+}
+
+QPushButton#btn-ghost:pressed {
+    background: rgba(122,162,247,0.16);
+}
+
+QPushButton#btn-switch {
+    border-radius: 6px;
+    padding: 6px 18px;
+    font-size: 12px;
+    font-weight: 600;
+    min-height: 30px;
+    border: none;
+    color: #1e1e2e;
+}
+
+QPushButton#btn-switch:disabled {
+    background: #2a2e42;
+    color: #565f89;
+}
+
+/* ── Progress bar ─────────────────────────────────────────────────────────── */
+QProgressBar#switch-progress {
+    background: #24283b;
+    border: 1px solid #313244;
+    border-radius: 4px;
+    height: 6px;
+    text-align: center;
+}
+QProgressBar#switch-progress::chunk {
+    background: #7aa2f7;
+    border-radius: 4px;
+}
+
+/* ── Log output ───────────────────────────────────────────────────────────── */
+QTextEdit#log {
+    background: #13131e;
+    color: #a9b1d6;
+    border: 1px solid #313244;
+    border-radius: 6px;
+    font-family: "Cascadia Code", "JetBrains Mono", "Fira Code", "Courier New", monospace;
+    font-size: 11px;
+    padding: 8px;
+    selection-background-color: #364a82;
+}
+
+/* ── Welcome page specifics ───────────────────────────────────────────────── */
+QLabel#welcome-hero {
+    color: #7aa2f7;
+    font-size: 42px;
+    font-weight: 900;
+}
+
+QLabel#welcome-headline {
+    color: #cdd6f4;
+    font-size: 18px;
+    font-weight: 700;
+}
+
+QLabel#welcome-body {
+    color: #a9b1d6;
+    font-size: 13px;
+}
+
+QLabel#section-header {
+    color: #565f89;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    padding-bottom: 6px;
+}
+
+QLabel#info-key {
+    color: #565f89;
+    font-size: 12px;
+}
+
+QLabel#info-val {
+    color: #cdd6f4;
+    font-size: 12px;
+    font-weight: 600;
+}
+"""
+
+
+# ── Worker thread ──────────────────────────────────────────────────────────────
+class BootcWorker(QThread):
+    line     = pyqtSignal(str)
+    done     = pyqtSignal(int)   # exit code
+
+    def __init__(self, cmd):
+        super().__init__()
+        self.cmd = cmd
+
+    def run(self):
+        try:
+            proc = subprocess.Popen(
+                self.cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            for ln in proc.stdout:
+                self.line.emit(ln.rstrip())
+            proc.wait()
+            self.done.emit(proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"ERROR: {exc}")
+            self.done.emit(1)
+
+
+# ── Helpers ────────────────────────────────────────────────────────────────────
+def _bootc_status() -> dict | None:
+    """Return parsed bootc status or None if unavailable."""
+    try:
+        r = subprocess.run(
+            ["sudo", "bootc", "status", "--json"],
+            capture_output=True, text=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+    except Exception:
+        pass
+    return None
+
+
+def _current_ref(status: dict | None) -> str:
+    """Extract the booted image ref from bootc status JSON."""
+    try:
+        return status["status"]["booted"]["image"]["image"]["image"]
+    except (TypeError, KeyError):
+        return ""
+
+
+def _current_tag(ref: str) -> str:
+    """Return the tag portion of an image ref, e.g. 'latest'."""
+    m = re.search(r":([^:]+)$", ref)
+    return m.group(1) if m else ""
+
+
+def _sep() -> QFrame:
+    """Horizontal rule."""
+    f = QFrame()
+    f.setObjectName("page-divider")
+    f.setFixedHeight(1)
+    return f
+
+
+# ── Sidebar navigation button ──────────────────────────────────────────────────
+class NavButton(QPushButton):
+    def __init__(self, text, parent=None):
+        super().__init__(text, parent)
+        self.setObjectName("navbtn")
+        self.setCheckable(False)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+
+    def set_active(self, active: bool):
+        self.setProperty("active", "true" if active else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+
+# ── Branch card ────────────────────────────────────────────────────────────────
+class BranchCard(QFrame):
+    switch_requested = pyqtSignal(str)   # emits tag
+
+    def __init__(self, branch: dict, parent=None):
+        super().__init__(parent)
+        self.tag   = branch["tag"]
+        self.color = branch["color"]
+        self._active = False
+        self.setObjectName("card")
+        self.setMinimumWidth(200)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(6)
+
+        # Color dot + label row
+        top = QHBoxLayout()
+        dot = QLabel("●")
+        dot.setStyleSheet(f"color: {self.color}; font-size: 16px;")
+        top.addWidget(dot)
+
+        self.lbl_label = QLabel(branch["label"])
+        self.lbl_label.setObjectName("card-label")
+        self.lbl_label.setStyleSheet(f"color: {self.color};")
+        top.addWidget(self.lbl_label)
+        top.addStretch()
+
+        self.badge = QLabel()
+        self.badge.setObjectName("badge")
+        self.badge.hide()
+        top.addWidget(self.badge)
+        layout.addLayout(top)
+
+        # Description
+        desc = QLabel(branch["desc"])
+        desc.setObjectName("card-desc")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        layout.addStretch()
+
+        # Switch button
+        self.btn = QPushButton()
+        self.btn.setObjectName("btn-switch")
+        self.btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn.clicked.connect(lambda: self.switch_requested.emit(self.tag))
+        layout.addWidget(self.btn)
+
+        self._refresh_state(False)
+
+    def _refresh_state(self, is_active: bool):
+        self._active = is_active
+        self.setObjectName("card-active" if is_active else "card")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+        if is_active:
+            self.badge.setText("CURRENT")
+            self.badge.setStyleSheet(
+                f"background: rgba({self._hex_to_rgb(self.color)},0.18);"
+                f"color: {self.color}; border-radius: 4px; padding: 2px 8px;"
+            )
+            self.badge.show()
+            self.btn.setText("Up to date")
+            self.btn.setStyleSheet(
+                "background: #2a2e42; color: #565f89;"
+            )
+            self.btn.setEnabled(False)
+        else:
+            self.badge.hide()
+            self.btn.setText("Switch to this branch")
+            self.btn.setStyleSheet(
+                f"background: {self.color}; color: #1e1e2e;"
+            )
+            self.btn.setEnabled(True)
+
+    def mark_active(self, active: bool):
+        self._refresh_state(active)
+
+    def set_switching(self, busy: bool):
+        if busy:
+            self.btn.setEnabled(False)
+            self.btn.setText("Switching…")
+            self.btn.setStyleSheet("background: #2a2e42; color: #565f89;")
+        else:
+            self._refresh_state(self._active)
+
+    @staticmethod
+    def _hex_to_rgb(hex_color: str) -> str:
+        h = hex_color.lstrip("#")
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return f"{r},{g},{b}"
+
+
+# ── Welcome page ───────────────────────────────────────────────────────────────
+class WelcomePage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("content")
+
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        inner = QWidget()
+        inner.setObjectName("content")
+        vbox = QVBoxLayout(inner)
+        vbox.setContentsMargins(32, 28, 32, 28)
+        vbox.setSpacing(0)
+
+        # ── Hero ──────────────────────────────────────────────────────────────
+        hero = QLabel("K")
+        hero.setObjectName("welcome-hero")
+        vbox.addWidget(hero)
+
+        headline = QLabel("Welcome to Kyth")
+        headline.setObjectName("welcome-headline")
+        vbox.addWidget(headline)
+
+        vbox.addSpacing(8)
+
+        body = QLabel(
+            "Kyth is an atomic gaming and developer workstation built on\n"
+            "Fedora Kinoite.  Updates are image-based via bootc — reliable,\n"
+            "rollback-safe, and always up to date."
+        )
+        body.setObjectName("welcome-body")
+        vbox.addWidget(body)
+
+        vbox.addSpacing(24)
+        vbox.addWidget(_sep())
+
+        # ── Quick links ───────────────────────────────────────────────────────
+        sec = QLabel("LINKS")
+        sec.setObjectName("section-header")
+        vbox.addWidget(sec)
+
+        link_row = QHBoxLayout()
+        link_row.setSpacing(10)
+        for label, url in LINKS:
+            btn = QPushButton(label)
+            btn.setObjectName("btn-ghost")
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.clicked.connect(lambda _, u=url: QDesktopServices.openUrl(QUrl(u)))
+            link_row.addWidget(btn)
+        link_row.addStretch()
+        vbox.addLayout(link_row)
+
+        vbox.addSpacing(24)
+        vbox.addWidget(_sep())
+
+        # ── System info ───────────────────────────────────────────────────────
+        sec2 = QLabel("SYSTEM")
+        sec2.setObjectName("section-header")
+        vbox.addWidget(sec2)
+
+        status = _bootc_status()
+        ref    = _current_ref(status)
+        tag    = _current_tag(ref)
+
+        grid = QVBoxLayout()
+        grid.setSpacing(6)
+
+        def _info_row(key, val_widget):
+            row = QHBoxLayout()
+            k = QLabel(f"{key}:")
+            k.setObjectName("info-key")
+            k.setFixedWidth(60)
+            row.addWidget(k)
+            row.addWidget(val_widget)
+            row.addStretch()
+            grid.addLayout(row)
+
+        if ref:
+            # Split "ghcr.io/user/repo:tag" → dim registry, bold tag
+            colon_idx = ref.rfind(":")
+            registry  = ref[:colon_idx] if colon_idx != -1 else ref
+            img_tag   = ref[colon_idx:] if colon_idx != -1 else ""
+            img_lbl   = QLabel(f'<span style="color:#565f89">{registry}</span>'
+                               f'<span style="color:#cdd6f4;font-weight:700">{img_tag}</span>')
+            img_lbl.setTextFormat(Qt.TextFormat.RichText)
+            img_lbl.setObjectName("info-val")
+        else:
+            img_lbl = QLabel("Not available (live session?)")
+            img_lbl.setObjectName("info-key")
+        _info_row("Image", img_lbl)
+
+        branch_lbl = QLabel(tag or "—")
+        branch_lbl.setObjectName("info-val")
+        _info_row("Branch", branch_lbl)
+
+        vbox.addLayout(grid)
+
+        vbox.addStretch()
+        scroll.setWidget(inner)
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.addWidget(scroll)
+
+
+# Stage labels inferred from bootc output keywords (checked in order)
+_STAGE_PATTERNS = [
+    (["resolving", "resolve"],                        "Resolving image…"),
+    (["manifest", "fetching manifest"],               "Fetching manifest…"),
+    (["pulling", "fetching", "fetch", "layer", "blob",
+      "downloading", "download"],                     "Pulling image layers…"),
+    (["writing", "unpacking", "unpack", "extracting"],"Writing layers to disk…"),
+    (["staging", "stage", "deploying", "deploy"],     "Staging deployment…"),
+    (["queued", "next boot", "complete", "done"],     "Finalising…"),
+]
+
+def _infer_stage(line: str) -> str | None:
+    low = line.lower()
+    for keywords, label in _STAGE_PATTERNS:
+        if any(kw in low for kw in keywords):
+            return label
+    return None
+
+
+# ── Branches page ──────────────────────────────────────────────────────────────
+class BranchPage(QWidget):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("content")
+        self._worker: BootcWorker | None = None
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_count = 0
+        self._stage_text = ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 28)
+        root.setSpacing(0)
+
+        # Title
+        title = QLabel("Image Branch")
+        title.setObjectName("page-title")
+        root.addWidget(title)
+
+        self.lbl_current = QLabel()
+        self.lbl_current.setObjectName("page-sub")
+        root.addWidget(self.lbl_current)
+
+        root.addSpacing(6)
+        root.addWidget(_sep())
+
+        # Cards row
+        card_row = QHBoxLayout()
+        card_row.setSpacing(16)
+        self.cards: dict[str, BranchCard] = {}
+        for branch in BRANCHES:
+            card = BranchCard(branch)
+            card.switch_requested.connect(self._on_switch)
+            card_row.addWidget(card)
+            self.cards[branch["tag"]] = card
+        card_row.addStretch()
+        root.addLayout(card_row)
+
+        root.addSpacing(16)
+
+        # Note about reboot
+        note = QLabel(
+            "⚠  A reboot is required for the branch change to take effect."
+        )
+        note.setStyleSheet("color: #e0af68; font-size: 12px;")
+        root.addWidget(note)
+
+        root.addSpacing(12)
+
+        # ── Status area (hidden while idle) ───────────────────────────────────
+        self._status_widget = QWidget()
+        status_layout = QVBoxLayout(self._status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+
+        stage_row = QHBoxLayout()
+        stage_row.setSpacing(10)
+
+        self._lbl_stage = QLabel("Preparing…")
+        self._lbl_stage.setStyleSheet("color: #7aa2f7; font-size: 12px; font-weight: 600;")
+        stage_row.addWidget(self._lbl_stage)
+        stage_row.addStretch()
+        status_layout.addLayout(stage_row)
+
+        self._progress = QProgressBar()
+        self._progress.setObjectName("switch-progress")
+        self._progress.setRange(0, 0)   # indeterminate / busy
+        self._progress.setFixedHeight(6)
+        self._progress.setTextVisible(False)
+        status_layout.addWidget(self._progress)
+
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
+
+        root.addSpacing(12)
+
+        # Output log
+        self.log = QTextEdit()
+        self.log.setObjectName("log")
+        self.log.setReadOnly(True)
+        self.log.setPlaceholderText("Output will appear here when switching branches…")
+        self.log.setMinimumHeight(160)
+        root.addWidget(self.log)
+
+        root.addStretch()
+
+        self._refresh_status()
+
+    # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _set_stage(self, text: str):
+        self._stage_text = text
+        self._dot_count  = 0
+        self._lbl_stage.setText(text)
+
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        dots = "." * self._dot_count
+        # strip any trailing dots from the base label then re-add
+        base = self._stage_text.rstrip(".")
+        self._lbl_stage.setText(base + dots)
+
+    def _refresh_status(self):
+        status = _bootc_status()
+        ref    = _current_ref(status)
+        tag    = _current_tag(ref)
+
+        if ref:
+            self.lbl_current.setText(f"Current image: {ref}")
+        else:
+            self.lbl_current.setText("Current image: not available (live session?)")
+
+        for t, card in self.cards.items():
+            card.mark_active(t == tag)
+
+    # ── switch flow ───────────────────────────────────────────────────────────
+
+    def _on_switch(self, tag: str):
+        ref = f"{REGISTRY}:{tag}"
+        self.log.clear()
+        self.log.append(f"→ sudo bootc switch {ref}\n")
+
+        self._set_stage("Connecting to registry…")
+        self._status_widget.show()
+        self._dot_timer.start()
+
+        for card in self.cards.values():
+            card.set_switching(True)
+
+        self._worker = BootcWorker(["sudo", "bootc", "switch", ref])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self.log.append(text)
+        self.log.ensureCursorVisible()
+        stage = _infer_stage(text)
+        if stage:
+            self._set_stage(stage)
+
+    def _on_done(self, code: int):
+        self._dot_timer.stop()
+
+        if code == 0:
+            self._set_stage("Done — reboot to apply")
+            self._lbl_stage.setStyleSheet(
+                "color: #9ece6a; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
+            self.log.append(
+                "\n✓ Switch staged successfully.  "
+                "Reboot to boot into the new branch."
+            )
+        else:
+            self._set_stage("Switch failed")
+            self._lbl_stage.setStyleSheet(
+                "color: #f7768e; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
+            self.log.append(f"\n✗ bootc switch exited with code {code}.")
+
+        for card in self.cards.values():
+            card.set_switching(False)
+
+        self._refresh_status()
+        self._worker = None
+
+        for card in self.cards.values():
+            card.set_switching(False)
+
+        self._refresh_status()
+        self._worker = None
+
+
+# ── Main window ────────────────────────────────────────────────────────────────
+class MainWindow(QMainWindow):
+    _PAGES = [
+        ("Welcome",  WelcomePage),
+        ("Branches", BranchPage),
+    ]
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Kyth")
+        self.setMinimumSize(860, 540)
+        self.resize(860, 560)
+
+        root = QWidget()
+        root.setObjectName("root")
+        self.setCentralWidget(root)
+        hbox = QHBoxLayout(root)
+        hbox.setContentsMargins(0, 0, 0, 0)
+        hbox.setSpacing(0)
+
+        # ── Sidebar ───────────────────────────────────────────────────────────
+        sidebar = QWidget()
+        sidebar.setObjectName("sidebar")
+        sidebar.setFixedWidth(200)
+        sidebar_layout = QVBoxLayout(sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+
+        brand_k = QLabel("K")
+        brand_k.setObjectName("brand-k")
+        sidebar_layout.addWidget(brand_k)
+
+        brand_name = QLabel("KYTH")
+        brand_name.setObjectName("brand-name")
+        sidebar_layout.addWidget(brand_name)
+
+        brand_tag = QLabel("atomic gaming workstation")
+        brand_tag.setObjectName("brand-tagline")
+        sidebar_layout.addWidget(brand_tag)
+
+        div = QFrame()
+        div.setObjectName("sidebar-divider")
+        div.setFixedHeight(1)
+        sidebar_layout.addWidget(div)
+        sidebar_layout.addSpacing(4)
+
+        self._nav_buttons: list[NavButton] = []
+        self._stack = QStackedWidget()
+
+        for i, (label, PageClass) in enumerate(self._PAGES):
+            btn = NavButton(label)
+            btn.clicked.connect(lambda _, idx=i: self._switch_page(idx))
+            sidebar_layout.addWidget(btn)
+            self._nav_buttons.append(btn)
+            self._stack.addWidget(PageClass())
+
+        sidebar_layout.addStretch()
+
+        ver_lbl = QLabel(f"v{APP_VER}")
+        ver_lbl.setObjectName("sidebar-version")
+        sidebar_layout.addWidget(ver_lbl)
+
+        hbox.addWidget(sidebar)
+        hbox.addWidget(self._stack)
+
+        self._switch_page(0)
+
+    def _switch_page(self, index: int):
+        self._stack.setCurrentIndex(index)
+        for i, btn in enumerate(self._nav_buttons):
+            btn.set_active(i == index)
+
+
+# ── Entry point ────────────────────────────────────────────────────────────────
+def main():
+    app = QApplication(sys.argv)
+    app.setApplicationName("kyth-helper")
+    app.setApplicationDisplayName("Kyth")
+    app.setStyleSheet(QSS)
+
+    # Use system icon if available, otherwise skip
+    icon = QIcon.fromTheme("kyth")
+    if not icon.isNull():
+        app.setWindowIcon(icon)
+
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()
