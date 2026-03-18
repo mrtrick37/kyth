@@ -17,11 +17,8 @@ dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-r
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
-# Mesa-git from xxmitsu/mesa-git COPR (supports Fedora 43, rebuilds every few hours from upstream).
-dnf5 copr enable -y xxmitsu/mesa-git
-dnf5 upgrade -y --skip-unavailable mesa* mesa-dri-drivers mesa-vulkan-drivers mesa-libGL mesa-libGLU mesa-libEGL mesa-libgbm mesa-libOpenCL || true
-dnf5 copr disable -y xxmitsu/mesa-git
-dnf5 upgrade -y --skip-unavailable xorg-x11-drv-amdgpu xorg-x11-drv-nouveau xorg-x11-drv-intel xorg-x11-drv-vmware xorg-x11-drv-qxl xorg-x11-drv-nvidia || true
+# Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
+# so daily mesa updates only re-download that small layer, not this entire layer.
 
 ### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
 # CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
@@ -396,13 +393,8 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
     /usr/share/applications/steam.desktop \
     > /usr/local/share/applications/steam.desktop
 
-# ── GE-Proton ────────────────────────────────────────────────────────────────
-# Installed system-wide so Steam picks it up for all users without manual setup.
-# Steam looks in /usr/share/steam/compatibilitytools.d/ in addition to ~/.steam.
-GE_PROTON_VER="GE-Proton10-33"
-mkdir -p /usr/share/steam/compatibilitytools.d
-curl -fsSL "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VER}/${GE_PROTON_VER}.tar.gz" \
-    | tar -xz -C /usr/share/steam/compatibilitytools.d/
+# GE-Proton is installed in a separate image layer (build_files/scripts/ge-proton.sh)
+# so version bumps only re-download that layer, not this entire layer.
 
 systemctl enable libvirtd.socket
 
