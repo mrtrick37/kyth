@@ -691,7 +691,7 @@ echo "Initramfs rebuilt with Plymouth (theme: kyth)"
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode; do
+for grp in users video audio gamemode docker; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
@@ -702,7 +702,7 @@ for grp in users video audio gamemode; do
 done
 
 # Create default user
-useradd -m -G wheel,users,video,audio,gamemode -s /bin/bash kyth
+useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
 echo 'kyth:kyth' | chpasswd
 echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
 
