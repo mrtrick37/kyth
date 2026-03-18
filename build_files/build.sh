@@ -729,5 +729,10 @@ cat > /etc/sddm.conf.d/20-hide-users.conf <<'EOF'
 HideUsers=kyth
 EOF
 
+# ── ujust recipes ─────────────────────────────────────────────────────────────
+# Install Kyth-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
+mkdir -p /usr/share/ublue-os/just
+cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
+
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
