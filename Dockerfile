@@ -37,9 +37,24 @@ LABEL org.osbuild.branding.release="Kyth 43"
 # RUN rm /opt && mkdir /opt
 
 ### MODIFICATIONS
+# Layer 1: All packages, kernel, system config, branding.
+# Large but stable — only re-downloaded when packages or config change.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/build.sh
+
+# Layer 2: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/scripts/ge-proton.sh
+
+# Layer 3: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds, kept small
+# so bootc updates pull this layer instead of the full 3+ GB base layer.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    /ctx/scripts/mesa-git.sh
 
