@@ -106,6 +106,7 @@ rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/
         util-linux-script \
         virt-manager \
         virt-viewer \
+        gnome-boxes \
         ydotool \
         tmux \
         gh
