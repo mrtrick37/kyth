@@ -738,5 +738,13 @@ useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
 echo 'kyth:kyth' | chpasswd
 echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
 
+# Hide the kyth system user from the SDDM login screen.
+# Users should only see their own account (created during installation).
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/20-hide-users.conf <<'EOF'
+[Users]
+HideUsers=kyth
+EOF
+
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
