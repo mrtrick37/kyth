@@ -395,6 +395,14 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
     /usr/share/applications/steam.desktop \
     > /usr/local/share/applications/steam.desktop
 
+# ── GE-Proton ────────────────────────────────────────────────────────────────
+# Installed system-wide so Steam picks it up for all users without manual setup.
+# Steam looks in /usr/share/steam/compatibilitytools.d/ in addition to ~/.steam.
+GE_PROTON_VER="GE-Proton10-33"
+mkdir -p /usr/share/steam/compatibilitytools.d
+curl -fsSL "https://github.com/GloriousEggroll/proton-ge-custom/releases/download/${GE_PROTON_VER}/${GE_PROTON_VER}.tar.gz" \
+    | tar -xz -C /usr/share/steam/compatibilitytools.d/
+
 systemctl enable libvirtd.socket
 
 # ── Display / resolution auto-detection ──────────────────────────────────────
