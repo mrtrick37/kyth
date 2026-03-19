@@ -89,6 +89,7 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 dnf5 install -y \
     p7zip \
     p7zip-plugins \
+    duperemove \
     qemu \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
@@ -166,11 +167,13 @@ dnf5 install -y \
     rom-properties-kf6
 
 # Download winetricks from upstream (package version is often outdated)
-# Pinned to a specific release tag for reproducibility; update WINETRICKS_VER to upgrade.
+# Pin to the signed release commit so the build does not trust a mutable ref
+# for an executable shell script.
 # /usr/local symlinks to /var/usrlocal — ensure the target dir exists
 WINETRICKS_VER="20260125"
+WINETRICKS_COMMIT="b76e1ee"
 mkdir -p /usr/local/bin
-curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_VER}/src/winetricks" \
+curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
     -o /usr/local/bin/winetricks
 # Sanity-check: must be a shell script
 head -1 /usr/local/bin/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
@@ -232,7 +235,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
-dnf5 install -y libclc
+dnf5 install -y libclc power-profiles-daemon
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
@@ -621,6 +624,14 @@ dnf5 install -y python3-pyqt6
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/local/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+install -m 0755 /ctx/game-performance /usr/local/bin/game-performance
+install -m 0755 /ctx/zink-run /usr/local/bin/zink-run
+install -m 0755 /ctx/kyth-kerver /usr/local/bin/kyth-kerver
+install -m 0755 /ctx/kyth-device-info /usr/local/bin/kyth-device-info
+install -m 0755 /ctx/kyth-creator-check /usr/local/bin/kyth-creator-check
+install -m 0755 /ctx/kyth-duperemove /usr/local/bin/kyth-duperemove
+install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
+install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
@@ -764,23 +775,11 @@ for grp in users video audio gamemode docker; do
     fi
 done
 
-# Create default user
-useradd -m -G wheel,users,video,audio,gamemode,docker -s /bin/bash kyth
-echo 'kyth:kyth' | chpasswd
-echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel-nopasswd
-
-# Hide the kyth system user from the SDDM login screen.
-# Users should only see their own account (created during installation).
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/20-hide-users.conf <<'EOF'
-[Users]
-HideUsers=kyth
-EOF
-
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install Kyth-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
+systemctl enable kyth-duperemove.timer 2>/dev/null || true
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
