@@ -137,10 +137,13 @@ jobs:
           chmod +x build_files/build-live-iso.sh
 
       - name: Build Live ISO
-        # kyth-live:build already exists so build-live-iso.sh skips the Docker
-        # build step and goes straight to container export + squashfs + ISO.
+        # SKIP_REBUILD=1: kyth-live:build was pre-built in job 1 and imported
+        # above — skip the staleness check so the script goes straight to
+        # container export + squashfs + ISO without triggering a rebuild.
         # Prune Docker storage right after the container is exported to reclaim
         # the ~10 GB overlay2 footprint before squashfs runs.
+        env:
+          SKIP_REBUILD: "1"
         run: |
           just build-live-iso "${{ inputs.source_tag || 'latest' }}" &
           BUILD_PID=$!
@@ -192,15 +195,11 @@ jobs:
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES="Built from the \`testing\` branch. May be unstable.
-
-**Download:** [kyth-live-testing.iso](${ISO_URL})"
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-testing.iso](%s)' "${ISO_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES="Built from the \`main\` branch.
-
-**Download:** [kyth-live-latest.iso](${ISO_URL})"
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-latest.iso](%s)' "${ISO_URL}")
             PRERELEASE="--latest"
           fi
 
