@@ -305,6 +305,7 @@ class BootcWorker(QThread):
                 self.cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
                 text=True,
             )
             for ln in proc.stdout:
@@ -321,7 +322,7 @@ def _bootc_status() -> dict | None:
     """Return parsed bootc status or None if unavailable."""
     try:
         r = subprocess.run(
-            ["sudo", "bootc", "status", "--json"],
+            ["bootc", "status", "--json"],
             capture_output=True, text=True, timeout=10,
         )
         if r.returncode == 0:
@@ -354,11 +355,11 @@ def _detect_nvidia() -> bool:
         return False
 
 
-def _akmod_nvidia_installed() -> bool:
-    """Return True if akmod-nvidia is installed (driver source available)."""
+def _akmod_nvidia_built() -> bool:
+    """Return True if the nvidia kernel module has been compiled for the running kernel."""
     try:
         r = subprocess.run(
-            ["rpm", "-q", "akmod-nvidia"],
+            ["modinfo", "nvidia"],
             capture_output=True, text=True, timeout=5,
         )
         return r.returncode == 0
@@ -1284,7 +1285,7 @@ class NvidiaPage(QWidget):
     def _refresh_status(self):
         has_gpu = _detect_nvidia()
         module_loaded = _nvidia_module_loaded()
-        drivers_installed = _akmod_nvidia_installed()
+        drivers_installed = _akmod_nvidia_built()
 
         if not has_gpu:
             self._lbl_sub.setText("No NVIDIA GPU detected")
@@ -1494,7 +1495,21 @@ class MainWindow(QMainWindow):
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
+def _remove_autostart():
+    """Delete the autostart entry so we only run once on first login."""
+    autostart = os.path.join(
+        os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+        "autostart", "kyth-welcome.desktop",
+    )
+    try:
+        os.remove(autostart)
+    except FileNotFoundError:
+        pass
+
+
 def main():
+    _remove_autostart()
+
     app = QApplication(sys.argv)
     app.setApplicationName("kyth-helper")
     app.setApplicationDisplayName("Kyth")
