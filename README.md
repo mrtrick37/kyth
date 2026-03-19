@@ -56,7 +56,7 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 | Branch | Image tag | Purpose |
 |--------|-----------|---------|
 | `testing` | `:testing` | Active development — may be unstable |
-| `main` | `:latest` | Stable releases (Using the term "stable" lightly right now. Read as "more stable than testing" currently|
+| `main` | `:latest` | Stable releases (Using the term "stable" lightly right now. Read as "more stable than testing" currently)|
 
 Both branches rebuild daily at 10:05 UTC to pick up the latest packages regardless of code changes.
 
