@@ -101,8 +101,21 @@ jobs:
         # kyth-live:build  → used by build-live-iso.sh (skips the Docker build step)
         # localhost/kyth:latest → used by build-live-iso.sh for OCI bundling:
         #   skopeo copy docker-daemon:localhost/kyth:latest oci:rootfs/usr/share/kyth/image
+        #
+        # IMPORTANT: pull localhost/kyth:latest FIRST so that kyth-live:build
+        # (created via docker import below) ends up with the newest timestamp.
+        # build-live-iso.sh compares timestamps to decide if a rebuild is needed;
+        # if localhost/kyth:latest is newer than kyth-live:build the script
+        # triggers a full container rebuild inside the runner, exhausting disk/CPU.
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # Pull the base image and tag it as localhost/kyth:<source_tag>
+          # so build-live-iso.sh finds it under LOCAL_BASE=localhost/kyth:${SOURCE_TAG}.
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
+          docker pull "${BASE_IMAGE}"
+          docker tag  "${BASE_IMAGE}" "localhost/kyth:${SOURCE_TAG}"
 
           # Pull the live container and flatten it into a single layer.
           # kyth:latest has 100+ layers; Containerfile.live adds more, so the
@@ -110,15 +123,22 @@ jobs:
           # brings it to 1 layer so 'docker create' / 'docker export' succeed.
           # (skopeo, used later for the OCI bundle, reads layers directly and has
           # no such limit, so localhost/kyth:latest does NOT need flattening.)
+          # docker import sets the image creation time to now, so kyth-live:build
+          # will be newer than localhost/kyth:latest — staleness check passes.
+          # Import with the tag name build-live-iso.sh expects:
+          #   latest  → kyth-live:build
+          #   testing → kyth-live:build-testing
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          if [[ "${SOURCE_TAG}" == "latest" ]]; then
+            LIVE_TAG="kyth-live:build"
+          else
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+          fi
           docker pull "${{ needs.build-live-container.outputs.image-ref }}"
           CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
-          docker export "${CID}" | docker import - kyth-live:build
+          docker export "${CID}" | docker import - "${LIVE_TAG}"
           docker rm "${CID}"
           docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
-
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
-          docker pull "${BASE_IMAGE}"
-          docker tag  "${BASE_IMAGE}" localhost/kyth:latest
 
       - name: Ensure permissions and directories
         run: |
@@ -128,12 +148,22 @@ jobs:
           chmod +x build_files/build-live-iso.sh
 
       - name: Build Live ISO
-        # kyth-live:build already exists so build-live-iso.sh skips the Docker
-        # build step and goes straight to container export + squashfs + ISO.
+        # SKIP_REBUILD=1: kyth-live:build was pre-built in job 1 and imported
+        # above — skip the staleness check so the script goes straight to
+        # container export + squashfs + ISO without triggering a rebuild.
         # Prune Docker storage right after the container is exported to reclaim
         # the ~10 GB overlay2 footprint before squashfs runs.
+        env:
+          SKIP_REBUILD: "1"
         run: |
-          just build-live-iso "${{ inputs.source_tag || 'latest' }}" &
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
+          if [[ "${SOURCE_TAG}" == "latest" ]]; then
+            LIVE_TAG="kyth-live:build"
+          else
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+          fi
+
+          just build-live-iso "${SOURCE_TAG}" &
           BUILD_PID=$!
 
           # Wait for the container export to finish (ROOTFS will appear),
@@ -145,7 +175,7 @@ jobs:
               # Remove the live container image (already exported, no longer needed).
               # Do NOT prune -a: localhost/kyth:latest must survive for the skopeo
               # OCI bundle step that runs after squashfs.
-              docker rmi kyth-live:build || true
+              docker rmi "${LIVE_TAG}" || true
               docker system prune -f || true
               break
             fi
@@ -161,26 +191,38 @@ jobs:
           path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
           if-no-files-found: error
 
-      - name: Publish ISO to GitHub Releases
+      - name: Upload ISO to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          ISO="output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso"
+          aws s3 cp "${ISO}" \
+            "s3://kyth-releases/$(basename ${ISO})" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress
+
+      - name: Publish release notes to GitHub Releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
-          if [ "${{ inputs.source_tag }}" = "testing" ]; then
+          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
+
+          if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES="Built from the \`testing\` branch. May be unstable."
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-testing.iso](%s)' "${ISO_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES="Built from the \`main\` branch."
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-latest.iso](%s)' "${ISO_URL}")
             PRERELEASE="--latest"
           fi
 
-          # Delete the existing rolling release + tag so we can recreate it.
           gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
-
           gh release create "${TAG}" \
             --title "${TITLE}" \
             --notes "${NOTES}" \
-            ${PRERELEASE} \
-            output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
+            ${PRERELEASE}
