@@ -82,31 +82,32 @@ done
 rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
 
 # Disable COPR after install
+dnf5 copr disable -y bieszczaders/kernel-cachyos
 
-    # Install all required packages
-    dnf5 install -y \
-        p7zip \
-        p7zip-plugins \
-        qemu \
-        qemu-char-spice \
-        qemu-device-display-virtio-gpu \
-        qemu-device-display-virtio-vga \
-        qemu-device-usb-redirect \
-        qemu-img \
-        qemu-system-x86-core \
-        sysprof \
-        incus \
-        incus-agent \
-        lxc \
-        tiptop \
-        trace-cmd \
-        util-linux-script \
-        virt-manager \
-        virt-viewer \
-        gnome-boxes \
-        ydotool \
-        tmux \
-        gh
+# Install all required packages
+dnf5 install -y \
+    p7zip \
+    p7zip-plugins \
+    qemu \
+    qemu-char-spice \
+    qemu-device-display-virtio-gpu \
+    qemu-device-display-virtio-vga \
+    qemu-device-usb-redirect \
+    qemu-img \
+    qemu-system-x86-core \
+    sysprof \
+    incus \
+    incus-agent \
+    lxc \
+    tiptop \
+    trace-cmd \
+    util-linux-script \
+    virt-manager \
+    virt-viewer \
+    gnome-boxes \
+    ydotool \
+    tmux \
+    gh
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
@@ -156,8 +157,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-dri-drivers.i686 \
     nss \
     nss.i686
-
-## Removed ananicy-cpp service enablement per user request
 
 # KDE-specific gaming integrations
 dnf5 install -y \
