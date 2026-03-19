@@ -120,8 +120,11 @@ mkdir -p \
 #   - REBUILD_IMAGE=1 is set, OR
 #   - kyth-live:build doesn't exist, OR
 #   - localhost/kyth:latest is newer than kyth-live:build (base was rebuilt)
+# Set SKIP_REBUILD=1 (e.g. in CI) to skip all checks and use the existing image.
 _need_rebuild=0
-if [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
+if [[ "${SKIP_REBUILD:-}" == "1" ]]; then
+    echo "==> SKIP_REBUILD=1: using pre-built live container (CI mode)"
+elif [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
     echo "==> REBUILD_IMAGE=1: forcing live container rebuild"
     _need_rebuild=1
 elif ! docker image inspect "${LIVE_BUILD_TAG}" >/dev/null 2>&1; then

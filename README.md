@@ -78,8 +78,8 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 | Channel | Download | Description |
 |---------|----------|-------------|
-| **Stable** | [kyth-live.iso](https://github.com/mrtrick37/kyth/releases/download/iso-latest/kyth-live.iso) | Built from `main` |
-| **Testing** | [kyth-live.iso](https://github.com/mrtrick37/kyth/releases/download/iso-testing/kyth-live.iso) | Built from `testing` — may be unstable |
+| **Stable** | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) | Built from `main` |
+| **Testing** | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) | Built from `testing` — may be unstable |
 
 1. Flash the ISO to a USB drive (`dd`, Balena Etcher, Ventoy, etc.)
 2. Boot it — KDE Plasma loads automatically, no login required
@@ -129,7 +129,7 @@ just --list
 
 `sudo just build` produces `localhost/kyth:latest`. `just build-live-iso` wraps it in a live session layer and assembles the bootable ISO. If you re-run `just build-live-iso` after a fresh `sudo just build`, it automatically detects that the base image changed and rebuilds the live layer.
 
-The live ISO is written to `output/live-iso/kyth-live.iso`.
+The live ISO is written to `output/live-iso/kyth-live-latest.iso` (or `kyth-live-testing.iso` when building from the testing branch).
 
 ---
 
