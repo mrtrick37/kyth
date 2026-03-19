@@ -235,7 +235,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
-dnf5 install -y libclc power-profiles-daemon
+dnf5 install -y libclc
 mkdir -p /etc/tmpfiles.d
 cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
