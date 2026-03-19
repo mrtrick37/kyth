@@ -137,7 +137,7 @@ The live ISO is written to `output/live-iso/kyth-live-latest.iso` (or `kyth-live
 
 ```text
 build_base/
-  Containerfile        Pulls kinoite-main:43, runs build_base/build.sh
+  Dockerfile           Pulls kinoite-main:43, runs build_base/build.sh
   build.sh             CachyOS kernel, initramfs, Plymouth boot splash, kargs, SDDM
 
 build_files/
@@ -151,7 +151,7 @@ build_files/
 
 disk_config/
   disk.toml            BIB config for qcow2/raw disk images
-  iso.toml             BIB config for Anaconda installer ISO
+  iso.toml             BIB config for installer ISO builds
 
 Dockerfile             Assembles the final kyth:latest image from the base
 Justfile               All build, run, and clean recipes
