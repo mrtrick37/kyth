@@ -36,7 +36,8 @@ depmod -a "${CACHYOS_KVER}"
 
 dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
     kernel-cachyos \
-    kernel-cachyos-core
+    kernel-cachyos-core \
+    kernel-cachyos-devel
 
 # Run depmod again now that all module packages are installed
 depmod -a "${CACHYOS_KVER}"
@@ -607,12 +608,11 @@ PLASMADESKTOPEOF
 # akmod-nvidia and build tools are installed in the image so that the kyth-helper
 # app can compile the NVIDIA kernel module on user request without needing network
 # access to fetch packages at install time.
-# kernel-cachyos-devel provides the headers akmods needs to build against the
-# CachyOS kernel installed above.
+# kernel-cachyos-devel is installed earlier while the CachyOS COPR is still
+# enabled so the matching headers are available in CI/container builds.
 dnf5 install -y \
     akmods \
-    akmod-nvidia \
-    kernel-cachyos-devel
+    akmod-nvidia
 
 # ── Kyth Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
