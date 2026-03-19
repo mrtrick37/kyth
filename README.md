@@ -27,6 +27,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 - RADV_PERFTEST=gpl — Vulkan Graphics Pipeline Library enabled by default
 - NTSYNC udev rules (faster Wine sync primitives)
 - AMD GPU high-performance power profile during gameplay (GameMode)
+- `game-performance` and `zink-run` helper wrappers for quick launch testing/tuning
+- Weekly `duperemove` timer for reclaiming duplicate Steam/Wine data on supported filesystems
 
 ### Development
 
@@ -48,6 +50,8 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The entire 
 - GameMode CPU/GPU governor profiles
 - WiFi power-save disabled system-wide
 - spice-vdagent for automatic display resolution in VMs
+- `kyth-kerver` and matching `ujust` recipes for quick system/tuning inspection
+- `ujust device-info`, `ujust install-lact`, and `ujust install-input-remapper`
 
 ---
 
@@ -89,7 +93,8 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 Minimum 8 GB RAM recommended for the live session and installer.
 
-Default live session credentials: `kyth` / `kyth`
+The live ISO autologins to the desktop as `liveuser`; the default workflow does
+not require entering a password.
 
 ### Rebase from an existing Fedora atomic system
 

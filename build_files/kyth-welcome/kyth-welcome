@@ -948,6 +948,231 @@ class UpdatePage(QWidget):
         self._worker = None
 
 
+# ── Generic actions page ───────────────────────────────────────────────────────
+class ActionsPage(QWidget):
+    def __init__(self, title_text: str, subtitle_text: str, intro_text: str, parent=None):
+        super().__init__(parent)
+        self.setObjectName("content")
+        self._worker: BootcWorker | None = None
+        self._dot_timer = QTimer(self)
+        self._dot_timer.setInterval(500)
+        self._dot_timer.timeout.connect(self._tick_dots)
+        self._dot_count = 0
+        self._stage_text = ""
+        self._action_buttons: list[QPushButton] = []
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(32, 28, 32, 28)
+        root.setSpacing(0)
+
+        title = QLabel(title_text)
+        title.setObjectName("page-title")
+        root.addWidget(title)
+
+        subtitle = QLabel(subtitle_text)
+        subtitle.setObjectName("page-sub")
+        root.addWidget(subtitle)
+
+        root.addSpacing(6)
+        root.addWidget(_sep())
+
+        intro_card = QFrame()
+        intro_card.setObjectName("card")
+        intro_layout = QVBoxLayout(intro_card)
+        intro_layout.setContentsMargins(18, 16, 18, 16)
+        intro_layout.setSpacing(8)
+
+        intro = QLabel(intro_text)
+        intro.setObjectName("card-desc")
+        intro.setWordWrap(True)
+        intro_layout.addWidget(intro)
+        root.addWidget(intro_card)
+
+        root.addSpacing(16)
+
+        self._buttons_row = QHBoxLayout()
+        self._buttons_row.setSpacing(10)
+        root.addLayout(self._buttons_row)
+
+        root.addSpacing(12)
+
+        self._status_widget = QWidget()
+        status_layout = QVBoxLayout(self._status_widget)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(6)
+
+        self._lbl_stage = QLabel()
+        self._lbl_stage.setStyleSheet(
+            "color: #7aa2f7; font-size: 12px; font-weight: 600;"
+        )
+        status_layout.addWidget(self._lbl_stage)
+
+        self._progress = QProgressBar()
+        self._progress.setObjectName("switch-progress")
+        self._progress.setRange(0, 0)
+        self._progress.setFixedHeight(6)
+        self._progress.setTextVisible(False)
+        status_layout.addWidget(self._progress)
+
+        self._status_widget.hide()
+        root.addWidget(self._status_widget)
+
+        root.addSpacing(12)
+
+        self._log = QTextEdit()
+        self._log.setObjectName("log")
+        self._log.setReadOnly(True)
+        self._log.setPlaceholderText("Output will appear here while an action is running…")
+        self._log.setMinimumHeight(220)
+        root.addWidget(self._log)
+
+        root.addStretch()
+
+    def add_action(self, label: str, cmd: list[str], stage: str, success: str, failure: str):
+        btn = QPushButton(label)
+        btn.setObjectName("btn-primary" if not self._action_buttons else "btn-ghost")
+        btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        btn.clicked.connect(
+            lambda _, c=cmd, s=stage, ok=success, fail=failure, name=label:
+            self._run_action(name, c, s, ok, fail)
+        )
+        self._buttons_row.addWidget(btn)
+        self._action_buttons.append(btn)
+
+    def finalize_actions(self):
+        self._buttons_row.addStretch()
+
+    def _set_stage(self, text: str):
+        self._stage_text = text
+        self._dot_count = 0
+        self._lbl_stage.setText(text)
+
+    def _tick_dots(self):
+        self._dot_count = (self._dot_count + 1) % 4
+        base = self._stage_text.rstrip(".")
+        self._lbl_stage.setText(base + "." * self._dot_count)
+
+    def _set_busy(self, busy: bool):
+        for btn in self._action_buttons:
+            btn.setEnabled(not busy)
+
+    def _run_action(self, label: str, cmd: list[str], stage: str, success: str, failure: str):
+        self._log.clear()
+        self._log.append(f"→ {label}\n")
+        self._set_busy(True)
+        self._set_stage(stage)
+        self._status_widget.show()
+        self._dot_timer.start()
+
+        self._worker = BootcWorker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(lambda code, ok=success, fail=failure: self._on_done(code, ok, fail))
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int, success: str, failure: str):
+        self._dot_timer.stop()
+        self._set_busy(False)
+
+        if code == 0:
+            self._set_stage("Done")
+            self._lbl_stage.setStyleSheet(
+                "color: #9ece6a; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(1)
+            self._log.append(f"\n✓ {success}")
+        else:
+            self._set_stage("Action failed")
+            self._lbl_stage.setStyleSheet(
+                "color: #f7768e; font-size: 12px; font-weight: 600;"
+            )
+            self._progress.setRange(0, 1)
+            self._progress.setValue(0)
+            self._log.append(f"\n✗ {failure} (exit code {code}).")
+
+        self._worker = None
+
+
+# ── Hardware page ──────────────────────────────────────────────────────────────
+class HardwarePage(ActionsPage):
+    def __init__(self, parent=None):
+        super().__init__(
+            "Hardware Actions",
+            "Optional device tools and support actions",
+            "Install a few common hardware helpers or generate a support-ready system snapshot. "
+            "These actions are aimed at the awkward setup work that usually sends people to wikis.",
+            parent,
+        )
+        self.add_action(
+            "Run Device Info",
+            ["/usr/local/bin/kyth-device-info"],
+            "Collecting system information…",
+            "Device info collected successfully.",
+            "Device info collection failed",
+        )
+        self.add_action(
+            "Install LACT",
+            ["ujust", "install-lact"],
+            "Installing LACT…",
+            "LACT installed successfully.",
+            "LACT installation failed",
+        )
+        self.add_action(
+            "Install Input Remapper",
+            ["ujust", "install-input-remapper"],
+            "Layering input-remapper…",
+            "input-remapper has been staged. Reboot to use it.",
+            "input-remapper installation failed",
+        )
+        self.finalize_actions()
+
+
+# ── Creator page ───────────────────────────────────────────────────────────────
+class CreatorPage(ActionsPage):
+    def __init__(self, parent=None):
+        super().__init__(
+            "Creator Tools",
+            "Streaming, capture, and editing helpers",
+            "Quick checks and install actions for the desktop capture stack. "
+            "This is the Kyth version of the 'make creator workflows less annoying' approach.",
+            parent,
+        )
+        self.add_action(
+            "Run Creator Checks",
+            ["/usr/local/bin/kyth-creator-check"],
+            "Inspecting creator stack…",
+            "Creator checks completed successfully.",
+            "Creator checks failed",
+        )
+        self.add_action(
+            "Install OBS Studio",
+            [
+                "bash", "-lc",
+                "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && "
+                "flatpak install -y flathub com.obsproject.Studio"
+            ],
+            "Installing OBS Studio…",
+            "OBS Studio installed successfully.",
+            "OBS Studio installation failed",
+        )
+        self.add_action(
+            "Install Kdenlive",
+            [
+                "bash", "-lc",
+                "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo && "
+                "flatpak install -y flathub org.kde.kdenlive"
+            ],
+            "Installing Kdenlive…",
+            "Kdenlive installed successfully.",
+            "Kdenlive installation failed",
+        )
+        self.finalize_actions()
+
+
 # ── NVIDIA drivers page ────────────────────────────────────────────────────────
 class NvidiaPage(QWidget):
     def __init__(self, parent=None):
@@ -1178,6 +1403,8 @@ class MainWindow(QMainWindow):
         ("Welcome",  WelcomePage),
         ("Update",   UpdatePage),
         ("Branches", BranchPage),
+        ("Hardware", HardwarePage),
+        ("Creator",  CreatorPage),
         ("Drivers",  NvidiaPage),
     ]
 
