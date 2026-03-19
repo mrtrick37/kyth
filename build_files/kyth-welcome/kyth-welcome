@@ -58,63 +58,55 @@ QMainWindow, QWidget#root {
 
 /* ── Sidebar ──────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #1a1b26;
-    border-right: 1px solid #313244;
-}
-
-QLabel#brand-k {
-    color: #7aa2f7;
-    font-size: 32px;
-    font-weight: 900;
-    padding: 24px 20px 4px;
+    background: #13141e;
+    border-right: 1px solid #1a1b26;
 }
 
 QLabel#brand-name {
     color: #cdd6f4;
-    font-size: 15px;
+    font-size: 13px;
     font-weight: 700;
-    letter-spacing: 2px;
-    padding: 0 20px 2px;
+    letter-spacing: 3px;
+    padding: 0 20px 1px;
 }
 
 QLabel#brand-tagline {
-    color: #565f89;
-    font-size: 11px;
+    color: #2e3354;
+    font-size: 10px;
     padding: 0 20px 20px;
 }
 
 QFrame#sidebar-divider {
-    background: #313244;
+    background: #1e1f2e;
     max-height: 1px;
     margin: 0 16px 8px;
 }
 
 QPushButton#navbtn {
     background: transparent;
-    color: #a9b1d6;
+    color: #414868;
     border: none;
-    border-left: 3px solid transparent;
-    border-radius: 0;
+    border-radius: 8px;
     text-align: left;
-    padding: 11px 20px;
+    padding: 10px 16px;
+    margin: 2px 12px;
     font-size: 13px;
     min-height: 36px;
 }
 
 QPushButton#navbtn:hover {
-    background: #24283b;
-    color: #cdd6f4;
+    background: rgba(122, 162, 247, 0.07);
+    color: #7983b0;
 }
 
 QPushButton#navbtn[active=true] {
-    background: #24283b;
-    border-left-color: #7aa2f7;
+    background: rgba(122, 162, 247, 0.13);
     color: #7aa2f7;
     font-weight: 600;
 }
 
 QLabel#sidebar-version {
-    color: #313244;
+    color: #20212e;
     font-size: 11px;
     padding: 12px 20px;
 }
@@ -140,28 +132,28 @@ QLabel#page-title {
 }
 
 QLabel#page-sub {
-    color: #565f89;
+    color: #414868;
     font-size: 12px;
     padding-bottom: 8px;
 }
 
 QFrame#page-divider {
-    background: #313244;
+    background: #1a1b26;
     max-height: 1px;
-    margin: 4px 0 16px;
+    margin: 4px 0 20px;
 }
 
 /* ── Cards ────────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: #24283b;
-    border-radius: 8px;
-    border: 1px solid #313244;
+    background: #181920;
+    border-radius: 12px;
+    border: none;
 }
 
 QFrame#card-active {
-    background: #24283b;
-    border-radius: 8px;
-    border: 2px solid #7aa2f7;
+    background: #181920;
+    border-radius: 12px;
+    border: 1px solid #7aa2f7;
 }
 
 QLabel#card-label {
@@ -170,7 +162,7 @@ QLabel#card-label {
 }
 
 QLabel#card-desc {
-    color: #a9b1d6;
+    color: #414868;
     font-size: 12px;
 }
 
@@ -186,7 +178,7 @@ QPushButton#btn-primary {
     background: #7aa2f7;
     color: #1e1e2e;
     border: none;
-    border-radius: 6px;
+    border-radius: 8px;
     padding: 8px 22px;
     font-weight: 700;
     font-size: 13px;
@@ -196,102 +188,102 @@ QPushButton#btn-primary {
 QPushButton#btn-primary:hover   { background: #89b4fa; }
 QPushButton#btn-primary:pressed { background: #6a8edf; }
 QPushButton#btn-primary:disabled {
-    background: #2a2e42;
-    color: #565f89;
+    background: #181920;
+    color: #414868;
 }
 
 QPushButton#btn-ghost {
-    background: transparent;
+    background: #181920;
     color: #7aa2f7;
-    border: 1px solid #45475a;
-    border-radius: 6px;
-    padding: 7px 22px;
+    border: none;
+    border-radius: 8px;
+    padding: 8px 20px;
     font-size: 13px;
     min-height: 34px;
 }
 
 QPushButton#btn-ghost:hover {
-    border-color: #7aa2f7;
-    background: rgba(122,162,247,0.08);
+    background: rgba(122, 162, 247, 0.12);
 }
 
 QPushButton#btn-ghost:pressed {
-    background: rgba(122,162,247,0.16);
+    background: rgba(122, 162, 247, 0.20);
 }
 
 QPushButton#btn-switch {
-    border-radius: 6px;
-    padding: 6px 18px;
+    border-radius: 8px;
+    padding: 7px 18px;
     font-size: 12px;
     font-weight: 600;
-    min-height: 30px;
+    min-height: 32px;
     border: none;
     color: #1e1e2e;
 }
 
 QPushButton#btn-switch:disabled {
-    background: #2a2e42;
-    color: #565f89;
+    background: #181920;
+    color: #414868;
 }
 
 /* ── Progress bar ─────────────────────────────────────────────────────────── */
 QProgressBar#switch-progress {
-    background: #24283b;
-    border: 1px solid #313244;
-    border-radius: 4px;
+    background: #181920;
+    border: none;
+    border-radius: 3px;
     height: 6px;
     text-align: center;
 }
 QProgressBar#switch-progress::chunk {
     background: #7aa2f7;
-    border-radius: 4px;
+    border-radius: 3px;
 }
 
 /* ── Log output ───────────────────────────────────────────────────────────── */
 QTextEdit#log {
-    background: #13131e;
-    color: #a9b1d6;
-    border: 1px solid #313244;
-    border-radius: 6px;
+    background: #0d0e17;
+    color: #7983b0;
+    border: none;
+    border-radius: 10px;
     font-family: "Cascadia Code", "JetBrains Mono", "Fira Code", "Courier New", monospace;
     font-size: 11px;
-    padding: 8px;
+    padding: 12px;
     selection-background-color: #364a82;
 }
 
 /* ── Welcome page specifics ───────────────────────────────────────────────── */
-QLabel#welcome-hero {
-    color: #7aa2f7;
-    font-size: 42px;
-    font-weight: 900;
-}
-
-QLabel#welcome-headline {
+QLabel#welcome-title {
     color: #cdd6f4;
-    font-size: 18px;
+    font-size: 26px;
     font-weight: 700;
 }
 
+QLabel#welcome-subtitle {
+    color: #2e3354;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 2px;
+}
+
 QLabel#welcome-body {
-    color: #a9b1d6;
+    color: #414868;
     font-size: 13px;
 }
 
 QLabel#section-header {
-    color: #565f89;
-    font-size: 11px;
+    color: #2e3354;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1px;
-    padding-bottom: 6px;
+    letter-spacing: 2px;
+    padding-bottom: 10px;
 }
 
 QLabel#info-key {
-    color: #565f89;
+    color: #414868;
     font-size: 12px;
 }
 
 QLabel#info-val {
-    color: #cdd6f4;
+    color: #a9b1d6;
     font-size: 12px;
     font-weight: 600;
 }
@@ -483,29 +475,31 @@ class WelcomePage(QWidget):
         inner = QWidget()
         inner.setObjectName("content")
         vbox = QVBoxLayout(inner)
-        vbox.setContentsMargins(32, 28, 32, 28)
+        vbox.setContentsMargins(36, 36, 36, 36)
         vbox.setSpacing(0)
 
         # ── Hero ──────────────────────────────────────────────────────────────
-        hero = QLabel("K")
-        hero.setObjectName("welcome-hero")
-        vbox.addWidget(hero)
+        title = QLabel("Welcome to Kyth")
+        title.setObjectName("welcome-title")
+        vbox.addWidget(title)
 
-        headline = QLabel("Welcome to Kyth")
-        headline.setObjectName("welcome-headline")
-        vbox.addWidget(headline)
+        vbox.addSpacing(5)
 
-        vbox.addSpacing(8)
+        subtitle = QLabel("ATOMIC GAMING WORKSTATION")
+        subtitle.setObjectName("welcome-subtitle")
+        vbox.addWidget(subtitle)
+
+        vbox.addSpacing(18)
 
         body = QLabel(
-            "Kyth is an atomic gaming and developer workstation built on\n"
-            "Fedora Kinoite.  Updates are image-based via bootc — reliable,\n"
-            "rollback-safe, and always up to date."
+            "Kyth is built on Fedora Kinoite with image-based updates via bootc — "
+            "reliable, rollback-safe, and always up to date."
         )
         body.setObjectName("welcome-body")
+        body.setWordWrap(True)
         vbox.addWidget(body)
 
-        vbox.addSpacing(24)
+        vbox.addSpacing(32)
         vbox.addWidget(_sep())
 
         # ── Quick links ───────────────────────────────────────────────────────
@@ -514,7 +508,7 @@ class WelcomePage(QWidget):
         vbox.addWidget(sec)
 
         link_row = QHBoxLayout()
-        link_row.setSpacing(10)
+        link_row.setSpacing(8)
         for label, url in LINKS:
             btn = QPushButton(label)
             btn.setObjectName("btn-ghost")
@@ -524,7 +518,7 @@ class WelcomePage(QWidget):
         link_row.addStretch()
         vbox.addLayout(link_row)
 
-        vbox.addSpacing(24)
+        vbox.addSpacing(32)
         vbox.addWidget(_sep())
 
         # ── System info ───────────────────────────────────────────────────────
@@ -536,28 +530,31 @@ class WelcomePage(QWidget):
         ref    = _current_ref(status)
         tag    = _current_tag(ref)
 
-        grid = QVBoxLayout()
-        grid.setSpacing(6)
+        info_card = QFrame()
+        info_card.setObjectName("card")
+        card_layout = QVBoxLayout(info_card)
+        card_layout.setContentsMargins(18, 14, 18, 14)
+        card_layout.setSpacing(10)
 
         def _info_row(key, val_widget):
             row = QHBoxLayout()
-            k = QLabel(f"{key}:")
+            k = QLabel(key)
             k.setObjectName("info-key")
-            k.setFixedWidth(60)
+            k.setFixedWidth(52)
             row.addWidget(k)
             row.addWidget(val_widget)
             row.addStretch()
-            grid.addLayout(row)
+            card_layout.addLayout(row)
 
         if ref:
-            # Split "ghcr.io/user/repo:tag" → dim registry, bold tag
             colon_idx = ref.rfind(":")
             registry  = ref[:colon_idx] if colon_idx != -1 else ref
             img_tag   = ref[colon_idx:] if colon_idx != -1 else ""
-            img_lbl   = QLabel(f'<span style="color:#565f89">{registry}</span>'
-                               f'<span style="color:#cdd6f4;font-weight:700">{img_tag}</span>')
+            img_lbl   = QLabel(
+                f'<span style="color:#2e3354">{registry}</span>'
+                f'<span style="color:#7aa2f7;font-weight:700">{img_tag}</span>'
+            )
             img_lbl.setTextFormat(Qt.TextFormat.RichText)
-            img_lbl.setObjectName("info-val")
         else:
             img_lbl = QLabel("Not available (live session?)")
             img_lbl.setObjectName("info-key")
@@ -565,10 +562,12 @@ class WelcomePage(QWidget):
 
         branch_lbl = QLabel(tag or "—")
         branch_lbl.setObjectName("info-val")
+        if tag:
+            color = "#9ece6a" if tag == "latest" else "#e0af68"
+            branch_lbl.setStyleSheet(f"color: {color}; font-weight: 700;")
         _info_row("Branch", branch_lbl)
 
-        vbox.addLayout(grid)
-
+        vbox.addWidget(info_card)
         vbox.addStretch()
         scroll.setWidget(inner)
 
@@ -948,23 +947,42 @@ class MainWindow(QMainWindow):
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
+        # Brand: K badge + name + tagline
+        brand_area = QWidget()
+        brand_area_layout = QVBoxLayout(brand_area)
+        brand_area_layout.setContentsMargins(20, 24, 20, 16)
+        brand_area_layout.setSpacing(0)
+
+        badge_row = QHBoxLayout()
+        badge_row.setContentsMargins(0, 0, 0, 0)
         brand_k = QLabel("K")
-        brand_k.setObjectName("brand-k")
-        sidebar_layout.addWidget(brand_k)
+        brand_k.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        brand_k.setFixedSize(34, 34)
+        brand_k.setStyleSheet(
+            "background: #7aa2f7; color: #1e1e2e; font-size: 17px; font-weight: 900;"
+            "border-radius: 9px;"
+        )
+        badge_row.addWidget(brand_k)
+        badge_row.addStretch()
+        brand_area_layout.addLayout(badge_row)
+
+        brand_area_layout.addSpacing(12)
 
         brand_name = QLabel("KYTH")
         brand_name.setObjectName("brand-name")
-        sidebar_layout.addWidget(brand_name)
+        brand_area_layout.addWidget(brand_name)
 
         brand_tag = QLabel("atomic gaming workstation")
         brand_tag.setObjectName("brand-tagline")
-        sidebar_layout.addWidget(brand_tag)
+        brand_area_layout.addWidget(brand_tag)
+
+        sidebar_layout.addWidget(brand_area)
 
         div = QFrame()
         div.setObjectName("sidebar-divider")
         div.setFixedHeight(1)
         sidebar_layout.addWidget(div)
-        sidebar_layout.addSpacing(4)
+        sidebar_layout.addSpacing(6)
 
         self._nav_buttons: list[NavButton] = []
         self._stack = QStackedWidget()
