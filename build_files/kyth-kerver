@@ -7,7 +7,7 @@ print_kv() {
 
 bootc_ref="unavailable"
 if command -v bootc >/dev/null 2>&1; then
-    bootc_ref=$(bootc status --json 2>/dev/null | jq -r '.spec.image.image // .status.booted.image.image // "unavailable"' 2>/dev/null || true)
+    bootc_ref=$(bootc status --json 2>/dev/null | jq -r '.spec.image.image // .status.booted.image.image.image // "unavailable"' 2>/dev/null || true)
     bootc_ref=${bootc_ref:-unavailable}
 fi
 

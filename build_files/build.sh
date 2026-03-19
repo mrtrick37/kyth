@@ -632,6 +632,7 @@ install -m 0755 /ctx/kyth-creator-check /usr/local/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-duperemove /usr/local/bin/kyth-duperemove
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
+install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
