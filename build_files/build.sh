@@ -342,41 +342,85 @@ fi
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
-# sensitive threads (audio, input, render) while keeping throughputs tasks warm.
+# sensitive threads (audio, input, render) while keeping throughput tasks warm.
+#
+# We pull pre-built binaries directly from the upstream GitHub release rather
+# than relying on a COPR that may not have a Fedora 43 build available.
 if is_enabled "${ENABLE_SCX:-1}"; then
-    SCX_INSTALLED=0
-    if dnf5 copr enable -y bieszczaders/scx-scheds >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
-        dnf5 copr disable -y bieszczaders/scx-scheds >/dev/null 2>&1 || true
-    fi
+    SCX_REPO_API="https://api.github.com/repos/sched-ext/scx/releases/latest"
+    TMPDIR_SCX=$(mktemp -d)
 
-    if rpm -q scx-scheds >/dev/null 2>&1; then
-        SCX_INSTALLED=1
-    elif dnf5 repoquery --available scx-scheds >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
-        rpm -q scx-scheds >/dev/null 2>&1 && SCX_INSTALLED=1
-    fi
+    release_json="${TMPDIR_SCX}/release.json"
+    if curl -fsSL "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+        # Find a Linux x86_64 binary tarball in the release assets
+        SCX_TARBALL_URL=$(
+            grep -o 'https://[^"]*\.tar\.gz' "${release_json}" \
+            | grep -i 'x86_64' \
+            | grep -iv 'source' \
+            | head -n1
+        )
 
-    if [[ "${SCX_INSTALLED}" -eq 1 ]]; then
-        SCX_SCHEDULER=""
-        for sched in scx_lavd scx_rusty scx_bpfland; do
-            if command -v "$sched" >/dev/null 2>&1; then
-                SCX_SCHEDULER="$sched"
-                break
-            fi
-        done
+        if [[ -n "${SCX_TARBALL_URL}" ]]; then
+            SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
+            echo "scx: downloading ${SCX_TARBALL}"
+            curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
+            tar -xzf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
-        if [[ -n "$SCX_SCHEDULER" ]]; then
-            mkdir -p /etc/scx
-            cat > /etc/scx/config <<SCXEOF
+            # Install scx_* scheduler binaries and scxd
+            find "${TMPDIR_SCX}" \( -name 'scx_*' -o -name 'scxd' \) -type f \
+                -exec install -m 0755 {} /usr/bin/ \;
+
+            if command -v scxd >/dev/null 2>&1; then
+                # Provide scxd.service — not present without the RPM
+                mkdir -p /usr/lib/systemd/system
+                cat > /usr/lib/systemd/system/scxd.service <<'SCXSVCEOF'
+[Unit]
+Description=sched-ext userspace scheduler daemon
+Documentation=https://github.com/sched-ext/scx
+After=basic.target
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/scx/config
+ExecStart=/usr/bin/scxd
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+SCXSVCEOF
+
+                # Pick the best available scheduler: lavd > rusty > bpfland
+                SCX_SCHEDULER=""
+                for sched in scx_lavd scx_rusty scx_bpfland; do
+                    if command -v "$sched" >/dev/null 2>&1; then
+                        SCX_SCHEDULER="$sched"
+                        break
+                    fi
+                done
+
+                if [[ -n "$SCX_SCHEDULER" ]]; then
+                    mkdir -p /etc/scx
+                    cat > /etc/scx/config <<SCXEOF
 SCX_SCHEDULER=${SCX_SCHEDULER}
 SCX_FLAGS=--auto-mode
 SCXEOF
-            systemctl enable scxd.service 2>/dev/null || true
+                    systemctl enable scxd.service 2>/dev/null || true
+                    echo "scx: enabled ${SCX_SCHEDULER}"
+                else
+                    echo "scx: no scheduler binaries found in archive"
+                fi
+            else
+                echo "scx: scxd not found after extraction"
+            fi
+        else
+            echo "scx: no x86_64 tarball found in release assets; skipping."
         fi
     else
-        echo "scx-scheds is unavailable in configured repos; skipping."
+        echo "scx: failed to fetch release info from GitHub; skipping."
     fi
+
+    rm -rf "${TMPDIR_SCX}"
 else
     echo "ENABLE_SCX is off; skipping scx scheduler install."
 fi
@@ -733,6 +777,12 @@ dnf5 install -y \
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 
+# ── MangoHud defaults ─────────────────────────────────────────────────────────
+# Ship a sensible system-wide config so MangoHud shows useful info out of the box.
+# Users can override in ~/.config/MangoHud/MangoHud.conf or per-app.
+mkdir -p /etc/MangoHud
+install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
+
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
@@ -747,6 +797,9 @@ install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
+install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
+install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
+install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -859,6 +912,13 @@ mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
+systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
+
+# ── GE-Proton runtime update path ─────────────────────────────────────────────
+# The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
+# writable on an immutable system). Tell Steam to check this path in addition to
+# the build-time install in /usr/share/steam/compatibilitytools.d/.
+echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' >> /etc/environment
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
