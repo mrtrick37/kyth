@@ -32,6 +32,22 @@ game-performance +args:
     set -euo pipefail
     /usr/bin/game-performance {{ args }}
 
+# Set desktop/system performance mode.
+
+# Modes: gaming, performance, balanced, powersave, status
+[group('Kyth')]
+performance-mode mode="status":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-performance-mode "{{ mode }}"
+
+# Run a command with a named temporary profile.
+[group('Kyth')]
+game-performance-profile profile +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/game-performance --profile "{{ profile }}" {{ args }}
+
 # Run an OpenGL app through Zink.
 [group('Kyth')]
 zink-run +args:

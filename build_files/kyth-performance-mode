@@ -1,0 +1,160 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+STATE_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"
+STATE_FILE="${STATE_DIR}/kyth-performance-mode.state"
+
+read_kde_value() {
+    local file=$1
+    local group=$2
+    local key=$3
+
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        kreadconfig6 --file "$file" --group "$group" --key "$key" 2>/dev/null || true
+    fi
+}
+
+write_kde_value() {
+    local file=$1
+    local group=$2
+    local key=$3
+    local value=$4
+
+    if command -v kwriteconfig6 >/dev/null 2>&1; then
+        kwriteconfig6 --file "$file" --group "$group" --key "$key" "$value" >/dev/null 2>&1 || true
+    fi
+}
+
+save_state() {
+    mkdir -p "$STATE_DIR"
+
+    local power_profile=""
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        power_profile=$(powerprofilesctl get 2>/dev/null || true)
+    fi
+
+    local anim_factor=""
+    anim_factor=$(read_kde_value kdeglobals KDE AnimationDurationFactor)
+
+    local blur_enabled=""
+    blur_enabled=$(read_kde_value kwinrc Plugins blurEnabled)
+
+    cat > "$STATE_FILE" <<EOF
+POWER_PROFILE=${power_profile}
+ANIMATION_DURATION_FACTOR=${anim_factor}
+BLUR_ENABLED=${blur_enabled}
+EOF
+}
+
+reconfigure_kwin() {
+    if command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    elif command -v qdbus >/dev/null 2>&1; then
+        qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    fi
+}
+
+apply_mode() {
+    local mode=$1
+
+    case "$mode" in
+        gaming)
+            if command -v powerprofilesctl >/dev/null 2>&1; then
+                powerprofilesctl set performance >/dev/null 2>&1 || true
+            fi
+            write_kde_value kdeglobals KDE AnimationDurationFactor 0.5
+            write_kde_value kwinrc Plugins blurEnabled false
+            ;;
+        performance)
+            if command -v powerprofilesctl >/dev/null 2>&1; then
+                powerprofilesctl set performance >/dev/null 2>&1 || true
+            fi
+            write_kde_value kdeglobals KDE AnimationDurationFactor 0.75
+            write_kde_value kwinrc Plugins blurEnabled false
+            ;;
+        balanced)
+            if command -v powerprofilesctl >/dev/null 2>&1; then
+                powerprofilesctl set balanced >/dev/null 2>&1 || true
+            fi
+            write_kde_value kdeglobals KDE AnimationDurationFactor 1
+            write_kde_value kwinrc Plugins blurEnabled true
+            ;;
+        powersave)
+            if command -v powerprofilesctl >/dev/null 2>&1; then
+                powerprofilesctl set power-saver >/dev/null 2>&1 || true
+            fi
+            write_kde_value kdeglobals KDE AnimationDurationFactor 1.25
+            write_kde_value kwinrc Plugins blurEnabled true
+            ;;
+        *)
+            echo "Unknown mode: $mode" >&2
+            echo "Usage: kyth-performance-mode [save|restore|status|gaming|performance|balanced|powersave]" >&2
+            return 1
+            ;;
+    esac
+
+    reconfigure_kwin
+}
+
+restore_state() {
+    if [[ ! -f "$STATE_FILE" ]]; then
+        return 0
+    fi
+
+    # shellcheck disable=SC1090
+    source "$STATE_FILE"
+
+    if [[ -n "${POWER_PROFILE:-}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
+        powerprofilesctl set "$POWER_PROFILE" >/dev/null 2>&1 || true
+    fi
+
+    if [[ -n "${ANIMATION_DURATION_FACTOR:-}" ]]; then
+        write_kde_value kdeglobals KDE AnimationDurationFactor "$ANIMATION_DURATION_FACTOR"
+    fi
+
+    if [[ -n "${BLUR_ENABLED:-}" ]]; then
+        write_kde_value kwinrc Plugins blurEnabled "$BLUR_ENABLED"
+    fi
+
+    reconfigure_kwin
+    rm -f "$STATE_FILE"
+}
+
+status_mode() {
+    local power_profile="n/a"
+    if command -v powerprofilesctl >/dev/null 2>&1; then
+        power_profile=$(powerprofilesctl get 2>/dev/null || echo unknown)
+    fi
+
+    local anim_factor
+    anim_factor=$(read_kde_value kdeglobals KDE AnimationDurationFactor)
+    [[ -n "$anim_factor" ]] || anim_factor="default"
+
+    local blur_enabled
+    blur_enabled=$(read_kde_value kwinrc Plugins blurEnabled)
+    [[ -n "$blur_enabled" ]] || blur_enabled="default"
+
+    echo "Power profile: ${power_profile}"
+    echo "KDE animation factor: ${anim_factor}"
+    echo "KWin blur enabled: ${blur_enabled}"
+}
+
+cmd="${1:-status}"
+case "$cmd" in
+    save)
+        save_state
+        ;;
+    restore)
+        restore_state
+        ;;
+    status)
+        status_mode
+        ;;
+    gaming|performance|balanced|powersave)
+        apply_mode "$cmd"
+        ;;
+    *)
+        echo "Usage: kyth-performance-mode [save|restore|status|gaming|performance|balanced|powersave]" >&2
+        exit 1
+        ;;
+esac
