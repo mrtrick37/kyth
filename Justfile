@@ -237,7 +237,12 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:43":
 # Build the full Kyth image (runs build_files/build.sh on top of kyth-base).
 # Requires build-base to have run first.
 build: build-base
-    docker build --tag localhost/kyth:latest .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    docker build \
+        --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
+        --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
+        --tag localhost/kyth:latest .
 
 
 # Command: _rootful_load_image
