@@ -14,6 +14,20 @@ dnf5 install -y docker || true
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
 
+# ── Multimedia baseline ───────────────────────────────────────────────────────
+# Install a full system codec stack so common local playback, browser media,
+# and creator workflows work without extra setup.  RPM Fusion provides the
+# patent-encumbered pieces Fedora does not ship by default.
+dnf5 install -y --skip-unavailable \
+    ffmpeg \
+    ffmpegthumbnailer \
+    gstreamer1-plugin-openh264 \
+    gstreamer1-plugins-bad-freeworld \
+    gstreamer1-plugins-ugly \
+    gstreamer1-libav \
+    mozilla-openh264 \
+    mpv
+
 # Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
 dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 
@@ -196,8 +210,18 @@ sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
 # without them the driver falls back to basic/non-accelerated mode.
-# libva-mesa-driver provides the AMD VA-API backend for hardware video decode.
-dnf5 install -y linux-firmware libva-utils mesa-va-drivers radeontop
+# libva-mesa-driver/mesa-vdpau-drivers provide AMD decode backends.
+# intel-media-driver/libva-intel-driver cover newer + older Intel iGPUs.
+# nvidia-vaapi-driver enables VA-API translation on supported NVIDIA systems.
+dnf5 install -y --skip-unavailable \
+    linux-firmware \
+    libva-utils \
+    mesa-va-drivers \
+    mesa-vdpau-drivers \
+    intel-media-driver \
+    libva-intel-driver \
+    nvidia-vaapi-driver \
+    radeontop
 dnf5 upgrade -y libdrm
 
 
