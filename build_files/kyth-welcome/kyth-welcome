@@ -11,11 +11,12 @@ import json
 import shutil
 import subprocess
 from dataclasses import dataclass
+from datetime import datetime
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QTabWidget, QProgressBar,
-    QFrame, QScrollArea,
+    QFrame, QScrollArea, QFileDialog,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices
@@ -571,6 +572,53 @@ def _collect_hardware_probes() -> list[HardwareProbe]:
     ]
 
 
+def _diagnostics_report(probes: list[HardwareProbe]) -> str:
+    timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
+    kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
+    hostname = _command_stdout(["hostnamectl", "--static"], timeout=5) or _command_stdout(["hostname"], timeout=5) or "unknown"
+    branch = _current_branch() or "unknown"
+    staged = "yes" if _has_staged_update() else "no"
+    rollback = "yes" if _has_rollback_deployment() else "no"
+    fwupd = _run_command(["fwupdmgr", "get-updates"], timeout=20)
+    if fwupd is None:
+        fwupd_status = "fwupd unavailable"
+    elif fwupd.returncode == 0:
+        fwupd_status = "updates available"
+    elif fwupd.returncode == 2:
+        fwupd_status = "up to date"
+    else:
+        fwupd_status = f"check failed (exit {fwupd.returncode})"
+
+    lines = [
+        "Kyth Diagnostics Report",
+        f"Generated: {timestamp}",
+        "",
+        "System",
+        f"- Hostname: {hostname}",
+        f"- Kernel: {kernel}",
+        f"- Branch: {branch}",
+        f"- Update staged: {staged}",
+        f"- Rollback available: {rollback}",
+        f"- Firmware state: {fwupd_status}",
+        "",
+        "Checks",
+    ]
+    for probe in probes:
+        lines.append(f"- {probe.title}: {probe.summary}")
+        lines.append(f"  Status: {probe.status}")
+        if probe.action:
+            lines.append(f"  Suggested action: {probe.action}")
+    lines.append("")
+    lines.append("Details")
+    for probe in probes:
+        lines.append(f"[{probe.title}]")
+        lines.append(probe.details.strip() or "No extra details.")
+        if probe.action:
+            lines.append(f"Suggested action: {probe.action}")
+        lines.append("")
+    return "\n".join(lines).strip() + "\n"
+
+
 def _current_branch() -> str | None:
     """Return the image tag of the booted deployment, or None."""
     data = _bootc_status_data() or {}
@@ -801,6 +849,161 @@ class HardwareTab(QWidget):
         self._worker = None
         self._status_lbl.setText(f"Hardware probe failed: {message}")
         self._status_lbl.setObjectName("status-err")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+
+# ── Tab: Diagnostics ───────────────────────────────────────────────────────────
+class DiagnosticsTab(QWidget):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+        self._last_probes: list[HardwareProbe] = []
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(40, 36, 40, 36)
+        layout.setSpacing(16)
+
+        title = QLabel("Diagnostics")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        sub = QLabel(
+            "Create a readable support report with the same hardware and system checks the helper app uses."
+        )
+        sub.setObjectName("subheading")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        layout.addWidget(_divider())
+
+        intro = QFrame()
+        intro.setObjectName("card")
+        intro_layout = QVBoxLayout(intro)
+        intro_layout.setContentsMargins(16, 14, 16, 14)
+        intro_layout.setSpacing(10)
+
+        intro_title = QLabel("What this report includes")
+        intro_title.setObjectName("card-title")
+        intro_layout.addWidget(intro_title)
+
+        intro_body = QLabel(
+            "Hardware, firmware, connectivity, audio, storage, update, and rollback state. "
+            "Use Copy Report when filing a bug, or Save Report if you want to attach it to a support request."
+        )
+        intro_body.setObjectName("card-copy")
+        intro_body.setWordWrap(True)
+        intro_layout.addWidget(intro_body)
+        layout.addWidget(intro)
+
+        btn_row = QHBoxLayout()
+        self._refresh_btn = QPushButton("Refresh Diagnostics")
+        self._refresh_btn.setObjectName("primary")
+        self._refresh_btn.clicked.connect(self.refresh)
+        btn_row.addWidget(self._refresh_btn)
+
+        self._copy_btn = QPushButton("Copy Report")
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._copy_report)
+        btn_row.addWidget(self._copy_btn)
+
+        self._save_btn = QPushButton("Save Report")
+        self._save_btn.setEnabled(False)
+        self._save_btn.clicked.connect(self._save_report)
+        btn_row.addWidget(self._save_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        self._status_lbl = QLabel("Running diagnostics…")
+        self._status_lbl.setObjectName("subheading")
+        layout.addWidget(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        layout.addWidget(self._progress)
+
+        self._report = QTextEdit()
+        self._report.setReadOnly(True)
+        self._report.setMinimumHeight(260)
+        layout.addWidget(self._report, 1)
+
+        self.refresh()
+
+    def refresh(self):
+        self._refresh_btn.setEnabled(False)
+        self._copy_btn.setEnabled(False)
+        self._save_btn.setEnabled(False)
+        self._status_lbl.setText("Running diagnostics…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+        self._progress.show()
+        self._report.setPlainText("Gathering system information...")
+
+        self._worker = HardwareProbeWorker()
+        self._worker.done.connect(self._on_done)
+        self._worker.failed.connect(self._on_failed)
+        self._worker.start()
+
+    def _on_done(self, probes: list[HardwareProbe]):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        self._copy_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        self._worker = None
+        self._last_probes = probes
+        self._report.setPlainText(_diagnostics_report(probes))
+
+        levels = {probe.status for probe in probes}
+        if "err" in levels:
+            self._status_lbl.setText("Diagnostics found one or more issues worth fixing before filing a bug.")
+            self._status_lbl.setObjectName("status-err")
+        elif "warn" in levels:
+            self._status_lbl.setText("Diagnostics completed with a few warnings that may help explain problems.")
+            self._status_lbl.setObjectName("status-warn")
+        else:
+            self._status_lbl.setText("Diagnostics completed successfully.")
+            self._status_lbl.setObjectName("status-ok")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _on_failed(self, message: str):
+        self._progress.hide()
+        self._refresh_btn.setEnabled(True)
+        self._worker = None
+        self._report.setPlainText("")
+        self._status_lbl.setText(f"Diagnostics failed: {message}")
+        self._status_lbl.setObjectName("status-err")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _copy_report(self):
+        QApplication.clipboard().setText(self._report.toPlainText())
+        self._status_lbl.setText("Diagnostics report copied to the clipboard.")
+        self._status_lbl.setObjectName("status-ok")
+        self._status_lbl.style().unpolish(self._status_lbl)
+        self._status_lbl.style().polish(self._status_lbl)
+
+    def _save_report(self):
+        default_name = os.path.expanduser(
+            f"~/Documents/kyth-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "Save Diagnostics Report",
+            default_name,
+            "Text Files (*.txt);;All Files (*)",
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as handle:
+                handle.write(self._report.toPlainText())
+            self._status_lbl.setText(f"Diagnostics report saved to {path}.")
+            self._status_lbl.setObjectName("status-ok")
+        except OSError as exc:
+            self._status_lbl.setText(f"Could not save report: {exc}")
+            self._status_lbl.setObjectName("status-err")
         self._status_lbl.style().unpolish(self._status_lbl)
         self._status_lbl.style().polish(self._status_lbl)
 
@@ -1726,6 +1929,7 @@ class MainWindow(QMainWindow):
         tabs.setDocumentMode(True)
         tabs.addTab(WelcomeTab(), "Welcome")
         tabs.addTab(HardwareTab(), "Hardware")
+        tabs.addTab(DiagnosticsTab(), "Diagnostics")
         tabs.addTab(BranchesTab(), "Branches")
         tabs.addTab(UpdateTab(), "Update")
         tabs.addTab(FirmwareTab(), "Firmware")
