@@ -82,7 +82,7 @@ echo "initramfs generated at /usr/lib/modules/${CACHYOS_KVER}/initramfs"
 # splash: activate Plymouth so the boot splash is shown.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash"]
+kargs = ["quiet", "splash", "mitigations=off"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

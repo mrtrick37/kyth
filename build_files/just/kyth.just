@@ -99,6 +99,13 @@ install-input-remapper:
     echo
     echo "input-remapper will be available after reboot."
 
+# Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
+[group('Kyth')]
+update-ge-proton:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    sudo /usr/bin/kyth-ge-proton-update
+
 # Check for and apply firmware updates via fwupd.
 [group('Kyth')]
 firmware-update:
