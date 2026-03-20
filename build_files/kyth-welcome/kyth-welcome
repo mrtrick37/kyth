@@ -285,6 +285,52 @@ def _bootc_status_data() -> dict | None:
     return None
 
 
+def _nested_get(data: object, path: tuple[str, ...]) -> object | None:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
+            return None
+        current = current.get(key)
+    return current
+
+
+def _bootc_image_reference() -> str | None:
+    """Return the best-known image reference for the current deployment."""
+    data = _bootc_status_data() or {}
+    candidates = (
+        ("spec", "image", "image"),
+        ("status", "booted", "image", "image", "image"),
+        ("status", "booted", "image", "image"),
+        ("status", "booted", "image"),
+    )
+    for path in candidates:
+        value = _nested_get(data, path)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return None
+
+
+def _branch_from_ref(ref: str | None) -> str | None:
+    if not ref:
+        return None
+    ref = ref.strip()
+    if not ref:
+        return None
+    if "@" in ref:
+        return ref.split("@", 1)[0].rsplit(":", 1)[-1]
+    if ":" in ref:
+        return ref.rsplit(":", 1)[-1]
+    return None
+
+
+def _branch_display_name(tag: str | None) -> str:
+    if tag == "latest":
+        return "Stable (latest)"
+    if tag == "testing":
+        return "Testing"
+    return tag or "unknown"
+
+
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
         return ("#1f3326", "#9ece6a", "Working")
@@ -554,7 +600,7 @@ def _platform_probe() -> HardwareProbe:
         "Platform",
         "ok",
         "Bare-metal environment detected.",
-        f"Current branch: {_current_branch() or 'unknown'}\nbootc staged update: {'yes' if _has_staged_update() else 'no'}",
+        f"Current branch: {_branch_display_name(_current_branch())}\nbootc staged update: {'yes' if _has_staged_update() else 'no'}",
     )
 
 
@@ -576,7 +622,7 @@ def _diagnostics_report(probes: list[HardwareProbe]) -> str:
     timestamp = datetime.now().astimezone().strftime("%Y-%m-%d %H:%M:%S %Z")
     kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
     hostname = _command_stdout(["hostnamectl", "--static"], timeout=5) or _command_stdout(["hostname"], timeout=5) or "unknown"
-    branch = _current_branch() or "unknown"
+    branch = _branch_display_name(_current_branch())
     staged = "yes" if _has_staged_update() else "no"
     rollback = "yes" if _has_rollback_deployment() else "no"
     fwupd = _run_command(["fwupdmgr", "get-updates"], timeout=20)
@@ -621,17 +667,7 @@ def _diagnostics_report(probes: list[HardwareProbe]) -> str:
 
 def _current_branch() -> str | None:
     """Return the image tag of the booted deployment, or None."""
-    data = _bootc_status_data() or {}
-    img = (
-        data.get("status", {})
-            .get("booted", {})
-            .get("image", {})
-            .get("image", {})
-            .get("image", "")
-    )
-    if ":" in img:
-        return img.split(":")[-1]
-    return None
+    return _branch_from_ref(_bootc_image_reference())
 
 
 def _has_staged_update() -> bool:
@@ -1045,7 +1081,7 @@ class WelcomeTab(QWidget):
         checklist_title.setObjectName("card-title")
         checklist_layout.addWidget(checklist_title)
 
-        branch = _current_branch() or "unknown"
+        branch = _branch_display_name(_current_branch())
         staged = "ready next reboot" if _has_staged_update() else "nothing staged right now"
         rollback = "available" if _has_rollback_deployment() else "not detected yet"
         checklist_body = QLabel(
@@ -1220,15 +1256,21 @@ class BranchesTab(QWidget):
     def _refresh_current(self):
         tag = _current_branch()
         if tag == "latest":
-            self._current_lbl.setText("Currently on: Stable (latest)")
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)  [Current]")
+            self._testing_btn.setText("Testing")
             self._stable_btn.setObjectName("branch-active")
             self._testing_btn.setObjectName("branch-inactive")
         elif tag == "testing":
-            self._current_lbl.setText("Currently on: Testing")
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)")
+            self._testing_btn.setText("Testing  [Current]")
             self._stable_btn.setObjectName("branch-inactive")
             self._testing_btn.setObjectName("branch-active")
         else:
-            self._current_lbl.setText(f"Currently on: {tag or 'unknown'}")
+            self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+            self._stable_btn.setText("Stable  (latest)")
+            self._testing_btn.setText("Testing")
             self._stable_btn.setObjectName("branch-inactive")
             self._testing_btn.setObjectName("branch-inactive")
         self._stable_btn.style().unpolish(self._stable_btn)
@@ -1426,7 +1468,7 @@ class UpdateTab(QWidget):
         self._worker.start()
 
     def _refresh_summary(self):
-        branch = _current_branch() or "unknown"
+        branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         if staged:
