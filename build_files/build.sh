@@ -314,24 +314,72 @@ else
   echo "system76-scheduler is unavailable in configured repos; skipping."
 fi
 
+is_enabled() {
+    case "${1,,}" in
+        1|true|yes|on) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+# ── ananicy-cpp process priority rules ───────────────────────────────────────
+# Applies static per-process CPU/I/O priorities (browser, game launchers,
+# compilers, etc.) to smooth desktop responsiveness under mixed load.
+if is_enabled "${ENABLE_ANANICY:-1}"; then
+    if dnf5 repoquery --available ananicy-cpp >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable \
+                ananicy-cpp \
+                ananicy-cpp-rules \
+                ananicy-cpp-rules-git || true
+        rpm -q ananicy-cpp >/dev/null 2>&1 && \
+            systemctl enable ananicy-cpp.service 2>/dev/null || true
+    else
+        echo "ananicy-cpp is unavailable in configured repos; skipping."
+    fi
+else
+    echo "ENABLE_ANANICY is off; skipping ananicy-cpp install."
+fi
+
 # ── scx userspace schedulers ──────────────────────────────────────────────────
 # sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughputs tasks warm.
-# TODO: COPR repo bieszczaders/scx-scheds is unavailable; re-enable when it is.
-# Track at: https://github.com/mrtrick37/kyth/issues/50
-## If/when scx-scheds becomes available, re-enable the following:
-# dnf5 copr enable -y bieszczaders/scx-scheds
-# dnf5 install -y --skip-unavailable scx-scheds
-# dnf5 copr disable -y bieszczaders/scx-scheds
+if is_enabled "${ENABLE_SCX:-1}"; then
+    SCX_INSTALLED=0
+    if dnf5 copr enable -y bieszczaders/scx-scheds >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
+        dnf5 copr disable -y bieszczaders/scx-scheds >/dev/null 2>&1 || true
+    fi
 
-# Configure scxd to use lavd by default, then enable the service
-# mkdir -p /etc/scx
-# cat > /etc/scx/config <<'SCXEOF'
-# SCX_SCHEDULER=scx_lavd
-# SCX_FLAGS=--auto-mode
-# SCXEOF
-# systemctl enable scxd.service 2>/dev/null || true
+    if rpm -q scx-scheds >/dev/null 2>&1; then
+        SCX_INSTALLED=1
+    elif dnf5 repoquery --available scx-scheds >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable scx-scheds >/dev/null 2>&1 || true
+        rpm -q scx-scheds >/dev/null 2>&1 && SCX_INSTALLED=1
+    fi
+
+    if [[ "${SCX_INSTALLED}" -eq 1 ]]; then
+        SCX_SCHEDULER=""
+        for sched in scx_lavd scx_rusty scx_bpfland; do
+            if command -v "$sched" >/dev/null 2>&1; then
+                SCX_SCHEDULER="$sched"
+                break
+            fi
+        done
+
+        if [[ -n "$SCX_SCHEDULER" ]]; then
+            mkdir -p /etc/scx
+            cat > /etc/scx/config <<SCXEOF
+SCX_SCHEDULER=${SCX_SCHEDULER}
+SCX_FLAGS=--auto-mode
+SCXEOF
+            systemctl enable scxd.service 2>/dev/null || true
+        fi
+    else
+        echo "scx-scheds is unavailable in configured repos; skipping."
+    fi
+else
+    echo "ENABLE_SCX is off; skipping scx scheduler install."
+fi
 
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
@@ -689,6 +737,7 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
+install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info

@@ -37,13 +37,16 @@ LABEL org.osbuild.branding.release="Kyth 43"
 # RUN rm /opt && mkdir /opt
 
 ### MODIFICATIONS
+ARG ENABLE_ANANICY=1
+ARG ENABLE_SCX=1
+
 # Layer 1: All packages, kernel, system config, branding.
 # Large but stable — only re-downloaded when packages or config change.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/build.sh
+    ENABLE_ANANICY=${ENABLE_ANANICY} ENABLE_SCX=${ENABLE_SCX} /ctx/build.sh
 
 # Layer 2: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
