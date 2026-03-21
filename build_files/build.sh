@@ -311,7 +311,7 @@ GAMEMODEEOF
 # Dynamically adjusts CFS nice values and I/O priority based on which window
 # is focused and whether a game is running.  Gives a noticeable responsiveness
 # boost during gaming without requiring per-app configuration.
-if dnf5 repoquery --available system76-scheduler >/dev/null 2>&1; then
+if dnf5 repoquery --available system76-scheduler 2>/dev/null | grep -q .; then
   dnf5 install -y --skip-unavailable system76-scheduler || true
   rpm -q system76-scheduler >/dev/null 2>&1 && \
     systemctl enable com.system76.Scheduler 2>/dev/null || true
@@ -330,7 +330,7 @@ is_enabled() {
 # Applies static per-process CPU/I/O priorities (browser, game launchers,
 # compilers, etc.) to smooth desktop responsiveness under mixed load.
 if is_enabled "${ENABLE_ANANICY:-1}"; then
-    if dnf5 repoquery --available ananicy-cpp >/dev/null 2>&1; then
+    if dnf5 repoquery --available ananicy-cpp 2>/dev/null | grep -q .; then
         dnf5 install -y --skip-unavailable \
                 ananicy-cpp \
                 ananicy-cpp-rules \
