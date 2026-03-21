@@ -15,7 +15,10 @@ TMPDIR_GE=$(mktemp -d)
 trap 'rm -rf "${TMPDIR_GE}"' EXIT
 
 release_json="${TMPDIR_GE}/release.json"
-curl -fsSL "${GE_PROTON_REPO_API}/latest" -o "${release_json}"
+if ! curl -fsSL "${GE_PROTON_REPO_API}/latest" -o "${release_json}"; then
+    echo "Failed to fetch GE-Proton release info" >&2
+    exit 1
+fi
 
 GE_PROTON_VER=$(grep '"tag_name"' "${release_json}" | head -n1 | cut -d'"' -f4)
 INSTALL_PATH="${INSTALL_DIR}/${GE_PROTON_VER}"

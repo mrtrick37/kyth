@@ -40,70 +40,9 @@ dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
 # Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
 # so daily mesa updates only re-download that small layer, not this entire layer.
 
-### CachyOS kernel — replaces the stock Fedora kernel for better desktop/gaming performance
-# CachyOS COPR: https://copr.fedorainfracloud.org/coprs/bieszczaders/kernel-cachyos/
-dnf5 copr enable -y bieszczaders/kernel-cachyos
-
-# Install kernel packages with --noscripts to skip the %posttrans that calls
-# rpm-ostree kernel-install → dracut. That script fails in container builds
-# because it creates temp files in /tmp (tmpfs) then tries to rename them to the
-# overlay filesystem, hitting "Invalid cross-device link" (EXDEV). We do the
-# initramfs generation ourselves below with full control over the environment.
-dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
-
-CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
-depmod -a "${CACHYOS_KVER}"
-
-dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
-    kernel-cachyos \
-    kernel-cachyos-core \
-    kernel-cachyos-devel
-
-# Run depmod again now that all module packages are installed
-depmod -a "${CACHYOS_KVER}"
-
-# Ensure vmlinuz is in the OSTree-expected location
-# (kernel RPMs may put it in /boot; bootc needs it at /usr/lib/modules/<kver>/vmlinuz)
-if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
-    if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
-        cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
-    fi
-fi
-
-# Write dracut config before generating initramfs.
-# Force the ostree dracut module — required for bootc/ostree deployments.
-# Without this the initramfs cannot find or mount the root filesystem.
-# dracut skips it during container builds because there is no live ostree
-# deployment to auto-detect.
-mkdir -p /etc/dracut.conf.d
-cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree "
-# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
-# so add_drivers has no effect for them. Kept for documentation.
-add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
-DRACUTEOF
-
-# Generate initramfs directly — all paths stay on the overlay filesystem so
-# no cross-device link issues. TMPDIR=/var/tmp for safety.
-# Output to "initramfs" — bootc/ostree expects this exact filename.
-TMPDIR=/var/tmp dracut \
-    --no-hostonly \
-    --kver "${CACHYOS_KVER}" \
-    --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
-    2> >(grep -Ev 'xattr|fail to copy' >&2)
-
-# Remove the stock Fedora kernel so CachyOS is the only (and thus default) kernel.
-# dnf5 refuses to remove kernel-core if it considers it the "running" kernel in
-# the container build environment, so we remove the module directory directly and
-# clean up the RPM DB with rpm --nodeps.
-for OLD_KVER in $(ls /usr/lib/modules/ | grep -v "${CACHYOS_KVER}"); do
-    rm -rf "/usr/lib/modules/${OLD_KVER}"
-done
-rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
-
-# Disable COPR after install
-dnf5 copr disable -y bieszczaders/kernel-cachyos
+# Kernel was installed in the build_base layer. Capture the version here
+# since it's needed later for the Plymouth initramfs rebuild.
+CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
 
 # Install all required packages
 dnf5 install -y --skip-unavailable \
@@ -547,7 +486,6 @@ code --no-sandbox --user-data-dir=/tmp/vscode-install \
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
 # causing steamwebhelper to SEGV at startup.
-mkdir -p /etc/environment.d
 echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
 
 # Steam: override the system .desktop file to remove PrefersNonDefaultGPU and
@@ -693,7 +631,7 @@ PLASMAEOF
 # Add a second guardrail at the libddcutil layer as well. This keeps any
 # consumer that does load libddcutil from starting display-watch threads, which
 # are a known source of instability on some monitor/GPU combinations.
-mkdir -p /etc/environment.d /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
+mkdir -p /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
 cat > /etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
 POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILEOF
@@ -912,7 +850,6 @@ dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the Kyth theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
-CACHYOS_KVER=$(ls /usr/lib/modules/ | grep cachyos | head -1)
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --add "plymouth" \
@@ -956,7 +893,7 @@ systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 # The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
 # writable on an immutable system). Tell Steam to check this path in addition to
 # the build-time install in /usr/share/steam/compatibilitytools.d/.
-echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' >> /etc/environment
+echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' > /etc/environment.d/ge-proton.conf
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
