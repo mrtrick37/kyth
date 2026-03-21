@@ -373,12 +373,17 @@ class Worker(QThread):
 
     def run(self):
         try:
+            env = os.environ.copy()
+            # When running without a TTY, sudo needs a graphical askpass helper.
+            # ksshaskpass (KDE) shows a GUI password dialog and writes it to stdout.
+            env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
             proc = subprocess.Popen(
                 self._cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=env,
             )
             for ln in proc.stdout:
                 self.line.emit(ln.rstrip())
