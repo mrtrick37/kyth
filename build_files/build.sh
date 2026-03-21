@@ -459,14 +459,15 @@ ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queu
 IOEOF
 
 # ── PipeWire low-latency audio ─────────────────────────────────────────────────
-# Default quantum 1024 (~21 ms at 48 kHz) is a reasonable starting point for
-# gaming — low enough to avoid audio lag, high enough to avoid xruns.
-# Apps that need <1 ms (e.g. JACK DAW) can request smaller buffers directly.
+# 128 samples at 48 kHz = ~2.7 ms latency — low enough to eliminate perceptible
+# audio lag in games while staying stable on typical hardware.
+# min-quantum=32 lets pro-audio apps request sub-1 ms when needed.
+# Apps that need higher buffering (e.g. Bluetooth) negotiate up automatically.
 mkdir -p /etc/pipewire/pipewire.conf.d
 cat > /etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
 context.properties = {
     default.clock.rate          = 48000
-    default.clock.quantum       = 1024
+    default.clock.quantum       = 128
     default.clock.min-quantum   = 32
     default.clock.max-quantum   = 8192
 }
@@ -534,6 +535,11 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 
 systemctl enable libvirtd.socket
 systemctl enable fwupd 2>/dev/null || true
+
+# ── Distrobox ─────────────────────────────────────────────────────────────────
+# Lets users run mutable containers (any distro) alongside the immutable base OS.
+# Essential on atomic systems for one-off package installs without rpm-ostree.
+dnf5 install -y distrobox
 
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
@@ -800,6 +806,7 @@ install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
+install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -913,6 +920,7 @@ cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
+systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 
 # ── GE-Proton runtime update path ─────────────────────────────────────────────
 # The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
