@@ -655,14 +655,22 @@ cp /ctx/wallpaper/kyth-wallpaper.svg \
 printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
     > /usr/share/wallpapers/kyth/metadata.json
 
-# Patch Breeze Dark L&F defaults to use Kyth wallpaper instead of the stock
-# 'Next' wallpaper, so applying the theme never overrides the Kyth background.
-BREEZE_DARK_DEFAULTS="/usr/share/plasma/look-and-feel/org.kde.breezedark.desktop/contents/defaults"
-if [ -f "$BREEZE_DARK_DEFAULTS" ]; then
-    sed -i 's/^Image=.*/Image=kyth/' "$BREEZE_DARK_DEFAULTS"
-    grep -q '^Image=' "$BREEZE_DARK_DEFAULTS" \
-        || printf '\n[Wallpaper]\nImage=kyth\n' >> "$BREEZE_DARK_DEFAULTS"
-fi || true
+# Patch all L&F defaults (Fedora variants + Breeze) to use Kyth wallpaper.
+# Fedora Kinoite ships org.fedoraproject.fedora*.desktop themes that set
+# Image=Fedora; we replace that in every theme so no L&F can restore the
+# stock Fedora rocket wallpaper.
+find /usr/share/plasma/look-and-feel -name defaults | while read -r f; do
+    sed -i 's/^Image=.*/Image=kyth/' "$f"
+    grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >> "$f"
+done
+
+# System-wide XDG fallback — applied to every user before their personal
+# config exists, so first-boot always shows the Kyth wallpaper.
+mkdir -p /etc/xdg
+cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
+[Containments][1][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+XDGPLASMAEOF
 
 # ── Kyth logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
