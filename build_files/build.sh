@@ -80,7 +80,7 @@ if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     TOPGRADE_URL=$(
         grep -o 'https://[^"]*x86_64[^"]*linux[^"]*musl[^"]*\.tar\.gz' "${release_json}" \
         | head -n1
-    )
+    ) || true
     if [[ -n "${TOPGRADE_URL}" ]]; then
         TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
         curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
@@ -327,7 +327,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
             | grep -i 'x86_64' \
             | grep -iv 'source' \
             | head -n1
-        )
+        ) || true
 
         if [[ -n "${SCX_TARBALL_URL}" ]]; then
             SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
