@@ -129,8 +129,33 @@ dnf5 install -y --skip-unavailable \
     ydotool \
     tmux \
     gh \
-    topgrade \
     fwupd
+
+# ── topgrade ─────────────────────────────────────────────────────────────────
+# Not in Fedora 43 repos — install pre-built binary from GitHub releases.
+# Uses the musl-linked build for maximum compatibility across libc versions.
+TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
+TMPDIR_TG=$(mktemp -d)
+release_json="${TMPDIR_TG}/release.json"
+if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    TOPGRADE_URL=$(
+        grep -o 'https://[^"]*x86_64[^"]*linux[^"]*musl[^"]*\.tar\.gz' "${release_json}" \
+        | head -n1
+    )
+    if [[ -n "${TOPGRADE_URL}" ]]; then
+        TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
+        curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
+        tar -xzf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
+        find "${TMPDIR_TG}" -name 'topgrade' -type f \
+            -exec install -m 0755 {} /usr/bin/topgrade \;
+        echo "topgrade installed: $(topgrade --version 2>/dev/null || echo 'unknown version')"
+    else
+        echo "topgrade: no musl x86_64 tarball found in release assets; skipping."
+    fi
+else
+    echo "topgrade: failed to fetch release info from GitHub; skipping."
+fi
+rm -rf "${TMPDIR_TG}"
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
