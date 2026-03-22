@@ -903,6 +903,10 @@ systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 # The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
 # writable on an immutable system). Tell Steam to check this path in addition to
 # the build-time install in /usr/share/steam/compatibilitytools.d/.
+# The directory must exist at first boot — Lutris (and Steam) call os.stat() on
+# every path in STEAM_EXTRA_COMPAT_TOOLS_PATHS and crash with FileNotFoundError
+# if any are missing, even before the update service has run for the first time.
+mkdir -p /var/lib/kyth/ge-proton
 echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' > /etc/environment.d/ge-proton.conf
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
