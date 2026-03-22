@@ -35,10 +35,24 @@ import time
 
 import libcalamares
 
-# Source image: bundled inside the live squashfs at boot time.
-# At live boot this path is read-only inside the squashfs overlay.
-# bootc reads it as an OCI directory without requiring internet access.
-BUNDLED_IMGREF = "oci:/usr/share/kyth/image"
+# ── Source image resolution ────────────────────────────────────────────────────
+# Offline ISO:  /usr/share/kyth/image is a bundled OCI directory — no internet.
+# Netinstall ISO: /usr/share/kyth/source-imgref holds the registry URL to pull.
+# Fallback: pull from the default registry ref (should rarely be needed).
+_BUNDLED_OCI_DIR  = "/usr/share/kyth/image"
+_SOURCE_IMGREF_FILE = "/usr/share/kyth/source-imgref"
+
+if os.path.isdir(_BUNDLED_OCI_DIR):
+    _OFFLINE = True
+    SOURCE_IMGREF = f"oci:{_BUNDLED_OCI_DIR}"
+else:
+    _OFFLINE = False
+    _default_src = "ghcr.io/mrtrick37/kyth:latest"
+    try:
+        _default_src = open(_SOURCE_IMGREF_FILE).read().strip() or _default_src
+    except OSError:
+        pass
+    SOURCE_IMGREF = os.environ.get("KYTH_SOURCE_IMGREF", _default_src)
 
 # Target image: the registry ref written into the installed OS so that
 # `bootc upgrade` knows where to pull future updates from.
@@ -313,15 +327,17 @@ def run():
         except (subprocess.CalledProcessError, FileNotFoundError) as e:
             _log(f"warning: {cmd[0]} failed (non-fatal): {e}")  # bootc will fail clearly if disk is unusable
 
-    # Pre-flight: confirm the bundled OCI image directory exists.
-    imgref_path = BUNDLED_IMGREF.removeprefix("oci:")
-    if not os.path.isdir(imgref_path):
-        return (
-            "Installation error",
-            f"Bundled OS image not found at {imgref_path}.\n"
-            "The live ISO may be incomplete.",
-        )
-    _log(f"source image confirmed at {imgref_path}")
+    # Pre-flight: confirm source image is available.
+    if _OFFLINE:
+        if not os.path.isdir(_BUNDLED_OCI_DIR):
+            return (
+                "Installation error",
+                f"Bundled OS image not found at {_BUNDLED_OCI_DIR}.\n"
+                "The live ISO may be incomplete.",
+            )
+        _log(f"offline mode: source image at {_BUNDLED_OCI_DIR}")
+    else:
+        _log(f"network mode: will pull {SOURCE_IMGREF}")
 
     _log(f"running: bootc install to-disk {disk}")
     libcalamares.job.setprogress(0.03)
@@ -338,19 +354,30 @@ def run():
     _stop_event = threading.Event()
 
     # Labels shown in the installer UI, keyed by fraction of bootc progress (0→1).
-    BOOTC_PHASE_LABELS = [
-        (0.00, "Starting OS image installation…"),
-        (0.05, "Partitioning and formatting disk…"),
-        (0.12, "Extracting OS image — this takes a few minutes…"),
-        (0.50, "Writing filesystem layers…"),
-        (0.72, "Committing ostree deployment…"),
-        (0.84, "Installing bootloader…"),
-        (0.95, "Finalizing image write…"),
-    ]
+    if _OFFLINE:
+        BOOTC_PHASE_LABELS = [
+            (0.00, "Starting OS image installation…"),
+            (0.05, "Partitioning and formatting disk…"),
+            (0.12, "Extracting OS image — this takes a few minutes…"),
+            (0.50, "Writing filesystem layers…"),
+            (0.72, "Committing ostree deployment…"),
+            (0.84, "Installing bootloader…"),
+            (0.95, "Finalizing image write…"),
+        ]
+        HALF_TIME = 120   # offline install ~4 min typical
+    else:
+        BOOTC_PHASE_LABELS = [
+            (0.00, "Connecting to registry…"),
+            (0.05, "Downloading OS image — this may take 10-20 minutes…"),
+            (0.60, "Writing filesystem layers…"),
+            (0.78, "Committing ostree deployment…"),
+            (0.88, "Installing bootloader…"),
+            (0.95, "Finalizing…"),
+        ]
+        HALF_TIME = 360   # network install ~12 min typical on average connection
 
     def _progress_thread():
         TARGET    = 0.88   # leave 0.88→1.0 for mount/chroot steps
-        HALF_TIME = 120    # seconds to reach 50% of TARGET (typical install ~4 min)
         start     = time.monotonic()
         last_label = ""
         while not _stop_event.is_set():
@@ -375,15 +402,18 @@ def run():
 
     try:
         with open(log_path, "w") as log_fh:
+            bootc_cmd = [
+                "bootc", "install", "to-disk",
+                "--source-imgref", SOURCE_IMGREF,
+                "--target-imgref", TARGET_IMGREF,
+                "--filesystem", "btrfs",
+            ]
+            if _OFFLINE:
+                bootc_cmd.append("--skip-fetch-check")
+            bootc_cmd.append(disk)
+
             result = subprocess.run(
-                [
-                    "bootc", "install", "to-disk",
-                    "--source-imgref", BUNDLED_IMGREF,
-                    "--target-imgref", TARGET_IMGREF,
-                    "--filesystem", "btrfs",
-                    "--skip-fetch-check",
-                    disk,
-                ],
+                bootc_cmd,
                 check=True,
                 stdout=log_fh,
                 stderr=subprocess.STDOUT,
