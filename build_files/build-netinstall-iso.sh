@@ -27,7 +27,7 @@ else
 fi
 
 # The registry ref the installer will pull from at install time.
-SOURCE_IMGREF="${SOURCE_IMGREF:-ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
+SOURCE_IMGREF="${SOURCE_IMGREF:-docker://ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
 
 # ── Sudo setup ────────────────────────────────────────────────────────────────
 if command sudo -n true 2>/dev/null; then
