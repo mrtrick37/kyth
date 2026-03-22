@@ -79,6 +79,21 @@ SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
 
+# ── Topgrade config for all new users ────────────────────────────────────────
+# Disable rpm-ostree step: on a bootc system rpm-ostree upgrade pulls from the
+# upstream Kinoite ostree remote, not the Kyth container registry.
+# Replace it with a bootc upgrade custom step so topgrade does the right thing.
+mkdir -p /etc/skel/.config
+cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+[misc]
+# rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
+# System updates go through bootc instead (see [commands] below).
+disable = ["rpm_ostree"]
+
+[commands]
+"Kyth system update" = "sudo bootc upgrade"
+TOPGRADEEOF
+
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
