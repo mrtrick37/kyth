@@ -6,17 +6,27 @@ set -euo pipefail
 # This lives in its own final image layer so daily mesa updates only require
 # re-downloading this layer (~300-500 MB) instead of the full 3+ GB base layer.
 dnf5 copr enable -y xxmitsu/mesa-git
-dnf5 upgrade -y --skip-unavailable \
-    mesa* \
-    mesa-dri-drivers \
-    mesa-vulkan-drivers \
-    mesa-libGL \
-    mesa-libGLU \
-    mesa-libEGL \
-    mesa-libgbm \
-    mesa-libOpenCL \
-    || true
-dnf5 copr disable -y xxmitsu/mesa-git
+
+# Verify the COPR has packages before attempting upgrade
+if ! dnf5 repoquery --available 'mesa-libGL' --repo='copr:*xxmitsu*' 2>/dev/null | grep -q .; then
+    echo "WARNING: xxmitsu/mesa-git COPR has no mesa-libGL for this distro — skipping mesa-git upgrade"
+    dnf5 copr disable -y xxmitsu/mesa-git
+else
+    dnf5 upgrade -y --skip-unavailable \
+        mesa* \
+        mesa-dri-drivers \
+        mesa-vulkan-drivers \
+        mesa-libGL \
+        mesa-libGLU \
+        mesa-libEGL \
+        mesa-libgbm \
+        mesa-libOpenCL \
+        || true
+    # Confirm mesa-git was actually installed (provider should be xxmitsu)
+    mesa_ver=$(rpm -q --queryformat '%{VERSION}' mesa-libGL 2>/dev/null || echo "not-installed")
+    echo "mesa-libGL version after upgrade: ${mesa_ver}"
+    dnf5 copr disable -y xxmitsu/mesa-git
+fi
 dnf5 upgrade -y --skip-unavailable \
     xorg-x11-drv-amdgpu \
     xorg-x11-drv-nouveau \

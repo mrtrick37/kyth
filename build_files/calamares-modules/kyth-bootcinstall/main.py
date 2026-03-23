@@ -57,7 +57,7 @@ else:
 # Target image: the registry ref written into the installed OS so that
 # `bootc upgrade` knows where to pull future updates from.
 # Override with KYTH_TARGET_IMGREF env var to test forks or dev images.
-TARGET_IMGREF = os.environ.get("KYTH_TARGET_IMGREF", "docker://ghcr.io/mrtrick37/kyth:latest")
+TARGET_IMGREF = os.environ.get("KYTH_TARGET_IMGREF", "ghcr.io/mrtrick37/kyth:latest")
 
 # Partition type GUIDs that bootc uses for the root partition.
 # bootc creates "Linux root (x86-64)" (4f68...) on modern installs;
@@ -403,10 +403,6 @@ def run():
     try:
         with open(log_path, "w") as log_fh:
             bootc_cmd = [
-                # Run bootc at low I/O priority (best-effort class 7) and low
-                # CPU nice so the live session stays responsive during the pull.
-                "ionice", "-c", "2", "-n", "7",
-                "nice", "-n", "10",
                 "bootc", "install", "to-disk",
                 "--source-imgref", SOURCE_IMGREF,
                 "--target-imgref", TARGET_IMGREF,
