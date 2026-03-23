@@ -240,7 +240,10 @@ dnf5 install -y spice-vdagent kscreen
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Homebrew RPM deps
-dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+# Clean cached packages before this install: libxcrypt-compat has been showing
+# corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
+dnf5 clean packages
+dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
 
 # Purge dnf package cache — not needed at runtime and adds ~200 MB to the image.
 dnf5 clean all
