@@ -17,13 +17,16 @@ TMPDIR_TG=$(mktemp -d)
 release_json="${TMPDIR_TG}/release.json"
 if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     TOPGRADE_URL=$(
-        grep -o 'https://[^"]*x86_64[^"]*linux[^"]*musl[^"]*\.tar\.gz' "${release_json}" \
+        grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
+        | grep -i 'x86.64\|x86_64\|amd64' \
+        | grep -i 'musl\|linux' \
+        | grep -iv 'source' \
         | head -n1
     ) || true
     if [[ -n "${TOPGRADE_URL}" ]]; then
         TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
         curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
-        tar -xzf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
+        tar -xf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
         find "${TMPDIR_TG}" -name 'topgrade' -type f \
             -exec install -m 0755 {} /usr/bin/topgrade \;
         echo "topgrade installed: $(topgrade --version 2>/dev/null || echo 'unknown version')"
@@ -62,10 +65,11 @@ if is_enabled "${ENABLE_SCX:-1}"; then
 
     release_json="${TMPDIR_SCX}/release.json"
     if curl -fsSL "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
-        # Find a Linux x86_64 binary tarball in the release assets
+        # Find a Linux x86_64 binary tarball in the release assets.
+        # Accept .tar.gz and .tar.zst (SCX releases have used both formats).
         SCX_TARBALL_URL=$(
-            grep -o 'https://[^"]*\.tar\.gz' "${release_json}" \
-            | grep -i 'x86_64' \
+            grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
+            | grep -i 'x86.64\|x86_64\|amd64' \
             | grep -iv 'source' \
             | head -n1
         ) || true
@@ -74,7 +78,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
             SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
             echo "scx: downloading ${SCX_TARBALL}"
             curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
-            tar -xzf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
+            tar -xf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
             # Install scx_* scheduler binaries and scxd
             find "${TMPDIR_SCX}" \( -name 'scx_*' -o -name 'scxd' \) -type f \
@@ -140,7 +144,10 @@ fi
 # brew via sudo (which brew refuses). Wheel group gets write access so any wheel
 # user can install/update formulae without privilege escalation.
 useradd -r -d /home/linuxbrew -M -s /sbin/nologin linuxbrew
-git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew
+git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew \
+    || { echo "ERROR: Homebrew git clone failed"; exit 1; }
+[ -f /home/linuxbrew/.linuxbrew/bin/brew ] \
+    || { echo "ERROR: Homebrew clone appears empty"; exit 1; }
 chown -R linuxbrew:wheel /home/linuxbrew
 chmod -R g+w /home/linuxbrew
 find /home/linuxbrew -type d -exec chmod g+s {} \;
