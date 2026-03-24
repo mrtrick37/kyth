@@ -82,6 +82,8 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/sddm.conf.d \
     && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=false\n' \
         > /etc/sddm.conf.d/autologin.conf \
+    && printf '[General]\nDisplayServer=x11\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
+        > /etc/sddm.conf.d/20-live-x11.conf \
     && mkdir -p /etc/systemd/system/sddm.service.d \
     && printf '[Service]\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=softpipe"\nEnvironment="QT_QUICK_BACKEND=software"\n' \
         > /etc/systemd/system/sddm.service.d/live-rendering.conf \
