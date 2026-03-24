@@ -27,7 +27,8 @@ else
 fi
 
 # The registry ref the installer will pull from at install time.
-SOURCE_IMGREF="${SOURCE_IMGREF:-docker://ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
+# Plain image reference (no docker:// prefix) — used directly as a podman image name.
+SOURCE_IMGREF="${SOURCE_IMGREF:-ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
 
 # ── Sudo setup ────────────────────────────────────────────────────────────────
 if command sudo -n true 2>/dev/null; then
@@ -176,7 +177,7 @@ sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
 # ── 3b. Write source-imgref (replaces OCI bundle in the offline ISO) ──────────
 # kyth-bootcinstall reads this file and pulls from the registry at install time.
-echo "==> Writing network install source ref: ${SOURCE_IMGREF}"
+echo "==> Writing network install source ref: ${SOURCE_IMGREF} (pulled by podman at install time)"
 sudo mkdir -p "${ROOTFS}/usr/share/kyth"
 echo "${SOURCE_IMGREF}" | sudo tee "${ROOTFS}/usr/share/kyth/source-imgref" > /dev/null
 

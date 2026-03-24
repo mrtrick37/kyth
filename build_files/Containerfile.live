@@ -18,12 +18,13 @@ FROM ${BASE_IMAGE}
 # librsvg2-tools:        rsvg-convert used to render kyth-logo.svg → PNG for Plymouth
 # calamares:             pulls kpmcore (partition module) as a dependency
 # gdisk:                 sgdisk used by kyth-bootcinstall to zap partition tables
-# Note: podman removed (unused — bootc reads OCI dir directly)
+# podman:                runs 'bootc install to-disk' from within the clean OCI image
 # Note: xorg-x11-drv-synaptics removed (superseded by libinput, already present)
 # Note: xorg-x11-drv-wacom removed (niche peripheral, not a live-session essential)
 RUN dnf5 install -y \
     dracut-live syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc gparted \
     plymouth-plugin-script librsvg2-tools gdisk \
+    podman \
     zram-generator \
     calamares \
     plasma-workspace \
