@@ -453,6 +453,23 @@ rebuild-netinstall-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-netinstall-iso.sh
 
+# Build a live ISO with the Anaconda WebUI installer (netinstall — pulls OS from
+# the registry at install time via ostreecontainer kickstart directive).
+# Pass source_tag to target a different branch: just build-anaconda-iso testing
+[group('Build Virtual Machine Image')]
+build-anaconda-iso source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} bash build_files/build-anaconda-iso.sh
+
+# Force a full rebuild of the Anaconda live ISO, ignoring the cached container layer.
+# Use after changing Containerfile.anaconda or any file it COPYs.
+[group('Build Virtual Machine Image')]
+rebuild-anaconda-iso source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-anaconda-iso.sh
+
 # Boot the live desktop ISO in a VM (BIOS, web UI at http://localhost:PORT)
 # Builds the ISO first if it does not exist. Pass source_tag to run a testing ISO.
 [group('Run Virtual Machine')]
