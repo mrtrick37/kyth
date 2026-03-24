@@ -389,6 +389,27 @@ def run():
             "The live ISO may be incomplete.",
         )
 
+    # Create a tmp dir on the target disk so bootc writes temp files there
+    # instead of to the in-RAM tmpfs.  This keeps memory pressure low during
+    # layer extraction, which is the most common cause of the install freeze.
+    _target_tmp = os.path.join(TARGET_ROOT, "tmp")
+    os.makedirs(_target_tmp, exist_ok=True)
+
+    # Tune VM memory management to prevent memory-pressure stalls.
+    # swappiness=200 starts swapping very early; vfs_cache_pressure=500 frees
+    # dentry/inode caches aggressively so the OCI layer reader can get pages.
+    for _path, _val in [
+        ("/proc/sys/vm/swappiness",            "200"),
+        ("/proc/sys/vm/vfs_cache_pressure",    "500"),
+        ("/proc/sys/vm/dirty_ratio",           "5"),
+        ("/proc/sys/vm/dirty_background_ratio","2"),
+    ]:
+        try:
+            with open(_path, "w") as _f:
+                _f.write(_val + "\n")
+        except OSError:
+            pass
+
     libcalamares.job.setprogress(0.08)
 
     # ── 12. Time-based progress thread ───────────────────────────────────────
@@ -445,7 +466,9 @@ def run():
     os.close(log_fd)
     _log(f"bootc output log: {log_path}")
 
+    # nice -n 10: lower CPU priority so KDE/VNC stays responsive during install.
     bootc_cmd = [
+        "nice", "-n", "10",
         "bootc", "install", "to-filesystem",
         "--source-imgref", SOURCE_IMGREF,
         "--target-imgref", TARGET_IMGREF,
@@ -458,13 +481,23 @@ def run():
 
     try:
         with open(log_path, "w") as log_fh:
-            subprocess.run(
+            # Stream bootc output to both the log file and the Calamares debug
+            # log in real time.  This lets you see exactly where bootc was when
+            # the VM appeared to freeze (check journalctl or calamares.log).
+            with subprocess.Popen(
                 bootc_cmd,
-                check=True,
-                stdout=log_fh,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                env={**os.environ, "TMPDIR": "/var/tmp"},
-            )
+                text=True,
+                env={**os.environ, "TMPDIR": _target_tmp},
+            ) as proc:
+                for line in proc.stdout:
+                    log_fh.write(line)
+                    log_fh.flush()
+                    _log(f"bootc: {line.rstrip()}")
+                proc.wait()
+            if proc.returncode != 0:
+                raise subprocess.CalledProcessError(proc.returncode, bootc_cmd)
     except subprocess.CalledProcessError as e:
         _stop_event.set()
         try:

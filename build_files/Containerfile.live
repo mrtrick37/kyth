@@ -87,9 +87,13 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/getty@tty1.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I linux\n' \
         > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
-    ; systemctl enable sddm || true \
-    ; systemctl set-default graphical.target || true \
-    ; systemctl mask kyth-sddm-setup.service 2>/dev/null || true
+    && ln -sf /usr/lib/systemd/system/graphical.target \
+              /etc/systemd/system/default.target \
+    && mkdir -p /etc/systemd/system/multi-user.target.wants \
+    && ln -sf /usr/lib/systemd/system/sddm.service \
+              /etc/systemd/system/multi-user.target.wants/sddm.service \
+    && mkdir -p /etc/systemd/system/kyth-sddm-setup.service.d \
+    && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service
 
 # ── Live user home: KDE config, autostarts, desktop shortcuts ────────────────
 # Boot sequence (primary — SDDM):
@@ -251,7 +255,7 @@ LIVEIOEOF
 # A zram device (up to 4 GiB, zstd) acts as compressed swap so the system
 # stays responsive instead of locking up during the download.
 RUN echo "uninitialized" > /etc/machine-id \
-    && systemctl mask \
+    && for unit in \
         ostree-remount.service \
         ostree-prepare-root.service \
         rpm-ostree.service \
@@ -261,8 +265,9 @@ RUN echo "uninitialized" > /etc/machine-id \
         bootc-fetch-apply-updates.timer \
         systemd-firstboot.service \
         scxd.service \
-        ananicy-cpp.service \
-    || true \
+        ananicy-cpp.service; do \
+        ln -sf /dev/null "/etc/systemd/system/${unit}"; \
+    done \
     && printf '[zram0]\nzram-size = min(ram, 4096)\ncompression-algorithm = zstd\n' \
         > /etc/systemd/zram-generator.conf \
     && echo "LANG=en_US.UTF-8" > /etc/locale.conf \
