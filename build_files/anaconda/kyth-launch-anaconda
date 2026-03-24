@@ -1,0 +1,36 @@
+#!/usr/bin/bash
+# kyth-launch-anaconda — launch Anaconda from the live desktop.
+#
+# Bazzite-style flow: launch liveinst directly from the live user session.
+# This keeps Anaconda in its expected live-media entrypoint.
+set -euo pipefail
+
+LOG_FILE="/tmp/kyth-launch-anaconda.log"
+
+run_liveinst() {
+    sudo -n \
+        DISPLAY="${DISPLAY:-}" \
+        XAUTHORITY="${XAUTHORITY:-}" \
+        WAYLAND_DISPLAY="${WAYLAND_DISPLAY:-}" \
+        DBUS_SESSION_BUS_ADDRESS="${DBUS_SESSION_BUS_ADDRESS:-}" \
+        XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-}" \
+        XDG_SESSION_TYPE="${XDG_SESSION_TYPE:-}" \
+        /usr/sbin/liveinst "$@"
+}
+
+if command -v liveinst >/dev/null 2>&1; then
+    if run_liveinst "$@" >>"${LOG_FILE}" 2>&1; then
+        exit 0
+    fi
+elif [ -x /usr/sbin/liveinst ]; then
+    if run_liveinst "$@" >>"${LOG_FILE}" 2>&1; then
+        exit 0
+    fi
+fi
+
+ERR_MSG="Installer failed to start. See ${LOG_FILE}"
+echo "${ERR_MSG}" >&2
+if command -v yad >/dev/null 2>&1; then
+    yad --error --title="Kyth Installer" --text="${ERR_MSG}" 2>/dev/null || true
+fi
+exit 1
