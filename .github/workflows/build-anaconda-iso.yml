@@ -175,7 +175,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: kyth-anaconda-iso
-          path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
+          path: output/live-iso/kyth-live-anaconda-${{ inputs.source_tag || 'latest' }}.iso
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -184,7 +184,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
-          ISO="output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso"
+          ISO="output/live-iso/kyth-live-anaconda-${{ inputs.source_tag || 'latest' }}.iso"
           aws s3 cp "${ISO}" \
             "s3://kyth-releases/$(basename ${ISO})" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -196,15 +196,15 @@ jobs:
         run: |
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
-          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
+          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-anaconda-${SOURCE_TAG}.iso"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-testing.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-anaconda-testing.iso](%s)' "${ISO_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-latest.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-anaconda-latest.iso](%s)' "${ISO_URL}")
             PRERELEASE="--latest"
           fi
 
