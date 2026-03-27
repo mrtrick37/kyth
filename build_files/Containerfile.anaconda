@@ -199,6 +199,9 @@ RUN mkdir -p \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
+    && printf '[Desktop Entry]\nName=Installer Logs\nComment=View live Kyth installer logs\nExec=konsole -e bash -c "echo Kyth Installer Logs; echo; sudo tail -n 50 -F /tmp/anaconda.log 2>/dev/null || echo Waiting for installer...; read"\nIcon=utilities-log-viewer\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /home/liveuser/Desktop/installer-logs.desktop \
+    && chmod +x /home/liveuser/Desktop/installer-logs.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/org.mozilla.firefox.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
