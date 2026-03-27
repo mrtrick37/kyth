@@ -175,7 +175,7 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
         > /home/liveuser/.bash_profile \
-    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\nexec startplasma-x11\n' \
+    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nuid="$(id -u)"\n# Ensure runtime dir exists even when falling back to console startx.\nif [ -z "${XDG_RUNTIME_DIR:-}" ]; then\n    if [ -d "/run/user/${uid}" ]; then\n        export XDG_RUNTIME_DIR="/run/user/${uid}"\n    else\n        export XDG_RUNTIME_DIR="/tmp/runtime-liveuser"\n        mkdir -p "$XDG_RUNTIME_DIR"\n        chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true\n    fi\nfi\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n# Ensure a valid user bus/session for PipeWire/portal services.\nif command -v dbus-run-session >/dev/null 2>&1; then\n    exec dbus-run-session -- startplasma-x11\nfi\nexec startplasma-x11\n' \
         > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Liveinst Setup\nHidden=true\n' \
