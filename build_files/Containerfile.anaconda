@@ -175,7 +175,7 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
         > /home/liveuser/.bash_profile \
-    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\nexec startplasma-x11\n' \
+    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nuid="$(id -u)"\n# Ensure runtime dir exists even when falling back to console startx.\nif [ -z "${XDG_RUNTIME_DIR:-}" ]; then\n    if [ -d "/run/user/${uid}" ]; then\n        export XDG_RUNTIME_DIR="/run/user/${uid}"\n    else\n        export XDG_RUNTIME_DIR="/tmp/runtime-liveuser"\n        mkdir -p "$XDG_RUNTIME_DIR"\n        chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true\n    fi\nfi\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n# Ensure a valid user bus/session for PipeWire/portal services.\nif command -v dbus-run-session >/dev/null 2>&1; then\n    exec dbus-run-session -- startplasma-x11\nfi\nexec startplasma-x11\n' \
         > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Liveinst Setup\nHidden=true\n' \
@@ -199,6 +199,9 @@ RUN mkdir -p \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install Kyth\nComment=Install Kyth to this computer\nExec=/usr/bin/kyth-launch-anaconda\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
+    && printf '[Desktop Entry]\nName=Installer Logs\nComment=View live Kyth installer logs\nExec=konsole -e bash -c "echo Kyth Installer Logs; echo; sudo tail -n 50 -F /tmp/anaconda.log 2>/dev/null || echo Waiting for installer...; read"\nIcon=utilities-log-viewer\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /home/liveuser/Desktop/installer-logs.desktop \
+    && chmod +x /home/liveuser/Desktop/installer-logs.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/org.mozilla.firefox.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=Kyth Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \

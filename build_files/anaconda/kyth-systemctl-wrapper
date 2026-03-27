@@ -1,11 +1,23 @@
 #!/bin/sh
-# Live-session reboot intercept: persist anaconda logs and optionally block auto reboot.
+# Live-session reboot/poweroff intercept.
+# Two paths:
+#   1. Clean reboot after successful install (KYTH_INSTALL_SUCCESS=1):
+#      Skip crash diagnostics, just reboot immediately.
+#   2. Unexpected reboot (Anaconda crash or error):
+#      Save logs, optionally delay/block reboot for triage.
 REAL_SYSTEMCTL="${KYTH_REAL_SYSTEMCTL:-/usr/bin/systemctl.real}"
 if [ ! -x "$REAL_SYSTEMCTL" ] && [ -x /usr/bin/systemctl ]; then
     REAL_SYSTEMCTL=/usr/bin/systemctl
 fi
 
 if [ "$1" = "reboot" ] || [ "$1" = "poweroff" ] || [ "$1" = "halt" ]; then
+    # Clean reboot path — caller set KYTH_INSTALL_SUCCESS=1.
+    if [ "${KYTH_INSTALL_SUCCESS:-0}" = "1" ]; then
+        echo "Kyth installation complete — rebooting." | tee /dev/console 2>/dev/null || true
+        exec "$REAL_SYSTEMCTL" "$@"
+    fi
+
+    # Crash/unexpected reboot path — save logs for triage.
     TS="$(date +%Y%m%d-%H%M%S)"
     LOG_TMP="/tmp/anaconda-crash.log"
     LOG_VAR="/var/tmp/anaconda-crash-${TS}.log"
@@ -28,16 +40,16 @@ if [ "$1" = "reboot" ] || [ "$1" = "poweroff" ] || [ "$1" = "halt" ]; then
         chown liveuser:liveuser "$DESKTOP_LOG" 2>/dev/null || true
     fi
 
-    echo "INSTALLER CRASHED - logs: $LOG_TMP and $LOG_VAR" | tee /dev/console
+    echo "Installer error — logs saved: $LOG_VAR" | tee /dev/console 2>/dev/null || true
 
     if [ "${KYTH_DISABLE_AUTO_REBOOT:-0}" = "1" ]; then
-        echo "Auto reboot blocked (KYTH_DISABLE_AUTO_REBOOT=1)." | tee /dev/console
+        echo "Auto reboot blocked (KYTH_DISABLE_AUTO_REBOOT=1)." | tee /dev/console 2>/dev/null || true
         exit 0
     fi
 
     REBOOT_DELAY="${KYTH_REBOOT_DELAY_SEC:-0}"
     if [ "${REBOOT_DELAY}" -gt 0 ] 2>/dev/null; then
-        echo "Rebooting in ${REBOOT_DELAY}s" | tee /dev/console
+        echo "Rebooting in ${REBOOT_DELAY}s" | tee /dev/console 2>/dev/null || true
         sleep "${REBOOT_DELAY}"
     fi
 fi
