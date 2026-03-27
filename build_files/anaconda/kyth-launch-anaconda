@@ -79,9 +79,139 @@ cleanup() {
     if [[ -n "${FEEDBACK_PID:-}" ]]; then
         kill "${FEEDBACK_PID}" 2>/dev/null || true
     fi
+    if [[ -n "${LOG_VIEWER_PID:-}" ]]; then
+        kill "${LOG_VIEWER_PID}" 2>/dev/null || true
+    fi
     _host_export_logs
 }
 trap cleanup EXIT
+
+_preflight_network_check() {
+    local registry="ghcr.io"
+    local max_attempts=2
+    local attempt=0
+    local connected=false
+
+    echo "$(date '+%T'): Pre-flight network check: testing connectivity to ${registry}" >> "${LOG}" 2>&1
+
+    while [[ "${connected}" == "false" ]]; do
+        # Try DNS resolve + TCP connect to the registry.
+        if curl -sf --connect-timeout 5 --max-time 10 "https://${registry}/v2/" -o /dev/null 2>/dev/null \
+           || ping -c 1 -W 3 "${registry}" >/dev/null 2>&1; then
+            connected=true
+            echo "$(date '+%T'): Network check passed: ${registry} is reachable." >> "${LOG}" 2>&1
+            return 0
+        fi
+
+        attempt=$((attempt + 1))
+        echo "$(date '+%T'): Network check attempt ${attempt}: ${registry} unreachable." >> "${LOG}" 2>&1
+
+        # Show a dialog prompting the user to connect to WiFi.
+        local dialog_text="Cannot reach the container registry (${registry}).\n\nKyth installs by downloading the OS image from the internet.\nPlease connect to a network (WiFi or Ethernet) before continuing."
+
+        if command -v yad &>/dev/null; then
+            local btn
+            yad --title="Kyth Installer — Network Required" \
+                --image=network-wireless \
+                --text="${dialog_text}" \
+                --button="Open Network Settings:2" \
+                --button="Retry:0" \
+                --button="Cancel Install:1" \
+                --width=520 2>/dev/null
+            btn=$?
+
+            if [[ ${btn} -eq 1 ]]; then
+                echo "$(date '+%T'): User cancelled install from network check dialog." >> "${LOG}" 2>&1
+                exit 0
+            elif [[ ${btn} -eq 2 ]]; then
+                echo "$(date '+%T'): User opening network settings." >> "${LOG}" 2>&1
+                # Open KDE network settings; fall back to nmtui in konsole.
+                if command -v plasma-nm &>/dev/null || command -v kcmshell6 &>/dev/null; then
+                    kcmshell6 kcm_networkmanagement >/dev/null 2>&1 &
+                elif command -v nm-connection-editor &>/dev/null; then
+                    nm-connection-editor >/dev/null 2>&1 &
+                elif command -v nmtui &>/dev/null; then
+                    konsole -e nmtui >/dev/null 2>&1 &
+                fi
+                # Give the user time to configure, then loop back to retry.
+                sleep 3
+            fi
+            # btn==0 means Retry, just loop again.
+        elif command -v kdialog &>/dev/null; then
+            kdialog --title "Kyth Installer — Network Required" \
+                --sorry "${dialog_text}\n\nPlease configure your network and click OK to retry." \
+                2>/dev/null || { echo "$(date '+%T'): User cancelled from network dialog." >> "${LOG}" 2>&1; exit 0; }
+        else
+            echo "$(date '+%T'): WARNING: No dialog tool available; proceeding without network check." >> "${LOG}" 2>&1
+            return 0
+        fi
+    done
+}
+
+_open_log_viewer() {
+    # Open a Konsole window tailing installer logs so the user can monitor progress.
+    # The window starts minimized to the taskbar to stay out of the way.
+    local viewer_script="/var/tmp/kyth-installer-log-viewer.sh"
+
+    cat > "${viewer_script}" << 'VIEWER'
+#!/usr/bin/bash
+echo "╔══════════════════════════════════════════════════════════════╗"
+echo "║              Kyth Installer — Live Log Viewer               ║"
+echo "║  This window shows real-time installer activity.            ║"
+echo "║  If text is scrolling, the install is working.              ║"
+echo "║  Close this window at any time — it won't affect the        ║"
+echo "║  installation.                                              ║"
+echo "╚══════════════════════════════════════════════════════════════╝"
+echo ""
+
+# Wait for anaconda.log to appear (up to 60s).
+for i in $(seq 1 60); do
+    if sudo -n test -f /tmp/anaconda.log 2>/dev/null; then
+        break
+    fi
+    if [ "$i" -eq 1 ]; then
+        echo "Waiting for installer to start..."
+    fi
+    sleep 1
+done
+
+echo "--- Streaming installer logs ($(date '+%T')) ---"
+echo ""
+echo "[anaconda.log] Installer backend log"
+echo "[journal]      System journal (bootc/ostree pull progress)"
+echo ""
+
+# Stream both anaconda.log AND the journal in parallel.
+# The journal is where bootc install to-disk logs pull progress.
+(
+    sudo -n tail -n 20 -F /tmp/anaconda.log 2>/dev/null \
+        | grep --line-buffered -Ei \
+            'ostree|bootc|container|pull|deploy|install|download|layer|progress|error|warning|failed|exception|traceback|complete|finish|done|start|copying|writing|btrfs|partition|storage|payload|task' \
+        | sed --unbuffered 's/^/[anaconda.log] /' &
+
+    sudo -n journalctl -f -b 2>/dev/null \
+        | grep --line-buffered -Ei \
+            'bootc|ostree|container|pull|deploy|layer|download|progress|writing|btrfs|error|fatal|oom|killed|exception|segfault|transaction|copying|checkout|commit' \
+        | grep --line-buffered -Ev 'pam_systemd|sudo.*COMMAND' \
+        | sed --unbuffered 's/^/[journal]      /' &
+
+    wait
+) || echo "Log stream ended."
+
+echo ""
+echo "--- Log viewer finished ($(date '+%T')) ---"
+echo "Press Enter to close."
+read -r
+VIEWER
+    chmod +x "${viewer_script}"
+
+    echo "$(date '+%T'): Opening installer log viewer (Konsole)." >> "${LOG}" 2>&1
+
+    # --qwindowtitle sets the taskbar name; start minimized so it doesn't cover the WebUI.
+    konsole --qwindowtitle "Kyth Installer Logs" \
+        -e "${viewer_script}" >/dev/null 2>&1 &
+    LOG_VIEWER_PID=$!
+}
 
 _browser_fallback_watchdog() {
     # If liveinst never opens the WebUI browser window, open it explicitly.
@@ -129,59 +259,158 @@ _host_sync_loop() {
     done
 }
 
-_latest_install_activity() {
-    local msg=""
+_get_total_rx_bytes() {
+    # Sum RX bytes across all non-loopback interfaces.
+    awk '/:/ && !/lo:/ { gsub(/:/, " "); rx += $2 } END { print rx+0 }' /proc/net/dev
+}
 
-    if sudo -n test -r /tmp/anaconda.log 2>/dev/null; then
-        msg=$(sudo -n sh -c "grep -E 'Deployment starting|All tasks in the installation queue are done|Copying file:|web-ui:|ostree|bootc|install' /tmp/anaconda.log | tail -n 1" 2>/dev/null || true)
+_human_bytes() {
+    local bytes="$1"
+    if (( bytes >= 1073741824 )); then
+        local gb_whole=$(( bytes / 1073741824 ))
+        local gb_frac=$(( (bytes % 1073741824) * 10 / 1073741824 ))
+        printf '%d.%d GB' "${gb_whole}" "${gb_frac}"
+    elif (( bytes >= 1048576 )); then
+        printf '%d MB' $(( bytes / 1048576 ))
+    elif (( bytes >= 1024 )); then
+        printf '%d KB' $(( bytes / 1024 ))
+    else
+        printf '%d B' "${bytes}"
     fi
+}
 
-    if [[ -z "${msg}" ]]; then
-        if sudo -n journalctl -b --no-pager 2>/dev/null | grep -Eq 'ostree|bootc|anaconda.modules.boss.installation|Writing|Deploy|Installing'; then
-            msg=$(sudo -n journalctl -b --no-pager 2>/dev/null | grep -E 'ostree|bootc|anaconda.modules.boss.installation|Writing|Deploy|Installing' | tail -n 1 || true)
+_fmt_duration() {
+    local secs="$1"
+    if (( secs >= 3600 )); then
+        printf '%dh %dm' $((secs/3600)) $(( (secs%3600)/60 ))
+    elif (( secs >= 60 )); then
+        printf '%dm %ds' $((secs/60)) $((secs%60))
+    else
+        printf '%ds' "${secs}"
+    fi
+}
+
+_install_progress_monitor() {
+    # Persistent yad window showing live download progress.
+    # Monitors network throughput to estimate download progress since bootc
+    # doesn't provide per-layer progress output.
+
+    local start_ts rx_start rx_now rx_prev speed downloaded elapsed
+    local total_size_label="" total_size_bytes=0
+    local phase="waiting"
+    local fifo="/var/tmp/kyth-progress-fifo.$$"
+    local bootc_pid=""
+
+    mkfifo "${fifo}" 2>/dev/null || return 0
+
+    # Launch yad text-info window reading from the FIFO.
+    yad --text-info --tail \
+        --title="Kyth Installation Progress" \
+        --width=500 --height=340 \
+        --no-buttons \
+        --fontname="Monospace 10" \
+        --back="#1a1b26" --fore="#a9b1d6" \
+        < "${fifo}" &
+    local yad_pid=$!
+
+    # Write status updates to the FIFO.
+    {
+        echo "  Kyth OS Installation"
+        echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo ""
+        echo "  Waiting for image download to start..."
+        echo ""
+
+        # Wait for bootc to appear in the journal (up to 120s).
+        for _i in $(seq 1 60); do
+            if sudo -n journalctl -b --no-pager 2>/dev/null | grep -q 'layers.*needed.*GB\|layers.*needed.*MB'; then
+                total_size_label=$(sudo -n journalctl -b --no-pager 2>/dev/null \
+                    | grep -oP 'layers needed: \d+ \(\K[^)]+' | tail -1)
+                # Also try to get the bootc PID.
+                bootc_pid=$(pgrep -f 'ostree container image deploy' 2>/dev/null | head -1 || true)
+                phase="downloading"
+                break
+            fi
+            # Check if install already finished while we were waiting.
+            if sudo -n journalctl -b --no-pager 2>/dev/null | grep -q 'All tasks in the installation queue are done'; then
+                phase="done"
+                break
+            fi
+            sleep 2
+        done
+
+        if [[ "${phase}" == "done" ]]; then
+            echo "  Installation complete!"
+            sleep 5
+        elif [[ "${phase}" == "waiting" ]]; then
+            echo "  Could not detect download start."
+            echo "  Check the log viewer for details."
+            sleep 10
+        else
+            start_ts=$(date +%s)
+            rx_start=$(_get_total_rx_bytes)
+            rx_prev=${rx_start}
+
+            echo "  Downloading Kyth OS image${total_size_label:+ ($total_size_label)}"
+            echo "  This typically takes 10-30 minutes on broadband,"
+            echo "  or longer on slower connections."
+            echo ""
+            echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+            while :; do
+                # Check if download/install finished.
+                if [[ -n "${bootc_pid}" ]] && ! kill -0 "${bootc_pid}" 2>/dev/null; then
+                    # bootc process ended — check if more tasks are running.
+                    if sudo -n journalctl -b --no-pager 2>/dev/null | grep -q 'All tasks in the installation queue are done'; then
+                        phase="done"
+                    else
+                        phase="post-download"
+                    fi
+                    break
+                fi
+
+                rx_now=$(_get_total_rx_bytes)
+                elapsed=$(( $(date +%s) - start_ts ))
+                downloaded=$(( rx_now - rx_start ))
+                speed=$(( (rx_now - rx_prev) / 3 ))  # bytes/sec (sampled over 3s)
+                rx_prev=${rx_now}
+
+                # Build status line (overwrites are not possible in yad --text-info,
+                # so print a compact update line every interval).
+                printf '  %s elapsed | %s downloaded | %s/s\n' \
+                    "$(_fmt_duration ${elapsed})" \
+                    "$(_human_bytes ${downloaded})" \
+                    "$(_human_bytes ${speed})"
+
+                sleep 3
+            done
+
+            echo ""
+            echo "  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+            if [[ "${phase}" == "done" ]]; then
+                elapsed=$(( $(date +%s) - start_ts ))
+                downloaded=$(( $(_get_total_rx_bytes) - rx_start ))
+                echo "  Installation complete!"
+                echo "  Downloaded $(_human_bytes ${downloaded}) in $(_fmt_duration ${elapsed})"
+            else
+                echo "  Download complete — finalizing installation..."
+                # Wait for the rest of the install tasks.
+                for _w in $(seq 1 300); do
+                    if sudo -n journalctl -b --no-pager 2>/dev/null | grep -q 'All tasks in the installation queue are done'; then
+                        echo "  Installation complete!"
+                        break
+                    fi
+                    sleep 2
+                done
+            fi
+            echo ""
+            echo "  You can close this window."
+            sleep 30
         fi
-    fi
+    } > "${fifo}" 2>/dev/null
 
-    msg=$(printf '%s' "${msg}" | sed -E 's/^.*(INFO:|WRN |DBG )//' | sed -E 's/[[:space:]]+/ /g' | cut -c1-180)
-
-    if [[ -z "${msg}" ]]; then
-        msg="Preparing and deploying system content"
-    fi
-
-    printf '%s' "${msg}"
-}
-
-_show_install_progress_hint() {
-    local elapsed_min="$1"
-    local activity="$2"
-    local text="Still installing (${elapsed_min} min elapsed). ${activity}. This phase can take a while on first install."
-
-    if command -v kdialog &>/dev/null; then
-        kdialog --title "Kyth Installer" --passivepopup "${text}" 8 >/dev/null 2>&1 || true
-        return 0
-    fi
-
-    if command -v notify-send &>/dev/null; then
-        notify-send -a "Kyth Installer" "Installation in progress" "${text}" >/dev/null 2>&1 || true
-        return 0
-    fi
-}
-
-_install_feedback_loop() {
-    local start_ts now elapsed_min activity
-
-    start_ts=$(date +%s)
-    # Give the UI some time to settle before the first hint.
-    sleep 75
-
-    while :; do
-        now=$(date +%s)
-        elapsed_min=$(( (now - start_ts) / 60 ))
-        activity=$(_latest_install_activity)
-        echo "$(date '+%T'): Progress hint: ${activity} (elapsed ${elapsed_min} min)." >> "${LOG}" 2>&1
-        _show_install_progress_hint "${elapsed_min}" "${activity}"
-        sleep 75
-    done
+    rm -f "${fifo}" 2>/dev/null || true
+    kill "${yad_pid}" 2>/dev/null || true
 }
 
 _active_vt() {
@@ -301,6 +530,9 @@ if [[ -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
     _die "No graphical session detected (DISPLAY/WAYLAND_DISPLAY missing)."
 fi
 
+# ── Pre-flight: ensure network connectivity before starting the installer ──
+_preflight_network_check
+
 {
     echo "$(date '+%T'): Launcher env: DISPLAY=${DISPLAY:-<unset>} WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-<unset>} XAUTHORITY=${XAUTHORITY:-<unset>}"
     echo "$(date '+%T'): Launcher env: PKEXEC_UID=${PKEXEC_UID:-<unset>} PKEXEC_USER=${PKEXEC_USER:-<unset>}"
@@ -343,6 +575,9 @@ export MOZ_DISABLE_RDD_SANDBOX=1
     sudo -n sh -c 'touch /tmp/anaconda.log /tmp/anaconda-tb.txt; tail -n +1 -F /tmp/anaconda.log /tmp/anaconda-tb.txt'
 } >> "${LOG}" 2>&1 &
 TAIL_PID=$!
+
+# ── Open log viewer alongside installer ────────────────────────────────────
+_open_log_viewer
 
 echo "$(date '+%T'): Launching Fedora liveinst (${LIVEINST_BIN})" | tee -a "${LOG}"
 # Optional browser watchdog for diagnostics and slow startup edge cases.
@@ -387,11 +622,15 @@ else
     echo "$(date '+%T'): Installer I/O tuning loop disabled (default)." >> "${LOG}" 2>&1
 fi
 
-if grep -qw 'kyth.installer.feedback=1' /proc/cmdline 2>/dev/null; then
-    _install_feedback_loop &
+# Persistent progress window: shows download speed and estimated progress.
+# Opt-out with kernel arg kyth.installer.noprogress=1.
+if grep -qw 'kyth.installer.noprogress=1' /proc/cmdline 2>/dev/null; then
+    echo "$(date '+%T'): Installer progress window disabled via kernel arg (kyth.installer.noprogress=1)." >> "${LOG}" 2>&1
+elif command -v yad &>/dev/null; then
+    _install_progress_monitor &
     FEEDBACK_PID=$!
 else
-    echo "$(date '+%T'): Installer progress popup loop disabled (default)." >> "${LOG}" 2>&1
+    echo "$(date '+%T'): yad not available — progress window skipped." >> "${LOG}" 2>&1
 fi
 
 "${LIVEINST_BIN}" >>"${LOG}" 2>&1
@@ -435,7 +674,15 @@ echo "$(date '+%T'): Anaconda exited cleanly." | tee -a "${LOG}"
 
 if _prompt_reboot; then
     echo "$(date '+%T'): User chose reboot after installation." | tee -a "${LOG}"
-    if ! sudo -n env KYTH_REAL_SYSTEMCTL=/usr/bin/systemctl /usr/bin/kyth-systemctl-wrapper reboot; then
+    # Clear the screen and show a clean message while the system reboots.
+    # This prevents the raw console/journal output from flashing on screen
+    # between the desktop tearing down and the kernel rebooting.
+    if command -v plymouth &>/dev/null && sudo -n plymouth --ping 2>/dev/null; then
+        sudo -n plymouth display-message --text="Rebooting into Kyth..." 2>/dev/null || true
+    fi
+    # Switch to a blank VT to hide desktop teardown artifacts.
+    sudo -n sh -c 'clear >/dev/tty1 2>/dev/null; chvt 1 2>/dev/null' || true
+    if ! sudo -n env KYTH_REAL_SYSTEMCTL=/usr/bin/systemctl KYTH_INSTALL_SUCCESS=1 /usr/bin/kyth-systemctl-wrapper reboot; then
         echo "$(date '+%T'): ERROR: Failed to trigger reboot via systemctl." | tee -a "${LOG}"
         if command -v yad &>/dev/null; then
             yad --error --title="Kyth Installer" \
