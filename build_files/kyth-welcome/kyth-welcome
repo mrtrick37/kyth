@@ -3288,10 +3288,25 @@ class RcloneSetupWizard(QDialog):
             QMessageBox.critical(self, "Folder Error", f"Could not create folder:\n{exc}")
             return
 
-        result = subprocess.run(
-            ["rclone", "config", "create", name, svc, "token", self._token],
-            capture_output=True, text=True, timeout=15,
-        )
+        try:
+            result = subprocess.run(
+                ["rclone", "config", "create", name, svc, "token", self._token],
+                capture_output=True, text=True, timeout=30,
+                stdin=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            QMessageBox.critical(self, "rclone Not Found",
+                                 "rclone is not installed or not on PATH.")
+            return
+        except subprocess.TimeoutExpired:
+            QMessageBox.critical(self, "Config Timeout",
+                                 "rclone config create timed out. "
+                                 "Check that rclone is working correctly.")
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Config Error",
+                                 f"Unexpected error running rclone:\n{exc}")
+            return
         if result.returncode != 0:
             QMessageBox.critical(
                 self, "Config Error",
