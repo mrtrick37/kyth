@@ -2561,6 +2561,20 @@ class GamingPage(Page):
                 "ujust": "install-retroarch",
                 "launch": ["flatpak", "run", "org.libretro.RetroArch"],
             },
+            {
+                "flatpak": "org.freedesktop.Piper",
+                "name": "Piper",
+                "desc": "GUI for configuring gaming mice — DPI, buttons, and LEDs.",
+                "ujust": "install-piper",
+                "launch": ["flatpak", "run", "org.freedesktop.Piper"],
+            },
+            {
+                "flatpak": "org.openrgb.OpenRGB",
+                "name": "OpenRGB",
+                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals.",
+                "ujust": "install-openrgb",
+                "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
+            },
         ]
 
         # Build tiles in a 2-column grid
@@ -3529,14 +3543,24 @@ class CloudStoragePage(Page):
         self._od_install_btn.setEnabled(False)
         self._gd_install_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ sudo rpm-ostree install rclone\n")
+        self._log.append("→ Downloading rclone binary from rclone.org…\n")
         self._log.show()
         self._progress.show()
         self._op_status.setText("Installing rclone…")
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-        self._worker = Worker(["sudo", "-A", "rpm-ostree", "install", "--idempotent", "rclone"])
+        # Download the current rclone binary directly — no rpm-ostree, no reboot needed.
+        # Installs to /usr/local/bin which is a writable overlay on bootc systems.
+        install_cmd = (
+            "set -euo pipefail && "
+            "cd /tmp && "
+            "curl -fsSL 'https://downloads.rclone.org/rclone-current-linux-amd64.zip' -o rclone-dl.zip && "
+            "unzip -o rclone-dl.zip 'rclone-*-linux-amd64/rclone' && "
+            "install -m 755 rclone-*-linux-amd64/rclone /usr/local/bin/rclone && "
+            "rm -rf rclone-dl.zip rclone-*-linux-amd64"
+        )
+        self._worker = Worker(["sudo", "-A", "bash", "-c", install_cmd])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_rclone_install_done)
         self._worker.start()
@@ -3546,11 +3570,11 @@ class CloudStoragePage(Page):
         _finish_worker(self)
         if code == 0:
             self._op_status.setText(
-                "rclone installed. A reboot is required before it is available — "
-                "reboot and then use the Setup Wizard to connect your accounts."
+                "rclone installed to /usr/local/bin/rclone. "
+                "Use the Setup Wizard to connect your cloud accounts."
             )
             self._op_status.setObjectName("status-ok")
-            self._log.append("\nDone. Reboot required.")
+            self._log.append("\nDone. No reboot required.")
         else:
             self._op_status.setText(f"Installation failed (exit code {code}).")
             self._op_status.setObjectName("status-err")
@@ -3649,7 +3673,9 @@ class MainWindow(QMainWindow):
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
-        ver_lbl = QLabel("Kyth 43 · CachyOS")
+        _branch = _current_branch()
+        _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "Kyth 43")
+        ver_lbl = QLabel(f"{_branch_text} · Fedora 43")
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
