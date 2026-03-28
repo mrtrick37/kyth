@@ -14,7 +14,7 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The OS is a
 |---|---|
 | **Base** | Fedora 43 KDE Plasma (`ublue-os/kinoite-main:43`) |
 | **Kernel** | CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned |
-| **GPU drivers** | Mesa-git (bleeding-edge RADV/RADEONSI from `@mesa/mesa` COPR) |
+| **GPU drivers** | Mesa-git (bleeding-edge RADV/RADEONSI from `xxmitsu/mesa-git` COPR) |
 | **Display** | KDE Plasma 6 on Wayland |
 | **Installer** | Anaconda WebUI — pulls OS image from the registry at install time |
 | **Theme** | Breeze Dark with Kyth branding, Plymouth boot splash |
@@ -51,12 +51,11 @@ Kyth is a custom [bootc](https://containers.github.io/bootc/) image. The OS is a
 - Docker
 - distrobox (run any-distro containers alongside the immutable base)
 - libvirt / QEMU / incus + LXC
-- Cockpit (web-based system management)
 - NVIDIA kernel module support (akmod-nvidia pre-installed for on-demand build)
 
 ### Observability
 
-- bcc, bpftop, bpftrace, trace-cmd, tiptop, sysprof, radeontop
+- trace-cmd, tiptop, sysprof, radeontop
 
 ### System tuning
 
