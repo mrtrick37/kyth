@@ -2859,6 +2859,7 @@ class RcloneAuthorizeWorker(QThread):
                 ["rclone", "authorize", self._remote_type],
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,  # prevent rclone blocking on interactive prompts
                 text=True,
             )
             stdout, stderr = self._proc.communicate(timeout=300)
@@ -3335,7 +3336,9 @@ class RcloneSetupWizard(QDialog):
         if self._auth_worker and self._auth_worker.isRunning():
             self._auth_worker.cancel()
             self._auth_worker.wait(2000)
+        self._token = ""
         self._auth_start_btn.setEnabled(True)
+        self._auth_start_btn.show()
         self._auth_cancel_btn.hide()
         self._auth_progress.hide()
         self._auth_status_lbl.setText("Ready — click the button below to begin.")
@@ -3346,7 +3349,10 @@ class RcloneSetupWizard(QDialog):
         self._token = token
         self._auth_progress.hide()
         self._auth_cancel_btn.hide()
-        self._auth_status_lbl.setText("Authorization successful! Click Next to continue.")
+        self._auth_start_btn.hide()
+        self._auth_status_lbl.setText(
+            "Authorization successful!  Click Next → to save and test the connection."
+        )
         self._auth_status_lbl.setObjectName("status-ok")
         _restyle(self._auth_status_lbl)
         self._update_nav()  # reveals Next button
@@ -3374,7 +3380,8 @@ class RcloneSetupWizard(QDialog):
 
         try:
             result = subprocess.run(
-                ["rclone", "config", "create", name, svc, "token", self._token],
+                ["rclone", "config", "create", name, svc,
+                 "token", self._token, "--non-interactive"],
                 capture_output=True, text=True, timeout=30,
                 stdin=subprocess.DEVNULL,
             )
@@ -3398,8 +3405,26 @@ class RcloneSetupWizard(QDialog):
             )
             return
 
+        # Verify the remote actually works by listing the root
+        verify = subprocess.run(
+            ["rclone", "lsd", f"{name}:", "--max-depth", "0"],
+            capture_output=True, text=True, timeout=20,
+            stdin=subprocess.DEVNULL,
+        )
+        conn_ok = verify.returncode == 0
+
         info = self._SERVICES[svc]
-        self._done_sub.setText(f"Your {info['label']} is configured and ready to use.")
+        if conn_ok:
+            self._done_sub.setText(
+                f"Your {info['label']} is configured and the connection was verified."
+            )
+        else:
+            err_hint = verify.stderr.strip()[:200]
+            self._done_sub.setText(
+                f"Your {info['label']} was configured, but the connection test failed.\n\n"
+                f"You may need to re-run the wizard or check your account permissions.\n"
+                f"Error: {err_hint}"
+            )
         self._done_summary.setText(
             f"Remote name:   {name}\n"
             f"Service:            {info['label']}\n"
@@ -3414,6 +3439,8 @@ class RcloneSetupWizard(QDialog):
         self._local_folder_for_open = folder
         self._stack.setCurrentIndex(3)
         self._update_nav()
+        # Always emit so the cloud page registers the folder and shows sync controls,
+        # even if the connection test failed (config is on disk regardless)
         self.finished_ok.emit(name, svc, folder)
 
     def _open_local_folder(self):
@@ -3433,7 +3460,8 @@ class CloudStoragePage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
-        self._sync_worker: RcloneSyncWorker | None = None
+        self._od_sync_worker: RcloneSyncWorker | None = None
+        self._gd_sync_worker: RcloneSyncWorker | None = None
         self._sync_config: dict = _load_sync_config()
 
         self._heading("Cloud Storage")
@@ -3484,8 +3512,22 @@ class CloudStoragePage(Page):
         self._od_sync_btn.clicked.connect(lambda: self._start_od_sync())
         self._od_sync_btn.hide()
         od_sync_btns.addWidget(self._od_sync_btn)
+        self._od_log_btn = QPushButton("Sync Log")
+        self._od_log_btn.hide()
+        self._od_log_btn.clicked.connect(self._toggle_od_sync_log)
+        od_sync_btns.addWidget(self._od_log_btn)
         od_sync_btns.addStretch()
         od_layout.addLayout(od_sync_btns)
+
+        self._od_sync_log = QTextEdit()
+        self._od_sync_log.setReadOnly(True)
+        self._od_sync_log.setMaximumHeight(100)
+        self._od_sync_log.setObjectName("card-copy")
+        self._od_sync_log.setPlaceholderText("Sync output will appear here…")
+        self._od_sync_log.hide()
+        od_layout.addWidget(self._od_sync_log)
+        self._od_sync_log_visible = False
+        self._od_last_sync_lines: list[str] = []
 
         self._add(od_card)
 
@@ -3528,7 +3570,43 @@ class CloudStoragePage(Page):
         gd_btns.addWidget(gd_kde_btn)
         gd_btns.addStretch()
         gd_layout.addLayout(gd_btns)
+
+        # Sync status row
+        self._gd_sync_status = QLabel()
+        self._gd_sync_status.setWordWrap(True)
+        self._gd_sync_status.setObjectName("card-copy")
+        self._gd_sync_status.hide()
+        gd_layout.addWidget(self._gd_sync_status)
+        gd_sync_btns = QHBoxLayout()
+        gd_sync_btns.setSpacing(10)
+        self._gd_sync_btn = QPushButton("Sync Now")
+        self._gd_sync_btn.clicked.connect(lambda: self._start_gd_sync())
+        self._gd_sync_btn.hide()
+        gd_sync_btns.addWidget(self._gd_sync_btn)
+        self._gd_log_btn = QPushButton("Sync Log")
+        self._gd_log_btn.hide()
+        self._gd_log_btn.clicked.connect(self._toggle_gd_sync_log)
+        gd_sync_btns.addWidget(self._gd_log_btn)
+        gd_sync_btns.addStretch()
+        gd_layout.addLayout(gd_sync_btns)
+
+        self._gd_sync_log = QTextEdit()
+        self._gd_sync_log.setReadOnly(True)
+        self._gd_sync_log.setMaximumHeight(100)
+        self._gd_sync_log.setObjectName("card-copy")
+        self._gd_sync_log.setPlaceholderText("Sync output will appear here…")
+        self._gd_sync_log.hide()
+        gd_layout.addWidget(self._gd_sync_log)
+        self._gd_sync_log_visible = False
+        self._gd_last_sync_lines: list[str] = []
+
         self._add(gd_card)
+
+        # Periodic GD sync timer
+        self._gd_sync_timer = QTimer(self)
+        self._gd_sync_timer.setInterval(_SYNC_INTERVAL_MS)
+        self._gd_sync_timer.timeout.connect(lambda: self._start_gd_sync())
+        self._gd_sync_timer.start()
 
         # ── Dropbox card ──────────────────────────────────────────────────────
         db_card, db_layout = _make_card()
@@ -3617,16 +3695,25 @@ class CloudStoragePage(Page):
             self._od_wizard_btn.show()
         _restyle(self._od_status)
 
-        # OneDrive sync status
-        syncable = [n for n in od_remotes if n in self._sync_config]
-        if syncable:
+        # OneDrive sync status — show for any configured remote; backfill sync_config if needed
+        for n in od_remotes:
+            if n not in self._sync_config:
+                self._sync_config[n] = {
+                    "folder": os.path.expanduser("~/OneDrive"),
+                    "service": "onedrive",
+                }
+                _save_sync_config(self._sync_config)
+        if od_remotes:
             self._od_sync_status.show()
             self._od_sync_btn.show()
-            if not (self._sync_worker and self._sync_worker.isRunning()):
+            self._od_log_btn.show()
+            if not (self._od_sync_worker and self._od_sync_worker.isRunning()):
                 self._update_od_sync_label()
         else:
             self._od_sync_status.hide()
             self._od_sync_btn.hide()
+            self._od_log_btn.hide()
+            self._od_sync_log.hide()
 
         # Google Drive
         if not rclone:
@@ -3650,6 +3737,26 @@ class CloudStoragePage(Page):
             self._gd_wizard_btn.show()
         _restyle(self._gd_status)
 
+        # Google Drive sync status — show for any configured remote; backfill sync_config if needed
+        for n in gd_remotes:
+            if n not in self._sync_config:
+                self._sync_config[n] = {
+                    "folder": os.path.expanduser("~/GoogleDrive"),
+                    "service": "drive",
+                }
+                _save_sync_config(self._sync_config)
+        if gd_remotes:
+            self._gd_sync_status.show()
+            self._gd_sync_btn.show()
+            self._gd_log_btn.show()
+            if not (self._gd_sync_worker and self._gd_sync_worker.isRunning()):
+                self._update_gd_sync_label()
+        else:
+            self._gd_sync_status.hide()
+            self._gd_sync_btn.hide()
+            self._gd_log_btn.hide()
+            self._gd_sync_log.hide()
+
         # Dropbox
         if db_installed:
             self._db_status.setText("Dropbox is installed.")
@@ -3670,12 +3777,13 @@ class CloudStoragePage(Page):
         wizard = RcloneSetupWizard(self, preselect=preselect)
 
         def _on_wizard_done(name: str, svc: str, folder: str):
-            if svc == "onedrive":
-                self._sync_config[name] = {"folder": folder}
-                _save_sync_config(self._sync_config)
+            self._sync_config[name] = {"folder": folder, "service": svc}
+            _save_sync_config(self._sync_config)
             self._refresh_status()
             if svc == "onedrive":
                 self._start_od_sync(name, folder)
+            elif svc == "drive":
+                self._start_gd_sync(name, folder)
 
         wizard.finished_ok.connect(_on_wizard_done)
         wizard.exec()
@@ -3683,10 +3791,11 @@ class CloudStoragePage(Page):
     # ── OneDrive sync ──────────────────────────────────────────────────────────
 
     def _update_od_sync_label(self):
-        """Refresh the sync status label from stored config (not called while syncing)."""
-        entries = {n: v for n, v in self._sync_config.items()}
-        # Find the first OneDrive remote with sync data
-        for name, info in entries.items():
+        """Refresh the OneDrive sync status label from stored config."""
+        for name, info in self._sync_config.items():
+            # service key may be missing on old entries — default to onedrive
+            if info.get("service", "onedrive") != "onedrive":
+                continue
             last = info.get("last_sync")
             ok = info.get("last_ok", True)
             if last:
@@ -3703,8 +3812,29 @@ class CloudStoragePage(Page):
         self._od_sync_status.setObjectName("card-copy")
         _restyle(self._od_sync_status)
 
+    def _update_gd_sync_label(self):
+        """Refresh the Google Drive sync status label from stored config."""
+        for name, info in self._sync_config.items():
+            if info.get("service") != "drive":
+                continue
+            last = info.get("last_sync")
+            ok = info.get("last_ok", True)
+            if last:
+                ts = datetime.fromtimestamp(last).strftime("%H:%M")
+                if ok:
+                    self._gd_sync_status.setText(f"Last synced at {ts} — syncs every 5 min")
+                    self._gd_sync_status.setObjectName("status-ok")
+                else:
+                    self._gd_sync_status.setText(f"Sync failed at {ts}")
+                    self._gd_sync_status.setObjectName("status-err")
+                _restyle(self._gd_sync_status)
+                return
+        self._gd_sync_status.setText("Not synced yet — click Sync Now or wait for auto-sync")
+        self._gd_sync_status.setObjectName("card-copy")
+        _restyle(self._gd_sync_status)
+
     def _start_od_sync(self, remote: str | None = None, folder: str | None = None):
-        if self._sync_worker and self._sync_worker.isRunning():
+        if self._od_sync_worker and self._od_sync_worker.isRunning():
             return  # already in progress
 
         if remote is None or folder is None:
@@ -3720,14 +3850,31 @@ class CloudStoragePage(Page):
         self._od_sync_status.setObjectName("status-warn")
         _restyle(self._od_sync_status)
         self._od_sync_status.show()
+        self._od_sync_btn.show()
         self._od_sync_btn.setEnabled(False)
+        self._od_log_btn.show()
+        self._od_last_sync_lines = []
+        if self._od_sync_log_visible:
+            self._od_sync_log.clear()
+            self._od_sync_log.show()
 
-        self._sync_worker = RcloneSyncWorker(remote, folder)
-        self._sync_worker.done.connect(lambda code: self._on_sync_done(remote, code))
-        self._sync_worker.start()
+        self._od_sync_worker = RcloneSyncWorker(remote, folder)
+        self._od_sync_worker.line.connect(self._on_sync_line)
+        self._od_sync_worker.done.connect(lambda code: self._on_sync_done(remote, code))
+        self._od_sync_worker.start()
+
+    def _on_sync_line(self, line: str):
+        """Accumulate live sync output; update log if it's visible."""
+        if line.strip():
+            self._od_last_sync_lines.append(line)
+            # Keep only the last 200 lines
+            if len(self._od_last_sync_lines) > 200:
+                self._od_last_sync_lines = self._od_last_sync_lines[-200:]
+            if self._od_sync_log_visible:
+                self._od_sync_log.append(line)
 
     def _on_sync_done(self, remote: str, code: int):
-        _finish_worker(self, attr="_sync_worker")
+        _finish_worker(self, attr="_od_sync_worker")
         now = time.time()
         ok = code == 0
         if remote in self._sync_config:
@@ -3736,6 +3883,93 @@ class CloudStoragePage(Page):
             _save_sync_config(self._sync_config)
         self._od_sync_btn.setEnabled(True)
         self._update_od_sync_label()
+        # If log is open, append a final summary line
+        if self._od_sync_log_visible:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            result_line = f"\n[{ts}] Sync {'completed' if ok else 'FAILED'} (exit {code})"
+            self._od_sync_log.append(result_line)
+
+    def _toggle_od_sync_log(self):
+        self._od_sync_log_visible = not self._od_sync_log_visible
+        if self._od_sync_log_visible:
+            self._od_sync_log.clear()
+            if self._od_last_sync_lines:
+                self._od_sync_log.setPlainText("\n".join(self._od_last_sync_lines))
+            self._od_sync_log.show()
+            self._od_log_btn.setText("Hide Log")
+        else:
+            self._od_sync_log.hide()
+            self._od_log_btn.setText("Sync Log")
+
+    # ── Google Drive sync ──────────────────────────────────────────────────────
+
+    def _start_gd_sync(self, remote: str | None = None, folder: str | None = None):
+        if self._gd_sync_worker and self._gd_sync_worker.isRunning():
+            return
+
+        if remote is None or folder is None:
+            for name, info in self._sync_config.items():
+                if info.get("service") == "drive":
+                    remote, folder = name, info.get("folder", "")
+                    break
+
+        if not remote or not folder:
+            return
+
+        self._gd_sync_status.setText(f"Syncing {remote}…")
+        self._gd_sync_status.setObjectName("status-warn")
+        _restyle(self._gd_sync_status)
+        self._gd_sync_status.show()
+        self._gd_sync_btn.show()
+        self._gd_sync_btn.setEnabled(False)
+        self._gd_log_btn.show()
+        self._gd_last_sync_lines = []
+        if self._gd_sync_log_visible:
+            self._gd_sync_log.clear()
+            self._gd_sync_log.show()
+
+        self._gd_sync_worker = RcloneSyncWorker(remote, folder)
+        self._gd_sync_worker.line.connect(self._on_gd_sync_line)
+        self._gd_sync_worker.done.connect(lambda code: self._on_gd_sync_done(remote, code))
+        self._gd_sync_worker.start()
+
+    def _on_gd_sync_line(self, line: str):
+        if line.strip():
+            self._gd_last_sync_lines.append(line)
+            if len(self._gd_last_sync_lines) > 200:
+                self._gd_last_sync_lines = self._gd_last_sync_lines[-200:]
+            if self._gd_sync_log_visible:
+                self._gd_sync_log.append(line)
+
+    def _on_gd_sync_done(self, remote: str, code: int):
+        _finish_worker(self, attr="_gd_sync_worker")
+        now = time.time()
+        ok = code == 0
+        if remote in self._sync_config:
+            self._sync_config[remote]["last_sync"] = now
+            self._sync_config[remote]["last_ok"] = ok
+            _save_sync_config(self._sync_config)
+        self._gd_sync_btn.setEnabled(True)
+        self._update_gd_sync_label()
+        if self._gd_sync_log_visible:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            self._gd_sync_log.append(
+                f"\n[{ts}] Sync {'completed' if ok else 'FAILED'} (exit {code})"
+            )
+
+    def _toggle_gd_sync_log(self):
+        self._gd_sync_log_visible = not self._gd_sync_log_visible
+        if self._gd_sync_log_visible:
+            self._gd_sync_log.clear()
+            if self._gd_last_sync_lines:
+                self._gd_sync_log.setPlainText("\n".join(self._gd_last_sync_lines))
+            self._gd_sync_log.show()
+            self._gd_log_btn.setText("Hide Log")
+        else:
+            self._gd_sync_log.hide()
+            self._gd_log_btn.setText("Sync Log")
 
     # ── rclone install ─────────────────────────────────────────────────────────
 
