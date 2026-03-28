@@ -26,6 +26,14 @@ net.ipv4.tcp_wmem = 4096 65536 67108864
 # TCP Fast Open — reduce connection latency for repeat destinations
 net.ipv4.tcp_fastopen = 3
 
+# inotify — raise watch/instance limits for game clients and Electron launchers
+# (EA App, Battle.net, etc. watch large directory trees and hit the 8192 default)
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 1024
+
+# Disable NMI watchdog — reduces interrupt overhead on gaming desktops
+kernel.nmi_watchdog = 0
+
 # Scheduler
 kernel.sched_autogroup_enabled = 1
 
@@ -148,7 +156,18 @@ cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 RADV_PERFTEST=gpl
+AMD_VULKAN_ICD=RADV
 PROTONEOF
+
+# ── Open file descriptor limit (esync / general compatibility) ────────────────
+# esync requires a high open-file limit; even with NTSYNC some games fall back
+# to it. 1048576 matches Bazzite and CachyOS defaults. Applied to both system
+# services and user sessions.
+mkdir -p /etc/systemd/system.conf.d /etc/systemd/user.conf.d
+echo '[Manager]
+DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
+echo '[Manager]
+DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
