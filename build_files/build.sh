@@ -144,7 +144,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-libGL.i686 \
     mesa-dri-drivers.i686 \
     nss \
-    nss.i686
+    nss.i686 \
+    rclone
 
 # KDE-specific gaming integrations
 dnf5 install -y \

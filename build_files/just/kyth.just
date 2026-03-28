@@ -1,3 +1,81 @@
+# Upgrade the OS and Flatpak apps.
+# Pulls the latest Kyth image via bootc and updates all Flatpak apps.
+# The OS update is staged — a reboot is required to activate it.
+[group('Kyth')]
+upgrade:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "━━━ Kyth upgrade ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    # ── Check for rpm-ostree layers ───────────────────────────────────────────
+    # bootc upgrade fails if any packages have been layered via rpm-ostree.
+    # Detect this upfront and give a clear fix rather than a cryptic error.
+    layered=$(rpm-ostree status --json 2>/dev/null \
+        | python3 -c "
+import sys, json
+try:
+    d = json.load(sys.stdin).get('deployments', [{}])[0]
+    pkgs = d.get('requested-local-packages', []) + d.get('layered-commit-packages', [])
+    print(' '.join(pkgs) if pkgs else '')
+except Exception:
+    print('')
+" 2>/dev/null || true)
+
+    if [[ -n "${layered}" ]]; then
+        echo "  ERROR: local rpm-ostree packages are layered:" >&2
+        echo "    ${layered}" >&2
+        echo >&2
+        echo "  These conflict with bootc upgrades. To fix:" >&2
+        echo "    rpm-ostree reset     # removes all layered packages" >&2
+        echo "    ujust upgrade        # then retry" >&2
+        echo >&2
+        echo "  If you still need those packages, install them via Flatpak instead." >&2
+        exit 1
+    fi
+
+    # ── OS update via bootc ───────────────────────────────────────────────────
+    echo "── OS (bootc) ──────────────────────────────────────────────────────"
+    booted_digest=$(bootc status --format json 2>/dev/null \
+        | python3 -c "import sys,json; s=json.load(sys.stdin); \
+          print(s.get('status',{}).get('booted',{}).get('image',{}) \
+                 .get('imageDigest','unknown'))" 2>/dev/null || echo "unknown")
+
+    sudo bootc upgrade
+
+    staged_digest=$(bootc status --format json 2>/dev/null \
+        | python3 -c "import sys,json; s=json.load(sys.stdin); \
+          print(s.get('status',{}).get('staged',{}).get('image',{}) \
+                 .get('imageDigest','') or '')" 2>/dev/null || echo "")
+
+    if [[ -n "${staged_digest}" && "${staged_digest}" != "${booted_digest}" ]]; then
+        os_updated=1
+        echo "  ✓ New image staged and ready."
+    else
+        os_updated=0
+        echo "  ✓ Already up to date."
+    fi
+    echo
+
+    # ── Flatpak updates ───────────────────────────────────────────────────────
+    echo "── Flatpak apps ────────────────────────────────────────────────────"
+    if command -v flatpak >/dev/null 2>&1; then
+        flatpak update -y
+    else
+        echo "  flatpak not available — skipping."
+    fi
+    echo
+
+    # ── Summary ───────────────────────────────────────────────────────────────
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    if [[ "${os_updated}" -eq 1 ]]; then
+        echo "  OS update staged. Reboot when ready to apply it:"
+        echo "    systemctl reboot"
+    else
+        echo "  Everything is up to date."
+    fi
+
 # Rebase to a different Kyth image.
 # Usage:
 #   ujust rebase kyth:stable
@@ -257,44 +335,33 @@ install-retroarch:
     echo "Tip: download cores from inside RetroArch: Main Menu → Load Core → Download a Core."
 
 # Install Piper — GUI for configuring gaming mice (DPI, buttons, LEDs).
-# Requires libratbag (ratbagd daemon) for device communication.
-# A reboot is needed to activate the rpm-ostree layer; ratbagd is then
-# enabled automatically on first use via D-Bus activation.
+# Uses the Flatpak which bundles ratbagd — no rpm-ostree layering required.
 [group('Kyth')]
 install-piper:
     #!/usr/bin/env bash
     set -euo pipefail
-    if command -v piper >/dev/null 2>&1; then
-        echo "Piper is already installed."
-        echo "Launch it from the app menu, or run: piper"
-        exit 0
-    fi
-    echo "Installing piper and libratbag via rpm-ostree..."
-    sudo rpm-ostree install --idempotent piper libratbag
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.freedesktop.Piper
     echo
-    echo "Done. Reboot to activate, then launch Piper from the app menu."
-    echo "ratbagd starts automatically via D-Bus when Piper opens."
+    echo "Piper installed. Launch it from the app menu."
 
 # Install OpenRGB — unified RGB lighting control for motherboards, RAM, GPUs,
-# fans and peripherals. Installed natively (not Flatpak) so it can reach
-# SMBus/i2c controllers that Flatpak sandboxing blocks.
+# fans and peripherals. Uses the Flatpak with --device=all for hardware access.
+# Note: SMBus/i2c access (RAM RGB, some motherboard headers) may need the i2c
+# kernel modules loaded. If devices are missing, run:
+#   sudo modprobe i2c-dev i2c-piix4    (or the appropriate module for your board)
 [group('Kyth')]
 install-openrgb:
     #!/usr/bin/env bash
     set -euo pipefail
-    if command -v openrgb >/dev/null 2>&1; then
-        echo "OpenRGB is already installed."
-        echo "Launch it from the app menu, or run: openrgb"
-        exit 0
-    fi
-    echo "Installing openrgb via rpm-ostree..."
-    sudo rpm-ostree install --idempotent openrgb
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.openrgb.OpenRGB
+    # Grant access to USB and i2c/SMBus devices
+    flatpak override --user --device=all org.openrgb.OpenRGB
     echo
-    echo "Done. Reboot to activate."
-    echo
-    echo "Tip: to let OpenRGB talk to SMBus devices (RAM, some motherboard headers)"
-    echo "without running as root, add yourself to the 'i2c' group after rebooting:"
-    echo "  sudo usermod -aG i2c \$USER   (then log out and back in)"
+    echo "OpenRGB installed. Launch it from the app menu."
+    echo "If RGB RAM or motherboard headers are missing, load i2c kernel modules:"
+    echo "  sudo modprobe i2c-dev i2c-piix4"
 
 # Check for and apply firmware updates via fwupd.
 [group('Kyth')]
