@@ -26,6 +26,8 @@ from PyQt6.QtGui import QDesktopServices, QIcon
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 REGISTRY = "ghcr.io/mrtrick37/kyth"
+_CLOUD_SYNC_CONFIG = os.path.expanduser("~/.config/kyth-cloud-sync.json")
+_SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 
 QSS = """
 * {
@@ -686,6 +688,21 @@ def _rclone_list_remotes() -> list[tuple[str, str]]:
 def _rclone_has_remote_type(remote_type: str) -> bool:
     """Return True only when a remote whose type is *exactly* remote_type exists."""
     return any(rtype == remote_type.lower() for _, rtype in _rclone_list_remotes())
+
+
+def _load_sync_config() -> dict:
+    """Load {remote_name: {folder, last_sync, last_ok}} from disk."""
+    try:
+        with open(_CLOUD_SYNC_CONFIG) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_sync_config(cfg: dict) -> None:
+    os.makedirs(os.path.dirname(_CLOUD_SYNC_CONFIG), exist_ok=True)
+    with open(_CLOUD_SYNC_CONFIG, "w") as f:
+        json.dump(cfg, f, indent=2)
 
 
 def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
@@ -2857,6 +2874,36 @@ class RcloneAuthorizeWorker(QThread):
             self._proc.terminate()
 
 
+# ── rclone background sync worker ─────────────────────────────────────────────
+class RcloneSyncWorker(QThread):
+    """Runs `rclone sync remote: folder --progress` and streams output lines."""
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def __init__(self, remote: str, folder: str):
+        super().__init__()
+        self._remote = remote
+        self._folder = folder
+
+    def run(self):
+        try:
+            proc = subprocess.Popen(
+                ["rclone", "sync", f"{self._remote}:", self._folder,
+                 "--progress", "--stats-one-line", "--stats=2s"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for ln in proc.stdout:
+                self.line.emit(ln.rstrip())
+            proc.wait()
+            self.done.emit(proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
+
+
 # ── rclone setup wizard dialog ────────────────────────────────────────────────
 class RcloneSetupWizard(QDialog):
     """Four-step wizard: choose service → name/folder → browser OAuth → done."""
@@ -3356,6 +3403,8 @@ class CloudStoragePage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._sync_worker: RcloneSyncWorker | None = None
+        self._sync_config: dict = _load_sync_config()
 
         self._heading("Cloud Storage")
         self._subheading(
@@ -3392,7 +3441,29 @@ class CloudStoragePage(Page):
         od_btns.addWidget(self._od_wizard_btn)
         od_btns.addStretch()
         od_layout.addLayout(od_btns)
+
+        # Sync status row (shown only when a sync-configured remote exists)
+        self._od_sync_status = QLabel()
+        self._od_sync_status.setWordWrap(True)
+        self._od_sync_status.setObjectName("card-copy")
+        self._od_sync_status.hide()
+        od_layout.addWidget(self._od_sync_status)
+        od_sync_btns = QHBoxLayout()
+        od_sync_btns.setSpacing(10)
+        self._od_sync_btn = QPushButton("Sync Now")
+        self._od_sync_btn.clicked.connect(lambda: self._start_od_sync())
+        self._od_sync_btn.hide()
+        od_sync_btns.addWidget(self._od_sync_btn)
+        od_sync_btns.addStretch()
+        od_layout.addLayout(od_sync_btns)
+
         self._add(od_card)
+
+        # Periodic sync timer
+        self._sync_timer = QTimer(self)
+        self._sync_timer.setInterval(_SYNC_INTERVAL_MS)
+        self._sync_timer.timeout.connect(lambda: self._start_od_sync())
+        self._sync_timer.start()
 
         # ── Google Drive card ─────────────────────────────────────────────────
         gd_card, gd_layout = _make_card()
@@ -3516,6 +3587,17 @@ class CloudStoragePage(Page):
             self._od_wizard_btn.show()
         _restyle(self._od_status)
 
+        # OneDrive sync status
+        syncable = [n for n in od_remotes if n in self._sync_config]
+        if syncable:
+            self._od_sync_status.show()
+            self._od_sync_btn.show()
+            if not (self._sync_worker and self._sync_worker.isRunning()):
+                self._update_od_sync_label()
+        else:
+            self._od_sync_status.hide()
+            self._od_sync_btn.hide()
+
         # Google Drive
         if not rclone:
             self._gd_status.setText("rclone is not installed. Install it to use Google Drive.")
@@ -3556,8 +3638,74 @@ class CloudStoragePage(Page):
 
     def _open_wizard(self, preselect: str):
         wizard = RcloneSetupWizard(self, preselect=preselect)
-        wizard.finished_ok.connect(lambda _n, _t, _f: self._refresh_status())
+
+        def _on_wizard_done(name: str, svc: str, folder: str):
+            if svc == "onedrive":
+                self._sync_config[name] = {"folder": folder}
+                _save_sync_config(self._sync_config)
+            self._refresh_status()
+            if svc == "onedrive":
+                self._start_od_sync(name, folder)
+
+        wizard.finished_ok.connect(_on_wizard_done)
         wizard.exec()
+
+    # ── OneDrive sync ──────────────────────────────────────────────────────────
+
+    def _update_od_sync_label(self):
+        """Refresh the sync status label from stored config (not called while syncing)."""
+        entries = {n: v for n, v in self._sync_config.items()}
+        # Find the first OneDrive remote with sync data
+        for name, info in entries.items():
+            last = info.get("last_sync")
+            ok = info.get("last_ok", True)
+            if last:
+                ts = datetime.fromtimestamp(last).strftime("%H:%M")
+                if ok:
+                    self._od_sync_status.setText(f"Last synced at {ts} — syncs every 5 min")
+                    self._od_sync_status.setObjectName("status-ok")
+                else:
+                    self._od_sync_status.setText(f"Sync failed at {ts}")
+                    self._od_sync_status.setObjectName("status-err")
+                _restyle(self._od_sync_status)
+                return
+        self._od_sync_status.setText("Not synced yet — click Sync Now or wait for auto-sync")
+        self._od_sync_status.setObjectName("card-copy")
+        _restyle(self._od_sync_status)
+
+    def _start_od_sync(self, remote: str | None = None, folder: str | None = None):
+        if self._sync_worker and self._sync_worker.isRunning():
+            return  # already in progress
+
+        if remote is None or folder is None:
+            # Pick the first configured OneDrive remote
+            for name, info in self._sync_config.items():
+                remote, folder = name, info.get("folder", "")
+                break
+
+        if not remote or not folder:
+            return
+
+        self._od_sync_status.setText(f"Syncing {remote}…")
+        self._od_sync_status.setObjectName("status-warn")
+        _restyle(self._od_sync_status)
+        self._od_sync_status.show()
+        self._od_sync_btn.setEnabled(False)
+
+        self._sync_worker = RcloneSyncWorker(remote, folder)
+        self._sync_worker.done.connect(lambda code: self._on_sync_done(remote, code))
+        self._sync_worker.start()
+
+    def _on_sync_done(self, remote: str, code: int):
+        _finish_worker(self, attr="_sync_worker")
+        now = time.time()
+        ok = code == 0
+        if remote in self._sync_config:
+            self._sync_config[remote]["last_sync"] = now
+            self._sync_config[remote]["last_ok"] = ok
+            _save_sync_config(self._sync_config)
+        self._od_sync_btn.setEnabled(True)
+        self._update_od_sync_label()
 
     # ── rclone install ─────────────────────────────────────────────────────────
 
