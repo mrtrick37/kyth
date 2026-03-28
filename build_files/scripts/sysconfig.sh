@@ -119,8 +119,8 @@ IWLEOF
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
-# NVMe: bypass scheduler entirely
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+# NVMe: bypass scheduler entirely (DEVTYPE==disk excludes partition nodes which lack queue/scheduler)
+ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
 # SATA SSDs (non-rotational): deadline with low latency
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 # HDDs: BFQ to avoid seek storms
@@ -185,6 +185,10 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
     /usr/share/applications/steam.desktop \
     > /usr/local/share/applications/steam.desktop
 
+# systemd-remount-fs tries to remount the root filesystem, which is immutable
+# on bootc/ostree systems and always fails with exit status 32. Mask it.
+systemctl mask systemd-remount-fs.service
+
 systemctl enable input-remapper.service 2>/dev/null || true
 systemctl enable libvirtd.socket
 systemctl enable fwupd 2>/dev/null || true
@@ -200,7 +204,7 @@ systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.serv
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker; do
+for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
