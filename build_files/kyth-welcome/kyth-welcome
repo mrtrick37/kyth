@@ -303,7 +303,7 @@ QProgressBar {
     border-radius: 3px;
     max-height: 4px;
     text-align: center;
-    font-size: 0px;
+    color: transparent;
 }
 
 QProgressBar::chunk {
@@ -2212,11 +2212,11 @@ class MainWindow(QMainWindow):
         nav_entries = [
             ("Welcome",        "Welcome"),
             ("Hardware",       "Hardware"),
-            ("Diagnostics",    "Diagnostics"),
-            ("Update",         "Update"),
-            ("Branches",       "Branches"),
             ("Firmware",       "Firmware"),
+            ("Update",         "Update"),
             ("NVIDIA Drivers", "NVIDIA"),
+            ("Diagnostics",    "Diagnostics"),
+            ("Branches",       "Branches"),
             ("Repair",         "Repair"),
         ]
 
@@ -2236,11 +2236,11 @@ class MainWindow(QMainWindow):
         self._pages = [
             WelcomePage(),
             HardwarePage(),
-            DiagnosticsPage(),
-            UpdatePage(),
-            BranchesPage(),
             FirmwarePage(),
+            UpdatePage(),
             NvidiaPage(),
+            DiagnosticsPage(),
+            BranchesPage(),
             RepairPage(),
         ]
         for page in self._pages:

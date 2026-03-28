@@ -95,6 +95,11 @@ systemctl set-default graphical.target 2>/dev/null || true
 # producing noisy FAILED entries in the boot log.
 systemctl mask bootloader-update.service 2>/dev/null || true
 
+# Mask systemd-remount-fs.service: on bootc/ostree the root filesystem is
+# already mounted correctly by the bootloader; the remount always fails with
+# exit code 32 producing a FAILED unit every boot.
+systemctl mask systemd-remount-fs.service 2>/dev/null || true
+
 # ── SDDM display server: Wayland by default ───────────────────────────────────
 # Keep the on-disk config aligned with the documented product defaults so
 # image behavior is obvious during debugging and CI review.
