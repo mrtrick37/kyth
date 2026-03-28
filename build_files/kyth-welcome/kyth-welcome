@@ -615,6 +615,21 @@ def _has_rollback_deployment() -> bool:
     return data.get("status", {}).get("rollback") is not None
 
 
+def _bootc_image_timestamp(section: str) -> str | None:
+    """Return a human-readable build timestamp for 'booted' or 'staged' image."""
+    data = _bootc_status_data() or {}
+    section_data = _nested_get(data, ("status", section)) or {}
+    for path in (("image", "timestamp"), ("timestamp",)):
+        value = _nested_get(section_data, path)
+        if isinstance(value, str) and value.strip():
+            try:
+                dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00")).astimezone()
+                return dt.strftime("%Y-%m-%d %H:%M %Z")
+            except Exception:
+                return value.strip()
+    return None
+
+
 def _detect_nvidia() -> bool:
     try:
         r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
@@ -864,12 +879,56 @@ def _platform_probe() -> HardwareProbe:
     )
 
 
+def _codec_probe() -> HardwareProbe:
+    vainfo = _run_command(["vainfo"], timeout=10)
+    if vainfo is None:
+        return HardwareProbe(
+            "Video Decode", "dim",
+            "vainfo not available — cannot check VA-API support.",
+            "Install libva-utils to inspect hardware video decode capabilities.",
+        )
+    output = (vainfo.stdout + vainfo.stderr).lower()
+    if vainfo.returncode != 0 and "failed" in output:
+        return HardwareProbe(
+            "Video Decode", "warn",
+            "VA-API initialisation failed.",
+            (vainfo.stdout + vainfo.stderr).strip(),
+            "Confirm your GPU driver is loaded (see Graphics).",
+        )
+
+    profiles = []
+    if "h264" in output or "avc" in output:
+        profiles.append("H.264")
+    if "h265" in output or "hevc" in output:
+        profiles.append("H.265")
+    if "av1" in output:
+        profiles.append("AV1")
+    if "vp9" in output:
+        profiles.append("VP9")
+    if "vp8" in output:
+        profiles.append("VP8")
+
+    if not profiles:
+        return HardwareProbe(
+            "Video Decode", "warn",
+            "VA-API is available but no recognised decode profiles were found.",
+            (vainfo.stdout + vainfo.stderr).strip(),
+        )
+
+    return HardwareProbe(
+        "Video Decode", "ok",
+        f"VA-API hardware decode: {', '.join(profiles)}.",
+        (vainfo.stdout + vainfo.stderr).strip(),
+    )
+
+
 def _collect_hardware_probes() -> list[HardwareProbe]:
     pci_text = _command_stdout(["lspci"], timeout=5)
     usb_text = _command_stdout(["lsusb"], timeout=5)
     lsmod_text = _command_stdout(["lsmod"], timeout=5)
     return [
         _gpu_probe(pci_text, lsmod_text),
+        _codec_probe(),
         _firmware_probe(),
         _connectivity_probe(pci_text, usb_text),
         _audio_probe(),
@@ -1131,6 +1190,14 @@ class WelcomePage(Page):
 
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile)
+
+        steam_flag = os.path.expanduser("~/.local/share/kyth-steam-initialized")
+        steam_ready = os.path.exists(steam_flag)
+        steam_val = "Ready" if steam_ready else "Not launched"
+        steam_style = "stat-value-ok" if steam_ready else "stat-value-warn"
+        self._steam_tile = StatTile("Steam", steam_val, steam_style)
+        tiles_row.addWidget(self._steam_tile)
+
         self._add_layout(tiles_row)
 
         # Getting started card
@@ -1503,6 +1570,30 @@ class UpdatePage(Page):
         ex_body.setWordWrap(True)
         ex_layout.addWidget(ex_body)
         self._add(explainer)
+
+        # What's new card
+        changelog_card, cl_layout = _make_card()
+        cl_title = QLabel("What changed?")
+        cl_title.setObjectName("card-title")
+        cl_layout.addWidget(cl_title)
+        cl_body = QLabel(
+            "Kyth rebuilds daily from the latest packages. "
+            "See the full commit history on GitHub for a detailed log of recent changes."
+        )
+        cl_body.setObjectName("card-copy")
+        cl_body.setWordWrap(True)
+        cl_layout.addWidget(cl_body)
+        cl_btn_row = QHBoxLayout()
+        cl_btn_row.setSpacing(10)
+        changelog_btn = QPushButton("View Commit History")
+        changelog_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        cl_btn_row.addWidget(changelog_btn)
+        cl_btn_row.addStretch()
+        cl_layout.addLayout(cl_btn_row)
+        self._add(changelog_card)
+
         self._stretch()
 
         self._refresh_summary()
@@ -1626,16 +1717,21 @@ class UpdatePage(Page):
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
+        booted_ts = _bootc_image_timestamp("booted")
+        staged_ts = _bootc_image_timestamp("staged") if staged else None
 
+        parts = [f"Branch: {branch}"]
+        if booted_ts:
+            parts.append(f"Running image built: {booted_ts}")
         if staged:
-            status_text = f"Branch: {branch}  |  Update staged — ready for next reboot."
+            if staged_ts:
+                parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
+            else:
+                parts.append("Update staged — ready for next reboot.")
         else:
-            status_text = f"Branch: {branch}  |  No update staged right now."
-        if rollback:
-            status_text += "  Rollback available."
-        else:
-            status_text += "  No rollback target detected yet."
-        self._summary_lbl.setText(status_text)
+            parts.append("No update staged right now.")
+        parts.append("Rollback available." if rollback else "No rollback target detected yet.")
+        self._summary_lbl.setText("\n".join(parts))
         self._rollback_btn.setEnabled(rollback and self._worker is None)
 
 
