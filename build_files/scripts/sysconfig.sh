@@ -87,10 +87,19 @@ cat > /etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 wifi.powersave = 2
 NMEOF
 
-# iwlwifi (Intel WiFi) specific: disable driver power-save and BT coexistence.
+# ── WiFi driver tweaks ────────────────────────────────────────────────────────
+mkdir -p /etc/modprobe.d
+
+# MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
+# ASPM puts the PCIe device into a low-power state it may not reliably wake
+# from, causing sudden disconnects and requiring a driver reload or reboot.
+cat > /etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
+options mt7921e disable_aspm=1
+MT76EOF
+
+# iwlwifi (Intel WiFi): disable driver power-save and BT coexistence.
 # bt_coex_active=0 stops the driver from halving WiFi throughput when Bluetooth
 # is active (common cause of dropped signal during BT headset/controller use).
-mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
