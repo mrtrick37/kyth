@@ -419,8 +419,8 @@ IWLEOF
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
-# NVMe: bypass scheduler entirely
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+# NVMe: bypass scheduler entirely — match namespace block device only (not controller or partitions)
+ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
 # SATA SSDs (non-rotational): deadline with low latency
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 # HDDs: BFQ to avoid seek storms
@@ -882,7 +882,7 @@ systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.serv
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker; do
+for grp in users video audio gamemode docker plugdev; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
