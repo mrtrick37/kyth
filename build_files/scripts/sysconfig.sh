@@ -11,6 +11,14 @@ vm.compaction_proactiveness = 0
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 5
 vm.page_lock_unfairness = 1
+# Disable swap read-ahead — on SSDs random I/O is fast; prefetching neighbours
+# wastes bandwidth and causes micro-stutter under memory pressure
+vm.page-cluster = 0
+# Disable watermark boost — prevents burst memory reclaim spikes that cause stutter
+vm.watermark_boost_factor = 0
+# Reduce VFS cache reclaim aggressiveness — keeps game asset dentries/inodes
+# in cache longer (default 100; 50 = half as eager to evict)
+vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
 vm.max_map_count = 2147483642
 
@@ -158,6 +166,8 @@ WINE_LARGE_ADDRESS_AWARE=1
 RADV_PERFTEST=gpl
 AMD_VULKAN_ICD=RADV
 PROTON_ENABLE_NVAPI=1
+PROTON_USE_NTSYNC=1
+VKD3D_CONFIG=dxr11,dxr
 PROTONEOF
 
 # ── Open file descriptor limit (esync / general compatibility) ────────────────
@@ -189,6 +199,7 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
+systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
 systemctl enable libvirtd.socket
 systemctl enable fwupd 2>/dev/null || true
