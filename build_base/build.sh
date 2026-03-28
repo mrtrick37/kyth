@@ -83,7 +83,7 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # splash: activate Plymouth so the boot splash is shown.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "mitigations=off"]
+kargs = ["quiet", "splash", "mitigations=off", "threadirqs"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
