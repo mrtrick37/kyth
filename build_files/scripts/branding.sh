@@ -88,10 +88,16 @@ cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
 # rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
 # System updates go through bootc instead (see [commands] below).
-disable = ["rpm_ostree"]
+#
+# distrobox: disabled because distrobox-upgrade --all fails without a PTY
+# (runs inside the kyth-welcome GUI and topgrade exits non-zero as a result).
+# Update containers manually with: distrobox-upgrade --all
+disable = ["rpm_ostree", "distrobox"]
 
 [commands]
-"Kyth system update" = "sudo bootc upgrade"
+# -n makes sudo fail fast if it can't run non-interactively, rather than hanging
+# waiting for a password. NOPASSWD is granted in /etc/sudoers.d/kyth-bootc.
+"Kyth system update" = "sudo -n bootc upgrade"
 TOPGRADEEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
@@ -362,6 +368,38 @@ systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
+
+# ── Steam first-run notification ─────────────────────────────────────────────
+# Wrap the Steam launcher so that on the very first launch, a passive kdialog
+# popup appears telling the user setup may take a few minutes.  A flag file
+# (~/.local/share/kyth-steam-initialized) is created immediately so the
+# message only ever appears once.
+cat > /usr/bin/kyth-steam <<'STEAMEOF'
+#!/bin/bash
+FLAG="${HOME}/.local/share/kyth-steam-initialized"
+if [[ ! -f "${FLAG}" ]]; then
+    mkdir -p "$(dirname "${FLAG}")"
+    touch "${FLAG}"
+    kdialog --passivepopup \
+        "Steam is setting up for the first time. This may take a few minutes — please be patient." \
+        30 &
+fi
+exec /usr/bin/steam "$@"
+STEAMEOF
+chmod +x /usr/bin/kyth-steam
+
+# Override the Steam .desktop Exec line to use the wrapper.
+# sysconfig.sh (Layer 3) already wrote a patched copy to /usr/local/share/applications/
+# to strip PrefersNonDefaultGPU/X-KDE-RunOnDiscreteGpu. XDG gives /usr/local priority,
+# so that copy is what KDE and launchers actually see — patch both to ensure the
+# kyth-steam wrapper takes effect regardless of which path wins.
+for desktop in \
+    /usr/share/applications/steam.desktop \
+    /usr/local/share/applications/steam.desktop; do
+    if [[ -f "${desktop}" ]]; then
+        sed -i 's|^Exec=steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
+    fi
+done
 
 # ── GE-Proton runtime update path ─────────────────────────────────────────────
 # The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is
