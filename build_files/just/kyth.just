@@ -48,18 +48,32 @@ game-performance-profile profile +args:
     set -euo pipefail
     /usr/bin/game-performance --profile "{{ profile }}" {{ args }}
 
+# Run a game or app inside gamescope (adaptive sync + frame pacing, no HDR).
+# Useful even without HDR: better VRR, FSR upscaling, frame limiter.
+# Usage: ujust gamescope -- %command%
+#        ujust gamescope -W 2560 -H 1440 -r 165 -- %command%
+# Extra gamescope flags can be passed before the -- separator.
+[group('Kyth')]
+gamescope +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec gamescope \
+        --adaptive-sync \
+        {{ args }}
+
 # Run a game or app inside gamescope with HDR enabled.
 # Requires an HDR-capable display and a Wayland session.
+# Note: --hdr-itm-enable (SDR→HDR tone mapping) is intentionally omitted —
+#       it makes SDR content look over-saturated. Add it manually if you want it:
+#       ujust game-hdr --hdr-itm-enable -- %command%
 # Usage: ujust game-hdr -- %command%
 #        ujust game-hdr -W 2560 -H 1440 -- %command%
-# Extra gamescope flags can be passed before the -- separator.
 [group('Kyth')]
 game-hdr +args:
     #!/usr/bin/env bash
     set -euo pipefail
     exec gamescope \
         --hdr-enabled \
-        --hdr-itm-enable \
         --adaptive-sync \
         {{ args }}
 
