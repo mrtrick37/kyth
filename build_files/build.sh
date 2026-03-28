@@ -97,6 +97,8 @@ rm -rf "${TMPDIR_TG}"
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
+# Bazzite ships a patched gamescope; using the Fedora package avoids surprises.
+dnf5 install -y gamescope
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
