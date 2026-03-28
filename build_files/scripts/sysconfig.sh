@@ -159,6 +159,10 @@ PWEOF
 # RADV_PERFTEST=gpl:
 #   Enables Vulkan Graphics Pipeline Library on RADV — pre-compiles pipeline
 #   shaders during load rather than at draw time, eliminating compilation stutter.
+# mesa_glthread=true:
+#   Offloads OpenGL command submission to a second thread, improving CPU-bound
+#   framerate in OpenGL games (Minecraft, older Source titles, etc.). Safe
+#   system-wide; Vulkan/DXVK games are unaffected.
 mkdir -p /etc/environment.d
 cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
@@ -168,6 +172,7 @@ AMD_VULKAN_ICD=RADV
 PROTON_ENABLE_NVAPI=1
 PROTON_USE_NTSYNC=1
 VKD3D_CONFIG=dxr11,dxr
+mesa_glthread=true
 PROTONEOF
 
 # ── Open file descriptor limit (esync / general compatibility) ────────────────
