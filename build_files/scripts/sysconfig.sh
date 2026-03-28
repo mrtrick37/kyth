@@ -157,6 +157,7 @@ PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 RADV_PERFTEST=gpl
 AMD_VULKAN_ICD=RADV
+PROTON_ENABLE_NVAPI=1
 PROTONEOF
 
 # ── Open file descriptor limit (esync / general compatibility) ────────────────
