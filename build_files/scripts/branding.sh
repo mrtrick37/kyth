@@ -86,13 +86,11 @@ EOF
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
-# rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
-# System updates go through bootc instead (see [commands] below).
-#
-# distrobox: disabled because distrobox-upgrade --all fails without a PTY
-# (runs inside the kyth-welcome GUI and topgrade exits non-zero as a result).
-# Update containers manually with: distrobox-upgrade --all
-disable = ["rpm_ostree", "distrobox"]
+# system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
+# distrobox: disabled because distrobox-upgrade --all fails without a PTY.
+#   Update containers manually with: distrobox-upgrade --all
+# containers: podman container updates fail on a bootc read-only system.
+disable = ["system", "distrobox", "containers"]
 
 [commands]
 # -n makes sudo fail fast if it can't run non-interactively, rather than hanging
