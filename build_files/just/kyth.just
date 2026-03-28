@@ -48,6 +48,21 @@ game-performance-profile profile +args:
     set -euo pipefail
     /usr/bin/game-performance --profile "{{ profile }}" {{ args }}
 
+# Run a game or app inside gamescope with HDR enabled.
+# Requires an HDR-capable display and a Wayland session.
+# Usage: ujust game-hdr -- %command%
+#        ujust game-hdr -W 2560 -H 1440 -- %command%
+# Extra gamescope flags can be passed before the -- separator.
+[group('Kyth')]
+game-hdr +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec gamescope \
+        --hdr-enabled \
+        --hdr-itm-enable \
+        --adaptive-sync \
+        {{ args }}
+
 # Run an OpenGL app through Zink.
 [group('Kyth')]
 zink-run +args:
