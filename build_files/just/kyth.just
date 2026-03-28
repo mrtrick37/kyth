@@ -135,6 +135,167 @@ update-ge-proton:
     set -euo pipefail
     sudo /usr/bin/kyth-ge-proton-update
 
+# Set up Waydroid (Android in a container) on Kyth.
+#
+# First run:  installs the waydroid package via rpm-ostree, then prompts for a reboot.
+# Second run: downloads the Android system image and starts the container service.
+#
+# Usage:
+#   ujust setup-waydroid            # vanilla AOSP (no Google Play)
+#   ujust setup-waydroid microg     # with MicroG (open-source Play Services substitute)
+[group('Kyth')]
+setup-waydroid image="vanilla":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    image="{{ image }}"
+    case "${image}" in
+        vanilla|microg) ;;
+        *)
+            echo "Unknown image type: ${image}" >&2
+            echo "Valid options: vanilla (default), microg" >&2
+            exit 1
+            ;;
+    esac
+
+    # ── Step 1: install waydroid if it's not layered yet ─────────────────────
+    if ! command -v waydroid >/dev/null 2>&1; then
+        echo "Waydroid is not installed — layering it via rpm-ostree."
+        echo "A reboot is required to activate the new layer."
+        echo
+        sudo rpm-ostree install --idempotent waydroid
+        echo
+        echo "Done. Reboot and then run 'ujust setup-waydroid' again to finish setup."
+        exit 0
+    fi
+
+    # ── Step 2: check binder is available ────────────────────────────────────
+    if [[ ! -e /dev/binder && ! -e /dev/anbox-binder ]]; then
+        echo "WARNING: /dev/binder not found." >&2
+        echo "Loading binder_linux kernel module..." >&2
+        sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || {
+            echo "ERROR: Could not load binder_linux. Waydroid requires binder support." >&2
+            echo "The CachyOS kernel ships binder_linux — if you see this, please report it." >&2
+            exit 1
+        }
+    fi
+
+    # ── Step 3: initialise if not already done ───────────────────────────────
+    if [[ ! -f /var/lib/waydroid/images/system.img ]]; then
+        echo "Initialising Waydroid (downloading Android image ~600 MB)..."
+        echo "Image type: ${image}"
+        echo
+        case "${image}" in
+            microg)
+                sudo waydroid init -s MICROG
+                ;;
+            *)
+                sudo waydroid init
+                ;;
+        esac
+    else
+        echo "Waydroid image already present — skipping download."
+    fi
+
+    # ── Step 4: enable and start the container service ───────────────────────
+    echo "Enabling waydroid-container service..."
+    sudo systemctl enable --now waydroid-container
+
+    echo
+    echo "Waydroid is ready."
+    echo
+    echo "  waydroid show-full-ui              # launch Android full-screen"
+    echo "  waydroid app install <file.apk>    # sideload an APK"
+    echo "  waydroid session stop              # end the Android session"
+    echo "  sudo systemctl stop waydroid-container  # shut down the container"
+    echo
+    if [[ "${image}" == "vanilla" ]]; then
+        echo "Tip: rerun with 'ujust setup-waydroid microg' to reinstall with"
+        echo "MicroG for app store access (Aurora Store, F-Droid)."
+    fi
+
+# Install Heroic Games Launcher — Epic Games, GOG and Amazon Games library.
+[group('Kyth')]
+install-heroic:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.heroicgameslauncher.hgl
+    echo
+    echo "Heroic installed. Launch it from the app menu."
+
+# Install OBS Studio — screen recording and live streaming.
+[group('Kyth')]
+install-obs:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.obsproject.Studio
+    echo
+    echo "OBS Studio installed. Launch it from the app menu."
+    echo "Tip: run OBS under Wayland with: OBS_USE_EGL=1 obs"
+
+# Install the Itch.io desktop app — indie game store and library manager.
+[group('Kyth')]
+install-itch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.itch.itch
+    echo
+    echo "Itch.io installed. Launch it from the app menu."
+
+# Install RetroArch — multi-system emulator frontend (NES, SNES, PS1, N64, ...).
+[group('Kyth')]
+install-retroarch:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.libretro.RetroArch
+    echo
+    echo "RetroArch installed. Launch it from the app menu."
+    echo "Tip: download cores from inside RetroArch: Main Menu → Load Core → Download a Core."
+
+# Install Piper — GUI for configuring gaming mice (DPI, buttons, LEDs).
+# Requires libratbag (ratbagd daemon) for device communication.
+# A reboot is needed to activate the rpm-ostree layer; ratbagd is then
+# enabled automatically on first use via D-Bus activation.
+[group('Kyth')]
+install-piper:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v piper >/dev/null 2>&1; then
+        echo "Piper is already installed."
+        echo "Launch it from the app menu, or run: piper"
+        exit 0
+    fi
+    echo "Installing piper and libratbag via rpm-ostree..."
+    sudo rpm-ostree install --idempotent piper libratbag
+    echo
+    echo "Done. Reboot to activate, then launch Piper from the app menu."
+    echo "ratbagd starts automatically via D-Bus when Piper opens."
+
+# Install OpenRGB — unified RGB lighting control for motherboards, RAM, GPUs,
+# fans and peripherals. Installed natively (not Flatpak) so it can reach
+# SMBus/i2c controllers that Flatpak sandboxing blocks.
+[group('Kyth')]
+install-openrgb:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if command -v openrgb >/dev/null 2>&1; then
+        echo "OpenRGB is already installed."
+        echo "Launch it from the app menu, or run: openrgb"
+        exit 0
+    fi
+    echo "Installing openrgb via rpm-ostree..."
+    sudo rpm-ostree install --idempotent openrgb
+    echo
+    echo "Done. Reboot to activate."
+    echo
+    echo "Tip: to let OpenRGB talk to SMBus devices (RAM, some motherboard headers)"
+    echo "without running as root, add yourself to the 'i2c' group after rebooting:"
+    echo "  sudo usermod -aG i2c \$USER   (then log out and back in)"
+
 # Check for and apply firmware updates via fwupd.
 [group('Kyth')]
 firmware-update:
