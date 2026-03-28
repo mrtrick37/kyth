@@ -630,6 +630,38 @@ def _bootc_image_timestamp(section: str) -> str | None:
     return None
 
 
+def _is_flatpak_installed(app_id: str) -> bool:
+    result = _run_command(["flatpak", "info", app_id], timeout=8)
+    return result is not None and result.returncode == 0
+
+
+def _rclone_available() -> bool:
+    return shutil.which("rclone") is not None
+
+
+def _rclone_has_remote_type(remote_type: str) -> bool:
+    result = _run_command(["rclone", "listremotes", "--long"], timeout=5)
+    if result is None or result.returncode != 0:
+        return False
+    return any(
+        remote_type.lower() in col.lower()
+        for line in result.stdout.splitlines()
+        for col in line.split()
+    )
+
+
+def _open_rclone_terminal() -> bool:
+    for term, flag in (("konsole", "-e"), ("xterm", "-e")):
+        if not shutil.which(term):
+            continue
+        try:
+            subprocess.Popen([term, flag, "rclone", "config"])
+            return True
+        except OSError:
+            continue
+    return False
+
+
 def _detect_nvidia() -> bool:
     try:
         r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
@@ -1192,7 +1224,8 @@ class WelcomePage(Page):
         tiles_row.addWidget(self._kernel_tile)
 
         steam_flag = os.path.expanduser("~/.local/share/kyth-steam-initialized")
-        steam_ready = os.path.exists(steam_flag)
+        steam_dir = os.path.expanduser("~/.local/share/Steam")
+        steam_ready = os.path.exists(steam_flag) or os.path.isdir(steam_dir)
         steam_val = "Ready" if steam_ready else "Not launched"
         steam_style = "stat-value-ok" if steam_ready else "stat-value-warn"
         self._steam_tile = StatTile("Steam", steam_val, steam_style)
@@ -2248,6 +2281,253 @@ class RepairPage(Page):
             self._confirm_edit.clear()
 
 
+# ── Page: Cloud Storage ───────────────────────────────────────────────────────
+class CloudStoragePage(Page):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        self._heading("Cloud Storage")
+        self._subheading(
+            "Connect OneDrive, Google Drive, or Dropbox to keep your files in sync."
+        )
+        self._divider()
+
+        # ── OneDrive card ─────────────────────────────────────────────────────
+        od_card, od_layout = _make_card()
+        od_title = QLabel("OneDrive")
+        od_title.setObjectName("card-title")
+        od_layout.addWidget(od_title)
+        od_desc = QLabel(
+            "Microsoft OneDrive via rclone. Run the setup wizard to authorize your account, "
+            "then use rclone sync or rclone mount to access your files."
+        )
+        od_desc.setObjectName("card-copy")
+        od_desc.setWordWrap(True)
+        od_layout.addWidget(od_desc)
+        self._od_status = QLabel()
+        self._od_status.setWordWrap(True)
+        od_layout.addWidget(self._od_status)
+        od_btns = QHBoxLayout()
+        od_btns.setSpacing(10)
+        self._od_configure_btn = QPushButton("Configure with rclone")
+        self._od_configure_btn.clicked.connect(self._configure_onedrive)
+        od_btns.addWidget(self._od_configure_btn)
+        od_docs_btn = QPushButton("rclone Docs")
+        od_docs_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://rclone.org/onedrive/"))
+        )
+        od_btns.addWidget(od_docs_btn)
+        od_btns.addStretch()
+        od_layout.addLayout(od_btns)
+        self._add(od_card)
+
+        # ── Google Drive card ─────────────────────────────────────────────────
+        gd_card, gd_layout = _make_card()
+        gd_title = QLabel("Google Drive")
+        gd_title.setObjectName("card-title")
+        gd_layout.addWidget(gd_title)
+        gd_desc = QLabel(
+            "Google Drive via rclone, or via KDE Online Accounts for native Dolphin integration. "
+            "The rclone path works without any desktop-environment dependencies."
+        )
+        gd_desc.setObjectName("card-copy")
+        gd_desc.setWordWrap(True)
+        gd_layout.addWidget(gd_desc)
+        self._gd_status = QLabel()
+        self._gd_status.setWordWrap(True)
+        gd_layout.addWidget(self._gd_status)
+        gd_btns = QHBoxLayout()
+        gd_btns.setSpacing(10)
+        self._gd_configure_btn = QPushButton("Configure with rclone")
+        self._gd_configure_btn.clicked.connect(self._configure_gdrive)
+        gd_btns.addWidget(self._gd_configure_btn)
+        gd_kde_btn = QPushButton("KDE Online Accounts")
+        gd_kde_btn.clicked.connect(
+            lambda: subprocess.Popen(["kcmshell6", "kcm_kaccounts"])
+        )
+        gd_btns.addWidget(gd_kde_btn)
+        gd_docs_btn = QPushButton("rclone Docs")
+        gd_docs_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://rclone.org/drive/"))
+        )
+        gd_btns.addWidget(gd_docs_btn)
+        gd_btns.addStretch()
+        gd_layout.addLayout(gd_btns)
+        self._add(gd_card)
+
+        # ── Dropbox card ──────────────────────────────────────────────────────
+        db_card, db_layout = _make_card()
+        db_title = QLabel("Dropbox")
+        db_title.setObjectName("card-title")
+        db_layout.addWidget(db_title)
+        db_desc = QLabel(
+            "Official Dropbox client. Syncs ~/Dropbox automatically in the background "
+            "and adds a system tray icon."
+        )
+        db_desc.setObjectName("card-copy")
+        db_desc.setWordWrap(True)
+        db_layout.addWidget(db_desc)
+        self._db_status = QLabel()
+        self._db_status.setWordWrap(True)
+        db_layout.addWidget(self._db_status)
+        db_btns = QHBoxLayout()
+        db_btns.setSpacing(10)
+        self._db_install_btn = QPushButton("Install via Flatpak")
+        self._db_install_btn.setObjectName("primary")
+        self._db_install_btn.clicked.connect(self._install_dropbox)
+        db_btns.addWidget(self._db_install_btn)
+        self._db_launch_btn = QPushButton("Launch Dropbox")
+        self._db_launch_btn.clicked.connect(self._launch_dropbox)
+        db_btns.addWidget(self._db_launch_btn)
+        db_btns.addStretch()
+        db_layout.addLayout(db_btns)
+        self._add(db_card)
+
+        self._divider()
+
+        # ── Refresh button ────────────────────────────────────────────────────
+        refresh_row = QHBoxLayout()
+        refresh_row.setSpacing(10)
+        self._refresh_btn = QPushButton("Refresh Status")
+        self._refresh_btn.clicked.connect(self._refresh_status)
+        refresh_row.addWidget(self._refresh_btn)
+        refresh_row.addStretch()
+        self._add_layout(refresh_row)
+
+        # ── Shared operation area ─────────────────────────────────────────────
+        self._op_status = QLabel()
+        self._op_status.setObjectName("subheading")
+        self._op_status.hide()
+        self._add(self._op_status)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        self._add(self._progress)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(150)
+        self._log.hide()
+        self._add(self._log)
+
+        self._stretch()
+        self._refresh_status()
+
+    def _refresh_status(self):
+        rclone = _rclone_available()
+        od_ok = rclone and _rclone_has_remote_type("onedrive")
+        gd_ok = rclone and _rclone_has_remote_type("drive")
+        db_installed = _is_flatpak_installed("com.dropbox.Client") or bool(shutil.which("dropbox"))
+
+        if not rclone:
+            self._od_status.setText("rclone not found — install it to connect OneDrive.")
+            self._od_status.setObjectName("status-warn")
+            self._od_configure_btn.setEnabled(False)
+        elif od_ok:
+            self._od_status.setText("OneDrive remote configured.")
+            self._od_status.setObjectName("status-ok")
+            self._od_configure_btn.setText("Reconfigure")
+            self._od_configure_btn.setEnabled(True)
+        else:
+            self._od_status.setText("No OneDrive remote configured yet.")
+            self._od_status.setObjectName("status-warn")
+            self._od_configure_btn.setText("Configure with rclone")
+            self._od_configure_btn.setEnabled(True)
+        _restyle(self._od_status)
+
+        if not rclone:
+            self._gd_status.setText("rclone not found — install it to connect Google Drive.")
+            self._gd_status.setObjectName("status-warn")
+            self._gd_configure_btn.setEnabled(False)
+        elif gd_ok:
+            self._gd_status.setText("Google Drive remote configured.")
+            self._gd_status.setObjectName("status-ok")
+            self._gd_configure_btn.setText("Reconfigure")
+            self._gd_configure_btn.setEnabled(True)
+        else:
+            self._gd_status.setText("No Google Drive remote configured yet.")
+            self._gd_status.setObjectName("status-warn")
+            self._gd_configure_btn.setText("Configure with rclone")
+            self._gd_configure_btn.setEnabled(True)
+        _restyle(self._gd_status)
+
+        if db_installed:
+            self._db_status.setText("Dropbox is installed.")
+            self._db_status.setObjectName("status-ok")
+            self._db_install_btn.hide()
+            self._db_launch_btn.show()
+        else:
+            self._db_status.setText("Dropbox is not installed.")
+            self._db_status.setObjectName("status-warn")
+            self._db_install_btn.show()
+            self._db_install_btn.setEnabled(True)
+            self._db_launch_btn.hide()
+        _restyle(self._db_status)
+
+    def _configure_onedrive(self):
+        self._run_rclone_config()
+
+    def _configure_gdrive(self):
+        self._run_rclone_config()
+
+    def _run_rclone_config(self):
+        if not _open_rclone_terminal():
+            self._op_status.setText(
+                "Could not find a terminal emulator. Run 'rclone config' manually in a terminal."
+            )
+            self._op_status.setObjectName("status-warn")
+            self._op_status.show()
+            _restyle(self._op_status)
+        else:
+            self._op_status.setText(
+                "rclone config opened in a terminal. Return here and click Refresh Status when done."
+            )
+            self._op_status.setObjectName("subheading")
+            self._op_status.show()
+            _restyle(self._op_status)
+
+    def _install_dropbox(self):
+        self._db_install_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ flatpak install -y flathub com.dropbox.Client\n")
+        self._log.show()
+        self._progress.show()
+        self._op_status.setText("Installing Dropbox…")
+        self._op_status.setObjectName("subheading")
+        self._op_status.show()
+        _restyle(self._op_status)
+
+        self._worker = Worker(["flatpak", "install", "-y", "flathub", "com.dropbox.Client"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_install_done)
+        self._worker.start()
+
+    def _launch_dropbox(self):
+        if shutil.which("dropbox"):
+            subprocess.Popen(["dropbox"])
+        else:
+            subprocess.Popen(["flatpak", "run", "com.dropbox.Client"])
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_install_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        if code == 0:
+            self._op_status.setText("Dropbox installed. Launch it to sign in.")
+            self._op_status.setObjectName("status-ok")
+            self._log.append("\nDone.")
+        else:
+            self._op_status.setText(f"Installation failed (exit code {code}).")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._refresh_status()
+
+
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 class NavButton(QPushButton):
     def __init__(self, label: str):
@@ -2311,6 +2591,7 @@ class MainWindow(QMainWindow):
             ("Firmware",       "Firmware"),
             ("Update",         "Update"),
             ("NVIDIA Drivers", "NVIDIA"),
+            ("Cloud Storage",  "Cloud Storage"),
             ("Diagnostics",    "Diagnostics"),
             ("Branches",       "Branches"),
             ("Repair",         "Repair"),
@@ -2335,6 +2616,7 @@ class MainWindow(QMainWindow):
             FirmwarePage(),
             UpdatePage(),
             NvidiaPage(),
+            CloudStoragePage(),
             DiagnosticsPage(),
             BranchesPage(),
             RepairPage(),
