@@ -313,6 +313,8 @@ install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
+install -m 0755 /ctx/kyth-nvidia-setup /usr/bin/kyth-nvidia-setup
+install -m 0644 /ctx/kyth-nvidia-setup.service /usr/lib/systemd/system/kyth-nvidia-setup.service
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
@@ -376,6 +378,7 @@ systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
+systemctl enable kyth-nvidia-setup.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive kdialog

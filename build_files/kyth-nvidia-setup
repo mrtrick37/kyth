@@ -1,0 +1,40 @@
+#!/bin/bash
+# kyth-nvidia-setup — first-boot NVIDIA driver auto-builder.
+#
+# Runs once at boot. If an NVIDIA GPU is detected and no kernel module exists,
+# blacklists nouveau/nova_core and builds akmod-nvidia for the running kernel.
+#
+# Flag file written on completion (success) or when no NVIDIA hardware is
+# present, so the service does not run again. If akmods fails the flag is NOT
+# written, allowing a retry on the next boot.
+
+set -euo pipefail
+
+FLAG="/var/lib/kyth/nvidia-setup-done"
+mkdir -p /var/lib/kyth
+
+# No NVIDIA GPU — nothing to do.
+if ! lspci | grep -qi nvidia; then
+    touch "${FLAG}"
+    exit 0
+fi
+
+# Driver already built for this kernel — nothing to do.
+if modinfo nvidia &>/dev/null; then
+    touch "${FLAG}"
+    exit 0
+fi
+
+echo "kyth-nvidia-setup: NVIDIA GPU detected — building kernel module via akmods"
+echo "kyth-nvidia-setup: this may take 5-15 minutes on first boot"
+
+# Blacklist nouveau and nova_core, enable DRM modesetting.
+# Matches the kernel args set by the kyth-welcome NVIDIA page.
+KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+grubby --update-kernel=ALL --args="${KARGS}"
+
+# Build the module for the running kernel.
+akmods --force --kernels "$(uname -r)"
+
+touch "${FLAG}"
+echo "kyth-nvidia-setup: done — reboot to activate NVIDIA drivers"
