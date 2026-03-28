@@ -82,7 +82,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     vkBasalt.i686 \
     libFAudio.x86_64 \
     libFAudio.i686 \
-    obs-studio \
     libobs_vkcapture.x86_64 \
     libobs_glcapture.x86_64 \
     libobs_vkcapture.i686 \

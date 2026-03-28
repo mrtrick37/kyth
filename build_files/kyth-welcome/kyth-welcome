@@ -2498,9 +2498,9 @@ class GamingPage(Page):
         gp_layout.addWidget(self._gp_version_lbl)
         gp_btns = QHBoxLayout()
         gp_btns.setSpacing(10)
-        gp_update_btn = QPushButton("Update GE-Proton")
-        gp_update_btn.clicked.connect(self._update_ge_proton)
-        gp_btns.addWidget(gp_update_btn)
+        self._gp_update_btn = QPushButton("Update GE-Proton")
+        self._gp_update_btn.clicked.connect(self._update_ge_proton)
+        gp_btns.addWidget(self._gp_update_btn)
         gp_btns.addStretch()
         gp_layout.addLayout(gp_btns)
         self._gp_op_status = QLabel()
@@ -2510,6 +2510,12 @@ class GamingPage(Page):
         self._gp_progress.setRange(0, 0)
         self._gp_progress.hide()
         gp_layout.addWidget(self._gp_progress)
+        self._gp_log = QTextEdit()
+        self._gp_log.setReadOnly(True)
+        self._gp_log.setMaximumHeight(120)
+        self._gp_log.hide()
+        gp_layout.addWidget(self._gp_log)
+        self._gp_worker = None
         self._add(gp_card)
 
         # ── vkBasalt ──────────────────────────────────────────────────────────
@@ -2780,14 +2786,38 @@ class GamingPage(Page):
     # ── GE-Proton update ───────────────────────────────────────────────────────
 
     def _update_ge_proton(self):
-        if not _open_terminal_with_cmd(["ujust", "update-ge-proton"],
-                                       title="Update GE-Proton"):
-            self._gp_op_status.setText(
-                "Could not find a terminal. Run 'ujust update-ge-proton' manually."
-            )
-            self._gp_op_status.setObjectName("status-warn")
-            self._gp_op_status.show()
-            _restyle(self._gp_op_status)
+        if self._gp_worker and self._gp_worker.isRunning():
+            return
+        self._gp_update_btn.setEnabled(False)
+        self._gp_log.clear()
+        self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
+        self._gp_log.show()
+        self._gp_progress.show()
+        self._gp_op_status.setText("Checking for GE-Proton update…")
+        self._gp_op_status.setObjectName("subheading")
+        self._gp_op_status.show()
+        _restyle(self._gp_op_status)
+        self._gp_worker = Worker(["sudo", "-A", "/usr/bin/kyth-ge-proton-update"])
+        self._gp_worker.line.connect(lambda ln: (
+            self._gp_log.append(ln),
+            self._gp_log.ensureCursorVisible(),
+        ))
+        self._gp_worker.done.connect(self._on_gp_update_done)
+        self._gp_worker.start()
+
+    def _on_gp_update_done(self, code: int):
+        self._gp_progress.hide()
+        _finish_worker(self, attr="_gp_worker")
+        self._gp_update_btn.setEnabled(True)
+        if code == 0:
+            self._gp_op_status.setText("GE-Proton is up to date.")
+            self._gp_op_status.setObjectName("status-ok")
+            self._gp_log.append("\nDone.")
+        else:
+            self._gp_op_status.setText(f"Update failed (exit {code}).")
+            self._gp_op_status.setObjectName("status-err")
+        _restyle(self._gp_op_status)
+        self._refresh_status()
 
 
 def _launch_opt_label(text: str) -> QLabel:
