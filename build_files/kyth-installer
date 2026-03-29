@@ -147,10 +147,32 @@ def _run_install() -> None:
     def progress(pct: int) -> None:
         _push({"type": "progress", "value": pct})
 
-    # Layer progress state shared across run_cmd calls (used by bootc phase)
-    _layers_total: list[int] = [0]
-    _layers_done:  list[int] = [0]
-    _frac_floor:   list[float] = [0.0]  # prevents backwards jump when layer count first arrives
+    def _get_rx_bytes() -> int:
+        """Sum RX bytes across all non-loopback interfaces from /proc/net/dev."""
+        try:
+            total = 0
+            with open("/proc/net/dev") as f:
+                for line in f:
+                    if ":" not in line:
+                        continue
+                    iface, data = line.split(":", 1)
+                    if iface.strip() == "lo":
+                        continue
+                    total += int(data.split()[0])
+            return total
+        except Exception:
+            return 0
+
+    def _parse_size_bytes(size_str: str) -> int:
+        """Parse '8.3 GB' or '500 MB' to bytes. Returns 0 on failure."""
+        try:
+            parts = size_str.strip().split()
+            value = float(parts[0])
+            unit = parts[1].upper().rstrip("B") if len(parts) > 1 else ""
+            mult = {"": 1, "K": 1024, "M": 1024**2, "G": 1024**3, "T": 1024**4}
+            return int(value * mult.get(unit, 0))
+        except Exception:
+            return 0
 
     def run_cmd(cmd: list[str], pct_start: int, pct_end: int) -> None:
         full_cmd = _as_root(cmd)
@@ -159,34 +181,69 @@ def _run_install() -> None:
             full_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, bufsize=1,
         )
-        t0 = time.monotonic()
-        pct_range = pct_end - pct_start
+
+        # Network-byte monitor — runs in a thread while bootc downloads silently.
+        # Reads /proc/net/dev every second; once we know the total download size
+        # (from "layers needed: N (X.X GB)") it emits accurate byte-based progress
+        # and speed/ETA stats to the frontend.
+        _total_bytes:  list[int] = [0]   # parsed from "layers needed" line
+        _rx_start:     list[int] = [0]   # RX bytes at moment download began
+        _monitor_stop: list[bool] = [False]
+
+        def _net_monitor():
+            rx_prev = 0
+            t_prev  = time.monotonic()
+            speed_samples: list[float] = []
+
+            while not _monitor_stop[0]:
+                time.sleep(1)
+                if _total_bytes[0] == 0 or _rx_start[0] == 0:
+                    continue
+
+                rx_now   = _get_rx_bytes()
+                t_now    = time.monotonic()
+                downloaded = max(0, rx_now - _rx_start[0])
+                frac     = min(0.95, downloaded / _total_bytes[0])
+                pct      = int(pct_start + frac * (pct_end - pct_start))
+                progress(pct)
+
+                # Rolling average speed over last 5 samples
+                dt = t_now - t_prev
+                if dt > 0 and rx_prev > 0:
+                    speed_samples.append((rx_now - rx_prev) / dt)
+                    if len(speed_samples) > 5:
+                        speed_samples.pop(0)
+                rx_prev = rx_now
+                t_prev  = t_now
+
+                if speed_samples:
+                    avg_speed = sum(speed_samples) / len(speed_samples)
+                    remaining_bytes = max(0, _total_bytes[0] - downloaded)
+                    eta_sec = int(remaining_bytes / avg_speed) if avg_speed > 0 else 0
+                    _push({"type": "stats",
+                           "downloaded": downloaded,
+                           "total":      _total_bytes[0],
+                           "speed":      int(avg_speed),
+                           "eta_sec":    eta_sec})
+
+        monitor_thread = threading.Thread(target=_net_monitor, daemon=True)
+        monitor_thread.start()
+
         for line in proc.stdout:
             stripped = line.rstrip()
             log(stripped)
-            # Parse bootc layer totals: "layers already present: X; layers needed: Y"
+            # Parse "layers needed: N (X.X GB)" — kick off byte-based monitoring
             if "layers needed:" in stripped:
                 try:
-                    n = int(stripped.split("layers needed:")[1].split()[0].rstrip(",)"))
-                    if _layers_total[0] == 0:
-                        # Record time-based frac as floor so progress doesn't snap back to 5%
-                        elapsed = time.monotonic() - t0
-                        _frac_floor[0] = min(0.95, elapsed / (elapsed + 300.0))
-                    _layers_total[0] = n
+                    m = stripped.split("layers needed:")[1]
+                    size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
+                    _total_bytes[0] = _parse_size_bytes(size_str)
+                    _rx_start[0]    = _get_rx_bytes()
                 except Exception:
                     pass
-            # Count each blob/config copy as one completed unit
-            if stripped.startswith("Copying "):
-                _layers_done[0] += 1
-            # Real progress when we have a layer count; time-based fallback otherwise
-            if _layers_total[0] > 0:
-                layer_frac = _layers_done[0] / _layers_total[0]
-                frac = min(0.95, max(_frac_floor[0], layer_frac))
-            else:
-                elapsed = time.monotonic() - t0
-                frac = min(0.95, elapsed / (elapsed + 300.0))
-                _frac_floor[0] = frac
-            progress(int(pct_start + frac * pct_range))
+
+        _monitor_stop[0] = True
+        monitor_thread.join(timeout=2)
         proc.wait()
         if proc.returncode != 0:
             raise RuntimeError(
@@ -1306,22 +1363,22 @@ function startInstall() {
 }
 
 function listenSSE() {
-  const log  = document.getElementById('log-wrap');
-  const fill = document.getElementById('progress-fill');
+  const log       = document.getElementById('log-wrap');
+  const fill      = document.getElementById('progress-fill');
   const pct       = document.getElementById('install-pct');
   const phase     = document.getElementById('install-phase');
   const layerStat = document.getElementById('layer-status');
   const elapsed   = document.getElementById('install-elapsed');
   log.innerHTML = '';
 
-  let layersTotal = 0, layersDone = 0, totalSizeStr = '';
-  let downloadStartTime = null;   // when "layers needed" was first seen
-  let copyStartTime     = null;   // when first "Copying" line arrived
-  let downloadTimer     = null;   // interval driving bar during download
-  let frontendOwnsBar   = false;  // true once we have layer data
-  let barFloor          = 5;      // high-watermark — bar never goes backwards
+  function humanBytes(b) {
+    if (b >= 1e9)  return (b / 1e9).toFixed(1) + ' GB';
+    if (b >= 1e6)  return (b / 1e6).toFixed(0) + ' MB';
+    if (b >= 1e3)  return (b / 1e3).toFixed(0) + ' KB';
+    return b + ' B';
+  }
 
-  // Elapsed time ticker — reassures user the page is alive
+  // Elapsed time ticker
   const startTime = Date.now();
   const ticker = setInterval(() => {
     const s = Math.floor((Date.now() - startTime) / 1000);
@@ -1330,48 +1387,15 @@ function listenSSE() {
   }, 1000);
 
   function setBar(v) {
-    v = Math.max(barFloor, Math.round(v));
-    barFloor = v;
     fill.style.width = v + '%';
     pct.textContent  = v + '%';
     if (v > 5) fill.classList.remove('pulsing');
   }
 
-  function updateDownloadBar() {
-    if (!layersTotal) return;
-    let barPct, phaseText, statText;
-    if (layersDone > 0) {
-      // Real layer-count progress mapped to 5–90%
-      const frac = layersDone / layersTotal;
-      barPct = 5 + frac * 85;
-      let etaStr = '';
-      if (copyStartTime && layersDone > 2) {
-        const secSinceCopy = (Date.now() - copyStartTime) / 1000;
-        const layersPerSec = layersDone / secSinceCopy;
-        const remaining = Math.ceil((layersTotal - layersDone) / layersPerSec);
-        etaStr = remaining > 60
-          ? `  ·  ~${Math.ceil(remaining / 60)}m remaining`
-          : `  ·  ~${remaining}s remaining`;
-      }
-      phaseText = `Downloading layer ${layersDone} / ${layersTotal}  (${totalSizeStr})${etaStr}`;
-      statText  = `${layersDone} of ${layersTotal} layers  ·  ${Math.round(frac * 100)}%${etaStr}`;
-    } else {
-      // Waiting for first layer copy — slow time-based nudge, caps at ~47% (never regresses)
-      // tau=300s means bar reaches ~25% after 1 minute, ~47% after ~5 minutes
-      const secWaiting = (Date.now() - downloadStartTime) / 1000;
-      const timeFrac = Math.min(0.5, secWaiting / (secWaiting + 300.0));
-      barPct = 5 + timeFrac * 85;
-      phaseText = `Downloading ${layersTotal} layers  (${totalSizeStr})  —  fetching manifests…`;
-      statText  = `Fetching layer manifests from registry  ·  ${layersTotal} layers  (${totalSizeStr})`;
-    }
-    setBar(barPct);
-    phase.textContent     = phaseText;
-    layerStat.textContent = statText;
-  }
-
   const es = new EventSource('/api/stream');
   es.onmessage = e => {
     const d = JSON.parse(e.data);
+
     if (d.type === 'log') {
       const line = document.createElement('div');
       const t = d.text;
@@ -1382,52 +1406,44 @@ function listenSSE() {
       log.appendChild(line);
       log.scrollTop = log.scrollHeight;
 
-      // Parse "layers needed: N (X.X GB)" — frontend takes over the bar from here
+      // Surface key phase transitions in the status line
       const mTotal = t.match(/layers needed:\s*(\d+)\s*\(([^)]+)\)/);
       if (mTotal) {
-        layersTotal       = parseInt(mTotal[1]);
-        totalSizeStr      = mTotal[2];
-        downloadStartTime = Date.now();
-        frontendOwnsBar   = true;
-        if (downloadTimer) clearInterval(downloadTimer);
-        downloadTimer = setInterval(updateDownloadBar, 1500);
-        updateDownloadBar();
+        layerStat.textContent = `Downloading ${mTotal[1]} layers  (${mTotal[2]})  —  measuring speed…`;
+        phase.textContent     = `Downloading ${mTotal[1]} layers  (${mTotal[2]})`;
       }
-
-      if (t.startsWith('Copying ')) {
-        if (!copyStartTime) copyStartTime = Date.now();
-        layersDone++;
-        updateDownloadBar();
-      }
-
-      // Post-download phase transitions — hand bar back to backend progress events
-      if (t.includes('Deploying')) {
-        if (downloadTimer) { clearInterval(downloadTimer); downloadTimer = null; }
-        layerStat.textContent = 'Deploying OS tree to disk…';
-      }
+      if (t.includes('Deploying'))                             layerStat.textContent = 'Deploying OS tree to disk…';
       if (t.includes('Installing bootloader') || t.includes('bootupd'))
                                                                layerStat.textContent = 'Installing bootloader…';
       if (t.includes('Creating user'))                         layerStat.textContent = 'Creating user account…';
       if (t.includes('Hostname set'))                          layerStat.textContent = 'Applying system configuration…';
 
-    } else if (d.type === 'progress') {
-      // Frontend owns the bar during download; backend drives Phase 3 (≥90%)
-      if (!frontendOwnsBar || d.value >= 90) {
-        if (downloadTimer) { clearInterval(downloadTimer); downloadTimer = null; }
-        const v = d.value;
-        setBar(v);
-        if (v < 90)       phase.textContent = `Downloading & writing OS image…  ${v}%`;
-        else if (v < 100) phase.textContent = `Configuring system…  ${v}%`;
-        else              phase.textContent = 'Complete!';
+    } else if (d.type === 'stats') {
+      // Real-time download stats from the backend network monitor
+      const dlStr    = humanBytes(d.downloaded);
+      const totStr   = humanBytes(d.total);
+      const speedStr = humanBytes(d.speed) + '/s';
+      let etaStr = '';
+      if (d.eta_sec > 0) {
+        etaStr = d.eta_sec > 60
+          ? `  ·  ~${Math.ceil(d.eta_sec / 60)}m remaining`
+          : `  ·  ~${d.eta_sec}s remaining`;
       }
+      phase.textContent     = `Downloading  ${dlStr} / ${totStr}  ·  ${speedStr}${etaStr}`;
+      layerStat.textContent = `${dlStr} of ${totStr} downloaded  ·  ${speedStr}${etaStr}`;
+
+    } else if (d.type === 'progress') {
+      const v = d.value;
+      setBar(v);
+      if (v >= 90 && v < 100) phase.textContent = `Configuring system…  ${v}%`;
+      else if (v >= 100)      phase.textContent = 'Complete!';
+
     } else if (d.type === 'done') {
       clearInterval(ticker);
-      if (downloadTimer) clearInterval(downloadTimer);
       es.close();
       goto('done');
     } else if (d.type === 'error') {
       clearInterval(ticker);
-      if (downloadTimer) clearInterval(downloadTimer);
       es.close();
       document.getElementById('err-msg').textContent = d.message;
       goto('error');
