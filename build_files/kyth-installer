@@ -1319,6 +1319,7 @@ function listenSSE() {
   let copyStartTime     = null;   // when first "Copying" line arrived
   let downloadTimer     = null;   // interval driving bar during download
   let frontendOwnsBar   = false;  // true once we have layer data
+  let barFloor          = 5;      // high-watermark — bar never goes backwards
 
   // Elapsed time ticker — reassures user the page is alive
   const startTime = Date.now();
@@ -1329,6 +1330,8 @@ function listenSSE() {
   }, 1000);
 
   function setBar(v) {
+    v = Math.max(barFloor, Math.round(v));
+    barFloor = v;
     fill.style.width = v + '%';
     pct.textContent  = v + '%';
     if (v > 5) fill.classList.remove('pulsing');
@@ -1340,7 +1343,7 @@ function listenSSE() {
     if (layersDone > 0) {
       // Real layer-count progress mapped to 5–90%
       const frac = layersDone / layersTotal;
-      barPct = Math.round(5 + frac * 85);
+      barPct = 5 + frac * 85;
       let etaStr = '';
       if (copyStartTime && layersDone > 2) {
         const secSinceCopy = (Date.now() - copyStartTime) / 1000;
@@ -1353,15 +1356,16 @@ function listenSSE() {
       phaseText = `Downloading layer ${layersDone} / ${layersTotal}  (${totalSizeStr})${etaStr}`;
       statText  = `${layersDone} of ${layersTotal} layers  ·  ${Math.round(frac * 100)}%${etaStr}`;
     } else {
-      // Waiting for first layer — slow time-based nudge so bar isn't frozen
+      // Waiting for first layer copy — slow time-based nudge, caps at ~47% (never regresses)
+      // tau=300s means bar reaches ~25% after 1 minute, ~47% after ~5 minutes
       const secWaiting = (Date.now() - downloadStartTime) / 1000;
-      const timeFrac = Math.min(0.08, secWaiting / (secWaiting + 90.0));
-      barPct = Math.round(5 + timeFrac * 85);
-      phaseText = `Preparing to download ${layersTotal} layers  (${totalSizeStr})…`;
-      statText  = `Fetching ${layersTotal} layers (${totalSizeStr}) — starting download…`;
+      const timeFrac = Math.min(0.5, secWaiting / (secWaiting + 300.0));
+      barPct = 5 + timeFrac * 85;
+      phaseText = `Downloading ${layersTotal} layers  (${totalSizeStr})  —  fetching manifests…`;
+      statText  = `Fetching layer manifests from registry  ·  ${layersTotal} layers  (${totalSizeStr})`;
     }
     setBar(barPct);
-    phase.textContent    = phaseText;
+    phase.textContent     = phaseText;
     layerStat.textContent = statText;
   }
 
