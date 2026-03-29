@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
 
-# build-anaconda-iso.sh — Build a live desktop ISO for Kyth with the Anaconda installer.
+# build-live-iso.sh — Build a live desktop ISO for Kyth with the web installer.
 #
 # Flow:
-#   1. Build Containerfile.anaconda (stable installer runtime + Anaconda WebUI)
+#   1. Build Containerfile.live (stable live environment + Chromium + kyth-installer)
 #   2. Export the container filesystem to a temporary rootfs
 #   3. Copy kernel + live initramfs out of the rootfs
 #   4. mksquashfs the rootfs → LiveOS/squashfs.img
 #   5. Assemble bootable ISO: UEFI (GRUB2) + BIOS (syslinux) via xorriso
 #
 # No OCI bundle is embedded — the OS is pulled from the registry at install
-# time by Anaconda via the ostreecontainer kickstart directive.
+# time by kyth-installer via bootc install to-disk.
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
@@ -20,11 +20,10 @@ set -euo pipefail
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
 INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:43}"
-# Cache image name — parallel to kyth-live:build so both can coexist locally
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
-    ANACONDA_BUILD_TAG="kyth-anaconda:build"
+    LIVE_BUILD_TAG="kyth-live:build"
 else
-    ANACONDA_BUILD_TAG="kyth-anaconda:build-${SOURCE_TAG}"
+    LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
 
 # ── Sudo setup: ask once, work fully unattended for the rest of the build ─────
@@ -47,7 +46,7 @@ fi
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
-ISO_NAME="kyth-live-anaconda-${SOURCE_TAG}.iso"
+ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
 VOLID="Kyth-43-Live"
 
 # Hash relevant installer sources so cached container rebuilds when these files
@@ -55,11 +54,9 @@ VOLID="Kyth-43-Live"
 SOURCE_HASH="$(
     cd "${REPO_ROOT}"
     sha256sum \
-        build_files/Containerfile.anaconda \
-        build_files/anaconda/kyth-launch-anaconda \
-        build_files/anaconda/kyth-systemctl-wrapper \
-        build_files/anaconda/kyth.ks \
-        build_files/anaconda/kyth-testing.ks \
+        build_files/Containerfile.live \
+        build_files/kyth-installer \
+        build_files/kyth-launch-installer \
         build_files/plymouth/kyth.plymouth \
         build_files/plymouth/kyth.script \
         build_files/wallpaper/kyth-wallpaper.svg \
@@ -69,7 +66,7 @@ SOURCE_HASH="$(
 )"
 
 TMPDIR_BASE="${TMPDIR:-/var/tmp}"
-WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-anaconda.XXXXXXXXXX)
+WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
@@ -91,8 +88,8 @@ cleanup() {
     sudo rm -rf "${WORK}" 2>/dev/null || true
     [[ -n "${_ASKPASS:-}" ]] && rm -f "$_ASKPASS" 2>/dev/null || true
     unset _KYTH_BUILD_PW
-    # kyth-anaconda:build is kept intentionally so Docker layer cache is preserved
-    # for the next build. Run 'docker rmi kyth-anaconda:build' to force a rebuild.
+    # kyth-live:build is kept intentionally so Docker layer cache is preserved
+    # for the next build. Run 'docker rmi kyth-live:build' to force a rebuild.
 }
 trap cleanup EXIT
 
@@ -112,52 +109,52 @@ mkdir -p \
     "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
 
-# ── 1. Build anaconda live container ─────────────────────────────────────────
+# ── 1. Build live container ─────────────────────────────────────────
 _need_rebuild=0
 if [[ "${SKIP_REBUILD:-}" == "1" ]]; then
-    echo "==> SKIP_REBUILD=1: using pre-built anaconda container (CI mode)"
+    echo "==> SKIP_REBUILD=1: using pre-built live container (CI mode)"
 elif [[ "${REBUILD_IMAGE:-}" == "1" ]]; then
-    echo "==> REBUILD_IMAGE=1: forcing anaconda container rebuild"
+    echo "==> REBUILD_IMAGE=1: forcing live container rebuild"
     _need_rebuild=1
-elif ! docker image inspect "${ANACONDA_BUILD_TAG}" >/dev/null 2>&1; then
-    echo "==> ${ANACONDA_BUILD_TAG} not found: building anaconda container"
+elif ! docker image inspect "${LIVE_BUILD_TAG}" >/dev/null 2>&1; then
+    echo "==> ${LIVE_BUILD_TAG} not found: building live container"
     _need_rebuild=1
 else
-    _installed_hash=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
-        --format '{{ index .Config.Labels "org.kyth.anaconda.source-hash" }}' \
+    _installed_hash=$(docker image inspect "${LIVE_BUILD_TAG}" \
+        --format '{{ index .Config.Labels "org.kyth.live.source-hash" }}' \
         2>/dev/null || echo "")
     if [[ "${_installed_hash}" != "${SOURCE_HASH}" ]]; then
-        echo "==> Anaconda installer sources changed — rebuilding ${ANACONDA_BUILD_TAG}..."
+        echo "==> Installer sources changed — rebuilding ${LIVE_BUILD_TAG}..."
         _need_rebuild=1
     fi
 
     _base_ts=$(docker image inspect "${INSTALLER_BASE_IMAGE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
-    _live_ts=$(docker image inspect "${ANACONDA_BUILD_TAG}" \
+    _live_ts=$(docker image inspect "${LIVE_BUILD_TAG}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     if [[ -n "${_base_ts}" && "${_base_ts}" > "${_live_ts}" ]]; then
-        echo "==> Base image has changed — rebuilding ${ANACONDA_BUILD_TAG}..."
+        echo "==> Base image has changed — rebuilding ${LIVE_BUILD_TAG}..."
         _need_rebuild=1
     else
-        echo "==> ${ANACONDA_BUILD_TAG} is up to date — skipping rebuild"
+        echo "==> ${LIVE_BUILD_TAG} is up to date — skipping rebuild"
     fi
 fi
 
 if [[ "${_need_rebuild}" == "1" ]]; then
-    echo "==> Building anaconda live container (this takes a while)..."
+    echo "==> Building live container (this takes a while)..."
     docker build \
         --build-arg BASE_IMAGE="${INSTALLER_BASE_IMAGE}" \
         --build-arg SOURCE_HASH="${SOURCE_HASH}" \
         --build-arg SOURCE_TAG="${SOURCE_TAG}" \
-        -f "${SCRIPT_DIR}/Containerfile.anaconda" \
-        -t "${ANACONDA_BUILD_TAG}" \
+        -f "${SCRIPT_DIR}/Containerfile.live" \
+        -t "${LIVE_BUILD_TAG}" \
         "${REPO_ROOT}"
-    echo "==> Anaconda container build complete"
+    echo "==> Live container build complete"
 fi
 
 # ── 2. Export container filesystem ───────────────────────────────────────────
 echo "==> Exporting container filesystem to ${ROOTFS}"
-CONTAINER=$(docker create "${ANACONDA_BUILD_TAG}" /bin/true)
+CONTAINER=$(docker create "${LIVE_BUILD_TAG}" /bin/true)
 if command -v pv >/dev/null 2>&1; then
     docker export "${CONTAINER}" | pv | \
         sudo tar -xC "${ROOTFS}" \
@@ -198,8 +195,8 @@ sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
 
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
-# No OCI bundle embedded — Anaconda pulls from the registry at install time
-# via the ostreecontainer kickstart directive.
+# No OCI bundle embedded — kyth-installer pulls from the registry at install time
+# via bootc install to-disk.
 echo "==> Creating squashfs (zstd, $(nproc) cores)"
 sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -comp zstd \
@@ -500,5 +497,5 @@ sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
 echo ""
-echo "==> Anaconda live ISO ready"
+echo "==> Kyth live ISO ready"
 echo "    ${ISO_PATH} (${ISO_SIZE})"
