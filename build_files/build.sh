@@ -97,6 +97,8 @@ rm -rf "${TMPDIR_TG}"
 
 ## Gaming tweaks — Bazzite-style
 # Install gamescope from Fedora BEFORE enabling Bazzite COPR.
+# Bazzite ships a patched gamescope; using the Fedora package avoids surprises.
+dnf5 install -y gamescope
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -121,7 +123,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     vkBasalt.i686 \
     libFAudio.x86_64 \
     libFAudio.i686 \
-    obs-studio \
     libobs_vkcapture.x86_64 \
     libobs_glcapture.x86_64 \
     libobs_vkcapture.i686 \
@@ -142,7 +143,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-libGL.i686 \
     mesa-dri-drivers.i686 \
     nss \
-    nss.i686
+    nss.i686 \
+    rclone
 
 # KDE-specific gaming integrations
 dnf5 install -y \
@@ -419,8 +421,8 @@ IWLEOF
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
-# NVMe: bypass scheduler entirely
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+# NVMe: bypass scheduler entirely — match namespace block device only (not controller or partitions)
+ACTION=="add|change", KERNEL=="nvme[0-9]n[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
 # SATA SSDs (non-rotational): deadline with low latency
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 # HDDs: BFQ to avoid seek storms
@@ -769,6 +771,12 @@ dnf5 install -y python3-pyqt6
 mkdir -p /etc/MangoHud
 install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 
+# ── vkBasalt defaults ─────────────────────────────────────────────────────────
+# vkBasalt is inactive unless ENABLE_VKBASALT=1 is set per-game.
+# Ship a default config (CAS sharpening) so it works correctly when enabled.
+# Users can override with ~/.config/vkBasalt/vkBasalt.conf
+install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
+
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
@@ -787,6 +795,7 @@ install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
+install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -882,7 +891,7 @@ systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.serv
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker; do
+for grp in users video audio gamemode docker plugdev; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
@@ -900,6 +909,7 @@ systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
+systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
 
 # ── GE-Proton runtime update path ─────────────────────────────────────────────
 # The weekly timer installs new GE-Proton to /var/lib/kyth/ge-proton/ (/var is

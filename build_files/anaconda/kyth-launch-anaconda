@@ -88,8 +88,6 @@ trap cleanup EXIT
 
 _preflight_network_check() {
     local registry="ghcr.io"
-    local max_attempts=2
-    local attempt=0
     local connected=false
 
     echo "$(date '+%T'): Pre-flight network check: testing connectivity to ${registry}" >> "${LOG}" 2>&1
@@ -103,43 +101,51 @@ _preflight_network_check() {
             return 0
         fi
 
-        attempt=$((attempt + 1))
-        echo "$(date '+%T'): Network check attempt ${attempt}: ${registry} unreachable." >> "${LOG}" 2>&1
+        echo "$(date '+%T'): Network unreachable — prompting user to connect." >> "${LOG}" 2>&1
 
-        # Show a dialog prompting the user to connect to WiFi.
-        local dialog_text="Cannot reach the container registry (${registry}).\n\nKyth installs by downloading the OS image from the internet.\nPlease connect to a network (WiFi or Ethernet) before continuing."
+        local dialog_text="<b>No network connection detected.</b>\n\nKyth downloads the OS image (~6 GB) from the internet.\nAn active connection is required before the installer can continue.\n\n<tt>Registry: ${registry}</tt>"
 
         if command -v yad &>/dev/null; then
             local btn
-            yad --title="Kyth Installer — Network Required" \
+            yad --title="Kyth Installer — Connect to Network" \
                 --image=network-wireless \
                 --text="${dialog_text}" \
+                --text-align=left \
+                --on-top \
                 --button="Open Network Settings:2" \
-                --button="Retry:0" \
+                --button="Check Connection:0" \
                 --button="Cancel Install:1" \
-                --width=520 2>/dev/null
+                --width=500 2>/dev/null
             btn=$?
 
-            if [[ ${btn} -eq 1 ]]; then
-                echo "$(date '+%T'): User cancelled install from network check dialog." >> "${LOG}" 2>&1
+            if [[ ${btn} -eq 1 || ${btn} -eq 252 ]]; then
+                # 252 = window closed with X button
+                echo "$(date '+%T'): User cancelled install from network dialog." >> "${LOG}" 2>&1
                 exit 0
             elif [[ ${btn} -eq 2 ]]; then
-                echo "$(date '+%T'): User opening network settings." >> "${LOG}" 2>&1
-                # Open KDE network settings; fall back to nmtui in konsole.
-                if command -v plasma-nm &>/dev/null || command -v kcmshell6 &>/dev/null; then
+                echo "$(date '+%T'): Opening network settings; will retry automatically when closed." >> "${LOG}" 2>&1
+                local nm_pid=""
+                if command -v kcmshell6 &>/dev/null; then
                     kcmshell6 kcm_networkmanagement >/dev/null 2>&1 &
+                    nm_pid=$!
                 elif command -v nm-connection-editor &>/dev/null; then
                     nm-connection-editor >/dev/null 2>&1 &
+                    nm_pid=$!
                 elif command -v nmtui &>/dev/null; then
                     konsole -e nmtui >/dev/null 2>&1 &
+                    nm_pid=$!
                 fi
-                # Give the user time to configure, then loop back to retry.
+                # Wait for the settings window to close, then retry automatically.
+                if [[ -n "${nm_pid}" ]]; then
+                    wait "${nm_pid}" 2>/dev/null || true
+                fi
+                # Brief pause for NetworkManager to apply the new connection.
                 sleep 3
             fi
-            # btn==0 means Retry, just loop again.
+            # btn==0 ("Check Connection") — just loop and retry immediately.
         elif command -v kdialog &>/dev/null; then
             kdialog --title "Kyth Installer — Network Required" \
-                --sorry "${dialog_text}\n\nPlease configure your network and click OK to retry." \
+                --sorry "Cannot reach ${registry}.\n\nPlease configure your network and click OK to retry." \
                 2>/dev/null || { echo "$(date '+%T'): User cancelled from network dialog." >> "${LOG}" 2>&1; exit 0; }
         else
             echo "$(date '+%T'): WARNING: No dialog tool available; proceeding without network check." >> "${LOG}" 2>&1
@@ -303,10 +309,35 @@ _install_progress_monitor() {
 
     mkfifo "${fifo}" 2>/dev/null || return 0
 
+    # Wait for the Anaconda WebUI (Firefox) before opening the overlay, so it
+    # appears on top rather than being immediately buried by the browser window.
+    local ff_wait=0
+    until pgrep -u "$(id -u)" -f 'firefox' >/dev/null 2>&1 \
+          || pgrep -f 'webui-desktop' >/dev/null 2>&1; do
+        sleep 1
+        ff_wait=$((ff_wait + 1))
+        (( ff_wait > 90 )) && break
+    done
+    # Let Firefox finish rendering its initial UI before overlaying.
+    sleep 3
+
+    # Position the overlay at the bottom-centre of the display.
+    local win_w=520 win_h=360 win_x=0 win_y=0 screen_w=1920 screen_h=1080
+    if command -v xdpyinfo &>/dev/null; then
+        local _dims
+        _dims=$(xdpyinfo 2>/dev/null | awk '/dimensions:/{print $2}')
+        screen_w=${_dims%%x*}
+        screen_h=${_dims##*x}; screen_h=${screen_h%% *}
+    fi
+    win_x=$(( (screen_w - win_w) / 2 ))
+    win_y=$(( screen_h - win_h - 60 ))
+
     # Launch yad text-info window reading from the FIFO.
     yad --text-info --tail \
         --title="Kyth Installation Progress" \
-        --width=500 --height=340 \
+        --width=${win_w} --height=${win_h} \
+        --posx=${win_x} --posy=${win_y} \
+        --on-top \
         --no-buttons \
         --fontname="Monospace 10" \
         --back="#1a1b26" --fore="#a9b1d6" \

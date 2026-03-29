@@ -1,7 +1,7 @@
 [Unit]
-Description=Kyth migration: configure topgrade for Kyth (disable distrobox, use sudo -n)
+Description=Kyth migration: configure topgrade for Kyth (v3: system step, containers)
 After=local-fs.target
-ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v2.done
+ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v3.done
 
 [Service]
 Type=oneshot

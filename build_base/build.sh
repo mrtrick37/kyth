@@ -83,7 +83,7 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # splash: activate Plymouth so the boot splash is shown.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "mitigations=off"]
+kargs = ["quiet", "splash", "mitigations=off", "threadirqs"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
@@ -94,6 +94,11 @@ systemctl set-default graphical.target 2>/dev/null || true
 # update the bootloader on every boot but always fails in our bootc image,
 # producing noisy FAILED entries in the boot log.
 systemctl mask bootloader-update.service 2>/dev/null || true
+
+# Mask systemd-remount-fs.service: on bootc/ostree the root filesystem is
+# already mounted correctly by the bootloader; the remount always fails with
+# exit code 32 producing a FAILED unit every boot.
+systemctl mask systemd-remount-fs.service 2>/dev/null || true
 
 # ── SDDM display server: Wayland by default ───────────────────────────────────
 # Keep the on-disk config aligned with the documented product defaults so

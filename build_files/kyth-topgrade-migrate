@@ -1,20 +1,22 @@
 #!/usr/bin/env python3
 # kyth-topgrade-migrate — ensure all users have topgrade configured correctly
 # for a Kyth bootc system:
-#   • rpm-ostree disabled (pulls from Kinoite, not Kyth)
+#   • system (dnf5) disabled — OS is read-only bootc, not managed by dnf
 #   • distrobox disabled (distrobox-upgrade fails without a PTY)
+#   • containers disabled (podman container updates fail on bootc)
 #   • bootc upgrade used as the system update command (with sudo -n)
 #
 # v1 → v2: added distrobox to disable list and sudo -n to the custom command.
+# v2 → v3: rpm_ostree renamed to system in topgrade v17; added containers.
 #
 # Run once at boot via kyth-topgrade-migrate.service; state is tracked in
-# /var/lib/kyth/migrations/topgrade-v2.done so it never runs again.
+# /var/lib/kyth/migrations/topgrade-v3.done so it never runs again.
 
 import os
 import sys
 
 STATE_DIR = "/var/lib/kyth/migrations"
-STATE_FILE = os.path.join(STATE_DIR, "topgrade-v2.done")
+STATE_FILE = os.path.join(STATE_DIR, "topgrade-v3.done")
 
 SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 
@@ -22,9 +24,10 @@ SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 TOPGRADE_DISABLE_BLOCK = """
 # Added by kyth-topgrade-migrate.
 [misc]
-# rpm-ostree pulls from the base Kinoite ostree repo, not Kyth — disable it.
+# system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
 # distrobox-upgrade fails without a PTY; update containers manually instead.
-disable = ["rpm_ostree", "distrobox"]
+# containers (podman) updates fail on a bootc read-only system.
+disable = ["system", "distrobox", "containers"]
 
 [commands]
 # -n makes sudo fail fast if NOPASSWD isn't working, rather than hanging.
@@ -43,8 +46,10 @@ def needs_patch(path):
     except OSError:
         return False
     return (
-        "rpm_ostree" not in content
+        # rpm_ostree (old name) or system (new name) must be disabled
+        ('"system"' not in content and "rpm_ostree" not in content)
         or '"distrobox"' not in content
+        or '"containers"' not in content
         or "sudo -n bootc upgrade" not in content
     )
 
@@ -56,11 +61,26 @@ def patch_config(path):
 
     changed = False
 
-    # v1 config: has rpm_ostree disable but missing distrobox — insert it.
-    if "rpm_ostree" in content and '"distrobox"' not in content:
+    # v2 config: has rpm_ostree — rename to system (topgrade v17 renamed it).
+    if "rpm_ostree" in content:
+        content = content.replace('"rpm_ostree"', '"system"')
+        changed = True
+
+    # v1/v2 config: distrobox missing — insert it alongside system.
+    if '"distrobox"' not in content and '"system"' in content:
         content = content.replace(
-            'disable = ["rpm_ostree"]',
-            'disable = ["rpm_ostree", "distrobox"]',
+            'disable = ["system"]',
+            'disable = ["system", "distrobox"]',
+        )
+        changed = True
+
+    # v1/v2 config: containers missing — append it to the disable list.
+    if '"containers"' not in content and '"distrobox"' in content:
+        import re
+        content = re.sub(
+            r'(disable\s*=\s*\[)([^\]]+)(\])',
+            lambda m: m.group(1) + m.group(2).rstrip() + ', "containers"' + m.group(3),
+            content,
         )
         changed = True
 
@@ -69,8 +89,8 @@ def patch_config(path):
         content = content.replace('"sudo bootc upgrade"', '"sudo -n bootc upgrade"')
         changed = True
 
-    # Config predates v1: no rpm_ostree at all — append the full block.
-    if "rpm_ostree" not in content:
+    # Config predates v1: no system/rpm_ostree at all — append the full block.
+    if '"system"' not in content and "rpm_ostree" not in content:
         with open(path, "a") as f:
             f.write(TOPGRADE_DISABLE_BLOCK)
         log(f"  appended Kyth config block to {path}")

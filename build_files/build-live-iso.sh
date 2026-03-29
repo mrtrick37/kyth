@@ -18,6 +18,20 @@
 
 set -euo pipefail
 
+# ── Docker group bootstrap ─────────────────────────────────────────────────────
+# If docker is inaccessible, add the user to the docker group (if needed) and
+# re-exec under `sg docker` to activate it — no logout required.
+if ! docker info &>/dev/null 2>&1; then
+    if ! id -nG "$USER" | grep -qw docker; then
+        echo "==> Adding ${USER} to the docker group (requires sudo)..."
+        command sudo usermod -aG docker "$USER"
+    fi
+    echo "==> Activating docker group for this session via sg — restarting build..."
+    exec sg docker -c "bash $(printf '%q' "${BASH_SOURCE[0]}")"
+    echo "ERROR: Could not activate the docker group. Try: newgrp docker" >&2
+    exit 1
+fi
+
 SOURCE_TAG="${SOURCE_TAG:-latest}"
 INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:43}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
@@ -70,8 +84,8 @@ WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
 
-if ! command -v docker &>/dev/null || ! docker info &>/dev/null; then
-    echo "ERROR: Docker is not installed or not running." >&2
+if ! command -v docker &>/dev/null; then
+    echo "ERROR: docker not found — install Docker or add it to PATH." >&2
     exit 1
 fi
 echo "==> Using container engine: docker"

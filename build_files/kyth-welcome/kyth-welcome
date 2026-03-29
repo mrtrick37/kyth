@@ -19,13 +19,15 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
-    QSizePolicy,
+    QSizePolicy, QDialog, QCheckBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
 from PyQt6.QtGui import QDesktopServices, QIcon
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 REGISTRY = "ghcr.io/mrtrick37/kyth"
+_CLOUD_SYNC_CONFIG = os.path.expanduser("~/.config/kyth-cloud-sync.json")
+_SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 
 QSS = """
 * {
@@ -303,7 +305,7 @@ QProgressBar {
     border-radius: 3px;
     max-height: 4px;
     text-align: center;
-    font-size: 0px;
+    color: transparent;
 }
 
 QProgressBar::chunk {
@@ -364,6 +366,30 @@ QLineEdit {
 QLineEdit:focus {
     border-color: #5b9cf6;
 }
+
+/* ── Checkbox ────────────────────────────────────────────────────────────── */
+QCheckBox {
+    color: #d0d0d0;
+    spacing: 8px;
+}
+
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+    background: #1a1a1a;
+    border: 2px solid #333333;
+    border-radius: 4px;
+}
+
+QCheckBox::indicator:checked {
+    background: #5b9cf6;
+    border-color: #5b9cf6;
+    image: none;
+}
+
+QCheckBox::indicator:hover {
+    border-color: #5b9cf6;
+}
 """
 
 
@@ -421,13 +447,13 @@ class HardwareProbeWorker(QThread):
 
 
 # ── Helper utilities ───────────────────────────────────────────────────────────
-def _finish_worker(owner: object) -> None:
-    worker = getattr(owner, "_worker", None)
+def _finish_worker(owner: object, attr: str = "_worker") -> None:
+    worker = getattr(owner, attr, None)
     if worker is None:
         return
     worker.wait()
     worker.deleteLater()
-    owner._worker = None
+    setattr(owner, attr, None)
 
 
 def _set_session_inhibit(owner: object, reason: str | None = None) -> None:
@@ -548,6 +574,42 @@ def _active_bootc_operation() -> str | None:
     return None
 
 
+def _default_phase(mode: str) -> str:
+    return {
+        "update": "Pulling OS image from container registry…",
+        "topgrade": "Running full system update…",
+        "rollback": "Staging rollback deployment…",
+    }.get(mode, "Operation in progress…")
+
+
+def _parse_update_phase(line: str, mode: str) -> str | None:
+    """Map a raw output line to a short human-readable phase label, or None to keep the last."""
+    lo = line.lower()
+    # bootc / skopeo / ostree
+    if "layers already present" in lo or "layers needed" in lo:
+        return "Checking for new image layers…"
+    if "fetching" in lo and ("manifest" in lo or "sha256" in lo):
+        return "Fetching image manifest…"
+    if any(k in lo for k in ("pulling", "copying", "fetching")) and any(
+        k in lo for k in ("sha256", "blob", "layer", "ghcr.io", "registry")
+    ):
+        return "Downloading image layers…"
+    if "writing" in lo or "composing" in lo or "unpacking" in lo:
+        return "Writing new OS image to disk…"
+    if "deploying" in lo:
+        return "Deploying new OS image…"
+    if "no update available" in lo or "already booted" in lo:
+        return "Already on the latest image — nothing to download."
+    if "queued" in lo and "boot" in lo:
+        return "Staged — new image ready for next reboot."
+    # topgrade section headers look like "[section] ..."
+    if mode == "topgrade" and line.startswith("[") and "]" in line:
+        section = line[1 : line.index("]")].strip()
+        if section:
+            return f"Updating {section}…"
+    return None
+
+
 def _bootc_image_reference() -> str | None:
     data = _bootc_status_data() or {}
     candidates = (
@@ -571,6 +633,13 @@ def _bootc_image_reference() -> str | None:
     if text:
         pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
         match = pattern.search(text)
+        if match:
+            return match.group(1)
+    # Fallback: rpm-ostree status (runs without root, works on ostree-managed systems)
+    rpmostree = _run_command(["rpm-ostree", "status"], timeout=10)
+    if rpmostree and rpmostree.returncode == 0:
+        pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
+        match = pattern.search(rpmostree.stdout)
         if match:
             return match.group(1)
     return None
@@ -613,6 +682,129 @@ def _has_staged_update() -> bool:
 def _has_rollback_deployment() -> bool:
     data = _bootc_status_data() or {}
     return data.get("status", {}).get("rollback") is not None
+
+
+def _bootc_image_timestamp(section: str) -> str | None:
+    """Return a human-readable build timestamp for 'booted' or 'staged' image."""
+    data = _bootc_status_data() or {}
+    section_data = _nested_get(data, ("status", section)) or {}
+    for path in (("image", "timestamp"), ("timestamp",)):
+        value = _nested_get(section_data, path)
+        if isinstance(value, str) and value.strip():
+            try:
+                dt = datetime.fromisoformat(value.strip().replace("Z", "+00:00")).astimezone()
+                return dt.strftime("%Y-%m-%d %H:%M %Z")
+            except Exception:
+                return value.strip()
+    return None
+
+
+def _is_flatpak_installed(app_id: str) -> bool:
+    result = _run_command(["flatpak", "info", app_id], timeout=8)
+    return result is not None and result.returncode == 0
+
+
+def _rclone_available() -> bool:
+    return shutil.which("rclone") is not None
+
+
+def _rclone_list_remotes() -> list[tuple[str, str]]:
+    """Return [(name, type), …] for every configured rclone remote."""
+    result = _run_command(["rclone", "listremotes", "--long"], timeout=5)
+    if result is None or result.returncode != 0:
+        return []
+    remotes: list[tuple[str, str]] = []
+    for line in result.stdout.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            remotes.append((parts[0].rstrip(":"), parts[1].lower()))
+    return remotes
+
+
+def _rclone_has_remote_type(remote_type: str) -> bool:
+    """Return True only when a remote whose type is *exactly* remote_type exists."""
+    return any(rtype == remote_type.lower() for _, rtype in _rclone_list_remotes())
+
+
+def _load_sync_config() -> dict:
+    """Load {remote_name: {folder, last_sync, last_ok}} from disk."""
+    try:
+        with open(_CLOUD_SYNC_CONFIG) as f:
+            return json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        return {}
+
+
+def _save_sync_config(cfg: dict) -> None:
+    os.makedirs(os.path.dirname(_CLOUD_SYNC_CONFIG), exist_ok=True)
+    with open(_CLOUD_SYNC_CONFIG, "w") as f:
+        json.dump(cfg, f, indent=2)
+
+
+def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
+    """Launch args inside a terminal window; try several emulators. Returns True on success."""
+    # xdg-terminal-exec is the XDG standard launcher (installed on Kyth)
+    if shutil.which("xdg-terminal-exec"):
+        try:
+            subprocess.Popen(["xdg-terminal-exec"] + args)
+            return True
+        except OSError:
+            pass
+    # Konsole — --hold keeps the window open after the command exits
+    if shutil.which("konsole"):
+        try:
+            opts = ["konsole", "--hold"]
+            if title:
+                opts += ["--title", title]
+            subprocess.Popen(opts + ["-e"] + args)
+            return True
+        except OSError:
+            pass
+    # xterm fallback
+    if shutil.which("xterm"):
+        try:
+            opts = ["xterm", "-hold"]
+            if title:
+                opts += ["-T", title]
+            subprocess.Popen(opts + ["-e"] + args)
+            return True
+        except OSError:
+            pass
+    return False
+
+
+def _mangohud_installed() -> bool:
+    return shutil.which("mangohud") is not None
+
+
+def _gamescope_installed() -> bool:
+    return shutil.which("gamescope") is not None
+
+
+def _vkbasalt_installed() -> bool:
+    return any(
+        os.path.exists(p) for p in (
+            "/usr/lib64/vkbasalt/libvkbasalt.so",
+            "/usr/lib/vkbasalt/libvkbasalt.so",
+            "/usr/lib64/libvkbasalt.so",
+            "/usr/lib/libvkbasalt.so",
+        )
+    )
+
+
+def _ge_proton_version() -> str | None:
+    """Return the latest installed GE-Proton directory name, or None."""
+    for base in (
+        "/usr/share/steam/compatibilitytools.d",
+        "/var/lib/kyth/ge-proton",
+    ):
+        try:
+            entries = sorted(e for e in os.listdir(base) if e.startswith("GE-Proton"))
+            if entries:
+                return entries[-1]
+        except OSError:
+            pass
+    return None
 
 
 def _detect_nvidia() -> bool:
@@ -864,12 +1056,56 @@ def _platform_probe() -> HardwareProbe:
     )
 
 
+def _codec_probe() -> HardwareProbe:
+    vainfo = _run_command(["vainfo"], timeout=10)
+    if vainfo is None:
+        return HardwareProbe(
+            "Video Decode", "dim",
+            "vainfo not available — cannot check VA-API support.",
+            "Install libva-utils to inspect hardware video decode capabilities.",
+        )
+    output = (vainfo.stdout + vainfo.stderr).lower()
+    if vainfo.returncode != 0 and "failed" in output:
+        return HardwareProbe(
+            "Video Decode", "warn",
+            "VA-API initialisation failed.",
+            (vainfo.stdout + vainfo.stderr).strip(),
+            "Confirm your GPU driver is loaded (see Graphics).",
+        )
+
+    profiles = []
+    if "h264" in output or "avc" in output:
+        profiles.append("H.264")
+    if "h265" in output or "hevc" in output:
+        profiles.append("H.265")
+    if "av1" in output:
+        profiles.append("AV1")
+    if "vp9" in output:
+        profiles.append("VP9")
+    if "vp8" in output:
+        profiles.append("VP8")
+
+    if not profiles:
+        return HardwareProbe(
+            "Video Decode", "warn",
+            "VA-API is available but no recognised decode profiles were found.",
+            (vainfo.stdout + vainfo.stderr).strip(),
+        )
+
+    return HardwareProbe(
+        "Video Decode", "ok",
+        f"VA-API hardware decode: {', '.join(profiles)}.",
+        (vainfo.stdout + vainfo.stderr).strip(),
+    )
+
+
 def _collect_hardware_probes() -> list[HardwareProbe]:
     pci_text = _command_stdout(["lspci"], timeout=5)
     usb_text = _command_stdout(["lsusb"], timeout=5)
     lsmod_text = _command_stdout(["lsmod"], timeout=5)
     return [
         _gpu_probe(pci_text, lsmod_text),
+        _codec_probe(),
         _firmware_probe(),
         _connectivity_probe(pci_text, usb_text),
         _audio_probe(),
@@ -1131,6 +1367,15 @@ class WelcomePage(Page):
 
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile)
+
+        steam_flag = os.path.expanduser("~/.local/share/kyth-steam-initialized")
+        steam_dir = os.path.expanduser("~/.local/share/Steam")
+        steam_ready = os.path.exists(steam_flag) or os.path.isdir(steam_dir)
+        steam_val = "Ready" if steam_ready else "Not launched"
+        steam_style = "stat-value-ok" if steam_ready else "stat-value-warn"
+        self._steam_tile = StatTile("Steam", steam_val, steam_style)
+        tiles_row.addWidget(self._steam_tile)
+
         self._add_layout(tiles_row)
 
         # Getting started card
@@ -1412,8 +1657,10 @@ class UpdatePage(Page):
         self._worker = None
         self._mode = "topgrade"
         self._last_output_ts = 0.0
+        self._op_start_ts = 0.0
+        self._current_phase = ""
         self._heartbeat = QTimer(self)
-        self._heartbeat.setInterval(15000)
+        self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
 
         self._heading("Update")
@@ -1503,6 +1750,30 @@ class UpdatePage(Page):
         ex_body.setWordWrap(True)
         ex_layout.addWidget(ex_body)
         self._add(explainer)
+
+        # What's new card
+        changelog_card, cl_layout = _make_card()
+        cl_title = QLabel("What changed?")
+        cl_title.setObjectName("card-title")
+        cl_layout.addWidget(cl_title)
+        cl_body = QLabel(
+            "Kyth rebuilds daily from the latest packages. "
+            "See the full commit history on GitHub for a detailed log of recent changes."
+        )
+        cl_body.setObjectName("card-copy")
+        cl_body.setWordWrap(True)
+        cl_layout.addWidget(cl_body)
+        cl_btn_row = QHBoxLayout()
+        cl_btn_row.setSpacing(10)
+        changelog_btn = QPushButton("View Commit History")
+        changelog_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        cl_btn_row.addWidget(changelog_btn)
+        cl_btn_row.addStretch()
+        cl_layout.addLayout(cl_btn_row)
+        self._add(changelog_card)
+
         self._stretch()
 
         self._refresh_summary()
@@ -1515,8 +1786,9 @@ class UpdatePage(Page):
     def _start_operation(self, mode: str, label: str, cmd: list[str], inhibit_reason: str):
         self._mode = mode
         self._last_output_ts = time.monotonic()
+        self._op_start_ts = time.monotonic()
+        self._current_phase = ""
         self._log.clear()
-        self._log.append(f"→ {' '.join(cmd)}\n")
         self._log.show()
         self._progress.show()
         self._status_lbl.setText(label)
@@ -1561,31 +1833,32 @@ class UpdatePage(Page):
 
     def _on_line(self, text: str):
         self._last_output_ts = time.monotonic()
+        phase = _parse_update_phase(text.strip(), self._mode)
+        if phase:
+            self._current_phase = phase
+            self._status_lbl.setText(phase)
+            _restyle(self._status_lbl)
         self._log.append(text)
         self._log.ensureCursorVisible()
-        self._update_activity()
 
     def _update_activity(self):
         active = _active_bootc_operation()
-        if active:
-            self._activity_lbl.setText(f"Active bootc operation: {active}")
-            self._activity_lbl.show()
-        else:
+        if not active:
             self._activity_lbl.hide()
+            return
+        phase = self._current_phase or _default_phase(self._mode)
+        elapsed = int(time.monotonic() - self._op_start_ts) if self._op_start_ts else 0
+        mins, secs = divmod(elapsed, 60)
+        elapsed_str = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
+        self._activity_lbl.setText(f"{phase}  ·  {elapsed_str} elapsed")
+        self._activity_lbl.show()
 
     def _heartbeat_tick(self):
         if self._worker is None or self._mode not in ("topgrade", "update"):
             self._heartbeat.stop()
             self._update_activity()
             return
-        quiet_for = int(time.monotonic() - self._last_output_ts)
         self._update_activity()
-        if quiet_for >= 15:
-            self._log.append(
-                f"Still running after {quiet_for}s without new output — "
-                "normal while pulling/verifying large layers."
-            )
-            self._log.ensureCursorVisible()
 
     def _on_done(self, code: int):
         self._heartbeat.stop()
@@ -1626,16 +1899,21 @@ class UpdatePage(Page):
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
+        booted_ts = _bootc_image_timestamp("booted")
+        staged_ts = _bootc_image_timestamp("staged") if staged else None
 
+        parts = [f"Branch: {branch}"]
+        if booted_ts:
+            parts.append(f"Running image built: {booted_ts}")
         if staged:
-            status_text = f"Branch: {branch}  |  Update staged — ready for next reboot."
+            if staged_ts:
+                parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
+            else:
+                parts.append("Update staged — ready for next reboot.")
         else:
-            status_text = f"Branch: {branch}  |  No update staged right now."
-        if rollback:
-            status_text += "  Rollback available."
-        else:
-            status_text += "  No rollback target detected yet."
-        self._summary_lbl.setText(status_text)
+            parts.append("No update staged right now.")
+        parts.append("Rollback available." if rollback else "No rollback target detected yet.")
+        self._summary_lbl.setText("\n".join(parts))
         self._rollback_btn.setEnabled(rollback and self._worker is None)
 
 
@@ -2152,6 +2430,1461 @@ class RepairPage(Page):
             self._confirm_edit.clear()
 
 
+# ── Page: Gaming ─────────────────────────────────────────────────────────────
+class GamingPage(Page):
+    def __init__(self):
+        super().__init__()
+        self._ge_update_worker = None
+
+        self._heading("Gaming")
+        self._subheading(
+            "Kyth ships a full gaming stack. Everything below is pre-installed "
+            "and pre-configured — just add the right launch options in Steam."
+        )
+        self._divider()
+
+        # ── MangoHud ──────────────────────────────────────────────────────────
+        mh_card, mh_layout = _make_card()
+        mh_top = QHBoxLayout()
+        mh_title = QLabel("MangoHud — Performance Overlay")
+        mh_title.setObjectName("card-title")
+        mh_top.addWidget(mh_title)
+        mh_top.addStretch()
+        self._mh_badge = QLabel()
+        self._mh_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        mh_top.addWidget(self._mh_badge)
+        mh_layout.addLayout(mh_top)
+        mh_desc = QLabel(
+            "Shows FPS, frame time, GPU/CPU load and temperature as an in-game overlay. "
+            "Toggle on/off at any time with Shift R + F12."
+        )
+        mh_desc.setObjectName("card-copy")
+        mh_desc.setWordWrap(True)
+        mh_layout.addWidget(mh_desc)
+        mh_opts = QHBoxLayout()
+        mh_opts.setSpacing(10)
+        mh_opts.addWidget(_launch_opt_label("Steam launch option:"))
+        mh_opts.addWidget(_launch_opt_value("MANGOHUD=1 %command%"))
+        mh_copy = QPushButton("Copy")
+        mh_copy.clicked.connect(lambda: _copy_text("MANGOHUD=1 %command%"))
+        mh_opts.addWidget(mh_copy)
+        mh_opts.addStretch()
+        mh_layout.addLayout(mh_opts)
+        mh_cfg_row = QHBoxLayout()
+        mh_cfg_row.setSpacing(10)
+        mh_cfg_lbl = QLabel("Config: /etc/MangoHud/MangoHud.conf  ·  override: ~/.config/MangoHud/MangoHud.conf")
+        mh_cfg_lbl.setObjectName("card-copy")
+        mh_cfg_row.addWidget(mh_cfg_lbl)
+        mh_cfg_row.addStretch()
+        mh_layout.addLayout(mh_cfg_row)
+        self._add(mh_card)
+
+        # ── Gamescope ─────────────────────────────────────────────────────────
+        gs_card, gs_layout = _make_card()
+        gs_top = QHBoxLayout()
+        gs_title = QLabel("Gamescope — Game Compositor")
+        gs_title.setObjectName("card-title")
+        gs_top.addWidget(gs_title)
+        gs_top.addStretch()
+        self._gs_badge = QLabel()
+        self._gs_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gs_top.addWidget(self._gs_badge)
+        gs_layout.addLayout(gs_top)
+        gs_desc = QLabel(
+            "Valve's micro-compositor for games: better frame pacing, VRR/adaptive sync, "
+            "FSR upscaling, and HDR. Runs the game inside its own compositor so the "
+            "desktop is unaffected. Using -e keeps Steam Input and overlay working."
+        )
+        gs_desc.setObjectName("card-copy")
+        gs_desc.setWordWrap(True)
+        gs_layout.addWidget(gs_desc)
+
+        for label, opt in (
+            ("Standard:",   "gamescope -e -- %command%"),
+            ("HDR display:", "gamescope -e --hdr-enabled --adaptive-sync -- %command%"),
+            ("ujust recipe:", "ujust gamescope -- %command%"),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            row.addWidget(_launch_opt_label(label))
+            row.addWidget(_launch_opt_value(opt))
+            cp = QPushButton("Copy")
+            captured = opt
+            cp.clicked.connect(lambda _=False, t=captured: _copy_text(t))
+            row.addWidget(cp)
+            row.addStretch()
+            gs_layout.addLayout(row)
+        self._add(gs_card)
+
+        # ── GE-Proton ─────────────────────────────────────────────────────────
+        gp_card, gp_layout = _make_card()
+        gp_top = QHBoxLayout()
+        gp_title = QLabel("GE-Proton")
+        gp_title.setObjectName("card-title")
+        gp_top.addWidget(gp_title)
+        gp_top.addStretch()
+        self._gp_badge = QLabel()
+        self._gp_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        gp_top.addWidget(self._gp_badge)
+        gp_layout.addLayout(gp_top)
+        gp_desc = QLabel(
+            "Community Proton build with extra game patches, codec support, and "
+            "bleeding-edge Wine. Select it per-game in Steam → Properties → "
+            "Compatibility → Force the use of a specific Steam Play compatibility tool."
+        )
+        gp_desc.setObjectName("card-copy")
+        gp_desc.setWordWrap(True)
+        gp_layout.addWidget(gp_desc)
+        self._gp_version_lbl = QLabel()
+        self._gp_version_lbl.setObjectName("card-copy")
+        gp_layout.addWidget(self._gp_version_lbl)
+        gp_btns = QHBoxLayout()
+        gp_btns.setSpacing(10)
+        self._gp_update_btn = QPushButton("Update GE-Proton")
+        self._gp_update_btn.clicked.connect(self._update_ge_proton)
+        gp_btns.addWidget(self._gp_update_btn)
+        gp_btns.addStretch()
+        gp_layout.addLayout(gp_btns)
+        self._gp_op_status = QLabel()
+        self._gp_op_status.hide()
+        gp_layout.addWidget(self._gp_op_status)
+        self._gp_progress = QProgressBar()
+        self._gp_progress.setRange(0, 0)
+        self._gp_progress.hide()
+        gp_layout.addWidget(self._gp_progress)
+        self._gp_log = QTextEdit()
+        self._gp_log.setReadOnly(True)
+        self._gp_log.setMaximumHeight(120)
+        self._gp_log.hide()
+        gp_layout.addWidget(self._gp_log)
+        self._gp_worker = None
+        self._add(gp_card)
+
+        # ── vkBasalt ──────────────────────────────────────────────────────────
+        vk_card, vk_layout = _make_card()
+        vk_top = QHBoxLayout()
+        vk_title = QLabel("vkBasalt — Vulkan Post-Processing")
+        vk_title.setObjectName("card-title")
+        vk_top.addWidget(vk_title)
+        vk_top.addStretch()
+        self._vk_badge = QLabel()
+        self._vk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        vk_top.addWidget(self._vk_badge)
+        vk_layout.addLayout(vk_top)
+        vk_desc = QLabel(
+            "Adds post-processing to any Vulkan game: CAS sharpening (default), SMAA, "
+            "FXAA, or debanding. Only active when explicitly enabled per-game. "
+            "Config: /etc/vkBasalt.conf  ·  toggle key: Home."
+        )
+        vk_desc.setObjectName("card-copy")
+        vk_desc.setWordWrap(True)
+        vk_layout.addWidget(vk_desc)
+        vk_opts = QHBoxLayout()
+        vk_opts.setSpacing(10)
+        vk_opts.addWidget(_launch_opt_label("Steam launch option:"))
+        vk_opts.addWidget(_launch_opt_value("ENABLE_VKBASALT=1 %command%"))
+        vk_copy = QPushButton("Copy")
+        vk_copy.clicked.connect(lambda: _copy_text("ENABLE_VKBASALT=1 %command%"))
+        vk_opts.addWidget(vk_copy)
+        vk_opts.addStretch()
+        vk_layout.addLayout(vk_opts)
+        self._add(vk_card)
+
+        # ── Optional gaming tools ─────────────────────────────────────────────
+        self._divider()
+        tools_head = QLabel("Gaming Tools")
+        tools_head.setObjectName("heading")
+        tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(tools_head)
+        tools_sub = QLabel(
+            "Optional tools — install with one click. "
+            "Each is also available via the corresponding ujust recipe."
+        )
+        tools_sub.setObjectName("card-copy")
+        tools_sub.setWordWrap(True)
+        self._add(tools_sub)
+
+        self._TOOLS = [
+            {
+                "flatpak": "com.heroicgameslauncher.hgl",
+                "name": "Heroic Games Launcher",
+                "desc": "Epic Games, GOG and Amazon Games library in one place.",
+                "ujust": "install-heroic",
+                "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
+            },
+            {
+                "flatpak": "com.obsproject.Studio",
+                "name": "OBS Studio",
+                "desc": "Screen recording and live streaming.",
+                "ujust": "install-obs",
+                "launch": ["flatpak", "run", "com.obsproject.Studio"],
+            },
+            {
+                "flatpak": "io.itch.itch",
+                "name": "Itch.io",
+                "desc": "Indie game store and library manager.",
+                "ujust": "install-itch",
+                "launch": ["flatpak", "run", "io.itch.itch"],
+            },
+            {
+                "flatpak": "org.libretro.RetroArch",
+                "name": "RetroArch",
+                "desc": "Multi-system emulator frontend (NES, SNES, PS1, N64, …).",
+                "ujust": "install-retroarch",
+                "launch": ["flatpak", "run", "org.libretro.RetroArch"],
+            },
+            {
+                "flatpak": "org.freedesktop.Piper",
+                "name": "Piper",
+                "desc": "GUI for configuring gaming mice — DPI, buttons, and LEDs.",
+                "ujust": "install-piper",
+                "launch": ["flatpak", "run", "org.freedesktop.Piper"],
+            },
+            {
+                "flatpak": "org.openrgb.OpenRGB",
+                "name": "OpenRGB",
+                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals.",
+                "ujust": "install-openrgb",
+                "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
+            },
+        ]
+
+        # Build tiles in a 2-column grid
+        self._tool_refs: list[dict] = []
+        for i in range(0, len(self._TOOLS), 2):
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(16)
+            for tool in self._TOOLS[i:i + 2]:
+                tile, refs = self._make_tool_tile(tool)
+                row_layout.addWidget(tile, 1)
+                self._tool_refs.append(refs)
+            # Pad the last row if odd number of tools
+            if len(self._TOOLS[i:i + 2]) == 1:
+                row_layout.addStretch(1)
+            self._add_layout(row_layout)
+
+        # Shared install progress area
+        self._tool_op_status = QLabel()
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.hide()
+        self._add(self._tool_op_status)
+        self._tool_progress = QProgressBar()
+        self._tool_progress.setRange(0, 0)
+        self._tool_progress.hide()
+        self._add(self._tool_progress)
+        self._tool_log = QTextEdit()
+        self._tool_log.setReadOnly(True)
+        self._tool_log.setMaximumHeight(120)
+        self._tool_log.hide()
+        self._add(self._tool_log)
+        self._tool_worker = None
+
+        # ── Combos quick reference ────────────────────────────────────────────
+        self._divider()
+        combo_head = QLabel("Combining tools")
+        combo_head.setObjectName("card-title")
+        self._add(combo_head)
+        combo_sub = QLabel(
+            "These launch options can be stacked freely. "
+            "A good all-rounder for most games:"
+        )
+        combo_sub.setObjectName("card-copy")
+        combo_sub.setWordWrap(True)
+        self._add(combo_sub)
+        combo_txt = QTextEdit()
+        combo_txt.setReadOnly(True)
+        combo_txt.setMinimumHeight(160)
+        combo_txt.setPlainText(
+            "# All-rounder: MangoHud overlay + Gamescope compositor\n"
+            "MANGOHUD=1 gamescope -e -- %command%\n\n"
+            "# Same but with HDR (requires HDR display)\n"
+            "MANGOHUD=1 gamescope -e --hdr-enabled --adaptive-sync -- %command%\n\n"
+            "# Add CAS sharpening via vkBasalt\n"
+            "MANGOHUD=1 ENABLE_VKBASALT=1 gamescope -e -- %command%\n\n"
+            "# GameMode + performance profile (CPU/GPU governors, renice)\n"
+            "ujust game-performance -- %command%"
+        )
+        self._add(combo_txt)
+
+        self._stretch()
+        self._refresh_status()
+
+    # ── Tool tile builder ──────────────────────────────────────────────────────
+
+    def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
+        card, layout = _make_card()
+        layout.setSpacing(8)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        name_lbl = QLabel(tool["name"])
+        name_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f0f0f0;")
+        top.addWidget(name_lbl)
+        top.addStretch()
+        badge = QLabel()
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(badge)
+        layout.addLayout(top)
+
+        desc_lbl = QLabel(tool["desc"])
+        desc_lbl.setObjectName("card-copy")
+        desc_lbl.setWordWrap(True)
+        layout.addWidget(desc_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        install_btn = QPushButton("Install")
+        install_btn.setObjectName("primary")
+        install_btn.clicked.connect(
+            lambda _=False, t=tool: self._install_tool(t)
+        )
+        btn_row.addWidget(install_btn)
+        launch_btn = QPushButton("Launch")
+        launch_btn.hide()
+        launch_btn.clicked.connect(
+            lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
+        )
+        btn_row.addWidget(launch_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+        return card, refs
+
+    # ── Status ─────────────────────────────────────────────────────────────────
+
+    def _refresh_status(self):
+        def _set_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
+                       warn_text: str = "Not Installed"):
+            color = "#4dbb6f" if ok else "#555555"
+            text = ok_text if ok else warn_text
+            lbl.setText(f"  {text}  ")
+            lbl.setStyleSheet(
+                f"background: {color}22; color: {color}; border: 1px solid {color}44; "
+                f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
+            )
+
+        _set_badge(self._mh_badge, _mangohud_installed())
+        _set_badge(self._gs_badge, _gamescope_installed())
+        _set_badge(self._vk_badge, _vkbasalt_installed())
+
+        gp_ver = _ge_proton_version()
+        _set_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
+        self._gp_version_lbl.setText(
+            f"Installed: {gp_ver}" if gp_ver
+            else "GE-Proton not found in compatibilitytools.d"
+        )
+
+        for refs in self._tool_refs:
+            installed = _is_flatpak_installed(refs["tool"]["flatpak"])
+            _set_badge(refs["badge"], installed)
+            refs["install"].setVisible(not installed)
+            refs["launch"].setVisible(installed)
+
+    # ── Tool install ───────────────────────────────────────────────────────────
+
+    def _install_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        # Disable all install buttons while one is running
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+        self._tool_log.clear()
+        self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
+        self._tool_log.show()
+        self._tool_progress.show()
+        self._tool_op_status.setText(f"Installing {tool['name']}…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+
+        self._tool_worker = Worker(
+            ["flatpak", "install", "-y", "flathub", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            self._tool_log.append(ln),
+            self._tool_log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_install_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_install_done(self, code: int, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code == 0:
+            self._tool_op_status.setText(f"{name} installed.")
+            self._tool_op_status.setObjectName("status-ok")
+            self._tool_log.append("\nDone.")
+        else:
+            self._tool_op_status.setText(f"Installation failed (exit {code}).")
+            self._tool_op_status.setObjectName("status-err")
+        _restyle(self._tool_op_status)
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+        self._refresh_status()
+
+    # ── GE-Proton update ───────────────────────────────────────────────────────
+
+    def _update_ge_proton(self):
+        if self._gp_worker and self._gp_worker.isRunning():
+            return
+        self._gp_update_btn.setEnabled(False)
+        self._gp_log.clear()
+        self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
+        self._gp_log.show()
+        self._gp_progress.show()
+        self._gp_op_status.setText("Checking for GE-Proton update…")
+        self._gp_op_status.setObjectName("subheading")
+        self._gp_op_status.show()
+        _restyle(self._gp_op_status)
+        self._gp_worker = Worker(["sudo", "-A", "/usr/bin/kyth-ge-proton-update"])
+        self._gp_worker.line.connect(lambda ln: (
+            self._gp_log.append(ln),
+            self._gp_log.ensureCursorVisible(),
+        ))
+        self._gp_worker.done.connect(self._on_gp_update_done)
+        self._gp_worker.start()
+
+    def _on_gp_update_done(self, code: int):
+        self._gp_progress.hide()
+        _finish_worker(self, attr="_gp_worker")
+        self._gp_update_btn.setEnabled(True)
+        if code == 0:
+            self._gp_op_status.setText("GE-Proton is up to date.")
+            self._gp_op_status.setObjectName("status-ok")
+            self._gp_log.append("\nDone.")
+        else:
+            self._gp_op_status.setText(f"Update failed (exit {code}).")
+            self._gp_op_status.setObjectName("status-err")
+        _restyle(self._gp_op_status)
+        self._refresh_status()
+
+
+def _launch_opt_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setStyleSheet("font-size: 12px; color: #888888; min-width: 130px;")
+    return lbl
+
+
+def _launch_opt_value(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+    lbl.setStyleSheet(
+        "font-family: 'Noto Mono', 'Cascadia Code', monospace; "
+        "font-size: 12px; color: #c0c0c0; "
+        "background: #060606; border: 1px solid #1e1e1e; "
+        "border-radius: 4px; padding: 3px 8px;"
+    )
+    return lbl
+
+
+def _copy_text(text: str):
+    QApplication.clipboard().setText(text)
+
+
+# ── rclone OAuth authorization worker ────────────────────────────────────────
+class RcloneAuthorizeWorker(QThread):
+    """Runs `rclone authorize <type>` in the background; emits the token JSON on success."""
+    token_ready = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+    def __init__(self, remote_type: str):
+        super().__init__()
+        self._remote_type = remote_type
+        self._proc = None
+
+    def run(self):
+        try:
+            self._proc = subprocess.Popen(
+                ["rclone", "authorize", self._remote_type],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                stdin=subprocess.DEVNULL,  # prevent rclone blocking on interactive prompts
+                text=True,
+            )
+            stdout, stderr = self._proc.communicate(timeout=300)
+            if self._proc.returncode != 0 and not stdout.strip():
+                self.failed.emit(
+                    f"rclone authorize exited with code {self._proc.returncode}.\n\n"
+                    f"{stderr.strip()[:400]}"
+                )
+                return
+            token = self._extract_token(stdout) or self._extract_token(stderr)
+            if token:
+                self.token_ready.emit(token)
+            else:
+                combined = (stdout + stderr).strip()
+                self.failed.emit(
+                    "Authorization completed but could not parse the token.\n\n"
+                    f"Output:\n{combined[:600]}"
+                )
+        except subprocess.TimeoutExpired:
+            if self._proc:
+                self._proc.kill()
+            self.failed.emit("Authorization timed out after 5 minutes.")
+        except Exception as exc:
+            self.failed.emit(str(exc))
+
+    @staticmethod
+    def _extract_token(text: str) -> str | None:
+        start_marker = "Paste the following into your remote machine --->"
+        end_marker = "<---End paste"
+        if start_marker in text and end_marker in text:
+            start = text.index(start_marker) + len(start_marker)
+            end = text.index(end_marker, start)
+            candidate = text[start:end].strip()
+            if candidate.startswith("{"):
+                return candidate
+        m = re.search(r'\{"access_token"[^<>]*\}', text, re.DOTALL)
+        if m:
+            return m.group(0)
+        return None
+
+    def cancel(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+
+# ── rclone background sync worker ─────────────────────────────────────────────
+class RcloneSyncWorker(QThread):
+    """Runs `rclone sync remote: folder --progress` and streams output lines."""
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def __init__(self, remote: str, folder: str):
+        super().__init__()
+        self._remote = remote
+        self._folder = folder
+
+    def run(self):
+        try:
+            proc = subprocess.Popen(
+                ["rclone", "sync", f"{self._remote}:", self._folder,
+                 "--progress", "--stats-one-line", "--stats=2s"],
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                bufsize=1,
+            )
+            for ln in proc.stdout:
+                self.line.emit(ln.rstrip())
+            proc.wait()
+            self.done.emit(proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
+
+
+# ── rclone setup wizard dialog ────────────────────────────────────────────────
+class RcloneSetupWizard(QDialog):
+    """Four-step wizard: choose service → name/folder → browser OAuth → done."""
+
+    finished_ok = pyqtSignal(str, str, str)  # (remote_name, remote_type, local_folder)
+
+    _SERVICES: dict[str, dict] = {
+        "drive": {
+            "label": "Google Drive",
+            "description": "Google Drive via Google OAuth. Includes Shared Drives.",
+            "default_name": "gdrive",
+            "default_folder": os.path.expanduser("~/GoogleDrive"),
+            "docs_url": "https://rclone.org/drive/",
+        },
+    }
+
+    def __init__(self, parent=None, preselect: str = "drive"):
+        super().__init__(parent)
+        self.setWindowTitle("Cloud Storage Setup — Kyth")
+        self.setMinimumSize(600, 500)
+        self.resize(640, 540)
+        self.setModal(True)
+
+        self._auth_worker: RcloneAuthorizeWorker | None = None
+        self._token = ""
+        self._selected_service = preselect if preselect in self._SERVICES else "drive"
+        self._local_folder_for_open = ""
+
+        root = QVBoxLayout(self)
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        # ── Header ─────────────────────────────────────────────────────────────
+        header = QWidget()
+        header.setStyleSheet(
+            "QWidget { background: #080808; border-bottom: 1px solid #1c1c1c; }"
+        )
+        hdr_layout = QHBoxLayout(header)
+        hdr_layout.setContentsMargins(28, 16, 28, 16)
+        title_lbl = QLabel("Cloud Storage Setup")
+        title_lbl.setStyleSheet("font-size: 16px; font-weight: 700; color: #ffffff;")
+        hdr_layout.addWidget(title_lbl)
+        hdr_layout.addStretch()
+        self._step_label = QLabel()
+        self._step_label.setStyleSheet("font-size: 12px; color: #555555;")
+        hdr_layout.addWidget(self._step_label)
+        root.addWidget(header)
+
+        # ── Page stack ─────────────────────────────────────────────────────────
+        self._stack = QStackedWidget()
+        self._stack.addWidget(self._build_service_page())   # 0
+        self._stack.addWidget(self._build_remote_page())    # 1
+        self._stack.addWidget(self._build_auth_page())      # 2
+        self._stack.addWidget(self._build_done_page())      # 3
+        root.addWidget(self._stack, 1)
+
+        # ── Footer ─────────────────────────────────────────────────────────────
+        footer = QWidget()
+        footer.setStyleSheet(
+            "QWidget { background: #080808; border-top: 1px solid #1c1c1c; }"
+        )
+        ftr_layout = QHBoxLayout(footer)
+        ftr_layout.setContentsMargins(28, 14, 28, 14)
+        ftr_layout.setSpacing(10)
+        self._back_btn = QPushButton("← Back")
+        self._back_btn.clicked.connect(self._go_back)
+        ftr_layout.addWidget(self._back_btn)
+        ftr_layout.addStretch()
+        self._next_btn = QPushButton("Next →")
+        self._next_btn.setObjectName("primary")
+        self._next_btn.clicked.connect(self._go_next)
+        ftr_layout.addWidget(self._next_btn)
+        self._cancel_btn = QPushButton("Cancel")
+        self._cancel_btn.clicked.connect(self.reject)
+        ftr_layout.addWidget(self._cancel_btn)
+        root.addWidget(footer)
+
+        self._update_nav()
+
+    # ── Page builders ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _page_container() -> tuple[QWidget, QVBoxLayout]:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(32, 28, 32, 24)
+        layout.setSpacing(18)
+        return page, layout
+
+    def _build_service_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        heading = QLabel("Choose your cloud storage service")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        layout.addWidget(heading)
+
+        sub = QLabel(
+            "Select the service you want to connect. "
+            "You can run the wizard again to add more services later."
+        )
+        sub.setObjectName("card-copy")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(14)
+        self._service_btns: dict[str, QPushButton] = {}
+        for svc_id, info in self._SERVICES.items():
+            btn = QPushButton()
+            btn.setCheckable(True)
+            btn.setMinimumHeight(96)
+            btn.setStyleSheet("QPushButton { text-align: left; border-radius: 8px; }")
+            inner = QVBoxLayout(btn)
+            inner.setContentsMargins(16, 14, 16, 14)
+            inner.setSpacing(6)
+            name_lbl = QLabel(info["label"])
+            name_lbl.setStyleSheet(
+                "font-size: 14px; font-weight: 700; background: transparent; border: none;"
+            )
+            inner.addWidget(name_lbl)
+            desc_lbl = QLabel(info["description"])
+            desc_lbl.setWordWrap(True)
+            desc_lbl.setStyleSheet(
+                "font-size: 12px; color: #888888; background: transparent; border: none;"
+            )
+            inner.addWidget(desc_lbl)
+            btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
+            self._service_btns[svc_id] = btn
+            cards_row.addWidget(btn)
+
+        layout.addLayout(cards_row)
+        layout.addStretch()
+        self._select_service(self._selected_service)
+        return page
+
+    def _build_remote_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        heading = QLabel("Name and local folder")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        layout.addWidget(heading)
+
+        sub = QLabel(
+            "The remote name is used in rclone commands (e.g. rclone sync myname: ~/Folder). "
+            "The local folder is where your files will appear on this machine."
+        )
+        sub.setObjectName("card-copy")
+        sub.setWordWrap(True)
+        layout.addWidget(sub)
+
+        form_card, form_layout = _make_card()
+        form_layout.setSpacing(10)
+
+        name_lbl = QLabel("Remote name")
+        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        form_layout.addWidget(name_lbl)
+        self._name_edit = QLineEdit()
+        self._name_edit.setPlaceholderText("e.g. gdrive")
+        form_layout.addWidget(self._name_edit)
+        form_layout.addWidget(
+            _hint_label("Letters, digits, hyphens and underscores only. No spaces.")
+        )
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        form_layout.addWidget(sep)
+
+        folder_lbl = QLabel("Local sync folder")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        form_layout.addWidget(folder_lbl)
+        folder_row = QHBoxLayout()
+        folder_row.setSpacing(8)
+        self._folder_edit = QLineEdit()
+        self._folder_edit.setPlaceholderText("e.g. /home/user/GoogleDrive")
+        folder_row.addWidget(self._folder_edit, 1)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_folder)
+        folder_row.addWidget(browse_btn)
+        form_layout.addLayout(folder_row)
+        form_layout.addWidget(
+            _hint_label("Folder will be created automatically if it does not exist.")
+        )
+
+        layout.addWidget(form_card)
+        layout.addStretch()
+        return page
+
+    def _build_auth_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        self._auth_heading = QLabel("Authorize access")
+        self._auth_heading.setStyleSheet(
+            "font-size: 17px; font-weight: 700; color: #f0f0f0;"
+        )
+        layout.addWidget(self._auth_heading)
+
+        self._auth_sub = QLabel(
+            "Click the button below to open your browser and sign in. "
+            "This window will update automatically once authorization is complete — "
+            "you don't need to do anything else here while the browser is open."
+        )
+        self._auth_sub.setObjectName("card-copy")
+        self._auth_sub.setWordWrap(True)
+        layout.addWidget(self._auth_sub)
+
+        auth_card, auth_card_layout = _make_card()
+        auth_card_layout.setSpacing(14)
+
+        self._auth_status_lbl = QLabel("Ready — click the button below to begin.")
+        self._auth_status_lbl.setWordWrap(True)
+        auth_card_layout.addWidget(self._auth_status_lbl)
+
+        self._auth_progress = QProgressBar()
+        self._auth_progress.setRange(0, 0)
+        self._auth_progress.hide()
+        auth_card_layout.addWidget(self._auth_progress)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._auth_start_btn = QPushButton("Open Browser & Authorize")
+        self._auth_start_btn.setObjectName("primary")
+        self._auth_start_btn.clicked.connect(self._start_auth)
+        btn_row.addWidget(self._auth_start_btn)
+        self._auth_cancel_btn = QPushButton("Cancel")
+        self._auth_cancel_btn.hide()
+        self._auth_cancel_btn.clicked.connect(self._cancel_auth)
+        btn_row.addWidget(self._auth_cancel_btn)
+        btn_row.addStretch()
+        auth_card_layout.addLayout(btn_row)
+
+        layout.addWidget(auth_card)
+        layout.addStretch()
+        return page
+
+    def _build_done_page(self) -> QWidget:
+        page, layout = self._page_container()
+
+        done_heading = QLabel("All set!")
+        done_heading.setStyleSheet(
+            "font-size: 22px; font-weight: 700; color: #4dbb6f;"
+        )
+        layout.addWidget(done_heading)
+
+        self._done_sub = QLabel("")
+        self._done_sub.setObjectName("card-copy")
+        self._done_sub.setWordWrap(True)
+        layout.addWidget(self._done_sub)
+
+        done_card, done_card_layout = _make_card()
+        done_card_layout.setSpacing(12)
+
+        self._done_summary = QLabel("")
+        self._done_summary.setWordWrap(True)
+        self._done_summary.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+        )
+        done_card_layout.addWidget(self._done_summary)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        done_card_layout.addWidget(sep)
+
+        cmds_lbl = QLabel("Useful commands:")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
+        done_card_layout.addWidget(cmds_lbl)
+
+        self._done_cmds = QTextEdit()
+        self._done_cmds.setReadOnly(True)
+        self._done_cmds.setMaximumHeight(110)
+        done_card_layout.addWidget(self._done_cmds)
+
+        open_row = QHBoxLayout()
+        self._open_folder_btn = QPushButton("Open Folder in Files")
+        self._open_folder_btn.clicked.connect(self._open_local_folder)
+        open_row.addWidget(self._open_folder_btn)
+        open_row.addStretch()
+        done_card_layout.addLayout(open_row)
+
+        layout.addWidget(done_card)
+        layout.addStretch()
+        return page
+
+    # ── Navigation ─────────────────────────────────────────────────────────────
+
+    def _go_next(self):
+        step = self._stack.currentIndex()
+        if step == 0:
+            info = self._SERVICES[self._selected_service]
+            self._name_edit.setText(info["default_name"])
+            self._folder_edit.setText(info["default_folder"])
+            self._auth_heading.setText(f"Authorize {info['label']}")
+            self._stack.setCurrentIndex(1)
+        elif step == 1:
+            if not self._validate_remote_page():
+                return
+            self._stack.setCurrentIndex(2)
+        elif step == 2:
+            if not self._token:
+                QMessageBox.warning(
+                    self, "Authorization Required",
+                    "Please complete browser authorization before continuing."
+                )
+                return
+            self._apply_config()
+        elif step == 3:
+            self.accept()
+        self._update_nav()
+
+    def _go_back(self):
+        step = self._stack.currentIndex()
+        if step == 2:
+            self._cancel_auth()
+        if step > 0:
+            self._stack.setCurrentIndex(step - 1)
+            self._update_nav()
+
+    def _update_nav(self):
+        step = self._stack.currentIndex()
+        self._step_label.setText(f"Step {step + 1} of 4")
+        self._back_btn.setVisible(0 < step < 3)
+        self._cancel_btn.setVisible(step < 3)
+        if step == 2:
+            self._next_btn.setVisible(bool(self._token))
+            self._next_btn.setText("Next →")
+        elif step == 3:
+            self._next_btn.setVisible(True)
+            self._next_btn.setText("Close")
+        else:
+            self._next_btn.setVisible(True)
+            self._next_btn.setText("Next →")
+
+    # ── Service selection ──────────────────────────────────────────────────────
+
+    def _select_service(self, svc_id: str):
+        self._selected_service = svc_id
+        for sid, btn in self._service_btns.items():
+            if sid == svc_id:
+                btn.setChecked(True)
+                btn.setStyleSheet(
+                    "QPushButton { background: #0f2044; border: 2px solid #3d70e8; "
+                    "border-radius: 8px; text-align: left; }"
+                )
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet(
+                    "QPushButton { background: #111111; border: 1px solid #222222; "
+                    "border-radius: 8px; text-align: left; }"
+                )
+
+    # ── Remote page ────────────────────────────────────────────────────────────
+
+    def _validate_remote_page(self) -> bool:
+        name = self._name_edit.text().strip()
+        if not name or not re.match(r'^[A-Za-z0-9_-]+$', name):
+            QMessageBox.warning(
+                self, "Invalid Name",
+                "Remote name must contain only letters, digits, hyphens, and underscores."
+            )
+            return False
+        folder = self._folder_edit.text().strip()
+        if not folder:
+            QMessageBox.warning(self, "No Folder", "Please enter a local sync folder path.")
+            return False
+        return True
+
+    def _browse_folder(self):
+        current = self._folder_edit.text().strip() or os.path.expanduser("~")
+        chosen = QFileDialog.getExistingDirectory(self, "Select Sync Folder", current)
+        if chosen:
+            self._folder_edit.setText(chosen)
+
+    # ── Authorization flow ─────────────────────────────────────────────────────
+
+    def _start_auth(self):
+        self._auth_start_btn.setEnabled(False)
+        self._auth_cancel_btn.show()
+        self._auth_progress.show()
+        self._auth_status_lbl.setText(
+            "Browser opened — please sign in and grant access, then return here."
+        )
+        self._auth_status_lbl.setObjectName("subheading")
+        _restyle(self._auth_status_lbl)
+
+        self._auth_worker = RcloneAuthorizeWorker(self._selected_service)
+        self._auth_worker.token_ready.connect(self._on_auth_success)
+        self._auth_worker.failed.connect(self._on_auth_failed)
+        self._auth_worker.start()
+
+    def _cancel_auth(self):
+        if self._auth_worker and self._auth_worker.isRunning():
+            self._auth_worker.cancel()
+            self._auth_worker.wait(2000)
+        self._token = ""
+        self._auth_start_btn.setEnabled(True)
+        self._auth_start_btn.show()
+        self._auth_cancel_btn.hide()
+        self._auth_progress.hide()
+        self._auth_status_lbl.setText("Ready — click the button below to begin.")
+        self._auth_status_lbl.setObjectName("")
+        _restyle(self._auth_status_lbl)
+
+    def _on_auth_success(self, token: str):
+        self._token = token
+        self._auth_progress.hide()
+        self._auth_cancel_btn.hide()
+        self._auth_start_btn.hide()
+        self._auth_status_lbl.setText(
+            "Authorization successful!  Click Next → to save and test the connection."
+        )
+        self._auth_status_lbl.setObjectName("status-ok")
+        _restyle(self._auth_status_lbl)
+        self._update_nav()  # reveals Next button
+
+    def _on_auth_failed(self, error: str):
+        self._auth_start_btn.setEnabled(True)
+        self._auth_cancel_btn.hide()
+        self._auth_progress.hide()
+        self._auth_status_lbl.setText(f"Authorization failed — {error[:200]}")
+        self._auth_status_lbl.setObjectName("status-err")
+        _restyle(self._auth_status_lbl)
+
+    # ── Config creation + done page ────────────────────────────────────────────
+
+    def _apply_config(self):
+        name = self._name_edit.text().strip()
+        svc = self._selected_service
+        folder = self._folder_edit.text().strip()
+
+        try:
+            os.makedirs(folder, exist_ok=True)
+        except OSError as exc:
+            QMessageBox.critical(self, "Folder Error", f"Could not create folder:\n{exc}")
+            return
+
+        try:
+            result = subprocess.run(
+                ["rclone", "config", "create", name, svc,
+                 "token", self._token, "--non-interactive"],
+                capture_output=True, text=True, timeout=30,
+                stdin=subprocess.DEVNULL,
+            )
+        except FileNotFoundError:
+            QMessageBox.critical(self, "rclone Not Found",
+                                 "rclone is not installed or not on PATH.")
+            return
+        except subprocess.TimeoutExpired:
+            QMessageBox.critical(self, "Config Timeout",
+                                 "rclone config create timed out. "
+                                 "Check that rclone is working correctly.")
+            return
+        except Exception as exc:
+            QMessageBox.critical(self, "Config Error",
+                                 f"Unexpected error running rclone:\n{exc}")
+            return
+        if result.returncode != 0:
+            QMessageBox.critical(
+                self, "Config Error",
+                f"Failed to write rclone config:\n{result.stderr.strip()[:300]}"
+            )
+            return
+
+        # Verify the remote actually works by listing the root
+        verify = subprocess.run(
+            ["rclone", "lsd", f"{name}:", "--max-depth", "0"],
+            capture_output=True, text=True, timeout=20,
+            stdin=subprocess.DEVNULL,
+        )
+        conn_ok = verify.returncode == 0
+
+        info = self._SERVICES[svc]
+        if conn_ok:
+            self._done_sub.setText(
+                f"Your {info['label']} is configured and the connection was verified."
+            )
+        else:
+            err_hint = verify.stderr.strip()[:200]
+            self._done_sub.setText(
+                f"Your {info['label']} was configured, but the connection test failed.\n\n"
+                f"You may need to re-run the wizard or check your account permissions.\n"
+                f"Error: {err_hint}"
+            )
+        self._done_summary.setText(
+            f"Remote name:   {name}\n"
+            f"Service:            {info['label']}\n"
+            f"Local folder:    {folder}"
+        )
+        self._done_cmds.setPlainText(
+            f"# Sync cloud → local (one-shot):\n"
+            f"rclone sync {name}: {folder} --progress\n\n"
+            f"# Mount as a virtual drive (stays open until unmounted):\n"
+            f"rclone mount {name}: {folder} --daemon --vfs-cache-mode full"
+        )
+        self._local_folder_for_open = folder
+        self._stack.setCurrentIndex(3)
+        self._update_nav()
+        # Always emit so the cloud page registers the folder and shows sync controls,
+        # even if the connection test failed (config is on disk regardless)
+        self.finished_ok.emit(name, svc, folder)
+
+    def _open_local_folder(self):
+        if self._local_folder_for_open and os.path.isdir(self._local_folder_for_open):
+            QDesktopServices.openUrl(QUrl.fromLocalFile(self._local_folder_for_open))
+
+
+def _hint_label(text: str) -> QLabel:
+    lbl = QLabel(text)
+    lbl.setObjectName("card-copy")
+    lbl.setWordWrap(True)
+    return lbl
+
+
+# ── Page: Cloud Storage ───────────────────────────────────────────────────────
+class CloudStoragePage(Page):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+        self._gd_sync_worker: RcloneSyncWorker | None = None
+        self._sync_config: dict = _load_sync_config()
+
+        self._heading("Cloud Storage")
+        self._subheading(
+            "Connect Google Drive or Dropbox to keep your files in sync."
+        )
+        self._divider()
+
+        # ── Google Drive card ─────────────────────────────────────────────────
+        gd_card, gd_layout = _make_card()
+        gd_title = QLabel("Google Drive")
+        gd_title.setObjectName("card-title")
+        gd_layout.addWidget(gd_title)
+        gd_desc = QLabel(
+            "Sync or mount your Google Drive via rclone. "
+            "The setup wizard handles browser OAuth — no terminal required."
+        )
+        gd_desc.setObjectName("card-copy")
+        gd_desc.setWordWrap(True)
+        gd_layout.addWidget(gd_desc)
+        self._gd_status = QLabel()
+        self._gd_status.setWordWrap(True)
+        gd_layout.addWidget(self._gd_status)
+        gd_btns = QHBoxLayout()
+        gd_btns.setSpacing(10)
+        self._gd_install_btn = QPushButton("Install rclone first")
+        self._gd_install_btn.setObjectName("primary")
+        self._gd_install_btn.hide()
+        self._gd_install_btn.clicked.connect(self._install_rclone)
+        gd_btns.addWidget(self._gd_install_btn)
+        self._gd_wizard_btn = QPushButton("Setup Wizard…")
+        self._gd_wizard_btn.setObjectName("primary")
+        self._gd_wizard_btn.clicked.connect(lambda: self._open_wizard("drive"))
+        gd_btns.addWidget(self._gd_wizard_btn)
+        gd_kde_btn = QPushButton("KDE Online Accounts")
+        gd_kde_btn.clicked.connect(
+            lambda: subprocess.Popen(["kcmshell6", "kcm_kaccounts"])
+        )
+        gd_btns.addWidget(gd_kde_btn)
+        gd_btns.addStretch()
+        gd_layout.addLayout(gd_btns)
+
+        # Sync status row
+        self._gd_sync_status = QLabel()
+        self._gd_sync_status.setWordWrap(True)
+        self._gd_sync_status.setObjectName("card-copy")
+        self._gd_sync_status.hide()
+        gd_layout.addWidget(self._gd_sync_status)
+        gd_sync_btns = QHBoxLayout()
+        gd_sync_btns.setSpacing(10)
+        self._gd_sync_btn = QPushButton("Sync Now")
+        self._gd_sync_btn.clicked.connect(lambda: self._start_gd_sync())
+        self._gd_sync_btn.hide()
+        gd_sync_btns.addWidget(self._gd_sync_btn)
+        self._gd_log_btn = QPushButton("Sync Log")
+        self._gd_log_btn.hide()
+        self._gd_log_btn.clicked.connect(self._toggle_gd_sync_log)
+        gd_sync_btns.addWidget(self._gd_log_btn)
+        gd_sync_btns.addStretch()
+        gd_layout.addLayout(gd_sync_btns)
+
+        self._gd_sync_log = QTextEdit()
+        self._gd_sync_log.setReadOnly(True)
+        self._gd_sync_log.setMaximumHeight(100)
+        self._gd_sync_log.setObjectName("card-copy")
+        self._gd_sync_log.setPlaceholderText("Sync output will appear here…")
+        self._gd_sync_log.hide()
+        gd_layout.addWidget(self._gd_sync_log)
+        self._gd_sync_log_visible = False
+        self._gd_last_sync_lines: list[str] = []
+
+        self._add(gd_card)
+
+        # Periodic GD sync timer
+        self._gd_sync_timer = QTimer(self)
+        self._gd_sync_timer.setInterval(_SYNC_INTERVAL_MS)
+        self._gd_sync_timer.timeout.connect(lambda: self._start_gd_sync())
+        self._gd_sync_timer.start()
+
+        # ── Dropbox card ──────────────────────────────────────────────────────
+        db_card, db_layout = _make_card()
+        db_title = QLabel("Dropbox")
+        db_title.setObjectName("card-title")
+        db_layout.addWidget(db_title)
+        db_desc = QLabel(
+            "Official Dropbox client via Flatpak. Syncs ~/Dropbox automatically "
+            "in the background and adds a system tray icon."
+        )
+        db_desc.setObjectName("card-copy")
+        db_desc.setWordWrap(True)
+        db_layout.addWidget(db_desc)
+        self._db_status = QLabel()
+        self._db_status.setWordWrap(True)
+        db_layout.addWidget(self._db_status)
+        db_btns = QHBoxLayout()
+        db_btns.setSpacing(10)
+        self._db_install_btn = QPushButton("Install via Flatpak")
+        self._db_install_btn.setObjectName("primary")
+        self._db_install_btn.clicked.connect(self._install_dropbox)
+        db_btns.addWidget(self._db_install_btn)
+        self._db_launch_btn = QPushButton("Launch Dropbox")
+        self._db_launch_btn.clicked.connect(self._launch_dropbox)
+        db_btns.addWidget(self._db_launch_btn)
+        db_btns.addStretch()
+        db_layout.addLayout(db_btns)
+        self._add(db_card)
+
+        self._divider()
+
+        refresh_row = QHBoxLayout()
+        refresh_row.setSpacing(10)
+        refresh_btn = QPushButton("Refresh Status")
+        refresh_btn.clicked.connect(self._refresh_status)
+        refresh_row.addWidget(refresh_btn)
+        refresh_row.addStretch()
+        self._add_layout(refresh_row)
+
+        # ── Install progress area ─────────────────────────────────────────────
+        self._op_status = QLabel()
+        self._op_status.setObjectName("subheading")
+        self._op_status.hide()
+        self._add(self._op_status)
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        self._add(self._progress)
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(150)
+        self._log.hide()
+        self._add(self._log)
+
+        self._stretch()
+        self._refresh_status()
+
+    # ── Status ─────────────────────────────────────────────────────────────────
+
+    def _refresh_status(self):
+        rclone = _rclone_available()
+        remotes = _rclone_list_remotes() if rclone else []
+        gd_remotes = [n for n, t in remotes if t == "drive"]
+        db_installed = _is_flatpak_installed("com.dropbox.Client") or bool(shutil.which("dropbox"))
+
+        # Google Drive
+        if not rclone:
+            self._gd_status.setText("rclone is not installed. Install it to use Google Drive.")
+            self._gd_status.setObjectName("status-warn")
+            self._gd_install_btn.show()
+            self._gd_install_btn.setEnabled(True)
+            self._gd_wizard_btn.hide()
+        elif gd_remotes:
+            names = ", ".join(gd_remotes)
+            self._gd_status.setText(f"Configured: {names}")
+            self._gd_status.setObjectName("status-ok")
+            self._gd_install_btn.hide()
+            self._gd_wizard_btn.setText("Add / Reconfigure…")
+            self._gd_wizard_btn.show()
+        else:
+            self._gd_status.setText("No Google Drive remote configured yet.")
+            self._gd_status.setObjectName("status-warn")
+            self._gd_install_btn.hide()
+            self._gd_wizard_btn.setText("Setup Wizard…")
+            self._gd_wizard_btn.show()
+        _restyle(self._gd_status)
+
+        # Google Drive sync status — show for any configured remote; backfill sync_config if needed
+        for n in gd_remotes:
+            if n not in self._sync_config:
+                self._sync_config[n] = {
+                    "folder": os.path.expanduser("~/GoogleDrive"),
+                    "service": "drive",
+                }
+                _save_sync_config(self._sync_config)
+        if gd_remotes:
+            self._gd_sync_status.show()
+            self._gd_sync_btn.show()
+            self._gd_log_btn.show()
+            if not (self._gd_sync_worker and self._gd_sync_worker.isRunning()):
+                self._update_gd_sync_label()
+        else:
+            self._gd_sync_status.hide()
+            self._gd_sync_btn.hide()
+            self._gd_log_btn.hide()
+            self._gd_sync_log.hide()
+
+        # Dropbox
+        if db_installed:
+            self._db_status.setText("Dropbox is installed.")
+            self._db_status.setObjectName("status-ok")
+            self._db_install_btn.hide()
+            self._db_launch_btn.show()
+        else:
+            self._db_status.setText("Dropbox is not installed.")
+            self._db_status.setObjectName("status-warn")
+            self._db_install_btn.show()
+            self._db_install_btn.setEnabled(True)
+            self._db_launch_btn.hide()
+        _restyle(self._db_status)
+
+    # ── Wizard launcher ────────────────────────────────────────────────────────
+
+    def _open_wizard(self, preselect: str):
+        wizard = RcloneSetupWizard(self, preselect=preselect)
+
+        def _on_wizard_done(name: str, svc: str, folder: str):
+            self._sync_config[name] = {"folder": folder, "service": svc}
+            _save_sync_config(self._sync_config)
+            self._refresh_status()
+            if svc == "drive":
+                self._start_gd_sync(name, folder)
+
+        wizard.finished_ok.connect(_on_wizard_done)
+        wizard.exec()
+
+    def _update_gd_sync_label(self):
+        """Refresh the Google Drive sync status label from stored config."""
+        for name, info in self._sync_config.items():
+            if info.get("service") != "drive":
+                continue
+            last = info.get("last_sync")
+            ok = info.get("last_ok", True)
+            if last:
+                ts = datetime.fromtimestamp(last).strftime("%H:%M")
+                if ok:
+                    self._gd_sync_status.setText(f"Last synced at {ts} — syncs every 5 min")
+                    self._gd_sync_status.setObjectName("status-ok")
+                else:
+                    self._gd_sync_status.setText(f"Sync failed at {ts}")
+                    self._gd_sync_status.setObjectName("status-err")
+                _restyle(self._gd_sync_status)
+                return
+        self._gd_sync_status.setText("Not synced yet — click Sync Now or wait for auto-sync")
+        self._gd_sync_status.setObjectName("card-copy")
+        _restyle(self._gd_sync_status)
+
+    # ── Google Drive sync ──────────────────────────────────────────────────────
+
+    def _start_gd_sync(self, remote: str | None = None, folder: str | None = None):
+        if self._gd_sync_worker and self._gd_sync_worker.isRunning():
+            return
+
+        if remote is None or folder is None:
+            for name, info in self._sync_config.items():
+                if info.get("service") == "drive":
+                    remote, folder = name, info.get("folder", "")
+                    break
+
+        if not remote or not folder:
+            return
+
+        self._gd_sync_status.setText(f"Syncing {remote}…")
+        self._gd_sync_status.setObjectName("status-warn")
+        _restyle(self._gd_sync_status)
+        self._gd_sync_status.show()
+        self._gd_sync_btn.show()
+        self._gd_sync_btn.setEnabled(False)
+        self._gd_log_btn.show()
+        self._gd_last_sync_lines = []
+        if self._gd_sync_log_visible:
+            self._gd_sync_log.clear()
+            self._gd_sync_log.show()
+
+        self._gd_sync_worker = RcloneSyncWorker(remote, folder)
+        self._gd_sync_worker.line.connect(self._on_gd_sync_line)
+        self._gd_sync_worker.done.connect(lambda code: self._on_gd_sync_done(remote, code))
+        self._gd_sync_worker.start()
+
+    def _on_gd_sync_line(self, line: str):
+        if line.strip():
+            self._gd_last_sync_lines.append(line)
+            if len(self._gd_last_sync_lines) > 200:
+                self._gd_last_sync_lines = self._gd_last_sync_lines[-200:]
+            if self._gd_sync_log_visible:
+                self._gd_sync_log.append(line)
+
+    def _on_gd_sync_done(self, remote: str, code: int):
+        _finish_worker(self, attr="_gd_sync_worker")
+        now = time.time()
+        ok = code == 0
+        if remote in self._sync_config:
+            self._sync_config[remote]["last_sync"] = now
+            self._sync_config[remote]["last_ok"] = ok
+            _save_sync_config(self._sync_config)
+        self._gd_sync_btn.setEnabled(True)
+        self._update_gd_sync_label()
+        if self._gd_sync_log_visible:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            self._gd_sync_log.append(
+                f"\n[{ts}] Sync {'completed' if ok else 'FAILED'} (exit {code})"
+            )
+
+    def _toggle_gd_sync_log(self):
+        self._gd_sync_log_visible = not self._gd_sync_log_visible
+        if self._gd_sync_log_visible:
+            self._gd_sync_log.clear()
+            if self._gd_last_sync_lines:
+                self._gd_sync_log.setPlainText("\n".join(self._gd_last_sync_lines))
+            self._gd_sync_log.show()
+            self._gd_log_btn.setText("Hide Log")
+        else:
+            self._gd_sync_log.hide()
+            self._gd_log_btn.setText("Sync Log")
+
+    # ── rclone install ─────────────────────────────────────────────────────────
+
+    def _install_rclone(self):
+        self._gd_install_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ Downloading rclone binary from rclone.org…\n")
+        self._log.show()
+        self._progress.show()
+        self._op_status.setText("Installing rclone…")
+        self._op_status.setObjectName("subheading")
+        self._op_status.show()
+        _restyle(self._op_status)
+        # Download the current rclone binary directly — no rpm-ostree, no reboot needed.
+        # Installs to /usr/local/bin which is a writable overlay on bootc systems.
+        install_cmd = (
+            "set -euo pipefail && "
+            "cd /tmp && "
+            "curl -fsSL 'https://downloads.rclone.org/rclone-current-linux-amd64.zip' -o rclone-dl.zip && "
+            "unzip -o rclone-dl.zip 'rclone-*-linux-amd64/rclone' && "
+            "install -m 755 rclone-*-linux-amd64/rclone /usr/local/bin/rclone && "
+            "rm -rf rclone-dl.zip rclone-*-linux-amd64"
+        )
+        self._worker = Worker(["sudo", "-A", "bash", "-c", install_cmd])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_rclone_install_done)
+        self._worker.start()
+
+    def _on_rclone_install_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        if code == 0:
+            self._op_status.setText(
+                "rclone installed to /usr/local/bin/rclone. "
+                "Use the Setup Wizard to connect your cloud accounts."
+            )
+            self._op_status.setObjectName("status-ok")
+            self._log.append("\nDone. No reboot required.")
+        else:
+            self._op_status.setText(f"Installation failed (exit code {code}).")
+            self._op_status.setObjectName("status-err")
+            self._gd_install_btn.setEnabled(True)
+        _restyle(self._op_status)
+        self._refresh_status()
+
+    # ── Dropbox ────────────────────────────────────────────────────────────────
+
+    def _install_dropbox(self):
+        self._db_install_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ flatpak install -y flathub com.dropbox.Client\n")
+        self._log.show()
+        self._progress.show()
+        self._op_status.setText("Installing Dropbox…")
+        self._op_status.setObjectName("subheading")
+        self._op_status.show()
+        _restyle(self._op_status)
+        self._worker = Worker(["flatpak", "install", "-y", "flathub", "com.dropbox.Client"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_dropbox_install_done)
+        self._worker.start()
+
+    def _on_dropbox_install_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        if code == 0:
+            self._op_status.setText("Dropbox installed. Launch it to sign in.")
+            self._op_status.setObjectName("status-ok")
+            self._log.append("\nDone.")
+        else:
+            self._op_status.setText(f"Installation failed (exit code {code}).")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._refresh_status()
+
+    def _launch_dropbox(self):
+        if shutil.which("dropbox"):
+            subprocess.Popen(["dropbox"])
+        else:
+            subprocess.Popen(["flatpak", "run", "com.dropbox.Client"])
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 class NavButton(QPushButton):
     def __init__(self, label: str):
@@ -2201,7 +3934,9 @@ class MainWindow(QMainWindow):
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
-        ver_lbl = QLabel("Kyth 43 · CachyOS")
+        _branch = _current_branch()
+        _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "Kyth 43")
+        ver_lbl = QLabel(f"{_branch_text} · Fedora 43")
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
@@ -2212,11 +3947,13 @@ class MainWindow(QMainWindow):
         nav_entries = [
             ("Welcome",        "Welcome"),
             ("Hardware",       "Hardware"),
-            ("Diagnostics",    "Diagnostics"),
-            ("Update",         "Update"),
-            ("Branches",       "Branches"),
             ("Firmware",       "Firmware"),
+            ("Update",         "Update"),
             ("NVIDIA Drivers", "NVIDIA"),
+            ("Gaming",         "Gaming"),
+            ("Cloud Storage",  "Cloud Storage"),
+            ("Diagnostics",    "Diagnostics"),
+            ("Branches",       "Branches"),
             ("Repair",         "Repair"),
         ]
 
@@ -2236,11 +3973,13 @@ class MainWindow(QMainWindow):
         self._pages = [
             WelcomePage(),
             HardwarePage(),
-            DiagnosticsPage(),
-            UpdatePage(),
-            BranchesPage(),
             FirmwarePage(),
+            UpdatePage(),
             NvidiaPage(),
+            GamingPage(),
+            CloudStoragePage(),
+            DiagnosticsPage(),
+            BranchesPage(),
             RepairPage(),
         ]
         for page in self._pages:

@@ -86,13 +86,11 @@ EOF
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
-# rpm-ostree upgrade pulls from the base Kinoite ostree repo, not Kyth.
-# System updates go through bootc instead (see [commands] below).
-#
-# distrobox: disabled because distrobox-upgrade --all fails without a PTY
-# (runs inside the kyth-welcome GUI and topgrade exits non-zero as a result).
-# Update containers manually with: distrobox-upgrade --all
-disable = ["rpm_ostree", "distrobox"]
+# system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
+# distrobox: disabled because distrobox-upgrade --all fails without a PTY.
+#   Update containers manually with: distrobox-upgrade --all
+# containers: podman container updates fail on a bootc read-only system.
+disable = ["system", "distrobox", "containers"]
 
 [commands]
 # -n makes sudo fail fast if it can't run non-interactively, rather than hanging
@@ -164,6 +162,16 @@ cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
+
+# ── SDDM login screen background ─────────────────────────────────────────────
+# theme.conf.user overrides the breeze SDDM theme defaults without modifying
+# the upstream theme files. The wallpaper is already installed above.
+mkdir -p /usr/share/sddm/themes/breeze
+cat > /usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
+[General]
+type=image
+background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+SDDMEOF
 
 # ── Kyth logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
@@ -246,6 +254,12 @@ PLASMADESKTOPEOF
 mkdir -p /etc/MangoHud
 install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 
+# ── vkBasalt defaults ─────────────────────────────────────────────────────────
+# vkBasalt is inactive unless ENABLE_VKBASALT=1 is set per-game.
+# Ship a default config (CAS sharpening) so it works correctly when enabled.
+# Users can override with ~/.config/vkBasalt/vkBasalt.conf
+install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
+
 # ── Outlook PWA ───────────────────────────────────────────────────────────────
 # Adds Microsoft Outlook to the Internet section of the app launcher via a
 # .desktop file that opens it as a Brave PWA (no browser chrome).
@@ -304,7 +318,10 @@ install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
+install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
+install -m 0755 /ctx/kyth-nvidia-setup /usr/bin/kyth-nvidia-setup
+install -m 0644 /ctx/kyth-nvidia-setup.service /usr/lib/systemd/system/kyth-nvidia-setup.service
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
@@ -368,6 +385,8 @@ systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
+systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
+systemctl enable kyth-nvidia-setup.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive kdialog
