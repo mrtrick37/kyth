@@ -1,0 +1,17 @@
+[Unit]
+Description=Kyth NVIDIA driver first-boot setup
+Documentation=https://github.com/mrtrick37/kyth
+# Run after the filesystem is ready but don't block the display manager —
+# akmods can take 5-15 min and we don't want to stall the first login screen.
+After=sysinit.target local-fs.target
+ConditionPathExists=!/var/lib/kyth/nvidia-setup-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-nvidia-setup
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

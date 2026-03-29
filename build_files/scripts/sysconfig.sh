@@ -11,6 +11,14 @@ vm.compaction_proactiveness = 0
 vm.dirty_ratio = 10
 vm.dirty_background_ratio = 5
 vm.page_lock_unfairness = 1
+# Disable swap read-ahead — on SSDs random I/O is fast; prefetching neighbours
+# wastes bandwidth and causes micro-stutter under memory pressure
+vm.page-cluster = 0
+# Disable watermark boost — prevents burst memory reclaim spikes that cause stutter
+vm.watermark_boost_factor = 0
+# Reduce VFS cache reclaim aggressiveness — keeps game asset dentries/inodes
+# in cache longer (default 100; 50 = half as eager to evict)
+vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
 vm.max_map_count = 2147483642
 
@@ -25,6 +33,14 @@ net.ipv4.tcp_rmem = 4096 87380 67108864
 net.ipv4.tcp_wmem = 4096 65536 67108864
 # TCP Fast Open — reduce connection latency for repeat destinations
 net.ipv4.tcp_fastopen = 3
+
+# inotify — raise watch/instance limits for game clients and Electron launchers
+# (EA App, Battle.net, etc. watch large directory trees and hit the 8192 default)
+fs.inotify.max_user_watches = 524288
+fs.inotify.max_user_instances = 1024
+
+# Disable NMI watchdog — reduces interrupt overhead on gaming desktops
+kernel.nmi_watchdog = 0
 
 # Scheduler
 kernel.sched_autogroup_enabled = 1
@@ -87,10 +103,19 @@ cat > /etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 wifi.powersave = 2
 NMEOF
 
-# iwlwifi (Intel WiFi) specific: disable driver power-save and BT coexistence.
+# ── WiFi driver tweaks ────────────────────────────────────────────────────────
+mkdir -p /etc/modprobe.d
+
+# MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
+# ASPM puts the PCIe device into a low-power state it may not reliably wake
+# from, causing sudden disconnects and requiring a driver reload or reboot.
+cat > /etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
+options mt7921e disable_aspm=1
+MT76EOF
+
+# iwlwifi (Intel WiFi): disable driver power-save and BT coexistence.
 # bt_coex_active=0 stops the driver from halving WiFi throughput when Bluetooth
 # is active (common cause of dropped signal during BT headset/controller use).
-mkdir -p /etc/modprobe.d
 cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
@@ -102,8 +127,8 @@ IWLEOF
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
-# NVMe: bypass scheduler entirely
-ACTION=="add|change", KERNEL=="nvme[0-9]*", ATTR{queue/scheduler}="none"
+# NVMe: bypass scheduler entirely (DEVTYPE==disk excludes partition nodes which lack queue/scheduler)
+ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
 # SATA SSDs (non-rotational): deadline with low latency
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 # HDDs: BFQ to avoid seek storms
@@ -131,15 +156,30 @@ PWEOF
 # PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
 #   Forces 32-bit Windows games to use the full 4 GB address space, reducing
 #   OOM crashes in memory-heavy titles (e.g. Skyrim modded, DayZ).
-# RADV_PERFTEST=gpl:
-#   Enables Vulkan Graphics Pipeline Library on RADV — pre-compiles pipeline
-#   shaders during load rather than at draw time, eliminating compilation stutter.
+# mesa_glthread=true:
+#   Offloads OpenGL command submission to a second thread, improving CPU-bound
+#   framerate in OpenGL games (Minecraft, older Source titles, etc.). Safe
+#   system-wide; Vulkan/DXVK games are unaffected.
 mkdir -p /etc/environment.d
 cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
-RADV_PERFTEST=gpl
+AMD_VULKAN_ICD=RADV
+PROTON_ENABLE_NVAPI=1
+PROTON_USE_NTSYNC=1
+VKD3D_CONFIG=dxr11,dxr
+mesa_glthread=true
 PROTONEOF
+
+# ── Open file descriptor limit (esync / general compatibility) ────────────────
+# esync requires a high open-file limit; even with NTSYNC some games fall back
+# to it. 1048576 matches Bazzite and CachyOS defaults. Applied to both system
+# services and user sessions.
+mkdir -p /etc/systemd/system.conf.d /etc/systemd/user.conf.d
+echo '[Manager]
+DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
+echo '[Manager]
+DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
@@ -156,6 +196,11 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
     /usr/share/applications/steam.desktop \
     > /usr/local/share/applications/steam.desktop
 
+# systemd-remount-fs tries to remount the root filesystem, which is immutable
+# on bootc/ostree systems and always fails with exit status 32. Mask it.
+systemctl mask systemd-remount-fs.service
+
+systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
 systemctl enable libvirtd.socket
 systemctl enable fwupd 2>/dev/null || true
@@ -171,7 +216,7 @@ systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.serv
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker; do
+for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
