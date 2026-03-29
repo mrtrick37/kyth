@@ -200,11 +200,11 @@ def _run_install() -> None:
                 if _total_bytes[0] == 0 or _rx_start[0] == 0:
                     continue
 
-                rx_now   = _get_rx_bytes()
-                t_now    = time.monotonic()
-                downloaded = max(0, rx_now - _rx_start[0])
-                frac     = min(0.95, downloaded / _total_bytes[0])
-                pct      = int(pct_start + frac * (pct_end - pct_start))
+                rx_now     = _get_rx_bytes()
+                t_now      = time.monotonic()
+                downloaded = min(_total_bytes[0], max(0, rx_now - _rx_start[0]))
+                frac       = min(0.95, downloaded / _total_bytes[0])
+                pct        = int(pct_start + frac * (pct_end - pct_start))
                 progress(pct)
 
                 # Rolling average speed over last 5 samples
@@ -1419,18 +1419,24 @@ function listenSSE() {
       if (t.includes('Hostname set'))                          layerStat.textContent = 'Applying system configuration…';
 
     } else if (d.type === 'stats') {
-      // Real-time download stats from the backend network monitor
-      const dlStr    = humanBytes(d.downloaded);
-      const totStr   = humanBytes(d.total);
-      const speedStr = humanBytes(d.speed) + '/s';
-      let etaStr = '';
-      if (d.eta_sec > 0) {
-        etaStr = d.eta_sec > 60
-          ? `  ·  ~${Math.ceil(d.eta_sec / 60)}m remaining`
-          : `  ·  ~${d.eta_sec}s remaining`;
+      // Real-time download stats from the backend network monitor.
+      // downloaded is already capped at total by the backend.
+      const totStr = humanBytes(d.total);
+
+      // Detect transition: download done, bootc is now writing/deploying to disk.
+      // Speed drops to near-zero once all bytes are received.
+      if (d.downloaded >= d.total * 0.95 && d.speed < 1024 * 1024) {
+        phase.textContent     = 'Writing OS image to disk…';
+        layerStat.textContent = `Download complete  (${totStr})  —  writing OS tree to disk…`;
+      } else {
+        const dlStr    = humanBytes(d.downloaded);
+        const speedStr = humanBytes(d.speed) + '/s';
+        let etaStr = '';
+        if (d.eta_sec > 60)      etaStr = `  ·  ~${Math.ceil(d.eta_sec / 60)}m remaining`;
+        else if (d.eta_sec > 0)  etaStr = `  ·  ~${d.eta_sec}s remaining`;
+        phase.textContent     = `Downloading  ${dlStr} / ${totStr}  ·  ${speedStr}${etaStr}`;
+        layerStat.textContent = `${dlStr} of ${totStr} downloaded  ·  ${speedStr}${etaStr}`;
       }
-      phase.textContent     = `Downloading  ${dlStr} / ${totStr}  ·  ${speedStr}${etaStr}`;
-      layerStat.textContent = `${dlStr} of ${totStr} downloaded  ·  ${speedStr}${etaStr}`;
 
     } else if (d.type === 'progress') {
       const v = d.value;
