@@ -93,18 +93,18 @@ clean-docker:
     echo ""
     docker system df
 
-# Reclaim space specifically for Anaconda ISO dev loops.
-# Removes stale kyth-anaconda images/tags, prunes build cache/volumes,
+# Reclaim space specifically for live ISO dev loops.
+# Removes stale kyth-live images/tags, prunes build cache/volumes,
 # and deletes temporary VM disk and build directories.
 [group('Utility')]
-prune-anaconda-dev:
+prune-live-dev:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    echo "── Removing stale kyth-anaconda images ─────────────────────────────────"
+    echo "── Removing stale kyth-live images ──────────────────────────────────────"
     docker images \
         | awk 'NR>1 {print $1":"$2}' \
-        | grep '^kyth-anaconda:' \
+        | grep '^kyth-live:' \
         | xargs -r docker rmi -f || true
 
     echo ""
@@ -115,10 +115,10 @@ prune-anaconda-dev:
 
     echo ""
     echo "── Removing stale VM/build temp artefacts ───────────────────────────────"
-    find /tmp -maxdepth 1 -type f \( -name 'kyth-anaconda-test.qcow2' -o -name 'kyth-live-test.qcow2' \) -delete || true
-    find /var/tmp -maxdepth 2 -type f \( -name 'kyth-anaconda-test.qcow2' -o -name 'kyth-live-test.qcow2' \) -delete || true
+    find /tmp -maxdepth 1 -type f -name 'kyth-live-test.qcow2' -delete || true
+    find /var/tmp -maxdepth 2 -type f -name 'kyth-live-test.qcow2' -delete || true
     find /tmp -maxdepth 1 -type d -name 'kyth-vm-share-*' -exec rm -rf {} + || true
-    find /var/tmp -maxdepth 1 -type d \( -name 'kyth-anaconda.*' -o -name 'kyth-live.*' \) -exec rm -rf {} + || true
+    find /var/tmp -maxdepth 1 -type d -name 'kyth-live.*' -exec rm -rf {} + || true
 
     echo ""
     echo "── Post-cleanup summary ───────────────────────────────────────────────────"
@@ -433,34 +433,34 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a live ISO with the Anaconda WebUI installer (netinstall — pulls OS from
-# the registry at install time via ostreecontainer kickstart directive).
-# Pass source_tag to target a different branch: just build-anaconda-iso testing
+# Build a live ISO with the Kyth web installer (netinstall — pulls OS from
+# the registry at install time via bootc install to-disk).
+# Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]
-build-anaconda-iso source_tag="latest":
+build-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    SOURCE_TAG={{ source_tag }} bash build_files/build-anaconda-iso.sh
+    SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Force a full rebuild of the Anaconda live ISO, ignoring the cached container layer.
-# Use after changing Containerfile.anaconda or any file it COPYs.
+# Force a full rebuild of the live ISO, ignoring the cached container layer.
+# Use after changing Containerfile.live or any file it COPYs.
 [group('Build Virtual Machine Image')]
-rebuild-anaconda-iso source_tag="latest":
+rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-anaconda-iso.sh
+    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
-# Boot the Anaconda live ISO in a VM (BIOS, web UI at http://localhost:PORT).
-# Uses the dedicated artifact name from build-anaconda-iso.sh:
-#   output/live-iso/kyth-live-anaconda-<tag>.iso
+# Boot the live ISO in a VM (BIOS, web UI at http://localhost:PORT).
+# Uses the dedicated artifact name from build-live-iso.sh:
+#   output/live-iso/kyth-live-<tag>.iso
 [group('Run Virtual Machine')]
-run-anaconda-iso source_tag="latest":
+run-live-iso source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
+    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
     if [[ ! -f "${image_file}" ]]; then
-        just build-anaconda-iso {{ source_tag }}
+        just build-live-iso {{ source_tag }}
     fi
 
     port=8006
@@ -483,24 +483,24 @@ run-anaconda-iso source_tag="latest":
         --volume "${PWD}/${image_file}:/boot.iso" \
         docker.io/qemux/qemu
 
-# Boot the Anaconda ISO directly in native QEMU (SPICE window, better clipboard).
+# Boot the live ISO directly in native QEMU (SPICE window, better clipboard).
 # Useful when noVNC copy/paste is awkward while collecting installer logs.
 [group('Run Virtual Machine')]
-run-anaconda-iso-native source_tag="latest":
+run-live-iso-native source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
+    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
     if [[ ! -f "${image_file}" ]]; then
-        just build-anaconda-iso {{ source_tag }}
+        just build-live-iso {{ source_tag }}
     fi
 
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
-    disk_img="${disk_dir}/kyth-anaconda-test.qcow2"
+    disk_img="${disk_dir}/kyth-live-test.qcow2"
 
     # Optional one-shot reset for a clean VM install target.
-    if [[ "${ANACONDA_VM_RESET:-0}" == "1" ]]; then
+    if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
         rm -f "${disk_img}"
     fi
 
@@ -508,9 +508,9 @@ run-anaconda-iso-native source_tag="latest":
     avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
     min_bytes=$((30 * 1024 * 1024 * 1024))
     if [[ "${avail_bytes}" -lt "${min_bytes}" ]]; then
-        echo "Insufficient free space for Anaconda VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
+        echo "Insufficient free space for live ISO VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
         echo "Need >= 30 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
-        echo "Run: just prune-anaconda-dev"
+        echo "Run: just prune-live-dev"
         exit 1
     fi
 
@@ -562,32 +562,32 @@ run-anaconda-iso-native source_tag="latest":
     env XDG_CACHE_HOME="${rv_cache}" TMPDIR="/var/tmp" remote-viewer spice://localhost:5931 &
     wait "${QEMU_PID}"
 
-# Alternate Anaconda native run target that keeps legacy boot behavior.
+# Alternate live ISO native run target that keeps legacy boot behavior (-no-reboot).
 # Useful for A/B testing reboot-path issues against the reboot-friendly target above.
 [group('Run Virtual Machine')]
-run-anaconda-iso-native-legacy source_tag="latest":
+run-live-iso-native-legacy source_tag="latest":
     #!/usr/bin/bash
     set -eoux pipefail
 
-    image_file="output/live-iso/kyth-live-anaconda-{{ source_tag }}.iso"
+    image_file="output/live-iso/kyth-live-{{ source_tag }}.iso"
     if [[ ! -f "${image_file}" ]]; then
-        just build-anaconda-iso {{ source_tag }}
+        just build-live-iso {{ source_tag }}
     fi
 
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
-    disk_img="${disk_dir}/kyth-anaconda-test.qcow2"
+    disk_img="${disk_dir}/kyth-live-test.qcow2"
 
-    if [[ "${ANACONDA_VM_RESET:-0}" == "1" ]]; then
+    if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
         rm -f "${disk_img}"
     fi
 
     avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
     min_bytes=$((30 * 1024 * 1024 * 1024))
     if [[ "${avail_bytes}" -lt "${min_bytes}" ]]; then
-        echo "Insufficient free space for Anaconda VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
+        echo "Insufficient free space for live ISO VM disk writes on $(df --output=target "${disk_dir}" | tail -n 1)."
         echo "Need >= 30 GiB free, found $((avail_bytes / 1024 / 1024 / 1024)) GiB."
-        echo "Run: just prune-anaconda-dev"
+        echo "Run: just prune-live-dev"
         exit 1
     fi
 

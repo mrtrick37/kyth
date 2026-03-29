@@ -1,0 +1,1543 @@
+#!/usr/bin/env python3
+"""
+kyth-installer — Web-based graphical installer for Kyth OS
+
+Starts a local HTTP server, serves a polished single-page installer UI,
+and launches a browser in kiosk/app mode to display it.
+
+Install pipeline:
+  1. podman pull SOURCE_IMAGE
+  2. bootc install to-disk --source-imgref containers-storage:IMAGE DISK
+  3. mount root partition, write hostname + timezone to ostree deploy/etc
+"""
+
+import sys
+import os
+
+import glob
+import json
+import subprocess
+import threading
+import time
+import traceback
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from typing import Optional
+from urllib.parse import urlparse
+
+# ── Configuration ─────────────────────────────────────────────────────────────
+
+SOURCE_IMAGE = os.environ.get("KYTH_SOURCE_IMAGE", "ghcr.io/mrtrick37/kyth:latest")
+TARGET_IMAGE = os.environ.get("KYTH_TARGET_IMAGE", SOURCE_IMAGE)
+LOG_FILE = Path(os.environ.get("KYTH_INSTALLER_LOG", "/tmp/kyth-installer.log"))
+PORT = 7777
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+
+def list_disks() -> list[dict]:
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes", "--nodeps",
+             "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA"],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        result = []
+        for d in json.loads(out).get("blockdevices", []):
+            size = int(d.get("size", 0))
+            if d.get("type") == "disk" and size > 0:
+                result.append({
+                    "name":   f"/dev/{d['name']}",
+                    "model":  (d.get("model") or "Unknown Disk").strip(),
+                    "size":   _human_size(size),
+                    "bytes":  size,
+                    "rota":   bool(d.get("rota")),
+                    "tran":   d.get("tran") or "",
+                })
+        return result
+    except Exception:
+        return []
+
+
+def _human_size(n: int) -> str:
+    for unit in ("B", "KB", "MB", "GB", "TB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} PB"
+
+
+def list_timezones() -> list[str]:
+    try:
+        out = subprocess.check_output(["timedatectl", "list-timezones"], text=True)
+        return [l.strip() for l in out.splitlines() if l.strip()]
+    except Exception:
+        return ["UTC"]
+
+
+def find_deploy_etc(root_mount: str) -> Optional[str]:
+    candidates = sorted(glob.glob(
+        f"{root_mount}/ostree/deploy/default/deploy/*/etc"
+    ))
+    return candidates[-1] if candidates else None
+
+
+def get_root_partition(disk: str) -> str:
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes", "--output", "NAME,SIZE,TYPE", disk],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        parts = []
+        for d in json.loads(out).get("blockdevices", []):
+            for c in d.get("children", []):
+                if c.get("type") == "part":
+                    parts.append((int(c.get("size", 0)), c["name"]))
+        if parts:
+            return "/dev/" + sorted(parts, reverse=True)[0][1]
+    except Exception:
+        pass
+    base = disk.lstrip("/dev/")
+    sep = "p" if (base.startswith("nvme") or base.startswith("mmcblk")) else ""
+    return f"{disk}{sep}3"
+
+
+def check_network() -> bool:
+    import socket
+    try:
+        with socket.create_connection(("ghcr.io", 443), timeout=5):
+            return True
+    except Exception:
+        return False
+
+
+def _as_root(cmd: list[str]) -> list[str]:
+    if os.geteuid() == 0:
+        return cmd
+    return ["sudo", "-n", *cmd]
+
+
+# ── Install state ─────────────────────────────────────────────────────────────
+
+_state: dict = {
+    "disk": "", "disk_model": "", "disk_size": "",
+    "hostname": "kyth", "timezone": "UTC",
+    "username": "", "password": "",
+}
+
+# Event log — append-only so late SSE connections can replay from the start.
+_events: list[dict] = []
+_events_lock = threading.Lock()
+_new_event = threading.Condition(_events_lock)
+
+
+def _push(event: dict) -> None:
+    with _new_event:
+        _events.append(event)
+        _new_event.notify_all()
+
+
+def _run_install() -> None:
+    LOG_FILE.write_text("")
+
+    def log(msg: str) -> None:
+        _push({"type": "log", "text": msg})
+        with LOG_FILE.open("a") as f:
+            f.write(msg + "\n")
+
+    def progress(pct: int) -> None:
+        _push({"type": "progress", "value": pct})
+
+    # Layer progress state shared across run_cmd calls (used by bootc phase)
+    _layers_total: list[int] = [0]
+    _layers_done:  list[int] = [0]
+
+    def run_cmd(cmd: list[str], pct_start: int, pct_end: int) -> None:
+        full_cmd = _as_root(cmd)
+        log(f"$ {' '.join(full_cmd)}")
+        proc = subprocess.Popen(
+            full_cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, bufsize=1,
+        )
+        t0 = time.monotonic()
+        pct_range = pct_end - pct_start
+        for line in proc.stdout:
+            stripped = line.rstrip()
+            log(stripped)
+            # Parse bootc layer totals: "layers already present: X; layers needed: Y"
+            if "layers needed:" in stripped:
+                try:
+                    _layers_total[0] = int(
+                        stripped.split("layers needed:")[1].split()[0].rstrip(",)")
+                    )
+                except Exception:
+                    pass
+            # Count each blob/config copy as one completed unit
+            if stripped.startswith("Copying "):
+                _layers_done[0] += 1
+            # Real progress when we have a layer count; time-based fallback otherwise
+            if _layers_total[0] > 0:
+                frac = min(0.95, _layers_done[0] / _layers_total[0])
+            else:
+                elapsed = time.monotonic() - t0
+                frac = min(0.95, elapsed / (elapsed + 300.0))
+            progress(int(pct_start + frac * pct_range))
+        proc.wait()
+        if proc.returncode != 0:
+            raise RuntimeError(
+              f"Command failed (exit {proc.returncode}):\n  {' '.join(full_cmd)}"
+            )
+        progress(pct_end)
+
+    try:
+        disk = _state["disk"]
+        log(f"Source image : {SOURCE_IMAGE}")
+        log(f"Target image : {TARGET_IMAGE}")
+        log(f"Disk         : {disk}")
+        log("")
+
+        log("── Phase 1: Pulling and writing OS image to disk ─────────────")
+        log("    (bootc streams directly from registry to disk — no RAM copy)")
+        run_cmd([
+            "bootc", "install", "to-disk",
+            "--source-imgref", f"docker://{SOURCE_IMAGE}",
+            "--target-imgref", TARGET_IMAGE,
+            "--filesystem", "btrfs",
+            "--generic-image",
+            "--skip-fetch-check",
+            "--wipe",
+            disk,
+        ], 5, 90)
+
+        log("── Phase 3: Configuring system ────────────────────────────────")
+        root_part = get_root_partition(disk)
+        mount = "/var/tmp/kyth-install-root"
+        Path(mount).mkdir(parents=True, exist_ok=True)
+        subprocess.run(_as_root(["mount", root_part, mount]), check=True)
+        try:
+            etc = find_deploy_etc(mount)
+            if etc:
+                subprocess.run(
+                    _as_root(["/usr/bin/tee", str(Path(etc, "hostname"))]),
+                    input=f"{_state['hostname']}\n",
+                    text=True,
+                    stdout=subprocess.DEVNULL,
+                    check=True,
+                )
+                log(f"Hostname set: {_state['hostname']}")
+                ltime = Path(etc, "localtime")
+                subprocess.run(
+                    _as_root(["ln", "-snf", f"/usr/share/zoneinfo/{_state['timezone']}", str(ltime)]),
+                    check=True,
+                )
+                log(f"Timezone set: {_state['timezone']}")
+
+                # ── User account ──────────────────────────────────────────────
+                username = _state.get("username", "").strip()
+                password = _state.get("password", "")
+                if username and password:
+                    deploy_root = str(Path(etc).parent)
+                    log(f"Creating user: {username}")
+                    try:
+                        # useradd --root operates on the target /etc directly —
+                        # no chroot needed, no bind mounts, no PAM issues.
+                        # -M: skip home dir creation (we create it manually below
+                        #     because the deploy's /var symlink breaks in a chroot)
+                        subprocess.run(
+                            _as_root([
+                                "useradd", "--root", deploy_root,
+                                "-M",
+                                "-G", "wheel,video,audio,render",
+                                "-s", "/bin/bash",
+                                username,
+                            ]),
+                            check=True,
+                        )
+
+                        # Hash password with openssl — avoids PAM/chpasswd issues
+                        hash_r = subprocess.run(
+                            ["openssl", "passwd", "-6", "-stdin"],
+                            input=password, text=True,
+                            capture_output=True, check=True,
+                        )
+                        pw_hash = hash_r.stdout.strip()
+
+                        # Write hash into deploy's /etc/shadow via direct Python
+                        # string manipulation — avoids sed regex edge-cases with
+                        # '$' characters in the hash and shadow file format quirks.
+                        shadow_path = f"{etc}/shadow"
+                        cat_r = subprocess.run(
+                            _as_root(["cat", shadow_path]),
+                            capture_output=True, text=True, check=True,
+                        )
+                        new_shadow_lines = []
+                        hash_written = False
+                        for line in cat_r.stdout.splitlines(keepends=True):
+                            if line.startswith(f"{username}:"):
+                                fields = line.split(":")
+                                fields[1] = pw_hash
+                                new_shadow_lines.append(":".join(fields))
+                                hash_written = True
+                            else:
+                                new_shadow_lines.append(line)
+                        if not hash_written:
+                            raise RuntimeError(
+                                f"User '{username}' not found in {shadow_path} "
+                                "after useradd — password NOT set"
+                            )
+                        subprocess.run(
+                            _as_root(["tee", shadow_path]),
+                            input="".join(new_shadow_lines), text=True,
+                            stdout=subprocess.DEVNULL, check=True,
+                        )
+
+                        # Resolve UID/GID from the written passwd entry
+                        uid, gid = "1000", "1000"
+                        cat_r = subprocess.run(
+                            _as_root(["cat", f"{etc}/passwd"]),
+                            capture_output=True, text=True,
+                        )
+                        for line in cat_r.stdout.splitlines():
+                            if line.startswith(f"{username}:"):
+                                parts = line.split(":")
+                                uid, gid = parts[2], parts[3]
+                                break
+
+                        # Create home at the ostree stateroot var — this is where
+                        # /home/user resolves to on the running bootc system
+                        var_home = Path(mount) / "ostree/deploy/default/var/home" / username
+                        subprocess.run(_as_root(["mkdir", "-p", str(var_home)]), check=True)
+                        subprocess.run(_as_root(["chown", f"{uid}:{gid}", str(var_home)]), check=True)
+                        subprocess.run(_as_root(["chmod", "700", str(var_home)]), check=True)
+
+                        # Populate from skeleton
+                        skel = Path(deploy_root) / "etc/skel"
+                        if skel.exists():
+                            subprocess.run(
+                                _as_root(["cp", "-rT", str(skel), str(var_home)]),
+                                check=True,
+                            )
+                            subprocess.run(
+                                _as_root(["chown", "-R", f"{uid}:{gid}", str(var_home)]),
+                                check=True,
+                            )
+
+                        log(f"User '{username}' created (uid={uid})")
+                    except Exception as ue:
+                        log(f"Warning: user creation failed: {ue}")
+                        log("Create a user after first boot: sudo useradd -m -G wheel USERNAME")
+            else:
+                log("Warning: deploy/etc not found — skipping configuration")
+        finally:
+            subprocess.run(_as_root(["sync"]), check=False)
+            subprocess.run(_as_root(["umount", mount]), check=False)
+
+        progress(100)
+        _push({"type": "done"})
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        try:
+            with LOG_FILE.open("a") as f:
+                f.write(tb)
+        except Exception:
+            pass
+        _push({"type": "error", "message": str(exc)})
+
+
+# ── HTTP Handler ──────────────────────────────────────────────────────────────
+
+class Handler(BaseHTTPRequestHandler):
+    def log_message(self, *_):
+        pass  # silence access log
+
+    # CORS header for local dev convenience
+    def _cors(self) -> None:
+        self.send_header("Access-Control-Allow-Origin", "*")
+
+    def do_GET(self) -> None:
+        path = urlparse(self.path).path
+        if path == "/":
+            self._html()
+        elif path == "/api/config":
+            self._json({
+                "source_image": SOURCE_IMAGE,
+                "target_image": TARGET_IMAGE,
+            })
+        elif path == "/api/disks":
+            self._json(list_disks())
+        elif path == "/api/timezones":
+            self._json(list_timezones())
+        elif path == "/api/network":
+            self._json({"ok": check_network()})
+        elif path == "/api/stream":
+            self._sse()
+        else:
+            self.send_error(404)
+
+    def do_POST(self) -> None:
+        path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length", 0))
+        body = json.loads(self.rfile.read(length)) if length else {}
+
+        if path == "/api/start":
+            _state.update({
+                "disk":       body.get("disk", ""),
+                "disk_model": body.get("disk_model", ""),
+                "disk_size":  body.get("disk_size", ""),
+                "hostname":   body.get("hostname", "kyth"),
+                "timezone":   body.get("timezone", "UTC"),
+                "username":   body.get("username", ""),
+                "password":   body.get("password", ""),
+            })
+            # Reset event log for a fresh install attempt
+            with _events_lock:
+                _events.clear()
+            threading.Thread(target=_run_install, daemon=True).start()
+            self._json({"started": True})
+        elif path == "/api/gparted":
+            subprocess.Popen(_as_root(["gparted"]))
+            self._json({"ok": True})
+        elif path == "/api/reboot":
+            subprocess.Popen(_as_root(["reboot"]))
+            self._json({"ok": True})
+        else:
+            self.send_error(404)
+
+    def _html(self) -> None:
+        data = _HTML.encode()
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", len(data))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _json(self, data: object) -> None:
+        body = json.dumps(data).encode()
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", len(body))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _sse(self) -> None:
+        self.send_response(200)
+        self._cors()
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("X-Accel-Buffering", "no")
+        self.end_headers()
+
+        sent = 0
+        while True:
+            with _new_event:
+                while sent >= len(_events):
+                    _new_event.wait(timeout=15)
+                    if sent >= len(_events):
+                        # keepalive
+                        try:
+                            self.wfile.write(b":ka\n\n")
+                            self.wfile.flush()
+                        except Exception:
+                            return
+                batch = _events[sent:]
+
+            for event in batch:
+                try:
+                    self.wfile.write(f"data: {json.dumps(event)}\n\n".encode())
+                    self.wfile.flush()
+                except Exception:
+                    return
+                sent += 1
+                if event["type"] in ("done", "error"):
+                    return
+
+
+# ── Embedded Web UI ───────────────────────────────────────────────────────────
+
+_HTML = r"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kyth Installer</title>
+<style>
+/* ── Reset & Base ─────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg:        #0c0c0c;
+  --surface:   #141414;
+  --surface2:  #1c1c1c;
+  --border:    #2a2a2a;
+  --accent:    #3b82f6;
+  --accent-hi: #60a5fa;
+  --accent-lo: #1d4ed8;
+  --text:      #d8d8d8;
+  --muted:     #6b6b6b;
+  --green:     #4ade80;
+  --red:       #f87171;
+  --amber:     #fbbf24;
+  --sidebar-w: 220px;
+  --radius:    10px;
+  --font:      'Inter', 'Noto Sans', system-ui, sans-serif;
+  --mono:      'JetBrains Mono', 'Noto Mono', 'Liberation Mono', monospace;
+  --ease:      cubic-bezier(.4,0,.2,1);
+}
+
+html, body {
+  height: 100%; width: 100%;
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 15px;
+  line-height: 1.55;
+  overflow: hidden;
+}
+
+/* ── Layout ────────────────────────────────────────────────────────── */
+#app {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* ── Sidebar ───────────────────────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar-w);
+  min-width: var(--sidebar-w);
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 32px 0 24px;
+  z-index: 10;
+}
+
+.logo {
+  padding: 0 24px 28px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.5px;
+  background: linear-gradient(135deg, #60a5fa, #93c5fd);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.steps { flex: 1; padding: 0 12px; }
+
+.step {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  margin-bottom: 2px;
+  cursor: default;
+  transition: background .2s var(--ease);
+}
+
+.step-num {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  flex-shrink: 0;
+  transition: all .25s var(--ease);
+}
+
+.step-label {
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 500;
+  transition: color .2s var(--ease);
+}
+
+.step.active .step-num {
+  background: var(--accent);
+  border-color: var(--accent-hi);
+  color: #fff;
+  box-shadow: 0 0 12px var(--accent-lo);
+}
+
+.step.active .step-label { color: var(--text); font-weight: 600; }
+.step.active { background: rgba(96,96,248,.08); }
+
+.step.done .step-num {
+  background: transparent;
+  border-color: var(--accent-lo);
+  color: var(--accent-hi);
+}
+.step.done .step-label { color: var(--muted); }
+.step.done .step-num::after { content: "✓"; font-size: 13px; }
+
+.sidebar-footer {
+  padding: 0 24px;
+  font-size: 11px;
+  color: var(--border);
+  letter-spacing: .3px;
+}
+
+/* ── Content area ──────────────────────────────────────────────────── */
+#content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Page ──────────────────────────────────────────────────────────── */
+.page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 48px 56px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(16px);
+  transition: opacity .3s var(--ease), transform .3s var(--ease);
+}
+
+.page.active {
+  opacity: 1;
+  pointer-events: all;
+  transform: translateY(0);
+}
+
+/* ── Card ──────────────────────────────────────────────────────────── */
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 40px 44px;
+  width: 100%;
+  max-width: 700px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  box-shadow: 0 24px 64px rgba(0,0,14,.6);
+}
+
+.card-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: -.3px;
+  margin-bottom: 6px;
+}
+
+.card-sub {
+  font-size: 14px;
+  color: var(--muted);
+  margin-bottom: 28px;
+}
+
+.divider {
+  height: 1px;
+  background: var(--border);
+  margin-bottom: 24px;
+}
+
+/* ── Buttons ───────────────────────────────────────────────────────── */
+.btn-row {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 28px;
+}
+
+button {
+  padding: 10px 22px;
+  border-radius: 8px;
+  border: 1px solid var(--border);
+  background: var(--surface2);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .15s, border-color .15s, box-shadow .15s;
+}
+
+button:hover { background: #1a1a3a; border-color: var(--accent-lo); }
+button:active { background: #0e0e28; }
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent-hi);
+  color: #fff;
+  font-weight: 600;
+}
+button.primary:hover {
+  background: var(--accent-hi);
+  box-shadow: 0 0 20px rgba(96,96,248,.4);
+}
+button.primary:disabled {
+  background: #1a1a38;
+  border-color: var(--border);
+  color: var(--muted);
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+button.danger {
+  background: #1c0a0a;
+  border-color: #5a1a1a;
+  color: #e09090;
+}
+button.danger:hover { background: #2a0f0f; }
+
+/* ── Form elements ─────────────────────────────────────────────────── */
+.field-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  margin-bottom: 8px;
+  margin-top: 18px;
+}
+
+input[type=text], input[type=password], select {
+  width: 100%;
+  padding: 11px 14px;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 14px;
+  outline: none;
+  transition: border-color .15s, box-shadow .15s;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input[type=text]:focus, input[type=password]:focus, select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(96,96,248,.2);
+}
+
+select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%23666' stroke-width='1.5' fill='none' stroke-linecap='round'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 14px center; padding-right: 36px; }
+
+/* ── Status messages ───────────────────────────────────────────────── */
+.status-box {
+  padding: 14px 18px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.status-ok   { background: rgba(77,232,77,.08); border: 1px solid rgba(77,232,77,.25); color: var(--green); }
+.status-err  { background: rgba(232,77,77,.08); border: 1px solid rgba(232,77,77,.25); color: var(--red); }
+.status-info { background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+
+/* ── Disk cards ────────────────────────────────────────────────────── */
+.disk-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.disk-card {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 16px 18px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+  user-select: none;
+}
+
+.disk-card:hover { background: #16163a; border-color: var(--accent-lo); }
+
+.disk-card.selected {
+  border-color: var(--accent);
+  background: rgba(96,96,248,.1);
+  box-shadow: 0 0 0 3px rgba(96,96,248,.15);
+}
+
+.disk-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  flex-shrink: 0;
+}
+
+.disk-info { flex: 1; }
+.disk-name { font-size: 14px; font-weight: 600; font-family: var(--mono); }
+.disk-detail { font-size: 13px; color: var(--muted); margin-top: 2px; }
+
+.disk-size {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--accent-hi);
+}
+
+.disk-tools {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+/* ── Warning banner ────────────────────────────────────────────────── */
+.warn-box {
+  background: rgba(232,160,48,.07);
+  border: 1px solid rgba(232,160,48,.25);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  color: var(--amber);
+  margin-top: 14px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ── Review table ──────────────────────────────────────────────────── */
+.review-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.review-table tr { border-bottom: 1px solid var(--border); }
+.review-table tr:last-child { border-bottom: none; }
+.review-table td { padding: 12px 0; vertical-align: top; }
+.review-table .rl { color: var(--muted); width: 140px; font-size: 13px; }
+.review-table .rv { font-weight: 500; font-family: var(--mono); font-size: 13px; color: #a0a0e8; word-break: break-all; }
+.review-table .rv.plain { font-family: var(--font); color: var(--text); }
+
+/* ── Progress bar ──────────────────────────────────────────────────── */
+.progress-wrap {
+  margin: 6px 0 16px;
+}
+
+.progress-label {
+  font-size: 13px;
+  color: var(--muted);
+  margin-bottom: 8px;
+  display: flex;
+  justify-content: space-between;
+}
+
+.progress-bar {
+  height: 6px;
+  background: var(--surface2);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent), var(--accent-hi));
+  border-radius: 3px;
+  width: 0%;
+  transition: width .4s var(--ease);
+  box-shadow: 0 0 8px var(--accent-lo);
+}
+
+@keyframes progress-pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: .55; }
+}
+.progress-fill.pulsing { animation: progress-pulse 1.6s ease-in-out infinite; }
+
+.layer-status {
+  font-size: 12px;
+  color: var(--muted);
+  margin-top: 6px;
+  min-height: 1.4em;
+  font-family: var(--mono);
+}
+
+/* ── Log terminal ──────────────────────────────────────────────────── */
+.log-wrap {
+  flex: 1;
+  background: #080808;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow-y: auto;
+  padding: 14px 16px;
+  font-family: var(--mono);
+  font-size: 12px;
+  color: #888888;
+  line-height: 1.7;
+  min-height: 220px;
+  max-height: 320px;
+}
+
+.log-wrap .log-sep   { color: var(--accent-lo); }
+.log-wrap .log-cmd   { color: #b8b8e8; }
+.log-wrap .log-err   { color: var(--red); }
+
+/* ── Done / Error hero ─────────────────────────────────────────────── */
+.hero-icon {
+  font-size: 52px;
+  margin-bottom: 16px;
+  display: block;
+}
+
+.done-title { font-size: 28px; font-weight: 700; color: var(--green); margin-bottom: 8px; }
+.err-title  { font-size: 28px; font-weight: 700; color: var(--red);   margin-bottom: 8px; }
+.hero-body  { font-size: 15px; color: var(--muted); line-height: 1.65; }
+.err-msg    { font-size: 13px; font-family: var(--mono); color: #e09090; background: #1a0808; border: 1px solid #4a1010; border-radius: 8px; padding: 14px; margin: 16px 0; white-space: pre-wrap; word-break: break-all; }
+
+/* ── Scrollbar ─────────────────────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--muted); }
+</style>
+</head>
+
+<body>
+<div id="app">
+
+  <!-- Sidebar -->
+  <nav id="sidebar">
+    <div class="logo">Kyth</div>
+    <div class="steps" id="steps">
+      <div class="step" data-step="welcome">
+        <div class="step-num">1</div>
+        <div class="step-label">Welcome</div>
+      </div>
+      <div class="step" data-step="network">
+        <div class="step-num">2</div>
+        <div class="step-label">Network</div>
+      </div>
+      <div class="step" data-step="disk">
+        <div class="step-num">3</div>
+        <div class="step-label">Disk</div>
+      </div>
+      <div class="step" data-step="config">
+        <div class="step-num">4</div>
+        <div class="step-label">Configure</div>
+      </div>
+      <div class="step" data-step="review">
+        <div class="step-num">5</div>
+        <div class="step-label">Review</div>
+      </div>
+      <div class="step" data-step="install">
+        <div class="step-num">6</div>
+        <div class="step-label">Install</div>
+      </div>
+    </div>
+    <div class="sidebar-footer">kyth installer</div>
+  </nav>
+
+  <!-- Content -->
+  <div id="content">
+
+    <!-- Welcome -->
+    <div class="page active" id="page-welcome">
+      <div class="card">
+        <div class="card-title">Welcome to Kyth</div>
+        <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + CachyOS kernel</div>
+        <div class="divider"></div>
+        <p style="color:var(--muted);font-size:14px;line-height:1.75">
+          This installer will guide you through installing Kyth on your computer.<br><br>
+          <span style="color:var(--text)">What will happen:</span><br>
+          &nbsp;  1. Verify your network connection<br>
+          &nbsp;  2. Select an installation disk<br>
+          &nbsp;  3. Choose hostname and timezone<br>
+          &nbsp;  4. Download and write Kyth to disk<br><br>
+          <span style="color:var(--amber)">⚠&nbsp; The selected disk will be completely erased.</span><br>
+          Make sure you have backups before continuing.
+        </p>
+        <div class="btn-row">
+          <button class="primary" onclick="goto('network')">Get Started  →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Network -->
+    <div class="page" id="page-network">
+      <div class="card">
+        <div class="card-title">Network Check</div>
+        <div class="card-sub">Verifying connectivity to the Kyth container registry at ghcr.io</div>
+        <div class="divider"></div>
+        <div class="status-box status-info" id="net-status">Checking connection…</div>
+        <div class="btn-row">
+          <button onclick="goto('welcome')">←  Back</button>
+          <button id="net-retry" onclick="checkNetwork()" disabled>Retry</button>
+          <button id="net-next" class="primary" onclick="goto('disk')" disabled>Continue  →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Disk -->
+    <div class="page" id="page-disk">
+      <div class="card">
+        <div class="card-title">Select Installation Disk</div>
+        <div class="card-sub">Choose the disk where Kyth will be installed — all data will be erased</div>
+        <div class="divider"></div>
+        <div class="disk-grid" id="disk-grid">
+          <div class="status-box status-info">Loading disks…</div>
+        </div>
+        <div class="warn-box">⚠&nbsp; All data on the selected disk will be permanently destroyed.</div>
+        <div class="disk-tools">
+          <button class="danger" onclick="launchGparted()">Launch GParted</button>
+          <button onclick="loadDisks()">Refresh</button>
+        </div>
+        <div class="btn-row">
+          <button onclick="goto('network')">←  Back</button>
+          <button id="disk-next" class="primary" onclick="confirmDisk()" disabled>Continue  →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Configure -->
+    <div class="page" id="page-config">
+      <div class="card">
+        <div class="card-title">System Configuration</div>
+        <div class="card-sub">Set hostname, timezone, and your user account for the installed system</div>
+        <div class="divider"></div>
+        <div class="field-label">Hostname</div>
+        <input type="text" id="inp-hostname" value="kyth" maxlength="63" spellcheck="false">
+        <div class="field-label">Timezone</div>
+        <select id="sel-tz"></select>
+        <div class="field-label" style="margin-top:18px">Username</div>
+        <input type="text" id="inp-username" maxlength="32" spellcheck="false" autocomplete="off" placeholder="e.g. alice">
+        <div class="field-label">Password</div>
+        <input type="password" id="inp-password" autocomplete="new-password">
+        <div class="field-label">Confirm Password</div>
+        <input type="password" id="inp-password2" autocomplete="new-password">
+        <div id="user-error" style="color:var(--red);font-size:13px;margin-top:8px;min-height:1.2em"></div>
+        <div class="btn-row">
+          <button onclick="goto('disk')">←  Back</button>
+          <button class="primary" onclick="saveConfig()">Continue  →</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Review -->
+    <div class="page" id="page-review">
+      <div class="card">
+        <div class="card-title">Review &amp; Install</div>
+        <div class="card-sub">Confirm your settings — installation begins immediately after you click Install</div>
+        <div class="divider"></div>
+        <table class="review-table" id="review-table"></table>
+        <div class="btn-row">
+          <button onclick="goto('config')">←  Back</button>
+          <button class="primary" onclick="startInstall()">Install Now</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Install -->
+    <div class="page" id="page-install">
+      <div class="card" style="max-width:800px">
+        <div class="card-title" id="install-title">Installing Kyth…</div>
+        <div class="progress-wrap">
+          <div class="progress-label">
+            <span id="install-phase">Preparing…</span>
+            <span id="install-elapsed" style="font-size:12px;color:var(--muted);margin:0 auto"></span>
+            <span id="install-pct">0%</span>
+          </div>
+          <div class="progress-bar">
+            <div class="progress-fill pulsing" id="progress-fill"></div>
+          </div>
+          <div class="layer-status" id="layer-status"></div>
+        </div>
+        <div class="log-wrap" id="log-wrap"></div>
+      </div>
+    </div>
+
+    <!-- Done -->
+    <div class="page" id="page-done">
+      <div class="card" style="text-align:center;padding:56px 44px">
+        <span class="hero-icon">✓</span>
+        <div class="done-title">Installation Complete</div>
+        <p class="hero-body">
+          Kyth has been installed successfully.<br>
+          Remove the installation media and reboot to start your new system.
+        </p>
+        <div class="btn-row" style="justify-content:center;margin-top:36px">
+          <button class="primary" onclick="reboot()" style="padding:12px 36px;font-size:15px">Reboot Now</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Error -->
+    <div class="page" id="page-error">
+      <div class="card">
+        <span class="hero-icon" style="font-size:40px">✗</span>
+        <div class="err-title">Installation Failed</div>
+        <div class="err-msg" id="err-msg"></div>
+        <p style="font-size:12px;color:var(--muted)">Full log saved to /var/tmp/kyth-installer.log</p>
+        <div class="btn-row">
+          <button class="primary" onclick="goto('review')">←  Back to Installer</button>
+        </div>
+      </div>
+    </div>
+
+  </div><!-- #content -->
+</div><!-- #app -->
+
+<script>
+// ── State ──────────────────────────────────────────────────────────────────
+const S = {
+  disk: null,        // selected disk object
+  hostname: 'kyth',
+  timezone: 'UTC',
+  sourceImage: '',
+};
+
+const STEP_ORDER = ['welcome','network','disk','config','review','install'];
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function goto(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  updateSidebar(name);
+  if (name === 'network')  initNetwork();
+  if (name === 'disk')     loadDisks();
+  if (name === 'config')   initConfig();
+  if (name === 'review')   buildReview();
+}
+
+function updateSidebar(active) {
+  const idx = STEP_ORDER.indexOf(active);
+  document.querySelectorAll('.step').forEach((el, i) => {
+    el.classList.remove('active', 'done');
+    const si = STEP_ORDER.indexOf(el.dataset.step);
+    if (si < idx)      el.classList.add('done');
+    else if (si === idx) el.classList.add('active');
+  });
+}
+
+// ── Network ─────────────────────────────────────────────────────────────────
+function initNetwork() {
+  document.getElementById('net-retry').disabled = true;
+  document.getElementById('net-next').disabled  = true;
+  setStatus('net-status', 'info', 'Checking connection to ghcr.io…');
+  checkNetwork();
+}
+
+function checkNetwork() {
+  document.getElementById('net-retry').disabled = true;
+  document.getElementById('net-next').disabled  = true;
+  setStatus('net-status', 'info', 'Checking connection to ghcr.io…');
+  fetch('/api/network').then(r => r.json()).then(d => {
+    if (d.ok) {
+      setStatus('net-status', 'ok', '✓  Connected — ready to download Kyth');
+      document.getElementById('net-next').disabled = false;
+    } else {
+      setStatus('net-status', 'err',
+        '✗  Cannot reach ghcr.io\n\nCheck your network connection and try again.\n' +
+        'You may continue anyway — installation will fail if the registry is unreachable.');
+      document.getElementById('net-retry').disabled = false;
+      document.getElementById('net-next').disabled  = false;
+    }
+  }).catch(() => {
+    setStatus('net-status', 'err', '✗  Network check failed — could not reach installer backend');
+    document.getElementById('net-retry').disabled = false;
+    document.getElementById('net-next').disabled  = false;
+  });
+}
+
+// ── Disk ──────────────────────────────────────────────────────────────────
+let _disks = [];
+
+function loadDisks() {
+  document.getElementById('disk-grid').innerHTML =
+    '<div class="status-box status-info">Loading disks…</div>';
+  document.getElementById('disk-next').disabled = true;
+  S.disk = null;
+
+  fetch('/api/disks').then(r => r.json()).then(disks => {
+    _disks = disks;
+    const grid = document.getElementById('disk-grid');
+    if (!disks.length) {
+      grid.innerHTML = '<div class="status-box status-err">No disks found.</div>';
+      return;
+    }
+    grid.innerHTML = disks.map((d, i) => `
+      <div class="disk-card" id="dcard-${i}" onclick="selectDisk(${i})">
+        <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
+        <div class="disk-info">
+          <div class="disk-name">${d.name}</div>
+          <div class="disk-detail">${d.model}${d.tran ? ' · ' + d.tran.toUpperCase() : ''}</div>
+        </div>
+        <div class="disk-size">${d.size}</div>
+      </div>
+    `).join('');
+  }).catch(() => {
+    document.getElementById('disk-grid').innerHTML =
+      '<div class="status-box status-err">Failed to load disk list.</div>';
+  });
+}
+
+function selectDisk(idx) {
+  document.querySelectorAll('.disk-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('dcard-' + idx).classList.add('selected');
+  S.disk = _disks[idx];
+  document.getElementById('disk-next').disabled = false;
+}
+
+function confirmDisk() {
+  if (!S.disk) return;
+  if (confirm(
+    `This will permanently erase ALL data on:\n\n  ${S.disk.name}  —  ${S.disk.model}  (${S.disk.size})\n\nThis cannot be undone. Continue?`
+  )) goto('config');
+}
+
+function launchGparted() {
+  fetch('/api/gparted', {method: 'POST'}).catch(() => {});
+}
+
+// ── Config ────────────────────────────────────────────────────────────────
+async function initConfig() {
+  const sel = document.getElementById('sel-tz');
+  if (sel.options.length === 0) {
+    const tzs = await fetch('/api/timezones').then(r => r.json()).catch(() => ['UTC']);
+    tzs.forEach(tz => {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = tz;
+      if (tz === 'UTC') opt.selected = true;
+      sel.appendChild(opt);
+    });
+  }
+  document.getElementById('inp-hostname').value = S.hostname;
+  document.getElementById('inp-username').value = S.username || '';
+  // try to find a matching TZ
+  for (let i = 0; i < sel.options.length; i++) {
+    if (sel.options[i].value === S.timezone) { sel.selectedIndex = i; break; }
+  }
+}
+
+function saveConfig() {
+  S.hostname = document.getElementById('inp-hostname').value.trim() || 'kyth';
+  S.timezone = document.getElementById('sel-tz').value || 'UTC';
+
+  const username  = document.getElementById('inp-username').value.trim();
+  const password  = document.getElementById('inp-password').value;
+  const password2 = document.getElementById('inp-password2').value;
+  const errEl     = document.getElementById('user-error');
+
+  if (!username) {
+    errEl.textContent = 'Username is required.'; return;
+  }
+  if (!/^[a-z_][a-z0-9_-]{0,30}$/.test(username)) {
+    errEl.textContent = 'Username must start with a letter or _ and contain only a–z, 0–9, _ or -.'; return;
+  }
+  if (!password) {
+    errEl.textContent = 'Password is required.'; return;
+  }
+  if (password !== password2) {
+    errEl.textContent = 'Passwords do not match.'; return;
+  }
+
+  errEl.textContent = '';
+  S.username = username;
+  S.password = password;
+  goto('review');
+}
+
+// ── Review ────────────────────────────────────────────────────────────────
+function buildReview() {
+  const rows = [
+    ['OS Image',      S.sourceImage || '(loading…)', true],
+    ['Install Disk',  S.disk ? `${S.disk.name} — ${S.disk.model} (${S.disk.size})` : '—', false],
+    ['Hostname',      S.hostname, false],
+    ['Timezone',      S.timezone,  false],
+    ['Username',      S.username || '—', false],
+    ['Password',      S.password ? '••••••••' : '—', false],
+  ];
+  document.getElementById('review-table').innerHTML = rows.map(([l, v, mono]) =>
+    `<tr><td class="rl">${l}</td><td class="rv${mono ? '' : ' plain'}">${v}</td></tr>`
+  ).join('');
+}
+
+// ── Install ───────────────────────────────────────────────────────────────
+function startInstall() {
+  if (!S.disk) { alert('No disk selected.'); return; }
+  goto('install');
+
+  const body = {
+    disk:       S.disk.name,
+    disk_model: S.disk.model,
+    disk_size:  S.disk.size,
+    hostname:   S.hostname,
+    timezone:   S.timezone,
+    username:   S.username || '',
+    password:   S.password || '',
+  };
+
+  fetch('/api/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  }).then(() => listenSSE());
+}
+
+function listenSSE() {
+  const log  = document.getElementById('log-wrap');
+  const fill = document.getElementById('progress-fill');
+  const pct       = document.getElementById('install-pct');
+  const phase     = document.getElementById('install-phase');
+  const layerStat = document.getElementById('layer-status');
+  const elapsed   = document.getElementById('install-elapsed');
+  log.innerHTML = '';
+
+  let layersTotal = 0, layersDone = 0, totalSizeStr = '';
+  let layerCopyStart = null;
+
+  // Elapsed time ticker — reassures user the page is alive
+  const startTime = Date.now();
+  const ticker = setInterval(() => {
+    const s = Math.floor((Date.now() - startTime) / 1000);
+    const m = Math.floor(s / 60), sec = s % 60;
+    elapsed.textContent = m > 0 ? `${m}m ${sec}s elapsed` : `${sec}s elapsed`;
+  }, 1000);
+
+  const es = new EventSource('/api/stream');
+  es.onmessage = e => {
+    const d = JSON.parse(e.data);
+    if (d.type === 'log') {
+      const line = document.createElement('div');
+      const t = d.text;
+      if (t.startsWith('──'))         line.className = 'log-sep';
+      else if (t.startsWith('$ '))    line.className = 'log-cmd';
+      else if (/error|fail/i.test(t)) line.className = 'log-err';
+      line.textContent = t;
+      log.appendChild(line);
+      log.scrollTop = log.scrollHeight;
+
+      // Parse "layers needed: N (X.X GB)"
+      const mTotal = t.match(/layers needed:\s*(\d+)\s*\(([^)]+)\)/);
+      if (mTotal) {
+        layersTotal  = parseInt(mTotal[1]);
+        totalSizeStr = mTotal[2];
+        layerStat.textContent = `Fetching ${layersTotal} layers (${totalSizeStr}) — this will take several minutes…`;
+      }
+
+      if (t.startsWith('Copying ')) {
+        if (!layerCopyStart) layerCopyStart = Date.now();
+        layersDone++;
+        if (layersTotal > 0) {
+          const pctLayers = ((layersDone / layersTotal) * 100).toFixed(0);
+          // Rough speed estimate once we have a few samples
+          let speedStr = '';
+          if (layerCopyStart && layersDone > 2) {
+            const secSinceCopy = (Date.now() - layerCopyStart) / 1000;
+            const layersPerSec = layersDone / secSinceCopy;
+            const remaining = Math.ceil((layersTotal - layersDone) / layersPerSec);
+            speedStr = remaining > 60
+              ? `  ·  ~${Math.ceil(remaining/60)}m remaining`
+              : `  ·  ~${remaining}s remaining`;
+          }
+          layerStat.textContent = `Layer ${layersDone} / ${layersTotal}  (${pctLayers}%)${speedStr}`;
+        }
+      }
+
+      // Phase transitions
+      if (t.includes('Initializing ostree'))                   layerStat.textContent = 'Initializing ostree layout on disk…';
+      if (t.includes('Deploying'))                             layerStat.textContent = 'Deploying OS tree to disk…';
+      if (t.includes('Installing bootloader') || t.includes('bootupd'))
+                                                               layerStat.textContent = 'Installing bootloader…';
+      if (t.includes('Creating user'))                         layerStat.textContent = 'Creating user account…';
+      if (t.includes('Hostname set'))                          layerStat.textContent = 'Applying system configuration…';
+
+    } else if (d.type === 'progress') {
+      const v = d.value;
+      fill.style.width = v + '%';
+      pct.textContent  = v + '%';
+      if (v > 5) fill.classList.remove('pulsing');
+      if (v < 90)       phase.textContent = `Downloading & writing OS image…  ${v}%`;
+      else if (v < 100) phase.textContent = `Configuring system…  ${v}%`;
+      else              phase.textContent = 'Complete!';
+    } else if (d.type === 'done') {
+      clearInterval(ticker);
+      es.close();
+      goto('done');
+    } else if (d.type === 'error') {
+      clearInterval(ticker);
+      es.close();
+      document.getElementById('err-msg').textContent = d.message;
+      goto('error');
+    }
+  };
+  es.onerror = () => { /* reconnects automatically */ };
+}
+
+function reboot() {
+  fetch('/api/reboot', {method:'POST'});
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function setStatus(id, type, msg) {
+  const el = document.getElementById(id);
+  el.className = 'status-box status-' + type;
+  el.style.whiteSpace = 'pre-line';
+  el.textContent = msg;
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+fetch('/api/config').then(r => r.json()).then(c => {
+  S.sourceImage = c.source_image;
+}).catch(() => {});
+
+updateSidebar('welcome');
+</script>
+</body>
+</html>"""
+
+
+# ── Browser launcher ──────────────────────────────────────────────────────────
+
+def _is_virtualized() -> bool:
+  return subprocess.run(
+    ["systemd-detect-virt", "-q"],
+    stdout=subprocess.DEVNULL,
+    stderr=subprocess.DEVNULL,
+  ).returncode == 0
+
+
+def _gui_exec_prefix() -> list[str]:
+  """Run GUI apps as the desktop user when installer is elevated with sudo."""
+  if os.geteuid() == 0 and os.environ.get("SUDO_USER"):
+    # Avoid relying on sudo --preserve-env; some policy setups reject it.
+    cmd = [
+      "sudo",
+      "-u",
+      os.environ["SUDO_USER"],
+      "env",
+    ]
+    for key in (
+      "DISPLAY",
+      "WAYLAND_DISPLAY",
+      "XAUTHORITY",
+      "XDG_RUNTIME_DIR",
+      "DBUS_SESSION_BUS_ADDRESS",
+      "XDG_SESSION_TYPE",
+    ):
+      val = os.environ.get(key)
+      if val:
+        cmd.append(f"{key}={val}")
+    return cmd
+  return []
+
+
+def _launch_browser(url: str) -> subprocess.Popen:
+  """Try chromium first, then firefox, using VM-safe rendering defaults."""
+  vm = _is_virtualized()
+  prefix = _gui_exec_prefix()
+
+  chromium_flags = [
+    f"--app={url}",
+    "--start-maximized",
+    "--no-first-run",
+    "--disable-session-crashed-bubble",
+    "--disable-infobars",
+    # Avoid blocking on KWallet/GNOME-keyring at startup — live env has no keyring
+    "--password-store=basic",
+    # Skip first-launch chrome overhead not needed in a kiosk installer
+    "--disable-extensions",
+    "--disable-sync",
+    "--disable-translate",
+    "--no-default-browser-check",
+  ]
+  if vm:
+    chromium_flags.extend([
+      "--disable-gpu",
+      "--disable-gpu-compositing",
+      "--disable-features=UseOzonePlatform,Vulkan,VaapiVideoDecoder",
+    ])
+
+  candidates = [
+    ["chromium", *chromium_flags],
+    ["chromium-browser", *chromium_flags],
+    ["firefox", "--new-instance", url],
+  ]
+
+  env = os.environ.copy()
+  if vm:
+    # Prevent fragile VM/virtual GPU stacks from hard-freezing kiosk UI.
+    env.setdefault("LIBGL_ALWAYS_SOFTWARE", "1")
+    env.setdefault("MESA_LOADER_DRIVER_OVERRIDE", "llvmpipe")
+    env.setdefault("GALLIUM_DRIVER", "llvmpipe")
+
+  for cmd in candidates:
+    try:
+      return subprocess.Popen(prefix + cmd, env=env)
+    except FileNotFoundError:
+      continue
+
+  raise RuntimeError(
+    "No browser found. Install chromium or firefox:\n"
+    "  sudo dnf install chromium"
+  )
+
+
+def _show_launch_error(msg: str) -> None:
+  for cmd in (
+    ["kdialog", "--error", msg],
+    ["zenity", "--error", "--text", msg],
+  ):
+    try:
+      subprocess.Popen(_gui_exec_prefix() + cmd)
+      return
+    except FileNotFoundError:
+      continue
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def main() -> None:
+  import socket as _socket
+  url = f"http://127.0.0.1:{PORT}"
+
+  # If another instance already has the port, just open a browser to it.
+  try:
+    with _socket.create_connection(("127.0.0.1", PORT), timeout=1):
+      _launch_browser(url).wait()
+      return
+  except Exception:
+    pass
+
+  try:
+    server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+
+    # Brief pause to ensure the server is listening before the browser connects
+    time.sleep(0.3)
+
+    _launch_browser(url).wait()
+  except Exception:
+    tb = traceback.format_exc()
+    with LOG_FILE.open("a") as f:
+      f.write("\n=== Installer launch failure ===\n")
+      f.write(tb)
+    _show_launch_error(
+      "Kyth installer failed to launch.\n"
+      "See /var/tmp/kyth-installer.log for details."
+    )
+    raise
+
+
+if __name__ == "__main__":
+    main()
