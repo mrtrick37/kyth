@@ -1,4 +1,4 @@
-name: Build Anaconda Live ISO
+name: Build Live ISO
 
 on:
   workflow_dispatch:
@@ -13,12 +13,12 @@ on:
           - testing
 
 jobs:
-  # ── Job 1: Build the anaconda live container and push it to GHCR ─────────────
+  # ── Job 1: Build the live container and push it to GHCR ──────────────────────
   # Uses docker buildx (BuildKit) which:
   #   • Has no 128-layer overlay2 limit — no need to flatten the base image
   #   • Streams layers directly to GHCR with --push, storing nothing locally
-  build-anaconda-container:
-    name: Build anaconda container
+  build-live-container:
+    name: Build live container
     runs-on: ubuntu-latest
     permissions:
       packages: write
@@ -46,32 +46,32 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.10.0
 
-      - name: Build and push anaconda container directly to GHCR
+      - name: Build and push live container directly to GHCR
         # BuildKit has no 128-layer limit and --push streams finished layers
         # straight to GHCR — nothing is written to local storage.
-        # SOURCE_TAG is passed so the embedded kickstart URL matches the tag.
+        # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
         id: push
         run: |
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${{ inputs.source_tag || 'latest' }}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:anaconda-build"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${{ inputs.source_tag || 'latest' }}" \
-            -f build_files/Containerfile.anaconda \
+            -f build_files/Containerfile.live \
             --push \
             .
           echo "image-ref=${IMAGE}" >> $GITHUB_OUTPUT
 
-      - name: Flatten anaconda container to a single layer
-        # The anaconda image inherits 100+ layers from the kyth base image.
+      - name: Flatten live container to a single layer
+        # The live image inherits 100+ layers from the kyth base image.
         # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
         # it can even finish pulling. crane flatten squashes all layers into one
         # and pushes the result back to the same tag, so Job 2 can pull cleanly.
         run: |
           curl -sSfL "https://github.com/google/go-containerregistry/releases/download/v0.20.6/go-containerregistry_Linux_x86_64.tar.gz" \
             | tar -xz -C /usr/local/bin crane
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:anaconda-build"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           crane flatten "${IMAGE}"
 
@@ -80,7 +80,7 @@ jobs:
   # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
   build-iso:
     name: Build ISO
-    needs: build-anaconda-container
+    needs: build-live-container
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -110,59 +110,57 @@ jobs:
           sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
           sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
 
-      - name: Pull pre-built anaconda container
-        # Import with the tag name build-anaconda-iso.sh expects:
-        #   latest  → kyth-anaconda:build
-        #   testing → kyth-anaconda:build-testing
+      - name: Pull pre-built live container
+        # Import with the tag name build-live-iso.sh expects:
+        #   latest  → kyth-live:build
+        #   testing → kyth-live:build-testing
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            ANACONDA_TAG="kyth-anaconda:build"
+            LIVE_TAG="kyth-live:build"
           else
-            ANACONDA_TAG="kyth-anaconda:build-${SOURCE_TAG}"
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
           fi
 
-          docker pull "${{ needs.build-anaconda-container.outputs.image-ref }}"
-          CID=$(docker create "${{ needs.build-anaconda-container.outputs.image-ref }}" /bin/true)
-          docker export "${CID}" | docker import - "${ANACONDA_TAG}"
+          docker pull "${{ needs.build-live-container.outputs.image-ref }}"
+          CID=$(docker create "${{ needs.build-live-container.outputs.image-ref }}" /bin/true)
+          docker export "${CID}" | docker import - "${LIVE_TAG}"
           docker rm "${CID}"
-          docker rmi "${{ needs.build-anaconda-container.outputs.image-ref }}" || true
+          docker rmi "${{ needs.build-live-container.outputs.image-ref }}" || true
 
       - name: Ensure permissions and directories
         run: |
           mkdir -p output/live-iso
           chmod -R 777 output
           chmod -R 777 build_files
-          chmod +x build_files/build-anaconda-iso.sh
+          chmod +x build_files/build-live-iso.sh
 
-      - name: Build Anaconda Live ISO
-        # SKIP_REBUILD=1: kyth-anaconda:build was pre-built in job 1 and
+      - name: Build Live ISO
+        # SKIP_REBUILD=1: kyth-live:build was pre-built in job 1 and
         # imported above — skip the staleness check and go straight to
         # container export + squashfs + ISO.
         # Prune Docker storage right after container export to reclaim the
         # overlay2 footprint before mksquashfs runs.
-        # No OCI bundle step — significantly less disk pressure than the
-        # offline live ISO.
         env:
           SKIP_REBUILD: "1"
         run: |
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            ANACONDA_TAG="kyth-anaconda:build"
+            LIVE_TAG="kyth-live:build"
           else
-            ANACONDA_TAG="kyth-anaconda:build-${SOURCE_TAG}"
+            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
           fi
 
-          just build-anaconda-iso "${SOURCE_TAG}" &
+          just build-live-iso "${SOURCE_TAG}" &
           BUILD_PID=$!
 
           while kill -0 $BUILD_PID 2>/dev/null; do
             ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
             if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
               echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
-              docker rmi "${ANACONDA_TAG}" || true
+              docker rmi "${LIVE_TAG}" || true
               docker system prune -f || true
               break
             fi
@@ -174,8 +172,8 @@ jobs:
       - name: Upload ISO artifact
         uses: actions/upload-artifact@v4
         with:
-          name: kyth-anaconda-iso
-          path: output/live-iso/kyth-live-anaconda-${{ inputs.source_tag || 'latest' }}.iso
+          name: kyth-live-iso
+          path: output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -184,7 +182,7 @@ jobs:
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
-          ISO="output/live-iso/kyth-live-anaconda-${{ inputs.source_tag || 'latest' }}.iso"
+          ISO="output/live-iso/kyth-live-${{ inputs.source_tag || 'latest' }}.iso"
           aws s3 cp "${ISO}" \
             "s3://kyth-releases/$(basename ${ISO})" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -196,15 +194,15 @@ jobs:
         run: |
           SOURCE_TAG="${{ inputs.source_tag || 'latest' }}"
           TAG="${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
-          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-anaconda-${SOURCE_TAG}.iso"
+          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-anaconda-testing.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-testing.iso](%s)' "${ISO_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-anaconda-latest.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-latest.iso](%s)' "${ISO_URL}")
             PRERELEASE="--latest"
           fi
 
