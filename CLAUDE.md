@@ -6,9 +6,9 @@ Custom atomic gaming and development desktop OS built on Fedora Kinoite (KDE Pla
 
 ```bash
 just build                        # Build base image + full OS image (requires Docker)
-just rebuild-anaconda-iso         # Build the live bootable ISO (Anaconda installer)
-just build-anaconda-iso           # Same as above (uses cached container layer)
-just run-anaconda-iso-native      # Boot Anaconda ISO in QEMU with SPICE
+just rebuild-live-iso             # Build the live bootable ISO (force rebuild)
+just build-live-iso               # Same as above (uses cached container layer)
+just run-live-iso-native          # Boot live ISO in QEMU with SPICE
 just build-qcow2                  # Build QCOW2 VM image
 just clean                        # Remove build artifacts
 just purge                        # Reclaim max disk space
@@ -38,9 +38,8 @@ build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 43
   build.sh
 build_files/            # Layer 2+: packages, gaming tweaks, branding
   build.sh              # Main package/config script
-  build-anaconda-iso.sh # Assembles squashfs + GRUB2 + ISO
-  Containerfile.anaconda # Live session variant (Anaconda WebUI installer)
-  anaconda/             # Anaconda kickstart, launcher, debug scripts
+  build-live-iso.sh     # Assembles squashfs + GRUB2 + ISO
+  Containerfile.live    # Live session variant (custom web installer)
   branding/             # Kyth logos and Cockpit branding CSS
   scripts/
     ge-proton.sh        # GE-Proton installer

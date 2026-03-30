@@ -135,34 +135,34 @@ just build-base
 # Step 2 — build the full Kyth OS image
 just build
 
-# Step 3 — build the Anaconda live ISO
-just build-anaconda-iso
+# Step 3 — build the live ISO
+just build-live-iso
 
 # Boot the ISO in QEMU (native, SPICE window — better clipboard/copy-paste)
-just run-anaconda-iso-native
+just run-live-iso-native
 
 # Or boot in a Docker-wrapped QEMU with noVNC at http://localhost:8006
-just run-anaconda-iso
+just run-live-iso
 ```
 
-`just build` produces `localhost/kyth:latest`. The Anaconda ISO is written to `output/live-iso/kyth-live-anaconda-latest.iso`.
+`just build` produces `localhost/kyth:latest`. The live ISO is written to `output/live-iso/kyth-live-latest.iso`.
 
 ### Build recipes
 
 ```bash
 just build-base                           # Build kyth-base layer (CachyOS kernel)
 just build                                # Build full OS image on top of kyth-base
-just build-anaconda-iso                   # Build Anaconda live ISO (from :latest)
-just build-anaconda-iso testing           # Build ISO targeting the :testing image
-just rebuild-anaconda-iso                 # Full rebuild, ignores cached container layer
-just run-anaconda-iso                     # Boot ISO in Docker-wrapped QEMU (noVNC)
-just run-anaconda-iso-native              # Boot ISO in native QEMU + SPICE
+just build-live-iso                       # Build live ISO (from :latest)
+just build-live-iso testing               # Build ISO targeting the :testing image
+just rebuild-live-iso                     # Full rebuild, ignores cached container layer
+just run-live-iso                         # Boot ISO in Docker-wrapped QEMU (noVNC)
+just run-live-iso-native                  # Boot ISO in native QEMU + SPICE
 just build-qcow2                          # Build QCOW2 VM image via Bootc Image Builder
 just disk-usage                           # Show Docker + output/ disk usage
 just clean                                # Remove build output artefacts
 just clean-docker                         # Prune Docker build cache and dangling layers
 just clean-all                            # clean-output + clean-docker
-just prune-anaconda-dev                   # Reclaim space from Anaconda dev cycles
+just prune-live-dev                       # Reclaim space from live ISO dev cycles
 just purge                                # Nuclear: reclaim maximum disk space
 just lint && just format                  # shellcheck + shfmt on all .sh files
 ```
@@ -190,7 +190,7 @@ newgrp docker
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | Build container image | Push to `main`/`testing`, daily at 10:05 UTC, PR | `ghcr.io/mrtrick37/kyth:latest` and `:testing` |
-| Build Anaconda Live ISO | Manual dispatch (choose `latest` or `testing`) | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
+| Build Live ISO | Manual dispatch (choose `latest` or `testing`) | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
 
 ---
 
@@ -205,17 +205,12 @@ build_base/
   build.sh                        Kernel, initramfs, Plymouth, kargs, SDDM
 
 build_files/
-  build-anaconda-iso.sh           Assembles squashfs + GRUB2 + UEFI/BIOS bootable ISO
-  Containerfile.anaconda          Live session container (X11 autologin, Anaconda WebUI)
-  anaconda/
-    kyth.ks                       Kickstart — ostreecontainer source for :latest
-    kyth-testing.ks               Kickstart — ostreecontainer source for :testing
-    kyth-launch-anaconda          Desktop launcher (calls liveinst)
-    kyth-anaconda-debug           Debug/log collection helper
+  build-live-iso.sh               Assembles squashfs + GRUB2 + UEFI/BIOS bootable ISO
+  Containerfile.live              Live session container (X11 autologin, custom web installer)
   branding/
     kyth-logo.svg                 Kyth logo (with background and wordmark)
     kyth-logo-transparent.svg     Kyth K mark (transparent, for WebUI)
-    cockpit-branding.css          Themed CSS for the Anaconda WebUI
+    cockpit-branding.css          Themed CSS for the installer WebUI
   scripts/
     packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
     thirdparty.sh                 topgrade, winetricks, scx schedulers, Homebrew (Layer 2)
@@ -242,7 +237,7 @@ disk_config/
 
 .github/workflows/
   build.yml                       CI: builds and publishes OS image
-  build-anaconda-iso.yml          CI: builds and publishes Anaconda live ISO (manual)
+  build-live-iso.yml              CI: builds and publishes live ISO (manual)
 ```
 
 ---
