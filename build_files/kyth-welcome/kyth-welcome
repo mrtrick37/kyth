@@ -2054,6 +2054,15 @@ class BranchesPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._dl_monitor = None
+        self._dl_total = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
+        self._op_start_ts = 0.0
+        self._current_phase = ""
+        self._heartbeat = QTimer(self)
+        self._heartbeat.setInterval(5000)
+        self._heartbeat.timeout.connect(self._heartbeat_tick)
 
         self._heading("Branches")
         self._subheading("Choose which Kyth image stream this system follows.")
@@ -2100,6 +2109,12 @@ class BranchesPage(Page):
         self._status_lbl.hide()
         self._add(self._status_lbl)
 
+        self._activity_lbl = QLabel()
+        self._activity_lbl.setObjectName("card-copy")
+        self._activity_lbl.setWordWrap(True)
+        self._activity_lbl.hide()
+        self._add(self._activity_lbl)
+
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._progress.hide()
@@ -2145,9 +2160,16 @@ class BranchesPage(Page):
 
     def _switch(self, tag: str):
         ref = f"{REGISTRY}:{tag}"
+        self._stop_dl_monitor()
+        self._dl_total = 0
+        self._dl_speed = 0
+        self._dl_eta = 0
+        self._op_start_ts = time.monotonic()
+        self._current_phase = ""
         self._log.clear()
         self._log.append(f"→ bootc switch {ref}\n")
         self._log.show()
+        self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText("Switching branch…")
         self._status_lbl.setObjectName("subheading")
@@ -2162,13 +2184,73 @@ class BranchesPage(Page):
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
+        self._update_activity()
+        self._heartbeat.start()
+
+    def _stop_dl_monitor(self):
+        if self._dl_monitor is not None:
+            self._dl_monitor.stop()
+            self._dl_monitor.wait()
+            self._dl_monitor.deleteLater()
+            self._dl_monitor = None
 
     def _on_line(self, text: str):
+        if "layers needed:" in text and self._dl_monitor is None:
+            try:
+                m = text.split("layers needed:")[1]
+                size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
+                total = _parse_size_bytes(size_str)
+                if total > 0:
+                    self._dl_total = total
+                    self._progress.setRange(0, 1000)
+                    self._dl_monitor = DownloadMonitor(total, _get_rx_bytes())
+                    self._dl_monitor.stats.connect(self._on_dl_stats)
+                    self._dl_monitor.start()
+            except Exception:
+                pass
         self._log.append(text)
         self._log.ensureCursorVisible()
 
+    def _on_dl_stats(self, downloaded: int, total: int, speed_bps: int, eta_sec: int):
+        self._dl_speed = speed_bps
+        self._dl_eta = eta_sec
+        if total > 0:
+            self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        if speed_bps > 100_000:
+            dl_str = f"{_human_bytes(downloaded)} / {_human_bytes(total)}"
+            speed_str = f"{_human_bytes(speed_bps)}/s"
+            if eta_sec > 60:
+                eta_mins, eta_secs = divmod(eta_sec, 60)
+                eta_str = f"~{eta_mins}m {eta_secs:02d}s remaining"
+            elif eta_sec > 0:
+                eta_str = f"~{eta_sec}s remaining"
+            else:
+                eta_str = ""
+            parts = [dl_str, speed_str]
+            if eta_str:
+                parts.append(eta_str)
+            self._activity_lbl.setText("  ·  ".join(parts))
+            self._activity_lbl.show()
+
+    def _update_activity(self):
+        elapsed = int(time.monotonic() - self._op_start_ts) if self._op_start_ts else 0
+        mins, secs = divmod(elapsed, 60)
+        elapsed_str = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
+        phase = self._current_phase or "Switching branch…"
+        self._activity_lbl.setText(f"{phase}  ·  {elapsed_str} elapsed")
+        self._activity_lbl.show()
+
+    def _heartbeat_tick(self):
+        if self._worker is None:
+            self._heartbeat.stop()
+            return
+        self._update_activity()
+
     def _on_done(self, code: int):
+        self._heartbeat.stop()
+        self._stop_dl_monitor()
         self._progress.hide()
+        self._activity_lbl.hide()
         self._stable_btn.setEnabled(True)
         self._testing_btn.setEnabled(True)
         _finish_worker(self)
