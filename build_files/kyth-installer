@@ -110,6 +110,69 @@ def check_network() -> bool:
         return False
 
 
+def list_partitions(disk: str) -> list[dict]:
+    """Return all partitions on disk with size and filesystem info."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes",
+             "--output", "NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT"],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        result = []
+        for d in json.loads(out).get("blockdevices", []):
+            if f"/dev/{d['name']}" != disk:
+                continue
+            for c in d.get("children", []):
+                if c.get("type") != "part":
+                    continue
+                name = c["name"]
+                num_str = ""
+                for ch in reversed(name):
+                    if ch.isdigit():
+                        num_str = ch + num_str
+                    else:
+                        break
+                result.append({
+                    "name":       f"/dev/{name}",
+                    "size":       _human_size(int(c.get("size") or 0)),
+                    "bytes":      int(c.get("size") or 0),
+                    "fstype":     c.get("fstype") or "",
+                    "label":      c.get("label") or "",
+                    "mountpoint": c.get("mountpoint") or "",
+                    "num":        int(num_str) if num_str else 0,
+                })
+        return result
+    except Exception:
+        return []
+
+
+def get_disk_size_bytes(disk: str) -> int:
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes", "--nodeps", "--output", "SIZE", disk],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        return int(json.loads(out)["blockdevices"][0]["size"])
+    except Exception:
+        return 0
+
+
+def find_efi_partition(disk: str) -> str:
+    """Find the EFI System Partition (vfat, < 2 GB) on disk."""
+    for p in list_partitions(disk):
+        if p["fstype"].lower() == "vfat" and 0 < p["bytes"] < 2 * 1024 ** 3:
+            return p["name"]
+    return ""
+
+
+def get_largest_data_partition(disk: str) -> Optional[dict]:
+    """Return the largest non-tiny partition on disk (skips EFI / BIOS-boot)."""
+    usable = [p for p in list_partitions(disk) if p["bytes"] > 600 * 1024 * 1024]
+    if not usable:
+        return None
+    return max(usable, key=lambda p: p["bytes"])
+
+
 def _as_root(cmd: list[str]) -> list[str]:
     if os.geteuid() == 0:
         return cmd
@@ -122,6 +185,7 @@ _state: dict = {
     "disk": "", "disk_model": "", "disk_size": "",
     "hostname": "kyth", "timezone": "UTC",
     "username": "", "password": "",
+    "install_mode": "erase",  # "erase" | "alongside"
 }
 
 # Event log — append-only so late SSE connections can replay from the start.
@@ -250,6 +314,10 @@ def _run_install() -> None:
               f"Command failed (exit {proc.returncode}):\n  {' '.join(full_cmd)}"
             )
         progress(pct_end)
+
+    if _state.get("install_mode") == "alongside":
+        _run_alongside(log, progress, run_cmd)
+        return
 
     try:
         disk = _state["disk"]
@@ -412,6 +480,422 @@ def _run_install() -> None:
         _push({"type": "error", "message": str(exc)})
 
 
+def _run_alongside(log, progress, run_cmd) -> None:
+    """Install Kyth alongside an existing OS by shrinking the largest partition."""
+    try:
+        disk = _state["disk"]
+        log(f"Source image : {SOURCE_IMAGE}")
+        log(f"Target image : {TARGET_IMAGE}")
+        log(f"Disk         : {disk}")
+        log(f"Install mode : alongside")
+        log("")
+
+        # ── Phase 0: Resize existing partition ────────────────────────────
+        log("── Phase 0: Shrinking existing partition ──────────────────────")
+        progress(2)
+
+        disk_size = get_disk_size_bytes(disk)
+        half_bytes = disk_size // 2
+        half_mb = half_bytes // (1024 * 1024)
+
+        # Read partition table once — sfdisk gives us start positions so we can
+        # ignore any partition already sitting in the second half of the disk
+        # (which would be a Kyth partition from a prior attempt).
+        sfdisk_raw = subprocess.check_output(
+            _as_root(["sfdisk", "--json", disk]),
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        sfdisk_table  = json.loads(sfdisk_raw)["partitiontable"]
+        sector_size   = int(sfdisk_table.get("sectorsize", 512))
+        sfdisk_parts  = sfdisk_table["partitions"]
+        lsblk_by_name = {p["name"]: p for p in list_partitions(disk)}
+
+        candidates = []
+        for p in sfdisk_parts:
+            start_b = p["start"] * sector_size
+            size_b  = p["size"]  * sector_size
+            if start_b < half_bytes and size_b > 600 * 1024 * 1024:
+                candidates.append({
+                    "node":       p["node"],
+                    "start_b":    start_b,
+                    "size_b":     size_b,
+                    "fstype":     lsblk_by_name.get(p["node"], {}).get("fstype", ""),
+                })
+
+        if not candidates:
+            raise RuntimeError(
+                "No resizable partition found in the first half of the disk. "
+                "If a previous attempt left partial changes, use GParted to "
+                "restore the original layout before retrying."
+            )
+
+        target   = max(candidates, key=lambda p: p["size_b"])
+        part_dev = target["node"]
+        fstype   = (target["fstype"] or "").lower()
+        num_str  = ""
+        for ch in reversed(part_dev):
+            if ch.isdigit():
+                num_str = ch + num_str
+            else:
+                break
+        part_num = int(num_str) if num_str else 0
+        start_mib = target["start_b"] // (1024 * 1024)
+
+        log(f"Target partition  : {part_dev}  ({_human_size(target['size_b'])})  "
+            f"fstype={fstype or 'unknown'}")
+        log(f"Disk size         : {_human_size(disk_size)}")
+        log(f"Shrinking to      : ~{_human_size(half_bytes)} ({half_mb} MiB)")
+        tmp_mnt  = "/var/tmp/kyth-resize-tmp"
+        Path(tmp_mnt).mkdir(parents=True, exist_ok=True)
+
+        if fstype == "btrfs":
+            # Unmount by both device and mountpoint — the live desktop automounter
+            # (udisks2/KDE) may have already mounted the partition elsewhere.
+            subprocess.run(_as_root(["umount", "-l", part_dev]), check=False)
+            subprocess.run(_as_root(["umount", "-l", tmp_mnt]), check=False)
+            # If a prior run shrank the btrfs but then failed to update the
+            # partition table, the superblock device-size may exceed the current
+            # partition size, causing mount to fail. Try to repair that first.
+            log(f"Checking btrfs superblock on {part_dev}…")
+            subprocess.run(
+                _as_root(["btrfs", "rescue", "fix-device-size", part_dev]),
+                check=False,
+            )
+            log(f"Mounting {part_dev} for btrfs resize…")
+            mnt_r = subprocess.run(
+                _as_root(["mount", part_dev, tmp_mnt]),
+                capture_output=True, text=True,
+            )
+            if mnt_r.returncode != 0:
+                err = (mnt_r.stdout + mnt_r.stderr).strip()
+                raise RuntimeError(
+                    f"Failed to mount {part_dev} (exit {mnt_r.returncode}): {err}\n\n"
+                    "If this disk has had previous failed install attempts, use "
+                    "GParted to restore the original partition layout before retrying."
+                )
+            try:
+                # Skip resize if the filesystem is already at or below target size
+                # (can happen when retrying after a partial run).
+                resize_mb = half_mb - 256
+                df_r = subprocess.run(
+                    _as_root(["btrfs", "filesystem", "show", "--raw", tmp_mnt]),
+                    capture_output=True, text=True,
+                )
+                # "devid ... size NNNN ..." — extract current device size in bytes
+                current_size_mb = 0
+                for tok in df_r.stdout.split():
+                    if tok.isdigit() and int(tok) > 1024 * 1024 * 100:
+                        current_size_mb = int(tok) // (1024 * 1024)
+                        break
+
+                if current_size_mb and current_size_mb <= resize_mb:
+                    log(f"btrfs already at {current_size_mb} MiB (≤ target {resize_mb} MiB) — skipping resize")
+                else:
+                    # Balance block groups before shrinking — btrfs may have chunks
+                    # allocated past the new boundary even when used space is small.
+                    log("Balancing btrfs block groups (this may take a moment)…")
+                    subprocess.run(
+                        _as_root(["btrfs", "balance", "start",
+                                  "-dusage=90", "-musage=90", tmp_mnt]),
+                        check=False,  # non-fatal; resize will tell us if insufficient
+                    )
+                    log(f"Resizing btrfs filesystem to {resize_mb} MiB…")
+                    r = subprocess.run(
+                        _as_root(["btrfs", "filesystem", "resize",
+                                  f"{resize_mb}M", tmp_mnt]),
+                        capture_output=True, text=True,
+                    )
+                    if r.stdout.strip():
+                        log(r.stdout.strip())
+                    if r.returncode != 0:
+                        raise RuntimeError(
+                            f"btrfs filesystem resize failed:\n"
+                            f"{(r.stdout + r.stderr).strip()}"
+                        )
+                    log("btrfs filesystem resize done")
+            finally:
+                subprocess.run(_as_root(["umount", "-l", tmp_mnt]), check=False)
+        elif fstype in ("ext4", "ext3", "ext2"):
+            resize_mb = half_mb - 256
+            log(f"Running e2fsck on {part_dev}…")
+            subprocess.run(_as_root(["e2fsck", "-f", "-y", part_dev]), check=False)
+            log(f"Resizing ext filesystem to {resize_mb} MiB…")
+            r = subprocess.run(
+                _as_root(["resize2fs", part_dev, f"{resize_mb}M"]),
+                capture_output=True, text=True,
+            )
+            if r.stdout.strip():
+                log(r.stdout.strip())
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"resize2fs failed:\n{(r.stdout + r.stderr).strip()}"
+                )
+        elif fstype == "ntfs":
+            resize_mb = half_mb - 256
+            log("Resizing NTFS partition…")
+            r = subprocess.run(
+                _as_root(["ntfsresize", "--force", "--size", f"{resize_mb}M", part_dev]),
+                capture_output=True, text=True,
+            )
+            if r.stdout.strip():
+                log(r.stdout.strip())
+            if r.returncode != 0:
+                raise RuntimeError(
+                    f"ntfsresize failed:\n{(r.stdout + r.stderr).strip()}"
+                )
+        else:
+            raise RuntimeError(
+                f"Cannot auto-resize filesystem type '{fstype or 'unknown'}'. "
+                "Use GParted to manually free space, then retry."
+            )
+
+        progress(8)
+
+        # Use resize_mb as the partition boundary — it matches the filesystem
+        # resize target (half_mb - 256) so the partition never exceeds live data.
+        # For non-btrfs paths resize_mb wasn't set, so fall back to half_mb - 256.
+        try:
+            part_end_mib = resize_mb
+        except NameError:
+            part_end_mib = half_mb - 256
+        log(f"Partition {part_num} starts at {start_mib} MiB → new end: {part_end_mib} MiB")
+
+        log(f"Removing old partition table entry for partition {part_num}…")
+        subprocess.run(_as_root(["parted", "-s", disk, "rm", str(part_num)]), check=True)
+
+        log(f"Recreating partition {part_num} at new size…")
+        subprocess.run(
+            _as_root(["parted", "-s", disk, "mkpart", "primary", "btrfs",
+                      f"{start_mib}MiB", f"{part_end_mib}MiB"]),
+            check=True,
+        )
+        progress(10)
+
+        log("Creating new partition in freed space…")
+        subprocess.run(
+            _as_root(["parted", "-s", disk, "mkpart", "primary", "btrfs",
+                      f"{part_end_mib + 1}MiB", "100%"]),
+            check=True,
+        )
+        progress(12)
+
+        log("Informing kernel of partition table changes…")
+        subprocess.run(_as_root(["partprobe", disk]), check=False)
+        time.sleep(2)
+
+        new_parts = list_partitions(disk)
+        new_part  = max(new_parts, key=lambda p: p["num"])
+        new_dev   = new_part["name"]
+        log(f"New partition: {new_dev}")
+
+        log(f"Formatting {new_dev} as btrfs…")
+        subprocess.run(_as_root(["mkfs.btrfs", "-f", new_dev]), check=True)
+        progress(15)
+
+        # ── Phase 1: Install OS to new partition ──────────────────────────
+        log("── Phase 1: Installing OS to new partition ────────────────────")
+        root_mnt = "/var/tmp/kyth-alongside-root"
+        Path(root_mnt).mkdir(parents=True, exist_ok=True)
+        subprocess.run(_as_root(["umount", "-l", root_mnt]), check=False)
+        subprocess.run(_as_root(["mount", new_dev, root_mnt]), check=True)
+
+        efi_part = find_efi_partition(disk)
+        efi_mnt  = f"{root_mnt}/boot/efi"
+        if efi_part:
+            log(f"Reusing EFI partition {efi_part} for bootloader…")
+            subprocess.run(_as_root(["mkdir", "-p", efi_mnt]), check=True)
+            subprocess.run(_as_root(["mount", efi_part, efi_mnt]), check=True)
+
+        try:
+            run_cmd([
+                "bootc", "install", "to-filesystem",
+                "--source-imgref", f"docker://{SOURCE_IMAGE}",
+                "--target-imgref", TARGET_IMAGE,
+                "--skip-fetch-check",
+                "--generic-image",
+                "--acknowledge-destructive",
+                root_mnt,
+            ], 15, 90)
+        finally:
+            subprocess.run(_as_root(["sync"]), check=False)
+            if efi_part:
+                subprocess.run(_as_root(["umount", efi_mnt]), check=False)
+            subprocess.run(_as_root(["umount", root_mnt]), check=False)
+
+        # ── Phase 2: Post-install configuration ───────────────────────────
+        log("── Phase 2: Configuring installed system ──────────────────────")
+        progress(91)
+        subprocess.run(_as_root(["umount", "-l", root_mnt]), check=False)
+        subprocess.run(_as_root(["mount", new_dev, root_mnt]), check=True)
+        try:
+            etc = find_deploy_etc(root_mnt)
+            if etc:
+                subprocess.run(
+                    _as_root(["/usr/bin/tee", str(Path(etc, "hostname"))]),
+                    input=f"{_state['hostname']}\n", text=True,
+                    stdout=subprocess.DEVNULL, check=True,
+                )
+                log(f"Hostname set: {_state['hostname']}")
+                subprocess.run(
+                    _as_root(["ln", "-snf",
+                              f"/usr/share/zoneinfo/{_state['timezone']}",
+                              str(Path(etc, "localtime"))]),
+                    check=True,
+                )
+                log(f"Timezone set: {_state['timezone']}")
+                progress(95)
+
+                username = _state.get("username", "").strip()
+                password = _state.get("password", "")
+                if username and password:
+                    deploy_root = str(Path(etc).parent)
+                    log(f"Creating user: {username}")
+                    try:
+                        subprocess.run(
+                            _as_root([
+                                "useradd", "--root", deploy_root,
+                                "-M", "-G", "wheel,video,audio,render",
+                                "-s", "/bin/bash", username,
+                            ]),
+                            check=True,
+                        )
+                        hash_r = subprocess.run(
+                            ["openssl", "passwd", "-6", "-stdin"],
+                            input=password, text=True,
+                            capture_output=True, check=True,
+                        )
+                        pw_hash = hash_r.stdout.strip()
+                        shadow_path = f"{etc}/shadow"
+                        cat_r = subprocess.run(
+                            _as_root(["cat", shadow_path]),
+                            capture_output=True, text=True, check=True,
+                        )
+                        new_shadow_lines = []
+                        hash_written = False
+                        for line in cat_r.stdout.splitlines(keepends=True):
+                            if line.startswith(f"{username}:"):
+                                fields = line.split(":")
+                                fields[1] = pw_hash
+                                new_shadow_lines.append(":".join(fields))
+                                hash_written = True
+                            else:
+                                new_shadow_lines.append(line)
+                        if not hash_written:
+                            raise RuntimeError(
+                                f"User '{username}' not found in shadow after useradd"
+                            )
+                        subprocess.run(
+                            _as_root(["tee", shadow_path]),
+                            input="".join(new_shadow_lines), text=True,
+                            stdout=subprocess.DEVNULL, check=True,
+                        )
+                        uid, gid = "1000", "1000"
+                        cat_r = subprocess.run(
+                            _as_root(["cat", f"{etc}/passwd"]),
+                            capture_output=True, text=True,
+                        )
+                        for line in cat_r.stdout.splitlines():
+                            if line.startswith(f"{username}:"):
+                                parts = line.split(":")
+                                uid, gid = parts[2], parts[3]
+                                break
+                        var_home = (Path(root_mnt) /
+                                    "ostree/deploy/default/var/home" / username)
+                        subprocess.run(_as_root(["mkdir", "-p", str(var_home)]), check=True)
+                        subprocess.run(_as_root(["chown", f"{uid}:{gid}", str(var_home)]), check=True)
+                        subprocess.run(_as_root(["chmod", "700", str(var_home)]), check=True)
+                        skel = Path(deploy_root) / "etc/skel"
+                        if skel.exists():
+                            subprocess.run(_as_root(["cp", "-rT", str(skel), str(var_home)]), check=True)
+                            subprocess.run(_as_root(["chown", "-R", f"{uid}:{gid}", str(var_home)]), check=True)
+                        log(f"User '{username}' created (uid={uid})")
+                        progress(97)
+                    except Exception as ue:
+                        log(f"Warning: user creation failed: {ue}")
+            else:
+                log("Warning: deploy/etc not found — skipping configuration")
+        finally:
+            subprocess.run(_as_root(["sync"]), check=False)
+            progress(99)
+            subprocess.run(_as_root(["umount", root_mnt]), check=False)
+
+        # ── Phase 3: GRUB dual-boot entries for other OSes ────────────────
+        log("── Phase 3: Updating GRUB for dual-boot ──────────────────────")
+        if efi_part:
+            efi_scan_mnt = "/var/tmp/kyth-efi-scan"
+            Path(efi_scan_mnt).mkdir(parents=True, exist_ok=True)
+            subprocess.run(_as_root(["mount", efi_part, efi_scan_mnt]), check=False)
+            try:
+                efi_dir = Path(efi_scan_mnt) / "EFI"
+                # Kyth uses EFI/fedora; skip that and the standard fallback dir.
+                skip_dirs = {"fedora", "BOOT", "boot"}
+                other_loaders: list[tuple[str, str]] = []
+                if efi_dir.exists():
+                    for d in sorted(efi_dir.iterdir()):
+                        if not d.is_dir() or d.name in skip_dirs:
+                            continue
+                        for loader in ("shimx64.efi", "grubx64.efi",
+                                       "bootmgfw.efi", "bootx64.efi"):
+                            if (d / loader).exists():
+                                other_loaders.append((d.name, loader))
+                                break
+
+                if other_loaders:
+                    uuid_r = subprocess.run(
+                        _as_root(["blkid", "-s", "UUID", "-o", "value", efi_part]),
+                        capture_output=True, text=True,
+                    )
+                    efi_uuid = uuid_r.stdout.strip()
+
+                    custom = ""
+                    for dir_name, loader_file in other_loaders:
+                        if dir_name.lower() == "microsoft":
+                            label = "Windows Boot Manager"
+                        else:
+                            label = f"{dir_name} (chainload)"
+                        efi_path = f"/EFI/{dir_name}/{loader_file}"
+                        custom += (
+                            f'\nmenuentry "{label}" {{\n'
+                            f'    insmod fat\n'
+                            f'    insmod chain\n'
+                            f'    search --no-floppy --set=root --fs-uuid {efi_uuid}\n'
+                            f'    chainloader {efi_path}\n'
+                            f'}}\n'
+                        )
+                        log(f"Adding GRUB entry: {label} → {efi_path}")
+
+                    subprocess.run(_as_root(["mount", new_dev, root_mnt]), check=False)
+                    try:
+                        grub_cfg = Path(root_mnt) / "boot/grub2/grub.cfg"
+                        if grub_cfg.exists():
+                            subprocess.run(
+                                _as_root(["tee", "-a", str(grub_cfg)]),
+                                input=custom, text=True,
+                                stdout=subprocess.DEVNULL, check=True,
+                            )
+                            log(f"Added {len(other_loaders)} dual-boot entry/entries to grub.cfg")
+                        else:
+                            log(f"Warning: {grub_cfg} not found — skipping dual-boot entries")
+                    finally:
+                        subprocess.run(_as_root(["umount", root_mnt]), check=False)
+                else:
+                    log("No other EFI loaders found — single-boot")
+            finally:
+                subprocess.run(_as_root(["umount", efi_scan_mnt]), check=False)
+
+        progress(100)
+        _push({"type": "done"})
+
+    except Exception as exc:
+        tb = traceback.format_exc()
+        try:
+            with LOG_FILE.open("a") as f:
+                f.write(tb)
+        except Exception:
+            pass
+        _push({"type": "error", "message": str(exc)})
+
+
 # ── HTTP Handler ──────────────────────────────────────────────────────────────
 
 class Handler(BaseHTTPRequestHandler):
@@ -437,6 +921,23 @@ class Handler(BaseHTTPRequestHandler):
             self._json(list_timezones())
         elif path == "/api/network":
             self._json({"ok": check_network()})
+        elif path == "/api/partitions":
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            disk = (qs.get("disk") or [""])[0]
+            if disk:
+                parts = list_partitions(disk)
+                disk_bytes = get_disk_size_bytes(disk)
+                largest = get_largest_data_partition(disk)
+                self._json({
+                    "partitions": parts,
+                    "disk_bytes": disk_bytes,
+                    "largest": largest,
+                    "can_resize": largest is not None and bool(largest.get("fstype")),
+                })
+            else:
+                self._json({"partitions": [], "disk_bytes": 0,
+                            "largest": None, "can_resize": False})
         elif path == "/api/stream":
             self._sse()
         else:
@@ -449,13 +950,14 @@ class Handler(BaseHTTPRequestHandler):
 
         if path == "/api/start":
             _state.update({
-                "disk":       body.get("disk", ""),
-                "disk_model": body.get("disk_model", ""),
-                "disk_size":  body.get("disk_size", ""),
-                "hostname":   body.get("hostname", "kyth"),
-                "timezone":   body.get("timezone", "UTC"),
-                "username":   body.get("username", ""),
-                "password":   body.get("password", ""),
+                "disk":         body.get("disk", ""),
+                "disk_model":   body.get("disk_model", ""),
+                "disk_size":    body.get("disk_size", ""),
+                "hostname":     body.get("hostname", "kyth"),
+                "timezone":     body.get("timezone", "UTC"),
+                "username":     body.get("username", ""),
+                "password":     body.get("password", ""),
+                "install_mode": body.get("install_mode", "erase"),
             })
             # Reset event log for a fresh install attempt
             with _events_lock:
@@ -871,6 +1373,99 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
   margin-top: 14px;
 }
 
+/* ── Install-mode option cards ─────────────────────────────────────── */
+.install-mode-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.mode-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  padding: 16px 18px;
+  background: var(--surface2);
+  border: 1.5px solid var(--border);
+  border-radius: 10px;
+  cursor: pointer;
+  transition: border-color .15s, background .15s, box-shadow .15s;
+  user-select: none;
+}
+
+.mode-card:hover { background: #16163a; border-color: var(--accent-lo); }
+
+.mode-card.selected {
+  border-color: var(--accent);
+  background: rgba(96,96,248,.1);
+  box-shadow: 0 0 0 3px rgba(96,96,248,.15);
+}
+
+.mode-card.disabled {
+  opacity: .4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+.mode-radio {
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  flex-shrink: 0;
+  margin-top: 2px;
+  transition: all .15s;
+}
+.mode-card.selected .mode-radio {
+  border-color: var(--accent);
+  background: var(--accent);
+  box-shadow: inset 0 0 0 3px var(--surface2);
+}
+
+.mode-body { flex: 1; }
+.mode-title { font-size: 14px; font-weight: 600; color: var(--text); }
+.mode-desc  { font-size: 13px; color: var(--muted); margin-top: 3px; line-height: 1.5; }
+
+/* Alongside resize preview */
+.alongside-preview {
+  background: rgba(96,96,248,.06);
+  border: 1px solid rgba(96,96,248,.2);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-top: 14px;
+  font-size: 13px;
+  color: var(--muted);
+  display: none;
+}
+.alongside-preview.visible { display: block; }
+.alongside-preview .preview-bar {
+  display: flex;
+  height: 20px;
+  border-radius: 5px;
+  overflow: hidden;
+  margin: 10px 0 6px;
+  border: 1px solid var(--border);
+}
+.alongside-preview .bar-existing {
+  background: #1d3a6a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #93c5fd;
+  flex: 1;
+}
+.alongside-preview .bar-kyth {
+  background: var(--accent);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  color: #fff;
+  font-weight: 600;
+  flex: 1;
+}
+
 /* ── Warning banner ────────────────────────────────────────────────── */
 .warn-box {
   background: rgba(232,160,48,.07);
@@ -1069,12 +1664,42 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
     <div class="page" id="page-disk">
       <div class="card">
         <div class="card-title">Select Installation Disk</div>
-        <div class="card-sub">Choose the disk where Kyth will be installed — all data will be erased</div>
+        <div class="card-sub">Choose a disk and how Kyth should be installed on it</div>
         <div class="divider"></div>
         <div class="disk-grid" id="disk-grid">
           <div class="status-box status-info">Loading disks…</div>
         </div>
-        <div class="warn-box">⚠&nbsp; All data on the selected disk will be permanently destroyed.</div>
+
+        <!-- Install mode -->
+        <div class="field-label" style="margin-top:20px">Installation Type</div>
+        <div class="install-mode-grid">
+          <div class="mode-card selected" id="mode-erase" onclick="selectMode('erase')">
+            <div class="mode-radio"></div>
+            <div class="mode-body">
+              <div class="mode-title">Erase disk and install</div>
+              <div class="mode-desc">Wipe the selected disk and install Kyth on the full disk. All existing data will be lost.</div>
+            </div>
+          </div>
+          <div class="mode-card disabled" id="mode-alongside" onclick="selectMode('alongside')">
+            <div class="mode-radio"></div>
+            <div class="mode-body">
+              <div class="mode-title">Install alongside existing OS</div>
+              <div class="mode-desc" id="alongside-desc">Select a disk to see if alongside install is available.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Alongside resize preview -->
+        <div class="alongside-preview" id="alongside-preview">
+          <div id="alongside-detail"></div>
+          <div class="preview-bar">
+            <div class="bar-existing" id="bar-existing">Existing OS (50%)</div>
+            <div class="bar-kyth">Kyth (50%)</div>
+          </div>
+          <div id="alongside-sizes" style="font-size:12px;color:var(--muted)"></div>
+        </div>
+
+        <div class="warn-box" id="disk-warn">⚠&nbsp; All data on the selected disk will be permanently destroyed.</div>
         <div class="disk-tools">
           <button class="danger" onclick="launchGparted()">Launch GParted</button>
           <button onclick="loadDisks()">Refresh</button>
@@ -1139,7 +1764,7 @@ select { cursor: pointer; background-image: url("data:image/svg+xml,%3Csvg xmlns
           </div>
         </div>
         <button class="log-toggle" id="log-toggle" onclick="toggleLog()">
-          <span class="arrow">▶</span> Show install log
+          <span class="arrow">▶</span><span class="log-label"> Show install log</span>
         </button>
         <div class="log-wrap" id="log-wrap"></div>
       </div>
@@ -1183,6 +1808,8 @@ const S = {
   hostname: 'kyth',
   timezone: 'UTC',
   sourceImage: '',
+  installMode: 'erase',   // 'erase' | 'alongside'
+  alongsideInfo: null,    // { largest, disk_bytes, can_resize }
 };
 
 const STEP_ORDER = ['welcome','network','disk','config','review','install'];
@@ -1246,6 +1873,11 @@ function loadDisks() {
     '<div class="status-box status-info">Loading disks…</div>';
   document.getElementById('disk-next').disabled = true;
   S.disk = null;
+  S.alongsideInfo = null;
+  selectMode('erase');
+  document.getElementById('mode-alongside').classList.add('disabled');
+  document.getElementById('alongside-desc').textContent = 'Select a disk to see if alongside install is available.';
+  document.getElementById('alongside-preview').classList.remove('visible');
 
   fetch('/api/disks').then(r => r.json()).then(disks => {
     _disks = disks;
@@ -1275,13 +1907,87 @@ function selectDisk(idx) {
   document.getElementById('dcard-' + idx).classList.add('selected');
   S.disk = _disks[idx];
   document.getElementById('disk-next').disabled = false;
+
+  // Reset alongside state while we fetch partition info
+  S.alongsideInfo = null;
+  const modeAlong = document.getElementById('mode-alongside');
+  modeAlong.classList.add('disabled');
+  document.getElementById('alongside-desc').textContent = 'Checking disk…';
+  document.getElementById('alongside-preview').classList.remove('visible');
+  if (S.installMode === 'alongside') selectMode('erase');
+
+  fetch(`/api/partitions?disk=${encodeURIComponent(S.disk.name)}`)
+    .then(r => r.json())
+    .then(d => {
+      S.alongsideInfo = d;
+      if (d.can_resize && d.largest) {
+        const l = d.largest;
+        const halfStr = humanBytesJS(d.disk_bytes / 2);
+        document.getElementById('alongside-desc').textContent =
+          `Shrink "${l.name}" (${l.size}, ${l.fstype || 'unknown FS'}) to 50% and install Kyth on the freed space.`;
+        modeAlong.classList.remove('disabled');
+      } else {
+        document.getElementById('alongside-desc').textContent =
+          'No resizable partition detected on this disk.';
+        modeAlong.classList.add('disabled');
+      }
+    })
+    .catch(() => {
+      document.getElementById('alongside-desc').textContent = 'Could not inspect disk partitions.';
+    });
+}
+
+function humanBytesJS(b) {
+  if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB';
+  if (b >= 1e9)  return (b / 1e9).toFixed(1) + ' GB';
+  if (b >= 1e6)  return (b / 1e6).toFixed(0) + ' MB';
+  return b + ' B';
+}
+
+function selectMode(mode) {
+  S.installMode = mode;
+  document.getElementById('mode-erase').classList.toggle('selected', mode === 'erase');
+  document.getElementById('mode-alongside').classList.toggle('selected', mode === 'alongside');
+
+  const preview   = document.getElementById('alongside-preview');
+  const warnBox   = document.getElementById('disk-warn');
+
+  if (mode === 'alongside' && S.alongsideInfo && S.alongsideInfo.can_resize) {
+    preview.classList.add('visible');
+    const l        = S.alongsideInfo.largest;
+    const halfStr  = humanBytesJS(S.alongsideInfo.disk_bytes / 2);
+    document.getElementById('alongside-detail').textContent =
+      `The partition ${l.name} (${l.size}) will be shrunk to ~${halfStr}. ` +
+      `Kyth will be installed in the freed space (~${halfStr}).`;
+    document.getElementById('alongside-sizes').textContent =
+      `Existing OS: ~${halfStr}  ·  Kyth: ~${halfStr}`;
+    document.getElementById('bar-existing').textContent = `Existing OS (~${halfStr})`;
+    warnBox.innerHTML = '⚠&nbsp; The existing partition will be resized. Back up important data first.';
+    warnBox.style.color = 'var(--amber)';
+  } else {
+    preview.classList.remove('visible');
+    warnBox.innerHTML = '⚠&nbsp; All data on the selected disk will be permanently destroyed.';
+    warnBox.style.color = '';
+  }
 }
 
 function confirmDisk() {
   if (!S.disk) return;
-  if (confirm(
-    `This will permanently erase ALL data on:\n\n  ${S.disk.name}  —  ${S.disk.model}  (${S.disk.size})\n\nThis cannot be undone. Continue?`
-  )) goto('config');
+  if (S.installMode === 'alongside') {
+    if (!S.alongsideInfo || !S.alongsideInfo.can_resize) return;
+    const l = S.alongsideInfo.largest;
+    const halfStr = humanBytesJS(S.alongsideInfo.disk_bytes / 2);
+    if (confirm(
+      `Install Kyth alongside the existing OS on ${S.disk.name}?\n\n` +
+      `  • ${l.name} (${l.size}) will be shrunk to ~${halfStr}\n` +
+      `  • A new ~${halfStr} partition will be created for Kyth\n\n` +
+      `Back up your data before continuing. This cannot be undone.`
+    )) goto('config');
+  } else {
+    if (confirm(
+      `This will permanently erase ALL data on:\n\n  ${S.disk.name}  —  ${S.disk.model}  (${S.disk.size})\n\nThis cannot be undone. Continue?`
+    )) goto('config');
+  }
 }
 
 function launchGparted() {
@@ -1338,13 +2044,17 @@ function saveConfig() {
 
 // ── Review ────────────────────────────────────────────────────────────────
 function buildReview() {
+  const modeLabel = S.installMode === 'alongside'
+    ? 'Install alongside existing OS'
+    : 'Erase disk and install';
   const rows = [
-    ['OS Image',      S.sourceImage || '(loading…)', true],
-    ['Install Disk',  S.disk ? `${S.disk.name} — ${S.disk.model} (${S.disk.size})` : '—', false],
-    ['Hostname',      S.hostname, false],
-    ['Timezone',      S.timezone,  false],
-    ['Username',      S.username || '—', false],
-    ['Password',      S.password ? '••••••••' : '—', false],
+    ['OS Image',        S.sourceImage || '(loading…)', true],
+    ['Install Type',    modeLabel, false],
+    ['Install Disk',    S.disk ? `${S.disk.name} — ${S.disk.model} (${S.disk.size})` : '—', false],
+    ['Hostname',        S.hostname, false],
+    ['Timezone',        S.timezone,  false],
+    ['Username',        S.username || '—', false],
+    ['Password',        S.password ? '••••••••' : '—', false],
   ];
   document.getElementById('review-table').innerHTML = rows.map(([l, v, mono]) =>
     `<tr><td class="rl">${l}</td><td class="rv${mono ? '' : ' plain'}">${v}</td></tr>`
@@ -1357,13 +2067,14 @@ function startInstall() {
   goto('install');
 
   const body = {
-    disk:       S.disk.name,
-    disk_model: S.disk.model,
-    disk_size:  S.disk.size,
-    hostname:   S.hostname,
-    timezone:   S.timezone,
-    username:   S.username || '',
-    password:   S.password || '',
+    disk:         S.disk.name,
+    disk_model:   S.disk.model,
+    disk_size:    S.disk.size,
+    hostname:     S.hostname,
+    timezone:     S.timezone,
+    username:     S.username || '',
+    password:     S.password || '',
+    install_mode: S.installMode,
   };
 
   fetch('/api/start', {
@@ -1378,8 +2089,7 @@ function toggleLog() {
   const wrap = document.getElementById('log-wrap');
   const open = wrap.classList.toggle('visible');
   btn.classList.toggle('open', open);
-  btn.querySelector('.arrow').textContent = open ? '▶' : '▶';
-  btn.childNodes[1].textContent = open ? ' Hide install log' : ' Show install log';
+  btn.querySelector('.log-label').textContent = open ? ' Hide install log' : ' Show install log';
   if (open) wrap.scrollTop = wrap.scrollHeight;
 }
 
