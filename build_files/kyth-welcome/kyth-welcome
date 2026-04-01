@@ -726,11 +726,13 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
         return "Already on the latest image — nothing to download."
     if "queued" in lo and "boot" in lo:
         return "Staged — new image ready for next reboot."
-    # topgrade section headers look like "[section] ..."
-    if mode == "topgrade" and line.startswith("[") and "]" in line:
-        section = line[1 : line.index("]")].strip()
-        if section:
-            return f"Updating {section}…"
+    # topgrade section headers look like "―― HH:MM:SS - Section Name ――"
+    if mode == "topgrade" and line.startswith("――"):
+        m = re.match(r"――\s*[\d:]+\s*-\s*(.+?)\s*――", line)
+        if m:
+            section = m.group(1).strip()
+            if section:
+                return f"Updating {section}…"
     return None
 
 
