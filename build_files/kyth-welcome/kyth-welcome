@@ -1524,17 +1524,17 @@ class WelcomePage(Page):
         section_lbl.setObjectName("card-title")
         self._add(section_lbl)
 
-        # Page indices match new nav order: 0=Welcome 1=Update 2=Hardware
-        # 3=Firmware 4=Software 5=Gaming 6=NVIDIA 7=Cloud 8=Branches 9=Diagnostics 10=Repair
+        # Page destinations are resolved by name so optional pages can be hidden
+        # without breaking the quick links on the welcome screen.
         steps = [
-            (1, "Run a system update",      "Start with the latest packages and OS image.",            1),
-            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      2),
-            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         3),
-            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         5),
-            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             4),
+            (1, "Run a system update",      "Start with the latest packages and OS image.",            "Update"),
+            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      "Hardware"),
+            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         "Firmware"),
+            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         "Gaming"),
+            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             "Software"),
         ]
-        for num, title, desc, page_idx in steps:
-            self._add(self._make_step(num, title, desc, page_idx))
+        for num, title, desc, page_key in steps:
+            self._add(self._make_step(num, title, desc, page_key))
 
         self._divider()
 
@@ -1579,7 +1579,7 @@ class WelcomePage(Page):
         self._add(note)
         self._stretch()
 
-    def _make_step(self, num: int, title: str, desc: str, page_idx: int) -> QFrame:
+    def _make_step(self, num: int, title: str, desc: str, page_key: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName("step-item")
         row = QHBoxLayout(frame)
@@ -1605,7 +1605,7 @@ class WelcomePage(Page):
 
         go_btn = QPushButton("Go →")
         go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        go_btn.clicked.connect(lambda checked=False, idx=page_idx: self._navigate(idx))
+        go_btn.clicked.connect(lambda checked=False, key=page_key: self._navigate(key))
         row.addWidget(go_btn)
 
         return frame
@@ -4380,24 +4380,31 @@ class MainWindow(QMainWindow):
         sep = _divider()
         sidebar_layout.addWidget(sep)
 
-        nav_entries = [
-            ("Welcome",        "Welcome"),
-            ("Update",         "Update"),
-            ("Hardware",       "Hardware"),
-            ("Firmware",       "Firmware"),
-            ("Software",       "Software"),
-            ("Gaming",         "Gaming"),
-            ("NVIDIA Drivers", "NVIDIA"),
-            ("Cloud Storage",  "Cloud Storage"),
-            ("Branches",       "Branches"),
-            ("Diagnostics",    "Diagnostics"),
-            ("Repair",         "Repair"),
+        page_specs = [
+            ("Welcome", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+            ("Update", "Update", UpdatePage),
+            ("Hardware", "Hardware", HardwarePage),
+            ("Firmware", "Firmware", FirmwarePage),
+            ("Software", "Software", SoftwarePage),
+            ("Gaming", "Gaming", GamingPage),
         ]
+        if _detect_nvidia():
+            page_specs.append(("NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        page_specs.extend([
+            ("Cloud Storage", "Cloud Storage", CloudStoragePage),
+            ("Branches", "Branches", BranchesPage),
+            ("Diagnostics", "Diagnostics", DiagnosticsPage),
+            ("Repair", "Repair", RepairPage),
+        ])
+
+        self._page_index_by_key = {
+            key: idx for idx, (_, key, _) in enumerate(page_specs)
+        }
 
         self._nav_buttons: list[NavButton] = []
-        for label, _ in nav_entries:
+        for idx, (label, _, _) in enumerate(page_specs):
             btn = NavButton(label)
-            btn.clicked.connect(self._make_nav_handler(len(self._nav_buttons)))
+            btn.clicked.connect(self._make_nav_handler(idx))
             sidebar_layout.addWidget(btn)
             self._nav_buttons.append(btn)
 
@@ -4407,19 +4414,7 @@ class MainWindow(QMainWindow):
         # ── Page stack ───────────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
-        self._pages = [
-            WelcomePage(navigate=self._switch_page),
-            UpdatePage(),
-            HardwarePage(),
-            FirmwarePage(),
-            SoftwarePage(),
-            GamingPage(),
-            NvidiaPage(),
-            CloudStoragePage(),
-            BranchesPage(),
-            DiagnosticsPage(),
-            RepairPage(),
-        ]
+        self._pages = [factory() for _, _, factory in page_specs]
         for page in self._pages:
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
@@ -4428,6 +4423,15 @@ class MainWindow(QMainWindow):
 
     def _make_nav_handler(self, index: int):
         return lambda: self._switch_page(index)
+
+    def _navigate_to(self, destination: int | str):
+        if isinstance(destination, str):
+            index = self._page_index_by_key.get(destination)
+            if index is None:
+                return
+            self._switch_page(index)
+            return
+        self._switch_page(destination)
 
     def _switch_page(self, index: int):
         for i, btn in enumerate(self._nav_buttons):
