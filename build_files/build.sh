@@ -515,7 +515,15 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # GE-Proton is installed in a separate image layer (build_files/scripts/ge-proton.sh)
 # so version bumps only re-download that layer, not this entire layer.
 
-systemctl enable libvirtd.socket
+# Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
+# Enable whichever socket exists so builds stay portable across releases.
+if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then
+    systemctl enable libvirtd.socket 2>/dev/null || true
+elif systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^virtqemud\.socket'; then
+    systemctl enable virtqemud.socket 2>/dev/null || true
+else
+    echo "libvirt socket unit not found; skipping enable."
+fi
 systemctl enable fwupd 2>/dev/null || true
 
 # ── Distrobox ─────────────────────────────────────────────────────────────────

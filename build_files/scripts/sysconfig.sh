@@ -231,7 +231,15 @@ systemctl mask systemd-remount-fs.service
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
-systemctl enable libvirtd.socket
+# Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
+# Enable whichever socket exists so image builds stay portable across releases.
+if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then
+    systemctl enable libvirtd.socket 2>/dev/null || true
+elif systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^virtqemud\.socket'; then
+    systemctl enable virtqemud.socket 2>/dev/null || true
+else
+    echo "libvirt socket unit not found; skipping enable."
+fi
 systemctl enable docker.socket 2>/dev/null || true
 systemctl enable fwupd 2>/dev/null || true
 
