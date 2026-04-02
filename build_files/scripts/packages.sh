@@ -216,6 +216,7 @@ curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
 python3 - <<'PY'
 import zipfile
 import pathlib
+import gzip
 import sys
 
 vsix = pathlib.Path('/tmp/claude-code.vsix')
@@ -223,10 +224,31 @@ if not vsix.exists() or vsix.stat().st_size == 0:
     print("ERROR: Claude Code VSIX download is missing or empty.", file=sys.stderr)
     sys.exit(1)
 
+vsix_bytes = vsix.read_bytes()
+
+# Some CDN paths return the VSIX payload gzip-wrapped.
 if not zipfile.is_zipfile(vsix):
-    sample = vsix.read_bytes()[:240].decode("utf-8", errors="replace").replace("\n", " ")
-    print("ERROR: Downloaded Claude Code artifact is not a ZIP/VSIX.", file=sys.stderr)
-    print(f"First bytes: {sample}", file=sys.stderr)
+    if vsix_bytes.startswith(b"\x1f\x8b"):
+        try:
+            decompressed = gzip.decompress(vsix_bytes)
+        except Exception as exc:
+            print(f"ERROR: Failed to gunzip Claude Code artifact: {exc}", file=sys.stderr)
+            sys.exit(1)
+        if decompressed.startswith(b"PK\x03\x04"):
+            vsix.write_bytes(decompressed)
+        else:
+            sample = decompressed[:240].decode("utf-8", errors="replace").replace("\n", " ")
+            print("ERROR: Gzip payload is not a ZIP/VSIX.", file=sys.stderr)
+            print(f"First bytes after gunzip: {sample}", file=sys.stderr)
+            sys.exit(1)
+    else:
+        sample = vsix_bytes[:240].decode("utf-8", errors="replace").replace("\n", " ")
+        print("ERROR: Downloaded Claude Code artifact is not a ZIP/VSIX.", file=sys.stderr)
+        print(f"First bytes: {sample}", file=sys.stderr)
+        sys.exit(1)
+
+if not zipfile.is_zipfile(vsix):
+    print("ERROR: Claude Code artifact still is not a valid ZIP after normalization.", file=sys.stderr)
     sys.exit(1)
 PY
 mkdir -p /etc/skel/.vscode/extensions
