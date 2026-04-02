@@ -41,7 +41,7 @@ build_files/            # Layer 2+: packages, gaming tweaks, branding
   Containerfile.live    # Live session variant (custom installer)
   kyth-installer        # Graphical installer (PySide6 + Chromium kiosk)
   kyth-launch-installer # Desktop launcher for the installer
-  branding/             # Kyth logos and branding CSS
+  branding/             # KythOS logos and branding CSS
   scripts/              # Build layers: packages, thirdparty, sysconfig, branding, ge-proton, mesa-git
   just/kyth.just        # ujust recipes shipped in the OS
   kyth-welcome/         # First-boot welcome app

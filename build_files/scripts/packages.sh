@@ -321,7 +321,7 @@ akmods --force --kernels "${NVIDIA_KVER}"
 modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
     || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
-# ── Kyth Helper app ───────────────────────────────────────────────────────────
+# ── KythOS Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 

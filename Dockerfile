@@ -5,16 +5,16 @@ COPY build_files /
 # Base Image
 FROM localhost/kyth-base:stable
 
-# Override upstream OCI labels so downstream tooling (lorax/bootc) sees Kyth product metadata
-LABEL org.opencontainers.image.title="Kyth"
+# Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
+LABEL org.opencontainers.image.title="KythOS"
 LABEL org.opencontainers.image.version="43"
-LABEL org.opencontainers.image.description="Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
+LABEL org.opencontainers.image.description="KythOS — atomic gaming and dev workstation built on Fedora Kinoite"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 LABEL org.opencontainers.image.source="https://github.com/mrtrick37/kyth"
 LABEL org.opencontainers.image.documentation="https://github.com/mrtrick37/kyth"
-LABEL org.osbuild.product="Kyth"
+LABEL org.osbuild.product="KythOS"
 LABEL org.osbuild.version="43"
-LABEL org.osbuild.branding.release="Kyth 43"
+LABEL org.osbuild.branding.release="KythOS 43"
 
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1
@@ -62,7 +62,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     /ctx/scripts/sysconfig.sh
 
 # Layer 5: Branding, theming, helper app, Plymouth (~10 MB).
-# Re-downloaded on Kyth version bumps or welcome app updates.
+# Re-downloaded on KythOS version bumps or welcome app updates.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
