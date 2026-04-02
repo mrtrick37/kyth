@@ -144,7 +144,9 @@ dnf5 copr disable -y ublue-os/staging
 dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo
+# Disable negativo17 Steam repo so it doesn't leak alternate NVIDIA stacks.
+dnf5 config-manager setopt fedora-steam.enabled=0 || true
+sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo 2>/dev/null || true
 
 ### GPU drivers
 
@@ -270,7 +272,22 @@ rm -rf /tmp/claude-code.vsix /tmp/claude-code-ext
 # build_base while the CachyOS COPR is active, so the headers are present here.
 # On AMD/Intel systems these packages are inert: the nvidia module exists in the
 # image but udev never loads it without NVIDIA hardware present.
-dnf5 install -y --skip-unavailable \
+# If another repo pulled in a different NVIDIA family (for example negativo17),
+# remove its shared-common package to avoid file conflicts with RPM Fusion.
+dnf5 remove -y nvidia-kmod-common || true
+# Keep this install constrained to Fedora + RPM Fusion repos so solver doesn't
+# mix incompatible NVIDIA package streams from third-party repos.
+# Exclude nvidia-kmod-common: RPM Fusion transiently ships it at a newer driver
+# version (595.x) than xorg-x11-drv-nvidia (580.x).  Both packages provide
+# /usr/bin/nvidia-bug-report.sh causing a file conflict in the same transaction.
+# At 580.x the driver package itself still contains those shared files, so the
+# exclude is safe.  Remove this exclusion once RPM Fusion versions converge.
+dnf5 install -y --skip-unavailable --allowerasing \
+    --disablerepo='*' \
+    --enablerepo='fedora*' \
+    --enablerepo='updates*' \
+    --enablerepo='rpmfusion*' \
+    --exclude=nvidia-kmod-common \
     akmods \
     akmod-nvidia \
     xorg-x11-drv-nvidia \
