@@ -34,8 +34,12 @@ dnf5 install -y --skip-unavailable \
     mozilla-openh264 \
     mpv
 
-# Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs
-dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'
+# Always upgrade all packages (except kernel/gamescope) before graphics/mesa installs.
+# Keep RPM Fusion's gstreamer1-plugins-bad-freeworld and avoid pulling Fedora's
+# conflicting gstreamer1-plugins-bad package during broad upgrades.
+dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+    --exclude='gstreamer1-plugins-bad' \
+    --exclude='gstreamer1-plugins-bad.i686'
 
 # Mesa-git upgrade is handled in a separate image layer (build_files/scripts/mesa-git.sh)
 # so daily mesa updates only re-download that small layer, not this entire layer.

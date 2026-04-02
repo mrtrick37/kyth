@@ -37,10 +37,14 @@ RUN --mount=type=cache,dst=/var/cache \
     _common_ver=$(dnf5 repoquery --available --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true); \
     if [ -n "${_drv_ver}" ] && [ -n "${_common_ver}" ] && [ "${_drv_ver}" = "${_common_ver}" ]; then \
         echo "NVIDIA packages consistent (${_drv_ver}); upgrading freely."; \
-        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*'; \
+        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+            --exclude='gstreamer1-plugins-bad' \
+            --exclude='gstreamer1-plugins-bad.i686'; \
     else \
         echo "NVIDIA version mismatch (installed xorg-x11-drv-nvidia=${_drv_ver}, available nvidia-kmod-common=${_common_ver}); holding NVIDIA packages."; \
         dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+            --exclude='gstreamer1-plugins-bad' \
+            --exclude='gstreamer1-plugins-bad.i686' \
             --exclude='nvidia-kmod-common' \
             --exclude='akmod-nvidia*' \
             --exclude='xorg-x11-drv-nvidia*'; \
