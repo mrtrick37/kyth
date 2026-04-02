@@ -227,7 +227,7 @@ dnf5 install -y distrobox
 # via the SPICE protocol, so the VM display auto-resizes to the window size.
 # On bare metal it is a no-op.  kscreen-doctor (from kscreen) is the KDE CLI
 # for querying and configuring outputs; used by the first-login script below.
-dnf5 install -y spice-vdagent kscreen
+dnf5 install -y spice-vdagent virt-viewer kscreen
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Homebrew RPM deps
