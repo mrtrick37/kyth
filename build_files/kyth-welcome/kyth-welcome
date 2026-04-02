@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""kyth-welcome — Kyth Linux helper application.
+"""kyth-welcome — KythOS Linux helper application.
 
 Shows once on first login (via /etc/skel autostart) and is always
 accessible from the application menu.
@@ -939,7 +939,7 @@ def _save_sync_config(cfg: dict) -> None:
 
 def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
     """Launch args inside a terminal window; try several emulators. Returns True on success."""
-    # xdg-terminal-exec is the XDG standard launcher (installed on Kyth)
+    # xdg-terminal-exec is the XDG standard launcher (installed on KythOS)
     if shutil.which("xdg-terminal-exec"):
         try:
             subprocess.Popen(["xdg-terminal-exec"] + args)
@@ -1328,7 +1328,7 @@ def _diagnostics_report(probes: list[HardwareProbe]) -> str:
         fwupd_status = f"check failed (exit {fwupd.returncode})"
 
     lines = [
-        "Kyth Diagnostics Report",
+        "KythOS Diagnostics Report",
         f"Generated: {timestamp}",
         "",
         "System",
@@ -1548,7 +1548,7 @@ class WelcomePage(Page):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
 
-        self._heading("Welcome to Kyth")
+        self._heading("Welcome to KythOS")
         self._subheading("A fast, atomic desktop built for gaming and development.")
         self._divider()
 
@@ -1586,7 +1586,7 @@ class WelcomePage(Page):
             alert_title.setObjectName("card-title-update")
             alert_layout.addWidget(alert_title)
             alert_body = QLabel(
-                "A new Kyth OS image has been downloaded and is waiting. "
+                "A new KythOS OS image has been downloaded and is waiting. "
                 "Reboot at any time to switch to the updated system."
             )
             alert_body.setObjectName("card-copy")
@@ -1946,7 +1946,7 @@ class UpdatePage(Page):
         btn_row.addWidget(self._topgrade_btn)
 
         self._os_btn = QPushButton("OS Image Only")
-        self._os_btn.setToolTip("Downloads the next Kyth system image (bootc upgrade)")
+        self._os_btn.setToolTip("Downloads the next KythOS system image (bootc upgrade)")
         self._os_btn.clicked.connect(self._run_bootc_upgrade)
         btn_row.addWidget(self._os_btn)
 
@@ -1992,7 +1992,7 @@ class UpdatePage(Page):
         ex_title.setObjectName("card-title")
         ex_layout.addWidget(ex_title)
         ex_body = QLabel(
-            "Full Update runs topgrade, which handles the Kyth OS image, Flatpaks, and any other "
+            "Full Update runs topgrade, which handles the KythOS OS image, Flatpaks, and any other "
             "configured tools in one pass.\n\n"
             "OS Image Only runs bootc upgrade directly — useful if you want to update the system "
             "image without touching your installed apps.\n\n"
@@ -2010,7 +2010,7 @@ class UpdatePage(Page):
         cl_title.setObjectName("card-title")
         cl_layout.addWidget(cl_title)
         cl_body = QLabel(
-            "Kyth rebuilds daily from the latest packages. "
+            "KythOS rebuilds daily from the latest packages. "
             "See the full commit history on GitHub for a detailed log of recent changes."
         )
         cl_body.setObjectName("card-copy")
@@ -2071,15 +2071,15 @@ class UpdatePage(Page):
             "topgrade",
             "Running full system update via topgrade…",
             ["topgrade", "--yes", "--no-retry"],
-            "Kyth is running a full system update",
+            "KythOS is running a full system update",
         )
 
     def _run_bootc_upgrade(self):
         self._start_operation(
             "update",
-            "Downloading the next Kyth OS image…",
+            "Downloading the next KythOS OS image…",
             ["sudo", "bootc", "upgrade"],
-            "Kyth is downloading a system update",
+            "KythOS is downloading a system update",
         )
 
     def _run_rollback(self):
@@ -2087,7 +2087,7 @@ class UpdatePage(Page):
             "rollback",
             "Staging the previous deployment for next boot…",
             ["sudo", "bootc", "rollback"],
-            "Kyth is staging a system rollback",
+            "KythOS is staging a system rollback",
         )
 
     def _on_line(self, text: str):
@@ -2256,7 +2256,7 @@ class BranchesPage(Page):
         self._heartbeat.timeout.connect(self._heartbeat_tick)
 
         self._heading("Branches")
-        self._subheading("Choose which Kyth image stream this system follows.")
+        self._subheading("Choose which KythOS image stream this system follows.")
         self._divider()
 
         self._current_lbl = QLabel()
@@ -2370,8 +2370,8 @@ class BranchesPage(Page):
         self._stable_btn.setEnabled(False)
         self._testing_btn.setEnabled(False)
 
-        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "switch", ref], "Kyth is switching branch"))
-        _set_session_inhibit(self, "Kyth is switching the system branch")
+        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "switch", ref], "KythOS is switching branch"))
+        _set_session_inhibit(self, "KythOS is switching the system branch")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -2517,7 +2517,7 @@ class FirmwarePage(Page):
         self._update_btn.setEnabled(False)
 
         self._worker = Worker(["fwupdmgr", "refresh", "--force"])
-        _set_session_inhibit(self, "Kyth is checking for firmware updates")
+        _set_session_inhibit(self, "KythOS is checking for firmware updates")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_check_done)
         self._worker.start()
@@ -2569,7 +2569,7 @@ class FirmwarePage(Page):
         self._check_btn.setEnabled(False)
 
         self._worker = Worker(["fwupdmgr", "update"])
-        _set_session_inhibit(self, "Kyth is applying firmware updates")
+        _set_session_inhibit(self, "KythOS is applying firmware updates")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_update_done)
         self._worker.start()
@@ -2684,7 +2684,7 @@ class NvidiaPage(Page):
         self._install_btn.setEnabled(False)
 
         self._worker = Worker(cmd)
-        _set_session_inhibit(self, "Kyth is installing NVIDIA drivers")
+        _set_session_inhibit(self, "KythOS is installing NVIDIA drivers")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -2715,7 +2715,7 @@ class RepairPage(Page):
 
         self._heading("Repair")
         self._subheading(
-            "Reset the OS back to a clean Kyth state. Your personal files in /home are never touched."
+            "Reset the OS back to a clean KythOS state. Your personal files in /home are never touched."
         )
         self._divider()
 
@@ -2725,7 +2725,7 @@ class RepairPage(Page):
         info_title.setObjectName("card-title")
         info_layout.addWidget(info_title)
         info_body = QLabel(
-            "Repair resets layered packages, system configuration, and the OS image to Kyth defaults. "
+            "Repair resets layered packages, system configuration, and the OS image to KythOS defaults. "
             "It does not replace a proper backup. Files in /home are left in place, so this is "
             "a safe way to recover a broken OS — but keep your saves, projects, and documents "
             "backed up somewhere external."
@@ -2743,7 +2743,7 @@ class RepairPage(Page):
         warn_body = QLabel(
             "Running a repair will:\n"
             "  \u2022  Remove any layered packages and custom OS-level changes\n"
-            "  \u2022  Reset system configuration to Kyth defaults\n"
+            "  \u2022  Reset system configuration to KythOS defaults\n"
             "  \u2022  Leave everything in /home untouched\n"
             "  \u2022  Reboot automatically after staging\n\n"
             "If you only need to undo a bad update, use Roll Back in the Update page first."
@@ -2807,8 +2807,8 @@ class RepairPage(Page):
         self._status_lbl.show()
         _restyle(self._status_lbl)
 
-        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "reset"], "Kyth is resetting the system"))
-        _set_session_inhibit(self, "Kyth is resetting the system image")
+        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "reset"], "KythOS is resetting the system"))
+        _set_session_inhibit(self, "KythOS is resetting the system image")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -2844,7 +2844,7 @@ class GamingPage(Page):
 
         self._heading("Gaming")
         self._subheading(
-            "Kyth ships a full gaming stack. Everything below is pre-installed "
+            "KythOS ships a full gaming stack. Everything below is pre-installed "
             "and pre-configured — just add the right launch options in Steam."
         )
         self._divider()
@@ -3401,7 +3401,7 @@ class RcloneSetupWizard(QDialog):
 
     def __init__(self, parent=None, preselect: str = "drive"):
         super().__init__(parent)
-        self.setWindowTitle("Cloud Storage Setup — Kyth")
+        self.setWindowTitle("Cloud Storage Setup — KythOS")
         self.setMinimumSize(600, 500)
         self.resize(640, 540)
         self.setModal(True)
@@ -4297,7 +4297,7 @@ class SoftwarePage(Page):
         super().__init__()
 
         self._heading("Software")
-        self._subheading("How to install and manage applications on Kyth.")
+        self._subheading("How to install and manage applications on KythOS.")
         self._divider()
 
         # Why dnf doesn't work
@@ -4306,7 +4306,7 @@ class SoftwarePage(Page):
         why_title.setObjectName("card-title")
         why_layout.addWidget(why_title)
         why_body = QLabel(
-            "Kyth is an immutable OS — the base system files are read-only and update atomically "
+            "KythOS is an immutable OS — the base system files are read-only and update atomically "
             "as a container image. This makes the system reliable and easy to roll back, but it "
             "means dnf can't permanently add packages to the base layer.\n\n"
             "Use one of the three methods below depending on what you need to install."
@@ -4349,7 +4349,7 @@ class SoftwarePage(Page):
         brew_title.setObjectName("card-title")
         brew_layout.addWidget(brew_title)
         brew_body = QLabel(
-            "Pre-installed on Kyth and available to all users. Install CLI tools, language "
+            "Pre-installed on KythOS and available to all users. Install CLI tools, language "
             "runtimes, and libraries from the Homebrew catalog. Changes persist across OS updates."
         )
         brew_body.setObjectName("card-copy")
@@ -4423,7 +4423,7 @@ class NavButton(QPushButton):
 class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Kyth")
+        self.setWindowTitle("KythOS")
         self.setMinimumSize(860, 580)
         self.resize(980, 680)
 
@@ -4448,12 +4448,12 @@ class MainWindow(QMainWindow):
         logo_layout.setContentsMargins(18, 20, 18, 16)
         logo_layout.setSpacing(2)
 
-        logo_lbl = QLabel("Kyth")
+        logo_lbl = QLabel("KythOS")
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
         _branch = _current_branch()
-        _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "Kyth 43")
+        _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "KythOS 43")
         ver_lbl = QLabel(f"{_branch_text} · Fedora 43")
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
@@ -4524,7 +4524,7 @@ class MainWindow(QMainWindow):
         if active:
             QMessageBox.warning(
                 self,
-                "Kyth Is Busy",
+                "KythOS Is Busy",
                 "A task is still running. Please wait for it to finish before closing.",
             )
             event.ignore()
@@ -4543,7 +4543,7 @@ class WizardWindow(QMainWindow):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Welcome to Kyth")
+        self.setWindowTitle("Welcome to KythOS")
         self.setMinimumSize(820, 580)
         self.resize(960, 680)
 
@@ -4562,7 +4562,7 @@ class WizardWindow(QMainWindow):
         header_layout.setContentsMargins(36, 0, 36, 0)
         header_layout.setSpacing(0)
 
-        logo = QLabel("Kyth")
+        logo = QLabel("KythOS")
         logo.setObjectName("sidebar-logo")
         header_layout.addWidget(logo)
         header_layout.addStretch()
@@ -4694,7 +4694,7 @@ class WizardWindow(QMainWindow):
         hero_layout.setContentsMargins(64, 56, 64, 48)
         hero_layout.setSpacing(14)
 
-        logo = QLabel("Kyth")
+        logo = QLabel("KythOS")
         logo.setObjectName("wizard-logo")
         hero_layout.addWidget(logo)
 
@@ -4765,7 +4765,7 @@ class WizardWindow(QMainWindow):
         layout.addSpacing(8)
 
         subtitle = QLabel(
-            "Kyth is ready to go. The system helper is always available from the app menu."
+            "KythOS is ready to go. The system helper is always available from the app menu."
         )
         subtitle.setObjectName("finish-subtitle")
         subtitle.setWordWrap(True)

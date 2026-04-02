@@ -534,7 +534,7 @@ mkdir -p /etc/skel/.config/autostart
 cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
 [Desktop Entry]
 Type=Application
-Name=Kyth: Set display resolution
+Name=KythOS: Set display resolution
 Exec=/usr/bin/kyth-set-resolution
 X-KDE-autostart-after=panel
 Hidden=false
@@ -601,13 +601,13 @@ fi
 BREWEOF
 chmod +x /etc/profile.d/homebrew.sh
 
-# Ensure the built image advertises the Kyth product name. Some boot/installer
+# Ensure the built image advertises the KythOS product name. Some boot/installer
 # menus derive their display strings from `/etc/os-release` or similar metadata.
-# We overwrite or create `/etc/os-release` with Kyth values so boot menus show
-# "Kyth" instead of upstream branding.
+# We overwrite or create `/etc/os-release` with KythOS values so boot menus show
+# "KythOS" instead of upstream branding.
 cat > /etc/os-release <<'EOF' || true
-NAME="Kyth"
-PRETTY_NAME="Kyth 43"
+NAME="KythOS"
+PRETTY_NAME="KythOS 43"
 ID=fedora
 VERSION="43"
 VERSION_ID="43"
@@ -639,7 +639,7 @@ WELCOMERCEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
 # KDE documents POWERDEVIL_NO_DDCUTIL=1 as a supported workaround when
-# PowerDevil's DDC/CI monitor integration causes instability. On Kyth's AMD
+# PowerDevil's DDC/CI monitor integration causes instability. On KythOS's AMD
 # laptop targets, repeated libddcutil/backlight activity has correlated with
 # display-timeout/pageflip failures, so default to the safer path:
 # keep PowerDevil running, but stop it from talking to external monitors via
@@ -662,15 +662,15 @@ cat > /etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
 options: --disable-watch-displays
 DDCUTILRCEOF
 
-# ── Kyth wallpaper package ────────────────────────────────────────────────────
+# ── KythOS wallpaper package ────────────────────────────────────────────────────
 # Install as a proper KDE wallpaper package so the L&F lookup 'Image=kyth' works.
 mkdir -p /usr/share/wallpapers/kyth/contents/images
 cp /ctx/wallpaper/kyth-wallpaper.svg \
     /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
-printf '{"KPlugin":{"Authors":[{"Name":"Kyth"}],"Id":"kyth","Name":"Kyth","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
+printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
     > /usr/share/wallpapers/kyth/metadata.json
 
-# Patch all L&F defaults (Fedora variants + Breeze) to use Kyth wallpaper.
+# Patch all L&F defaults (Fedora variants + Breeze) to use KythOS wallpaper.
 # Fedora Kinoite ships org.fedoraproject.fedora*.desktop themes that set
 # Image=Fedora; we replace that in every theme so no L&F can restore the
 # stock Fedora rocket wallpaper.
@@ -680,14 +680,14 @@ find /usr/share/plasma/look-and-feel -name defaults | while read -r f; do
 done
 
 # System-wide XDG fallback — applied to every user before their personal
-# config exists, so first-boot always shows the Kyth wallpaper.
+# config exists, so first-boot always shows the KythOS wallpaper.
 mkdir -p /etc/xdg
 cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
 
-# ── Kyth logo as system icon ──────────────────────────────────────────────────
+# ── KythOS logo as system icon ──────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
 # Install under all three names in hicolor (universal fallback), breeze
@@ -706,7 +706,7 @@ gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 
-# ── First-login script: set Kickoff launcher icon to Kyth logo ────────────────
+# ── First-login script: set Kickoff launcher icon to KythOS logo ────────────────
 # Belt-and-suspenders: the icon theme install above should be enough, but this
 # also writes the icon key directly into each user's Kickoff applet config in
 # case the theme lookup is overridden by a previously cached value.
@@ -747,7 +747,7 @@ mkdir -p /etc/skel/.config/autostart
 cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
-Name=Kyth: Set Kickoff Icon
+Name=KythOS: Set Kickoff Icon
 Exec=/usr/bin/kyth-set-kickoff-icon
 X-KDE-autostart-after=panel
 Hidden=false
@@ -772,7 +772,7 @@ dnf5 install -y \
     akmods \
     akmod-nvidia
 
-# ── Kyth Helper app ───────────────────────────────────────────────────────────
+# ── KythOS Helper app ───────────────────────────────────────────────────────────
 # PyQt6 helper + branch switcher.  Autostarts on first login via skel.
 dnf5 install -y python3-pyqt6
 
@@ -814,7 +814,7 @@ mkdir -p /etc/skel/.config/autostart
 cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
-Name=Kyth Helper
+Name=KythOS Helper
 Exec=/usr/bin/kyth-welcome
 X-KDE-autostart-after=panel
 Hidden=false
@@ -843,7 +843,7 @@ cp /ctx/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.
 gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
 
 # Remove Waydroid desktop/menu entries and related files if present
-# (some base images include a Waydroid helper that we don't ship in Kyth)
+# (some base images include a Waydroid helper that we don't ship in KythOS)
 rm -f /usr/share/applications/*waydroid*.desktop || true
 rm -f /usr/local/share/applications/*waydroid*.desktop || true
 rm -f /usr/share/kservices5/*waydroid* || true
@@ -859,7 +859,7 @@ if find /usr/share/applications /usr/local/share/applications /usr/share/kservic
 fi
 
 # ── Plymouth boot splash ───────────────────────────────────────────────────────
-# Install the Kyth Plymouth theme and rebuild the initramfs so the splash is
+# Install the KythOS Plymouth theme and rebuild the initramfs so the splash is
 # included.  librsvg2-tools provides rsvg-convert to render the logo SVG → PNG.
 # plymouth-plugin-script provides the script module used by kyth.plymouth.
 dnf5 install -y plymouth plymouth-plugin-script librsvg2-tools
@@ -880,7 +880,7 @@ plymouth-set-default-theme kyth
 # to keep the final image lean.
 dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 
-# Rebuild the initramfs to include Plymouth + the Kyth theme.
+# Rebuild the initramfs to include Plymouth + the KythOS theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
@@ -913,7 +913,7 @@ for grp in users video audio gamemode docker plugdev; do
 done
 
 # ── ujust recipes ─────────────────────────────────────────────────────────────
-# Install Kyth-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
+# Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
