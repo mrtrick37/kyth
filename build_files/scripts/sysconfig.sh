@@ -52,6 +52,15 @@ SYSCTLEOF
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
 echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 
+# ── Locale defaults ──────────────────────────────────────────────────────────
+# Force a 12-hour AM/PM clock by default on installed systems.
+# LANG keeps the desktop in US English; LC_TIME specifically controls date/time
+# formatting for Plasma, Qt, and libc-aware apps.
+cat > /etc/locale.conf <<'LOCALEEOF'
+LANG=en_US.UTF-8
+LC_TIME=en_US.UTF-8
+LOCALEEOF
+
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
