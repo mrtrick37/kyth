@@ -203,10 +203,32 @@ CLAUDE_CODE_VER=$(curl -fsSL -X POST \
     -H "Accept: application/json;api-version=3.0-preview.1" \
     -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":529}' \
     | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
+if [[ -z "${CLAUDE_CODE_VER}" || ! "${CLAUDE_CODE_VER}" =~ ^[0-9]+(\.[0-9]+){1,3}([-.][0-9A-Za-z]+)?$ ]]; then
+    echo "ERROR: Could not resolve a valid Claude Code extension version. Got: '${CLAUDE_CODE_VER}'" >&2
+    exit 1
+fi
 echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
-curl -fsSL \
+curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
+    -H "User-Agent: kyth-image-build/1.0" \
+    -H "Accept: application/octet-stream" \
     "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
     -o /tmp/claude-code.vsix
+python3 - <<'PY'
+import zipfile
+import pathlib
+import sys
+
+vsix = pathlib.Path('/tmp/claude-code.vsix')
+if not vsix.exists() or vsix.stat().st_size == 0:
+    print("ERROR: Claude Code VSIX download is missing or empty.", file=sys.stderr)
+    sys.exit(1)
+
+if not zipfile.is_zipfile(vsix):
+    sample = vsix.read_bytes()[:240].decode("utf-8", errors="replace").replace("\n", " ")
+    print("ERROR: Downloaded Claude Code artifact is not a ZIP/VSIX.", file=sys.stderr)
+    print(f"First bytes: {sample}", file=sys.stderr)
+    sys.exit(1)
+PY
 mkdir -p /etc/skel/.vscode/extensions
 python3 -c "
 import zipfile
