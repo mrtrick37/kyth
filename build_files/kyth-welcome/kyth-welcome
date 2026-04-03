@@ -3096,6 +3096,13 @@ class GamingPage(Page):
                 "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
             },
             {
+                "flatpak": "org.prismlauncher.PrismLauncher",
+                "name": "Prism Launcher",
+                "desc": "Minecraft launcher with modpacks, multiple instances, and Java version control.",
+                "ujust": "install-prismlauncher",
+                "launch": ["flatpak", "run", "org.prismlauncher.PrismLauncher"],
+            },
+            {
                 "flatpak": "com.obsproject.Studio",
                 "name": "OBS Studio",
                 "desc": "Screen recording and live streaming.",
@@ -3147,12 +3154,12 @@ class GamingPage(Page):
             self._add_layout(row_layout)
 
         self._divider()
-        launcher_head = QLabel("Windows launcher installers")
+        launcher_head = QLabel("Launcher setup")
         launcher_head.setObjectName("card-title")
         self._add(launcher_head)
         launcher_sub = QLabel(
             "Heroic is the recommended default for Epic and GOG. "
-            "Use Heroic for Epic, or open Lutris directly for Battle.net."
+            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
         )
         launcher_sub.setObjectName("card-copy")
         launcher_sub.setWordWrap(True)
@@ -3160,8 +3167,8 @@ class GamingPage(Page):
 
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG libraries, Lutris for Battle.net. "
-            "CLI shortcuts: ujust install-heroic / ujust install-battlenet"
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect. "
+            "CLI shortcuts: ujust install-heroic / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
@@ -3169,17 +3176,30 @@ class GamingPage(Page):
 
         launcher_btns = QHBoxLayout()
         launcher_btns.setSpacing(8)
-        battlenet_btn = QPushButton("Install Battle.net")
-        battlenet_btn.setObjectName("primary")
-        battlenet_btn.clicked.connect(
-            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
-        )
-        launcher_btns.addWidget(battlenet_btn)
 
         epic_btn = QPushButton("Open Heroic for Epic")
         epic_btn.setObjectName("primary")
         epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
         launcher_btns.addWidget(epic_btn)
+
+        battlenet_btn = QPushButton("Install Battle.net")
+        battlenet_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
+        )
+        launcher_btns.addWidget(battlenet_btn)
+
+        ea_btn = QPushButton("Install EA App")
+        ea_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ea-app-standard", "EA App")
+        )
+        launcher_btns.addWidget(ea_btn)
+
+        ubisoft_btn = QPushButton("Install Ubisoft Connect")
+        ubisoft_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ubisoft-connect-latest", "Ubisoft Connect")
+        )
+        launcher_btns.addWidget(ubisoft_btn)
+
         launcher_btns.addStretch()
         launcher_layout.addLayout(launcher_btns)
         self._add(launcher_card)
@@ -3403,7 +3423,7 @@ class GamingPage(Page):
         _restyle(self._tool_op_status)
         return True
 
-    def _launch_lutris_installer(self, slug: str, name: str):
+    def _launch_lutris_installer(self, target: str, name: str):
         if not shutil.which("lutris"):
             self._tool_op_status.setText("Lutris is not installed.")
             self._tool_op_status.setObjectName("status-err")
@@ -3417,10 +3437,11 @@ class GamingPage(Page):
             return
 
         self._tool_log.clear()
-        if slug == "epic-games-store" and not self._prepare_epic_lutris_install():
+        if target == "epic-games-store" and not self._prepare_epic_lutris_install():
             return
 
-        cmd = ["lutris", f"lutris:install/{slug}"]
+        lutris_target = target if target.startswith("lutris:") else f"lutris:install/{target}"
+        cmd = ["lutris", lutris_target]
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Lutris should open the installer dialog.")
         self._tool_log.show()
