@@ -332,6 +332,42 @@ install-epic-launcher:
     echo
     echo "Opened the Epic Games Launcher installer in Lutris."
 
+# Open the Lutris one-click installer for the EA App.
+[group('KythOS')]
+install-ea-app:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:ea-app-standard" >/dev/null 2>&1 &
+    echo
+    echo "Opened the EA App installer in Lutris."
+
+# Open the Lutris one-click installer for Ubisoft Connect.
+[group('KythOS')]
+install-ubisoft-connect:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v lutris >/dev/null 2>&1; then
+        echo "Lutris is not installed on this system." >&2
+        exit 1
+    fi
+    nohup lutris "lutris:ubisoft-connect-latest" >/dev/null 2>&1 &
+    echo
+    echo "Opened the Ubisoft Connect installer in Lutris."
+
+# Install Prism Launcher — Minecraft with modpacks and multiple instances.
+[group('KythOS')]
+install-prismlauncher:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub org.prismlauncher.PrismLauncher
+    echo
+    echo "Prism Launcher installed. Launch it from the app menu."
+
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
 install-obs:
