@@ -368,6 +368,16 @@ install-prismlauncher:
     echo
     echo "Prism Launcher installed. Launch it from the app menu."
 
+# Install Bottles — easiest GUI for running standalone Windows .exe/.msi apps.
+[group('KythOS')]
+install-bottles:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.usebottles.bottles
+    echo
+    echo "Bottles installed. Launch it from the app menu to open .exe or .msi files."
+
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
 install-obs:
