@@ -4606,7 +4606,7 @@ class MainWindow(QMainWindow):
 
         _branch = _current_branch()
         _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "KythOS 43")
-        ver_lbl = QLabel(f"{_branch_text} · Fedora 43")
+        ver_lbl = QLabel(_branch_text)
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
@@ -4861,7 +4861,7 @@ class WizardWindow(QMainWindow):
         hero_layout.addSpacing(4)
 
         desc = QLabel(
-            "Built on Fedora Kinoite with the CachyOS kernel, Mesa-git Vulkan, and a "
+            "Built on an atomic KDE desktop with the CachyOS kernel, Mesa-git Vulkan, and a "
             "complete gaming stack pre-installed. Updates ship as atomic container images — "
             "every change is instant to roll back."
         )
@@ -4882,7 +4882,7 @@ class WizardWindow(QMainWindow):
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         branch = _branch_display_name(_current_branch())
 
-        for i, (label, value) in enumerate([("Kernel", kernel), ("Branch", branch), ("Base", "Fedora 43")]):
+        for i, (label, value) in enumerate([("Kernel", kernel), ("Branch", branch), ("Release", "43")]):
             if i > 0:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
