@@ -3152,7 +3152,7 @@ class GamingPage(Page):
         self._add(launcher_head)
         launcher_sub = QLabel(
             "Heroic is the recommended default for Epic and GOG. "
-            "If you want the native Windows launchers instead, open their Lutris installers here."
+            "Use Heroic for Epic, or open Lutris directly for Battle.net."
         )
         launcher_sub.setObjectName("card-copy")
         launcher_sub.setWordWrap(True)
@@ -3161,7 +3161,7 @@ class GamingPage(Page):
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
             "Recommended pairing: Heroic for Epic/GOG libraries, Lutris for Battle.net. "
-            "CLI shortcuts: ujust install-battlenet / ujust install-epic-launcher"
+            "CLI shortcuts: ujust install-heroic / ujust install-battlenet"
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
@@ -3176,10 +3176,9 @@ class GamingPage(Page):
         )
         launcher_btns.addWidget(battlenet_btn)
 
-        epic_btn = QPushButton("Install Epic Launcher")
-        epic_btn.clicked.connect(
-            lambda _=False: self._launch_lutris_installer("epic-games-store", "Epic Games Launcher")
-        )
+        epic_btn = QPushButton("Open Heroic for Epic")
+        epic_btn.setObjectName("primary")
+        epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
         launcher_btns.addWidget(epic_btn)
         launcher_btns.addStretch()
         launcher_layout.addLayout(launcher_btns)
@@ -3305,6 +3304,105 @@ class GamingPage(Page):
 
     # ── Tool install ───────────────────────────────────────────────────────────
 
+    def _open_heroic_for_epic(self):
+        cmd = ["flatpak", "run", "com.heroicgameslauncher.hgl"]
+        self._tool_log.clear()
+        self._tool_log.append(f"→ {' '.join(cmd)}\n")
+        self._tool_log.append("Heroic should open. Sign in to Epic Games there to install your library.")
+        self._tool_log.show()
+        self._tool_progress.hide()
+        self._tool_op_status.setText("Opening Heroic Games Launcher…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+
+        try:
+            subprocess.Popen(cmd)
+            self._tool_op_status.setText("Heroic opened for Epic sign-in.")
+            self._tool_op_status.setObjectName("status-ok")
+            _restyle(self._tool_op_status)
+        except Exception as exc:
+            self._tool_log.append(f"\nFailed to start Heroic: {exc}")
+            self._tool_op_status.setText("Failed to open Heroic.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(self, "Heroic Games Launcher", str(exc))
+
+    def _prepare_epic_lutris_install(self) -> bool:
+        prefix = os.path.expanduser("~/Games/epic-games-store")
+        cache = os.path.expanduser("~/.cache/lutris/installer/epic-games-store")
+        found_paths = [path for path in (prefix, cache) if os.path.exists(path)]
+        if not found_paths:
+            return True
+
+        notes = []
+        winetricks_log = os.path.join(prefix, "winetricks.log")
+        if os.path.isfile(winetricks_log):
+            try:
+                with open(winetricks_log, "r", encoding="utf-8", errors="ignore") as fh:
+                    if "corefonts" in fh.read():
+                        notes.append("Winetricks already ran in the old Epic prefix (corefonts found).")
+            except OSError:
+                pass
+
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Reset old Epic installer state?")
+        box.setText(
+            "A previous Epic install attempt was found. Lutris/UMU can fail when it reuses a partial Epic prefix."
+        )
+        detail_lines = []
+        detail_lines.extend(notes)
+        detail_lines.extend([f"Found: {path}" for path in found_paths])
+        detail_lines.append("")
+        detail_lines.append("Choose 'Reset and Retry' to move the old state aside and reopen the installer.")
+        box.setInformativeText("\n".join(detail_lines))
+        reset_btn = box.addButton("Reset and Retry", QMessageBox.ButtonRole.AcceptRole)
+        open_btn = box.addButton("Open Anyway", QMessageBox.ButtonRole.ActionRole)
+        cancel_btn = box.addButton(QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(reset_btn)
+        box.exec()
+
+        clicked = box.clickedButton()
+        if clicked == cancel_btn:
+            self._tool_op_status.setText("Epic installer launch cancelled.")
+            self._tool_op_status.setObjectName("subheading")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            return False
+        if clicked == open_btn:
+            return True
+
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        self._tool_log.clear()
+        self._tool_log.append("Preparing a clean Epic installer retry…\n")
+        for path in found_paths:
+            backup = f"{path}.bak-{timestamp}"
+            try:
+                shutil.move(path, backup)
+                self._tool_log.append(f"Moved {path} → {backup}")
+            except Exception as exc:
+                self._tool_log.append(f"Failed to move {path}: {exc}")
+                self._tool_log.show()
+                self._tool_op_status.setText("Epic installer reset failed.")
+                self._tool_op_status.setObjectName("status-err")
+                self._tool_op_status.show()
+                _restyle(self._tool_op_status)
+                QMessageBox.warning(
+                    self,
+                    "Epic installer reset",
+                    f"Could not move {path}:\n{exc}"
+                )
+                return False
+
+        self._tool_log.append("\nOld installer state was backed up. Relaunching Lutris…")
+        self._tool_log.show()
+        self._tool_op_status.setText("Old Epic installer state was backed up. Retrying…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+        return True
+
     def _launch_lutris_installer(self, slug: str, name: str):
         if not shutil.which("lutris"):
             self._tool_op_status.setText("Lutris is not installed.")
@@ -3318,8 +3416,11 @@ class GamingPage(Page):
             )
             return
 
-        cmd = ["lutris", f"lutris:install/{slug}"]
         self._tool_log.clear()
+        if slug == "epic-games-store" and not self._prepare_epic_lutris_install():
+            return
+
+        cmd = ["lutris", f"lutris:install/{slug}"]
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Lutris should open the installer dialog.")
         self._tool_log.show()
