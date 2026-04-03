@@ -316,6 +316,18 @@ install-epic-launcher:
         echo "Lutris is not installed on this system." >&2
         exit 1
     fi
+
+    prefix="$HOME/Games/epic-games-store"
+    cache="$HOME/.cache/lutris/installer/epic-games-store"
+    timestamp="$(date +%Y%m%d-%H%M%S)"
+    for path in "$prefix" "$cache"; do
+        if [[ -e "$path" ]]; then
+            backup="${path}.bak-${timestamp}"
+            mv "$path" "$backup"
+            echo "Moved previous Epic installer state to: $backup"
+        fi
+    done
+
     nohup lutris "lutris:install/epic-games-store" >/dev/null 2>&1 &
     echo
     echo "Opened the Epic Games Launcher installer in Lutris."
