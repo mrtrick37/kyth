@@ -3080,6 +3080,7 @@ class GamingPage(Page):
         self._add(tools_head)
         tools_sub = QLabel(
             "Heroic is installed by default alongside Lutris. "
+            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
             "Other gaming tools can be installed here with one click and are also "
             "available via the corresponding ujust recipe."
         )
@@ -3094,6 +3095,13 @@ class GamingPage(Page):
                 "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
                 "ujust": "install-heroic",
                 "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
+            },
+            {
+                "flatpak": "com.usebottles.bottles",
+                "name": "Bottles",
+                "desc": "Best for running standalone Windows `.exe` and `.msi` installers in isolated app environments.",
+                "ujust": "install-bottles",
+                "launch": ["flatpak", "run", "com.usebottles.bottles"],
             },
             {
                 "flatpak": "org.prismlauncher.PrismLauncher",
@@ -3167,8 +3175,8 @@ class GamingPage(Page):
 
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect. "
-            "CLI shortcuts: ujust install-heroic / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
+            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
