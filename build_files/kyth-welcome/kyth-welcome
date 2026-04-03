@@ -1478,6 +1478,14 @@ def _restyle(widget: QWidget):
     widget.style().polish(widget)
 
 
+def _set_log_panel(toggle: QPushButton, log: QTextEdit, expanded: bool):
+    toggle.blockSignals(True)
+    toggle.setChecked(expanded)
+    toggle.blockSignals(False)
+    toggle.setText("Hide details" if expanded else "Show details")
+    log.setVisible(expanded)
+
+
 # ── Hardware card widget ───────────────────────────────────────────────────────
 class HardwareCard(QFrame):
     def __init__(self, probe: HardwareProbe):
@@ -2050,6 +2058,13 @@ class UpdatePage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.setToolTip("Show or hide the update log output")
+        self._log_toggle.clicked.connect(lambda checked: self._set_log_expanded(checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2112,6 +2127,9 @@ class UpdatePage(Page):
         self._os_btn.setEnabled(enabled)
         self._rollback_btn.setEnabled(enabled and _has_rollback_deployment())
 
+    def _set_log_expanded(self, expanded: bool):
+        _set_log_panel(self._log_toggle, self._log, expanded)
+
     def _start_operation(self, mode: str, label: str, cmd: list[str], inhibit_reason: str):
         self._stop_dl_monitor()
         self._dl_total = 0
@@ -2123,7 +2141,8 @@ class UpdatePage(Page):
         self._op_start_ts = time.monotonic()
         self._current_phase = ""
         self._log.clear()
-        self._log.show()
+        self._log_toggle.show()
+        self._set_log_expanded(False)
         self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText(label)
@@ -2387,6 +2406,12 @@ class BranchesPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(120)
@@ -2435,7 +2460,8 @@ class BranchesPage(Page):
         self._current_phase = ""
         self._log.clear()
         self._log.append(f"→ bootc switch {ref}\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.setRange(0, 0)
         self._progress.show()
         self._status_lbl.setText("Switching branch…")
@@ -2570,6 +2596,12 @@ class FirmwarePage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2584,7 +2616,8 @@ class FirmwarePage(Page):
     def _run_check(self):
         self._log.clear()
         self._log.append("→ fwupdmgr refresh --force\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._status_lbl.setText("Refreshing firmware metadata…")
         self._status_lbl.setObjectName("subheading")
@@ -2697,6 +2730,12 @@ class NvidiaPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(200)
@@ -2755,7 +2794,8 @@ class NvidiaPage(Page):
         ]
         self._log.clear()
         self._log.append("→ Installing NVIDIA drivers via akmods…\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._install_btn.setEnabled(False)
 
@@ -2861,6 +2901,12 @@ class RepairPage(Page):
         self._progress.hide()
         self._add(self._progress)
 
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
         self._log = QTextEdit()
         self._log.setReadOnly(True)
         self._log.setMinimumHeight(120)
@@ -2876,7 +2922,8 @@ class RepairPage(Page):
         self._reset_btn.setEnabled(False)
         self._log.clear()
         self._log.append("→ bootc reset\n")
-        self._log.show()
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._status_lbl.setText("Resetting system…")
         self._status_lbl.setObjectName("subheading")
@@ -3034,6 +3081,11 @@ class GamingPage(Page):
         self._gp_progress.setRange(0, 0)
         self._gp_progress.hide()
         gp_layout.addWidget(self._gp_progress)
+        self._gp_log_toggle = QPushButton("Show details")
+        self._gp_log_toggle.setCheckable(True)
+        self._gp_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._gp_log_toggle, self._gp_log, checked))
+        self._gp_log_toggle.hide()
+        gp_layout.addWidget(self._gp_log_toggle)
         self._gp_log = QTextEdit()
         self._gp_log.setReadOnly(True)
         self._gp_log.setMaximumHeight(120)
@@ -3221,6 +3273,11 @@ class GamingPage(Page):
         self._tool_progress.setRange(0, 0)
         self._tool_progress.hide()
         self._add(self._tool_progress)
+        self._tool_log_toggle = QPushButton("Show details")
+        self._tool_log_toggle.setCheckable(True)
+        self._tool_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked))
+        self._tool_log_toggle.hide()
+        self._add(self._tool_log_toggle)
         self._tool_log = QTextEdit()
         self._tool_log.setReadOnly(True)
         self._tool_log.setMaximumHeight(120)
@@ -3337,7 +3394,8 @@ class GamingPage(Page):
         self._tool_log.clear()
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Heroic should open. Sign in to Epic Games there to install your library.")
-        self._tool_log.show()
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.hide()
         self._tool_op_status.setText("Opening Heroic Games Launcher…")
         self._tool_op_status.setObjectName("subheading")
@@ -3404,6 +3462,8 @@ class GamingPage(Page):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self._tool_log.clear()
         self._tool_log.append("Preparing a clean Epic installer retry…\n")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         for path in found_paths:
             backup = f"{path}.bak-{timestamp}"
             try:
@@ -3411,7 +3471,8 @@ class GamingPage(Page):
                 self._tool_log.append(f"Moved {path} → {backup}")
             except Exception as exc:
                 self._tool_log.append(f"Failed to move {path}: {exc}")
-                self._tool_log.show()
+                self._tool_log_toggle.show()
+                _set_log_panel(self._tool_log_toggle, self._tool_log, False)
                 self._tool_op_status.setText("Epic installer reset failed.")
                 self._tool_op_status.setObjectName("status-err")
                 self._tool_op_status.show()
@@ -3424,7 +3485,8 @@ class GamingPage(Page):
                 return False
 
         self._tool_log.append("\nOld installer state was backed up. Relaunching Lutris…")
-        self._tool_log.show()
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_op_status.setText("Old Epic installer state was backed up. Retrying…")
         self._tool_op_status.setObjectName("subheading")
         self._tool_op_status.show()
@@ -3452,7 +3514,8 @@ class GamingPage(Page):
         cmd = ["lutris", lutris_target]
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Lutris should open the installer dialog.")
-        self._tool_log.show()
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.hide()
         self._tool_op_status.setText(f"Opening {name} installer in Lutris…")
         self._tool_op_status.setObjectName("subheading")
@@ -3479,7 +3542,8 @@ class GamingPage(Page):
             refs["install"].setEnabled(False)
         self._tool_log.clear()
         self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
-        self._tool_log.show()
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.show()
         self._tool_op_status.setText(f"Installing {tool['name']}…")
         self._tool_op_status.setObjectName("subheading")
@@ -3521,7 +3585,8 @@ class GamingPage(Page):
         self._gp_update_btn.setEnabled(False)
         self._gp_log.clear()
         self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
-        self._gp_log.show()
+        self._gp_log_toggle.show()
+        _set_log_panel(self._gp_log_toggle, self._gp_log, False)
         self._gp_progress.show()
         self._gp_op_status.setText("Checking for GE-Proton update…")
         self._gp_op_status.setObjectName("subheading")
