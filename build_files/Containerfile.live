@@ -6,7 +6,7 @@
 # which calls 'bootc install to-disk' and configures hostname, timezone, and user account.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:43
+ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44
 FROM ${BASE_IMAGE}
 
 ARG SOURCE_HASH=unknown
@@ -227,7 +227,7 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
-    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 43 Live"/' /etc/os-release \
+    && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
     && sed -i '/^VARIANT_ID=/d' /etc/os-release \
     && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \

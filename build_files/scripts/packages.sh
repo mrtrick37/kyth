@@ -11,9 +11,9 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 ### Install Docker for container operations
 dnf5 install -y docker
 
-# Add rpmfusion free and nonfree repositories for Fedora 43
-dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-43.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-43.noarch.rpm || true
+# Add rpmfusion free and nonfree repositories for Fedora 44
+dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
+dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
 # ── Multimedia baseline ───────────────────────────────────────────────────────
 # Install a full system codec stack so common local playback, browser media,
