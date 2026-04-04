@@ -329,6 +329,7 @@ modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
 # transaction to cut down on repeated dependency solving.
 dnf5 install -y \
     python3-pyqt6 \
+    qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
     distrobox \
