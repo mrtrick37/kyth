@@ -341,6 +341,12 @@ dnf5 install -y plymouth plymouth-plugin-script
 # Essential on atomic systems for one-off package installs without rpm-ostree.
 dnf5 install -y distrobox
 
+# Creator helper deps
+# flatpak-builder + unzip let the welcome app repackage the official DaVinci
+# Resolve Linux ZIP as a per-user Flatpak on immutable systems. git pulls the
+# Flatpak recipe repo together with its shared-modules submodule.
+dnf5 install -y flatpak-builder unzip git
+
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
 # via the SPICE protocol, so the VM display auto-resizes to the window size.

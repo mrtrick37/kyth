@@ -331,6 +331,7 @@ install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
+install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
