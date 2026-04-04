@@ -1,5 +1,6 @@
 # Upgrade the OS and Flatpak apps.
 # Pulls the latest KythOS image via bootc and updates all Flatpak apps.
+
 # The OS update is staged — a reboot is required to activate it.
 [group('KythOS')]
 upgrade:
@@ -68,6 +69,13 @@ upgrade:
         echo "  Everything is up to date."
     fi
 
+# Show the currently booted image, any staged update, and rollback availability.
+[group('KythOS')]
+status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    bootc status
+
 # Rebase to a different KythOS image.
 # Usage:
 #   ujust rebase kyth:stable
@@ -95,6 +103,31 @@ rebase image_ref="kyth:latest":
     echo "This will take effect on next reboot."
     sudo bootc switch "${ref}"
 
+# Switch to a KythOS release channel.
+# Channels:
+#   stable   — :latest tag (main branch, recommended)
+#   testing  — :testing tag (dev branch, may be unstable)
+# Usage:
+#   ujust switch-channel           (defaults to stable)
+
+# ujust switch-channel testing
+[group('KythOS')]
+switch-channel channel="stable":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "{{ channel }}" in
+        stable|latest) tag="latest" ;;
+        testing)       tag="testing" ;;
+        *)
+            echo "Unknown channel: {{ channel }}" >&2
+            echo "Valid channels: stable (default), testing" >&2
+            exit 1
+            ;;
+    esac
+    echo "Switching to KythOS :${tag}..."
+    sudo bootc switch "ghcr.io/mrtrick37/kyth:${tag}"
+    echo "Channel switch staged. Reboot to activate."
+
 # Run a game or app with the temporary performance profile wrapper.
 [group('KythOS')]
 game-performance +args:
@@ -103,6 +136,7 @@ game-performance +args:
     /usr/bin/game-performance {{ args }}
 
 # Set desktop/system performance mode.
+
 # Modes: max, gaming, performance, balanced, powersave, status
 [group('KythOS')]
 performance-mode mode="status":
@@ -135,6 +169,7 @@ game-performance-profile profile +args:
 # Useful even without HDR: better VRR, FSR upscaling, frame limiter.
 # Usage: ujust gamescope -- %command%
 #        ujust gamescope -W 2560 -H 1440 -r 165 -- %command%
+
 # Extra gamescope flags can be passed before the -- separator.
 [group('KythOS')]
 gamescope +args:
@@ -150,7 +185,8 @@ gamescope +args:
 #       it makes SDR content look over-saturated. Add it manually if you want it:
 #       ujust game-hdr --hdr-itm-enable -- %command%
 # Usage: ujust game-hdr -- %command%
-#        ujust game-hdr -W 2560 -H 1440 -- %command%
+
+# ujust game-hdr -W 2560 -H 1440 -- %command%
 [group('KythOS')]
 game-hdr +args:
     #!/usr/bin/env bash
@@ -225,7 +261,8 @@ update-ge-proton:
 #
 # Usage:
 #   ujust setup-waydroid            # vanilla AOSP (no Google Play)
-#   ujust setup-waydroid microg     # with MicroG (open-source Play Services substitute)
+
+# ujust setup-waydroid microg     # with MicroG (open-source Play Services substitute)
 [group('KythOS')]
 setup-waydroid image="vanilla":
     #!/usr/bin/env bash
@@ -424,6 +461,7 @@ install-retroarch:
     echo "Tip: download cores from inside RetroArch: Main Menu → Load Core → Download a Core."
 
 # Install Piper — GUI for configuring gaming mice (DPI, buttons, LEDs).
+
 # Uses the Flatpak which bundles ratbagd — no rpm-ostree layering required.
 [group('KythOS')]
 install-piper:
@@ -438,7 +476,8 @@ install-piper:
 # fans and peripherals. Uses the Flatpak with --device=all for hardware access.
 # Note: SMBus/i2c access (RAM RGB, some motherboard headers) may need the i2c
 # kernel modules loaded. If devices are missing, run:
-#   sudo modprobe i2c-dev i2c-piix4    (or the appropriate module for your board)
+
+# sudo modprobe i2c-dev i2c-piix4    (or the appropriate module for your board)
 [group('KythOS')]
 install-openrgb:
     #!/usr/bin/env bash
