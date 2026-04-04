@@ -5,6 +5,7 @@ Shows once on first login (via /etc/skel autostart) and is always
 accessible from the application menu.
 """
 
+import glob
 import os
 import sys
 import json
@@ -966,6 +967,52 @@ def _bootc_image_timestamp(section: str) -> str | None:
 def _is_flatpak_installed(app_id: str) -> bool:
     result = _run_command(["flatpak", "info", app_id], timeout=8)
     return result is not None and result.returncode == 0
+
+
+def _davinci_flatpak_app_id() -> str | None:
+    for app_id in (
+        "com.blackmagic.Resolve",
+        "com.blackmagic.ResolveStudio",
+        "com.blackmagicdesign.resolve",
+    ):
+        if _is_flatpak_installed(app_id):
+            return app_id
+    return None
+
+
+def _davinci_download_dir() -> str:
+    candidate = _command_stdout(["xdg-user-dir", "DOWNLOAD"])
+    if candidate:
+        candidate = os.path.expanduser(candidate)
+        if os.path.isdir(candidate):
+            return candidate
+    return os.path.expanduser("~/Downloads")
+
+
+def _davinci_zip_candidates() -> list[str]:
+    roots: list[str] = []
+    for candidate in (_davinci_download_dir(), os.path.expanduser("~/Downloads")):
+        expanded = os.path.abspath(os.path.expanduser(candidate))
+        if os.path.isdir(expanded) and expanded not in roots:
+            roots.append(expanded)
+
+    patterns = (
+        "DaVinci_Resolve*_Linux.zip",
+        "DaVinci_Resolve_Studio*_Linux.zip",
+        "*DaVinci*Resolve*Linux*.zip",
+    )
+    matches: dict[str, float] = {}
+    for root in roots:
+        for pattern in patterns:
+            for base in (root, os.path.join(root, "*")):
+                for path in glob.glob(os.path.join(base, pattern)):
+                    if os.path.isfile(path):
+                        try:
+                            matches[path] = os.path.getmtime(path)
+                        except OSError:
+                            matches[path] = 0
+
+    return sorted(matches, key=lambda item: (matches[item], item.lower()), reverse=True)
 
 
 def _rclone_available() -> bool:
@@ -4637,6 +4684,7 @@ class ContentCreationPage(Page):
         super().__init__()
         self._tool_worker = None
         self._dv_worker = None
+        self._dv_selected_zip: str | None = None
 
         self._heading("Content Creation")
         self._subheading(
@@ -4708,8 +4756,9 @@ class ContentCreationPage(Page):
         dv_section_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(dv_section_head)
         dv_section_sub = QLabel(
-            "Requires a two-step install: download the Linux .zip from Blackmagic's website, "
-            "then click Install — the Flatpak picks it up from ~/Downloads automatically."
+            "Download the Linux ZIP from Blackmagic, then click Install from Download. "
+            "Kyth will auto-detect the ZIP in your Downloads folder or let you pick it manually, "
+            "then package Resolve as a local Flatpak for you."
         )
         dv_section_sub.setObjectName("card-copy")
         dv_section_sub.setWordWrap(True)
@@ -4742,17 +4791,22 @@ class ContentCreationPage(Page):
             )
         )
         dv_btn_row.addWidget(dv_dl_btn)
-        self._dv_install_btn = QPushButton("Install  (after downloading)")
+        self._dv_choose_btn = QPushButton("Choose ZIP…")
+        self._dv_choose_btn.clicked.connect(self._pick_davinci_zip)
+        dv_btn_row.addWidget(self._dv_choose_btn)
+        self._dv_install_btn = QPushButton("Install from Download")
+        self._dv_install_btn.setObjectName("primary")
         self._dv_install_btn.clicked.connect(self._install_davinci)
         dv_btn_row.addWidget(self._dv_install_btn)
         self._dv_launch_btn = QPushButton("Launch")
         self._dv_launch_btn.hide()
-        self._dv_launch_btn.clicked.connect(
-            lambda: subprocess.Popen(["flatpak", "run", "com.blackmagicdesign.resolve"])
-        )
+        self._dv_launch_btn.clicked.connect(self._launch_davinci)
         dv_btn_row.addWidget(self._dv_launch_btn)
         dv_btn_row.addStretch()
         dv_layout.addLayout(dv_btn_row)
+        self._dv_zip_hint = QLabel()
+        self._dv_zip_hint.setWordWrap(True)
+        dv_layout.addWidget(self._dv_zip_hint)
         self._dv_op_status = QLabel()
         self._dv_op_status.hide()
         dv_layout.addWidget(self._dv_op_status)
@@ -4832,10 +4886,11 @@ class ContentCreationPage(Page):
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
 
-        dv_installed = _is_flatpak_installed("com.blackmagicdesign.resolve")
+        dv_installed = _davinci_flatpak_app_id() is not None
         _set_badge(self._dv_badge, dv_installed)
         self._dv_install_btn.setVisible(not dv_installed)
         self._dv_launch_btn.setVisible(dv_installed)
+        self._refresh_davinci_zip_hint()
 
     # ── Flatpak tool install ───────────────────────────────────────────────────
 
@@ -4884,28 +4939,109 @@ class ContentCreationPage(Page):
 
     # ── DaVinci Resolve install ────────────────────────────────────────────────
 
+    def _pick_davinci_zip(self):
+        start_dir = self._dv_selected_zip or _davinci_download_dir()
+        if os.path.isfile(start_dir):
+            start_dir = os.path.dirname(start_dir)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select DaVinci Resolve Linux ZIP",
+            start_dir,
+            "ZIP archives (*.zip);;All Files (*)",
+        )
+        if not path:
+            return
+        self._dv_selected_zip = path
+        self._refresh_davinci_zip_hint()
+
+    def _refresh_davinci_zip_hint(self):
+        selected = self._dv_selected_zip
+        if selected and os.path.isfile(selected):
+            self._dv_zip_hint.setText(f"Selected ZIP: {selected}")
+            self._dv_zip_hint.setObjectName("status-ok")
+            _restyle(self._dv_zip_hint)
+            return
+
+        self._dv_selected_zip = None
+        candidates = _davinci_zip_candidates()
+        if candidates:
+            self._dv_zip_hint.setText(f"Auto-detected ZIP: {candidates[0]}")
+            self._dv_zip_hint.setObjectName("status-dim")
+        else:
+            self._dv_zip_hint.setText(
+                f"No DaVinci ZIP found yet. Download it to {_davinci_download_dir()} or click Choose ZIP…"
+            )
+            self._dv_zip_hint.setObjectName("status-warn")
+        _restyle(self._dv_zip_hint)
+
+    def _launch_davinci(self):
+        app_id = _davinci_flatpak_app_id()
+        if not app_id:
+            QMessageBox.warning(self, "DaVinci Resolve", "DaVinci Resolve is not installed yet.")
+            return
+        subprocess.Popen(["flatpak", "run", app_id])
+
     def _install_davinci(self):
         if self._dv_worker and self._dv_worker.isRunning():
             return
+
+        if not shutil.which("flatpak-builder"):
+            self._dv_log.clear()
+            self._dv_log.append("Missing required tool: flatpak-builder\n")
+            self._dv_log.append("Update KythOS to the latest image, then try again.\n")
+            self._dv_log_toggle.show()
+            _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+            self._dv_op_status.setText(
+                "DaVinci installer tools are missing. Please run a system update first."
+            )
+            self._dv_op_status.setObjectName("status-warn")
+            self._dv_op_status.show()
+            _restyle(self._dv_op_status)
+            return
+
+        zip_path = self._dv_selected_zip if self._dv_selected_zip and os.path.isfile(self._dv_selected_zip) else ""
+        if not zip_path:
+            candidates = _davinci_zip_candidates()
+            zip_path = candidates[0] if candidates else ""
+        if not zip_path:
+            self._dv_log.clear()
+            self._dv_log.append("No DaVinci Resolve Linux ZIP was found.\n")
+            self._dv_log.append(
+                f"Download the ZIP from Blackmagic to {_davinci_download_dir()} or click Choose ZIP… and retry.\n"
+            )
+            self._dv_log_toggle.show()
+            _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+            self._dv_op_status.setText("Download the Linux ZIP first, or choose it manually.")
+            self._dv_op_status.setObjectName("status-warn")
+            self._dv_op_status.show()
+            _restyle(self._dv_op_status)
+            QMessageBox.warning(
+                self,
+                "DaVinci Resolve",
+                "I couldn't find the downloaded Linux ZIP automatically.\n\n"
+                "Download it from Blackmagic first, or click “Choose ZIP…” and select it manually.",
+            )
+            return
+
+        self._dv_selected_zip = zip_path
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
         self._dv_install_btn.setEnabled(False)
+        self._dv_choose_btn.setEnabled(False)
         self._dv_log.clear()
-        self._dv_log.append("→ flatpak install -y flathub com.blackmagicdesign.resolve\n")
+        self._dv_log.append(f"→ /usr/bin/kyth-davinci-install {zip_path}\n")
         self._dv_log.append(
-            "The Flatpak installer looks for the DaVinci Resolve .zip in ~/Downloads.\n"
-            "If the install fails, make sure the .zip is there and try again.\n"
+            "Kyth will repackage the official Blackmagic download as a user Flatpak. "
+            "The first build can take a few minutes.\n"
         )
         self._dv_log_toggle.show()
         _set_log_panel(self._dv_log_toggle, self._dv_log, False)
         self._dv_progress.show()
-        self._dv_op_status.setText("Installing DaVinci Resolve…")
+        self._dv_op_status.setText("Building and installing DaVinci Resolve…")
         self._dv_op_status.setObjectName("subheading")
         self._dv_op_status.show()
         _restyle(self._dv_op_status)
-        self._dv_worker = Worker(
-            ["flatpak", "install", "-y", "flathub", "com.blackmagicdesign.resolve"]
-        )
+        self._dv_worker = Worker(["/usr/bin/kyth-davinci-install", zip_path])
         self._dv_worker.line.connect(lambda ln: (
             self._dv_log.append(ln),
             self._dv_log.ensureCursorVisible(),
@@ -4919,13 +5055,15 @@ class ContentCreationPage(Page):
         for refs in self._tool_refs:
             refs["install"].setEnabled(True)
         self._dv_install_btn.setEnabled(True)
-        if code == 0:
-            self._dv_op_status.setText("DaVinci Resolve installed.")
+        self._dv_choose_btn.setEnabled(True)
+        installed = _davinci_flatpak_app_id() is not None
+        if code == 0 and installed:
+            self._dv_op_status.setText("DaVinci Resolve installed. Launch it from here or the app menu.")
             self._dv_op_status.setObjectName("status-ok")
             self._dv_log.append("\nDone.")
         else:
             self._dv_op_status.setText(
-                f"Installation failed (exit {code}). Is the .zip in ~/Downloads?"
+                f"Installation failed (exit {code}). Check the details below — a fresh ZIP or system update may be needed."
             )
             self._dv_op_status.setObjectName("status-err")
         _restyle(self._dv_op_status)
