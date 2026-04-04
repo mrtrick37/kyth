@@ -33,7 +33,7 @@ if ! docker info &>/dev/null 2>&1; then
 fi
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
-INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:43}"
+INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:44}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
     LIVE_BUILD_TAG="kyth-live:build"
 else
@@ -61,7 +61,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
 ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
-VOLID="KythOS-43-Live"
+VOLID="KythOS-44-Live"
 
 # Hash relevant installer sources so cached container rebuilds when these files
 # change (even if the base image timestamp does not).
@@ -257,7 +257,7 @@ terminal-border: "0"
     left   = 0%
     width  = 100%
     height = 50
-    text   = "KYTH 43"
+    text   = "KYTH 44"
     font   = "DejaVu Sans Bold 28"
     color  = "#61afef"
     align  = "center"
@@ -339,7 +339,7 @@ fi
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
     cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
-search --no-floppy --label --set=root KythOS-43-Live
+search --no-floppy --label --set=root KythOS-44-Live
 set prefix=($root)/boot/grub2
 source ($root)/boot/grub2/grub.cfg
 EMBEDEOF
@@ -440,7 +440,7 @@ if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF
 default vesamenu.c32
 timeout 100
-menu title KythOS 43 Live
+menu title KythOS 44 Live
 
 menu color screen     37;40    #a0000000 #00000000 std
 menu color border     30;44    #00000000 #00000000 std
