@@ -3285,6 +3285,82 @@ class GamingPage(Page):
         self._add(self._tool_log)
         self._tool_worker = None
 
+        # ── DaVinci Resolve ───────────────────────────────────────────────────
+        self._divider()
+        dv_head = QLabel("Creative Tools")
+        dv_head.setObjectName("heading")
+        dv_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(dv_head)
+        dv_sub = QLabel(
+            "High-performance creative apps that pair well with KythOS hardware. "
+            "AMD GPU + Mesa-git = excellent Resolve performance on open-source drivers."
+        )
+        dv_sub.setObjectName("card-copy")
+        dv_sub.setWordWrap(True)
+        self._add(dv_sub)
+
+        dv_card, dv_layout = _make_card()
+        dv_top = QHBoxLayout()
+        dv_title = QLabel("DaVinci Resolve")
+        dv_title.setObjectName("card-title")
+        dv_top.addWidget(dv_title)
+        dv_top.addStretch()
+        self._dv_badge = QLabel()
+        self._dv_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dv_top.addWidget(self._dv_badge)
+        dv_layout.addLayout(dv_top)
+        dv_desc = QLabel(
+            "Professional non-linear video editor, color grader, visual effects, and audio "
+            "post-production suite from Blackmagic Design. The free tier is industry-grade.\n\n"
+            "Two-step install: download the Linux .zip from Blackmagic's website, "
+            "then click Install — the Flatpak picks it up from ~/Downloads automatically."
+        )
+        dv_desc.setObjectName("card-copy")
+        dv_desc.setWordWrap(True)
+        dv_layout.addWidget(dv_desc)
+        dv_btn_row = QHBoxLayout()
+        dv_btn_row.setSpacing(10)
+        dv_dl_btn = QPushButton("Download from Blackmagic")
+        dv_dl_btn.setObjectName("primary")
+        dv_dl_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://www.blackmagicdesign.com/products/davinciresolve")
+            )
+        )
+        dv_btn_row.addWidget(dv_dl_btn)
+        self._dv_install_btn = QPushButton("Install  (after downloading)")
+        self._dv_install_btn.clicked.connect(self._install_davinci)
+        dv_btn_row.addWidget(self._dv_install_btn)
+        self._dv_launch_btn = QPushButton("Launch")
+        self._dv_launch_btn.hide()
+        self._dv_launch_btn.clicked.connect(
+            lambda: subprocess.Popen(["flatpak", "run", "com.blackmagicdesign.resolve"])
+        )
+        dv_btn_row.addWidget(self._dv_launch_btn)
+        dv_btn_row.addStretch()
+        dv_layout.addLayout(dv_btn_row)
+        self._dv_op_status = QLabel()
+        self._dv_op_status.hide()
+        dv_layout.addWidget(self._dv_op_status)
+        self._dv_progress = QProgressBar()
+        self._dv_progress.setRange(0, 0)
+        self._dv_progress.hide()
+        dv_layout.addWidget(self._dv_progress)
+        self._dv_log_toggle = QPushButton("Show details")
+        self._dv_log_toggle.setCheckable(True)
+        self._dv_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._dv_log_toggle, self._dv_log, checked)
+        )
+        self._dv_log_toggle.hide()
+        dv_layout.addWidget(self._dv_log_toggle)
+        self._dv_log = QTextEdit()
+        self._dv_log.setReadOnly(True)
+        self._dv_log.setMaximumHeight(120)
+        self._dv_log.hide()
+        dv_layout.addWidget(self._dv_log)
+        self._dv_worker = None
+        self._add(dv_card)
+
         # ── Combos quick reference ────────────────────────────────────────────
         self._divider()
         combo_head = QLabel("Combining tools")
@@ -3386,6 +3462,11 @@ class GamingPage(Page):
             _set_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
+
+        dv_installed = _is_flatpak_installed("com.blackmagicdesign.resolve")
+        _set_badge(self._dv_badge, dv_installed)
+        self._dv_install_btn.setVisible(not dv_installed)
+        self._dv_launch_btn.setVisible(dv_installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
 
@@ -3612,6 +3693,51 @@ class GamingPage(Page):
             self._gp_op_status.setText(f"Update failed (exit {code}).")
             self._gp_op_status.setObjectName("status-err")
         _restyle(self._gp_op_status)
+        self._refresh_status()
+
+    # ── DaVinci Resolve install ────────────────────────────────────────────────
+
+    def _install_davinci(self):
+        if self._dv_worker and self._dv_worker.isRunning():
+            return
+        self._dv_install_btn.setEnabled(False)
+        self._dv_log.clear()
+        self._dv_log.append("→ flatpak install -y flathub com.blackmagicdesign.resolve\n")
+        self._dv_log.append(
+            "The Flatpak installer looks for the DaVinci Resolve .zip in ~/Downloads.\n"
+            "If the install fails, make sure the .zip is there and try again.\n"
+        )
+        self._dv_log_toggle.show()
+        _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+        self._dv_progress.show()
+        self._dv_op_status.setText("Installing DaVinci Resolve…")
+        self._dv_op_status.setObjectName("subheading")
+        self._dv_op_status.show()
+        _restyle(self._dv_op_status)
+        self._dv_worker = Worker(
+            ["flatpak", "install", "-y", "flathub", "com.blackmagicdesign.resolve"]
+        )
+        self._dv_worker.line.connect(lambda ln: (
+            self._dv_log.append(ln),
+            self._dv_log.ensureCursorVisible(),
+        ))
+        self._dv_worker.done.connect(self._on_davinci_install_done)
+        self._dv_worker.start()
+
+    def _on_davinci_install_done(self, code: int):
+        self._dv_progress.hide()
+        _finish_worker(self, attr="_dv_worker")
+        self._dv_install_btn.setEnabled(True)
+        if code == 0:
+            self._dv_op_status.setText("DaVinci Resolve installed.")
+            self._dv_op_status.setObjectName("status-ok")
+            self._dv_log.append("\nDone.")
+        else:
+            self._dv_op_status.setText(
+                f"Installation failed (exit {code}). Is the .zip in ~/Downloads?"
+            )
+            self._dv_op_status.setObjectName("status-err")
+        _restyle(self._dv_op_status)
         self._refresh_status()
 
 
