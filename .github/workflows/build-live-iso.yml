@@ -1,4 +1,5 @@
 name: Build Live ISO
+run-name: "Build Live ISO (${{ inputs.source_tag || (github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest') }})"
 
 on:
   workflow_run:
