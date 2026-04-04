@@ -3582,7 +3582,7 @@ class GamingPage(Page):
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
         self._tool_log.clear()
-        self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
+        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
         self._tool_log_toggle.show()
         _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.show()
@@ -3592,7 +3592,7 @@ class GamingPage(Page):
         _restyle(self._tool_op_status)
 
         self._tool_worker = Worker(
-            ["flatpak", "install", "-y", "flathub", tool["flatpak"]]
+            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
         )
         self._tool_worker.line.connect(lambda ln: (
             self._tool_log.append(ln),
@@ -4643,14 +4643,14 @@ class CloudStoragePage(Page):
     def _install_dropbox(self):
         self._db_install_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ flatpak install -y flathub com.dropbox.Client\n")
+        self._log.append("→ flatpak install -y --user flathub com.dropbox.Client\n")
         self._log.show()
         self._progress.show()
         self._op_status.setText("Installing Dropbox…")
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-        self._worker = Worker(["flatpak", "install", "-y", "flathub", "com.dropbox.Client"])
+        self._worker = Worker(["flatpak", "install", "-y", "--user", "flathub", "com.dropbox.Client"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_dropbox_install_done)
         self._worker.start()
@@ -4902,7 +4902,7 @@ class ContentCreationPage(Page):
             refs["install"].setEnabled(False)
         self._dv_install_btn.setEnabled(False)
         self._tool_log.clear()
-        self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
+        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
         self._tool_log_toggle.show()
         _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.show()
@@ -4911,7 +4911,7 @@ class ContentCreationPage(Page):
         self._tool_op_status.show()
         _restyle(self._tool_op_status)
         self._tool_worker = Worker(
-            ["flatpak", "install", "-y", "flathub", tool["flatpak"]]
+            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
         )
         self._tool_worker.line.connect(lambda ln: (
             self._tool_log.append(ln),
