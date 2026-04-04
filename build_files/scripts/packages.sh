@@ -32,7 +32,9 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
     mozilla-openh264 \
     mpv
 
-# Install all required packages
+# Install baseline tooling in a single transaction to reduce solver and
+# metadata overhead before the gaming repos are enabled. gamescope stays here
+# so it still comes from Fedora rather than the later Bazzite COPR.
 dnf5 install -y --skip-unavailable \
     irqbalance \
     p7zip \
@@ -46,12 +48,8 @@ dnf5 install -y --skip-unavailable \
     util-linux-script \
     tmux \
     gh \
-    fwupd
-
-## Gaming tweaks — Bazzite-style
-# Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-# Bazzite ships a patched gamescope; using the Fedora package avoids surprises.
-dnf5 install -y gamescope
+    fwupd \
+    gamescope
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -97,10 +95,7 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-dri-drivers.i686 \
     nss \
     nss.i686 \
-    steam-devices
-
-# KDE-specific gaming integrations
-dnf5 install -y \
+    steam-devices \
     kdeplasma-addons \
     rom-properties-kf6 \
     input-remapper
@@ -171,8 +166,8 @@ dnf5 install -y --skip-unavailable \
     intel-media-driver \
     libva-intel-driver \
     xorg-x11-drv-intel \
-    radeontop
-dnf5 install -y libclc
+    radeontop \
+    libclc
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
@@ -329,30 +324,20 @@ akmods --force --kernels "${NVIDIA_KVER}"
 modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
     || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
-# ── KythOS Helper app ───────────────────────────────────────────────────────────
-# PyQt6 helper + branch switcher.  Autostarts on first login via skel.
-dnf5 install -y python3-pyqt6
-
-# Plymouth deps (theme install is in branding.sh)
-dnf5 install -y plymouth plymouth-plugin-script
-
-# ── Distrobox ─────────────────────────────────────────────────────────────────
-# Lets users run mutable containers (any distro) alongside the immutable base OS.
-# Essential on atomic systems for one-off package installs without rpm-ostree.
-dnf5 install -y distrobox
-
-# Creator helper deps
-# flatpak-builder + unzip let the welcome app repackage the official DaVinci
-# Resolve Linux ZIP as a per-user Flatpak on immutable systems. git pulls the
-# Flatpak recipe repo together with its shared-modules submodule.
-dnf5 install -y flatpak-builder unzip git
-
-# ── Display / resolution auto-detection ──────────────────────────────────────
-# spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
-# via the SPICE protocol, so the VM display auto-resizes to the window size.
-# On bare metal it is a no-op.  kscreen-doctor (from kscreen) is the KDE CLI
-# for querying and configuring outputs; used by the first-login script below.
-dnf5 install -y spice-vdagent virt-viewer kscreen
+# ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
+# These packages all install from the same repo state, so keep them in one
+# transaction to cut down on repeated dependency solving.
+dnf5 install -y \
+    python3-pyqt6 \
+    plymouth \
+    plymouth-plugin-script \
+    distrobox \
+    flatpak-builder \
+    unzip \
+    git \
+    spice-vdagent \
+    virt-viewer \
+    kscreen
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Homebrew RPM deps
