@@ -47,6 +47,18 @@ kernel.sched_autogroup_enabled = 1
 
 # Disable split-lock mitigation — some older/ported games use split-lock ops
 kernel.split_lock_mitigate = 0
+
+# Allow unprivileged access to CPU perf counters.
+# Fedora defaults to 2 (kernel-only). Setting 1 lets MangoHud report accurate
+# CPU frame times, enables GameMode's SCHED_FIFO eligibility checks, and
+# allows sysprof/perf without root. Setting 0 would expose raw kernel addresses;
+# 1 is the safe middle ground used by most gaming-focused distros.
+kernel.perf_event_paranoid = 1
+
+# Kill the task that triggered OOM rather than hunting for the "best victim"
+# via a costly process-tree scan. Eliminates multi-second stutter spikes when
+# RAM fills up during shader compilation while a game is running.
+vm.oom_kill_allocating_task = 1
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
@@ -113,6 +125,13 @@ inhibit_screensaver = 1
 # Promote game threads to SCHED_FIFO via rtkit when conditions allow.
 # 'auto' only engages when the system is not under memory pressure.
 softrealtime = auto
+# Switch to the gaming performance profile automatically when a game launches
+# via GameMode, and restore the previous state on exit.
+# kyth-performance-mode: saves current powerprofile + KWin blur/animation state,
+# switches to performance power profile + reduced animations, then restores on exit.
+# GameMode runs these via /bin/sh -c as the game user, so D-Bus is available.
+startscript=/usr/bin/kyth-performance-mode save && /usr/bin/kyth-performance-mode gaming
+endscript=/usr/bin/kyth-performance-mode restore
 
 [cpu]
 park_cores = no
@@ -180,6 +199,11 @@ context.properties = {
     default.clock.quantum       = 128
     default.clock.min-quantum   = 32
     default.clock.max-quantum   = 8192
+    # Allow PipeWire to switch between 44100 and 48000 Hz rather than resampling.
+    # Without this, a game or app that outputs at 44100 Hz forces the entire graph
+    # (mic, desktop audio, etc.) through a sample-rate converter — adding CPU
+    # overhead and latency. With it, PipeWire renegotiates the clock rate instead.
+    default.clock.allowed-rates = [ 44100 48000 ]
 }
 PWEOF
 
@@ -198,6 +222,10 @@ WINE_LARGE_ADDRESS_AWARE=1
 AMD_VULKAN_ICD=RADV
 PROTON_USE_NTSYNC=1
 VKD3D_CONFIG=dxr
+# Advertise DX12 Ultimate feature level (12_2) so VKD3D-Proton exposes DXR 1.1,
+# mesh shaders, and sampler feedback. Must be paired with VKD3D_CONFIG=dxr above.
+# Hardware that doesn't support a feature silently skips it; no harm on older GPUs.
+VKD3D_FEATURE_LEVEL=12_2
 mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
 # run at native resolution get AMD FidelityFX Super Resolution upscaling.
@@ -230,6 +258,59 @@ DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
+# ── MangoHud default config ───────────────────────────────────────────────────
+# Pre-configure a curated overlay: useful OOTB without being overwhelming.
+# Users can override globally via ~/.config/MangoHud/MangoHud.conf or per-game
+# via the MANGOHUD_CONFIG env var / Steam launch options.
+mkdir -p /etc/skel/.config/MangoHud
+cat > /etc/skel/.config/MangoHud/MangoHud.conf <<'MANGOHUDEOF'
+# KythOS default MangoHud overlay — toggle with Shift_R+F12
+# Full option reference: https://github.com/flightlessmango/MangoHud
+
+toggle_hud=Shift_R+F12
+
+# Position and style
+position=top-left
+background_alpha=0.5
+font_size=20
+text_color=FFFFFF
+round_corners=4
+
+# Frame metrics
+fps
+frametime=1
+frame_timing=1
+
+# GPU
+gpu_stats
+gpu_temp
+gpu_core_clock
+gpu_mem_clock
+vram
+
+# CPU
+cpu_stats
+cpu_temp
+cpu_mhz
+
+# System RAM
+ram
+
+# Show Wine/Proton version when running Windows games
+wine
+MANGOHUDEOF
+
+# ── vkBasalt default config ───────────────────────────────────────────────────
+# vkBasalt is only active when ENABLE_VKBASALT=1 is set (per-launch or globally).
+# Pre-configure CAS sharpening so there's a sensible default when users opt in.
+# casSharpness: 0.0 = maximum sharpening, 1.0 = no sharpening; 0.4 is a clean balance.
+cat > /etc/vkBasalt.conf <<'VKBASALTEOF'
+effects = cas
+casSharpness = 0.4
+# Toggle the effect on/off in-game
+toggleKey = Home
+VKBASALTEOF
+
 # Steam: disable CEF browser sandbox — required on bootc/ostree systems where
 # user namespace restrictions prevent the Chromium sandbox from initialising,
 # causing steamwebhelper to SEGV at startup.
@@ -248,6 +329,22 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # systemd-remount-fs tries to remount the root filesystem, which is immutable
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
+
+# ── Sudoers: passwordless safe upgrade/firmware operations ────────────────────
+# bootc upgrade/switch stages a new image but does not modify the running system —
+# a reboot is always required to activate it. fwupdmgr operations are similarly
+# safe (refresh = metadata fetch; get-updates/update = firmware staging).
+# Allowing these without a password lets 'ujust upgrade' run without a mid-stream
+# sudo prompt that breaks the terminal flow.
+# The 0440 mode (owner+group read, no write) is required by sudo's NOPASSWD check.
+install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
+# KythOS: wheel group may run safe update/firmware commands without a password.
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
+SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
