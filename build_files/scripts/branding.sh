@@ -415,6 +415,7 @@ dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --add "plymouth" \
+    --compress "zstd -1" \
     --kver "${CACHYOS_KVER}" \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
