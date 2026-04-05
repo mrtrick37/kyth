@@ -4774,6 +4774,18 @@ class ContentCreationPage(Page):
                 "desc": "Multi-track audio editor and recorder. Noise reduction, EQ, compression, and export.",
                 "launch": ["flatpak", "run", "org.audacityteam.Audacity"],
             },
+            {
+                "flatpak": "org.gimp.GIMP",
+                "name": "GIMP",
+                "desc": "GNU Image Manipulation Program. Photo editing, compositing, and graphic design.",
+                "launch": ["flatpak", "run", "org.gimp.GIMP"],
+            },
+            {
+                "flatpak": "com.elgato.StreamDeck",
+                "name": "Stream Deck",
+                "desc": "Elgato Stream Deck controller. Configure keys, macros, and plugins for your Stream Deck device.",
+                "launch": ["flatpak", "run", "com.elgato.StreamDeck"],
+            },
         ]
 
         self._tool_refs: list[dict] = []

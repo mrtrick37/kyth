@@ -15,6 +15,37 @@ dnf5 install -y docker
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
+# Fedora 44 transitions can leave debug/source repo metalinks unpublished or
+# intermittently unavailable. We never install from those repos in image builds,
+# so disable them up front to avoid noisy 404s and brittle solver behavior.
+python3 - <<'PY'
+from pathlib import Path
+import configparser
+
+repo_dir = Path("/etc/yum.repos.d")
+patterns = ("debug", "source")
+
+for repo_file in repo_dir.glob("*.repo"):
+    parser = configparser.RawConfigParser(strict=False)
+    parser.optionxform = str
+    try:
+        with repo_file.open("r", encoding="utf-8") as fh:
+            parser.read_file(fh)
+    except Exception:
+        continue
+
+    changed = False
+    for section in parser.sections():
+        if any(token in section.lower() for token in patterns):
+            if parser.get(section, "enabled", fallback="1").strip() != "0":
+                parser.set(section, "enabled", "0")
+                changed = True
+
+    if changed:
+        with repo_file.open("w", encoding="utf-8") as fh:
+            parser.write(fh, space_around_delimiters=False)
+PY
+
 # ── Multimedia baseline ───────────────────────────────────────────────────────
 # Install a full system codec stack so common local playback, browser media,
 # and creator workflows work without extra setup.  RPM Fusion provides the
