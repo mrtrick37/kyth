@@ -170,6 +170,12 @@ RUN mkdir -p \
         > /home/liveuser/.config/autostart/org.kde.plasma-xembedsniproxy.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=KDE Legacy Tray Proxy\nHidden=true\n' \
         > /home/liveuser/.config/autostart/xembedsniproxy.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/plasma-welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/org.kde.plasma.welcome.desktop \
+    && printf '[General]\nShowWelcomeWizard=false\nLast Shown Version=99.0\n' \
+        > /home/liveuser/.config/plasma-welcomerc \
     && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
         > /home/liveuser/.config/autostart/spice-vdagent.desktop \
     && printf '[Module-kscreen]\nautoload=false\n' \
@@ -325,4 +331,5 @@ RUN echo "uninitialized" > /etc/machine-id \
            ln -sf /usr/lib/systemd/user/locale1-x11-sync.service \
                   /home/liveuser/.config/systemd/user/graphical.target.wants/locale1-x11-sync.service; \
        fi \
+    && ln -sf /dev/null /home/liveuser/.config/systemd/user/plasma-welcome.service \
     && chown -R liveuser:liveuser /home/liveuser/.config
