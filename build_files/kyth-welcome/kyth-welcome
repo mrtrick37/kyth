@@ -1213,7 +1213,7 @@ def _akmod_nvidia_built() -> bool:
 
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
-        return ("#1a2b1f", "#9ece6a", "OK")
+        return ("#0f2a31", "#5ee6c1", "OK")
     if status == "warn":
         return ("#152030", "#e0af68", "Warning")
     if status == "err":
@@ -1646,10 +1646,12 @@ class HardwareCard(QFrame):
         self._title.setText(probe.title)
         self._summary.setText(probe.summary)
         self._details.setText(probe.details)
+        border = {"ok": "#1f6b63", "warn": "#5a4010", "err": "#6b1f2a"}.get(probe.status, "#2e394c")
         self._badge.setText(f"  {badge_text}  ")
         self._badge.setStyleSheet(
-            f"background: {bg}; color: {fg}; border: 1px solid {fg}33; "
-            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
+            f"background: {bg}; color: {fg}; border: 1px solid {border}; "
+            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700; "
+            f"letter-spacing: 0.2px;"
         )
         if probe.action:
             self._action.setText(probe.action)
@@ -3114,7 +3116,7 @@ class GamingPage(Page):
             {
                 "flatpak": "com.usebottles.bottles",
                 "name": "Bottles",
-                "desc": "Best for running standalone Windows `.exe` and `.msi` installers in isolated app environments.",
+                "desc": "Best for running standalone Windows .exe and .msi installers in isolated app environments.",
                 "ujust": "install-bottles",
                 "launch": ["flatpak", "run", "com.usebottles.bottles"],
             },
@@ -4781,10 +4783,10 @@ class ContentCreationPage(Page):
                 "launch": ["flatpak", "run", "org.gimp.GIMP"],
             },
             {
-                "flatpak": "com.elgato.StreamDeck",
-                "name": "Stream Deck",
-                "desc": "Elgato Stream Deck controller. Configure keys, macros, and plugins for your Stream Deck device.",
-                "launch": ["flatpak", "run", "com.elgato.StreamDeck"],
+                "flatpak": "me.amankhanna.opendeck",
+                "name": "OpenDeck",
+                "desc": "Stream Deck controller for Linux. Supports original Elgato plugins via Wine.",
+                "launch": ["flatpak", "run", "me.amankhanna.opendeck"],
             },
         ]
 
