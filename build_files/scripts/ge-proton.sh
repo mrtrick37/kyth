@@ -18,7 +18,11 @@ else
 fi
 
 release_json="${TMPDIR_GE}/release.json"
-if ! curl -fsSL "${release_api}" -o "${release_json}"; then
+CURL_AUTH_ARGS=()
+if [[ -f /run/secrets/github_token ]]; then
+    CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
+fi
+if ! curl -fsSL "${CURL_AUTH_ARGS[@]}" "${release_api}" -o "${release_json}"; then
     echo "Failed to fetch GE-Proton release info from ${release_api}" >&2
     exit 1
 fi
