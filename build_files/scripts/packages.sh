@@ -15,6 +15,37 @@ dnf5 install -y docker
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
 dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
 
+# Fedora 44 transitions can leave debug/source repo metalinks unpublished or
+# intermittently unavailable. We never install from those repos in image builds,
+# so disable them up front to avoid noisy 404s and brittle solver behavior.
+python3 - <<'PY'
+from pathlib import Path
+import configparser
+
+repo_dir = Path("/etc/yum.repos.d")
+patterns = ("debug", "source")
+
+for repo_file in repo_dir.glob("*.repo"):
+    parser = configparser.RawConfigParser(strict=False)
+    parser.optionxform = str
+    try:
+        with repo_file.open("r", encoding="utf-8") as fh:
+            parser.read_file(fh)
+    except Exception:
+        continue
+
+    changed = False
+    for section in parser.sections():
+        if any(token in section.lower() for token in patterns):
+            if parser.get(section, "enabled", fallback="1").strip() != "0":
+                parser.set(section, "enabled", "0")
+                changed = True
+
+    if changed:
+        with repo_file.open("w", encoding="utf-8") as fh:
+            parser.write(fh, space_around_delimiters=False)
+PY
+
 # ── Multimedia baseline ───────────────────────────────────────────────────────
 # Install a full system codec stack so common local playback, browser media,
 # and creator workflows work without extra setup.  RPM Fusion provides the
@@ -32,7 +63,9 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
     mozilla-openh264 \
     mpv
 
-# Install all required packages
+# Install baseline tooling in a single transaction to reduce solver and
+# metadata overhead before the gaming repos are enabled. gamescope stays here
+# so it still comes from Fedora rather than the later Bazzite COPR.
 dnf5 install -y --skip-unavailable \
     irqbalance \
     p7zip \
@@ -46,12 +79,12 @@ dnf5 install -y --skip-unavailable \
     util-linux-script \
     tmux \
     gh \
-    fwupd
-
-## Gaming tweaks — Bazzite-style
-# Install gamescope from Fedora BEFORE enabling Bazzite COPR.
-# Bazzite ships a patched gamescope; using the Fedora package avoids surprises.
-dnf5 install -y gamescope
+    fwupd \
+    gamescope \
+    libburn \
+    libisoburn \
+    libisofs \
+    xorriso
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -97,10 +130,7 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     mesa-dri-drivers.i686 \
     nss \
     nss.i686 \
-    steam-devices
-
-# KDE-specific gaming integrations
-dnf5 install -y \
+    steam-devices \
     kdeplasma-addons \
     rom-properties-kf6 \
     input-remapper
@@ -171,8 +201,11 @@ dnf5 install -y --skip-unavailable \
     intel-media-driver \
     libva-intel-driver \
     xorg-x11-drv-intel \
-    radeontop
-dnf5 install -y libclc
+    radeontop \
+    libclc
+
+# Remove plasma-welcome — plasma-login handles first-boot setup instead.
+dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
 
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
@@ -329,24 +362,21 @@ akmods --force --kernels "${NVIDIA_KVER}"
 modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
     || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
-# ── KythOS Helper app ───────────────────────────────────────────────────────────
-# PyQt6 helper + branch switcher.  Autostarts on first login via skel.
-dnf5 install -y python3-pyqt6
-
-# Plymouth deps (theme install is in branding.sh)
-dnf5 install -y plymouth plymouth-plugin-script
-
-# ── Distrobox ─────────────────────────────────────────────────────────────────
-# Lets users run mutable containers (any distro) alongside the immutable base OS.
-# Essential on atomic systems for one-off package installs without rpm-ostree.
-dnf5 install -y distrobox
-
-# ── Display / resolution auto-detection ──────────────────────────────────────
-# spice-vdagent: in QEMU/KVM VMs this daemon handles dynamic resolution changes
-# via the SPICE protocol, so the VM display auto-resizes to the window size.
-# On bare metal it is a no-op.  kscreen-doctor (from kscreen) is the KDE CLI
-# for querying and configuring outputs; used by the first-login script below.
-dnf5 install -y spice-vdagent virt-viewer kscreen
+# ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
+# These packages all install from the same repo state, so keep them in one
+# transaction to cut down on repeated dependency solving.
+dnf5 install -y \
+    python3-pyqt6 \
+    qt6-qtwayland \
+    plymouth \
+    plymouth-plugin-script \
+    distrobox \
+    flatpak-builder \
+    unzip \
+    git \
+    spice-vdagent \
+    virt-viewer \
+    kscreen
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Homebrew RPM deps

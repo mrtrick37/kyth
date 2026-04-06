@@ -66,6 +66,7 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     sddm-breeze \
     breeze-icon-theme \
     breeze-cursor-theme \
+    && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora || rpm -e --nodeps plasma-welcome plasma-welcome-fedora) 2>/dev/null || true \
     && dnf5 clean all
 
 # ── CachyOS kernel ────────────────────────────────────────────────────────────
@@ -170,9 +171,17 @@ RUN mkdir -p \
         > /home/liveuser/.config/autostart/org.kde.plasma-xembedsniproxy.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=KDE Legacy Tray Proxy\nHidden=true\n' \
         > /home/liveuser/.config/autostart/xembedsniproxy.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/plasma-welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/org.kde.plasma.welcome.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome Diagnostic\nExec=/usr/bin/kyth-plasma-welcome-diag\nX-KDE-autostart-phase=0\n' \
+        > /home/liveuser/.config/autostart/kyth-plasma-welcome-diag.desktop \
+    && printf '[General]\nLastSeenVersion=99.0\nShowUpdatePage=false\n' \
+        > /home/liveuser/.config/plasma-welcomerc \
     && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
         > /home/liveuser/.config/autostart/spice-vdagent.desktop \
-    && printf '[Module-kscreen]\nautoload=false\n' \
+    && printf '[Module-kscreen]\nautoload=false\n\n[Module-plasma-welcome]\nautoload=false\n\n[Module-bluedevil]\nautoload=false\n\n[Module-networkstatus]\nautoload=false\n\n[Module-bolt]\nautoload=false\n\n[Module-device_automounter]\nautoload=false\n' \
         > /home/liveuser/.config/kded6rc \
     && printf '[Compositing]\nEnabled=false\n' \
         > /home/liveuser/.config/kwinrc \
@@ -187,9 +196,6 @@ RUN mkdir -p \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
-    && printf '[Desktop Entry]\nName=Installer Logs\nComment=View live KythOS installer logs\nExec=konsole -e bash -c "echo KythOS Installer Logs; echo; tail -n 100 -F /tmp/kyth-installer.log /tmp/kyth-installer-launch.log 2>/dev/null || echo Waiting for installer...; read"\nIcon=utilities-log-viewer\nTerminal=false\nType=Application\nCategories=System;\n' \
-        > /home/liveuser/Desktop/installer-logs.desktop \
-    && chmod +x /home/liveuser/Desktop/installer-logs.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
@@ -199,7 +205,18 @@ RUN mkdir -p \
               /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
        fi \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && chown -R liveuser:liveuser /home/liveuser/
+    && chown -R liveuser:liveuser /home/liveuser/ \
+    && mkdir -p /etc/xdg/autostart \
+    && for svc in \
+           xwaylandvideobridge \
+           org.kde.kaccess \
+           kaccess \
+           org.kde.plasma-xembedsniproxy \
+           xembedsniproxy \
+           org.kde.gmenudbusmenuproxy; do \
+           printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "$svc" \
+               > "/etc/xdg/autostart/${svc}.desktop"; \
+       done
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
@@ -278,6 +295,68 @@ LIVEIOEOF
 
 RUN mkdir -p /var/mnt/hostshare
 
+# ── plasma-welcome runtime diagnostic script ──────────────────────────────────
+# Runs as an autostart at KDE session start. Captures state immediately, then
+# again after 15 s once kded6 has had time to load its plugins.
+# Output: /tmp/plasma-welcome-diag.log (also mirrored to hostshare if mounted).
+RUN cat > /usr/bin/kyth-plasma-welcome-diag <<'DIAGEOF'
+#!/bin/bash
+LOG=/tmp/plasma-welcome-diag.log
+HOSTSHARE=/var/mnt/hostshare
+_log() { echo "[$(date '+%H:%M:%S')] $*" >> "$LOG"; }
+
+_log "=== plasma-welcome diagnostic @ $(date) ==="
+_log "--- kded plugin .so:"
+if find /usr -name "kded_plasma_welcome.so" 2>/dev/null | grep -q .; then
+    _log "  *** WARNING: .so STILL EXISTS:"
+    find /usr -name "kded_plasma_welcome.so" >> "$LOG"
+else
+    _log "  (not found — good)"
+fi
+_log "--- plasma-welcome binary:"
+ls -la /usr/bin/plasma-welcome /usr/libexec/plasma-welcome 2>/dev/null >> "$LOG" \
+    || _log "  (not found)"
+_log "--- plasma-welcome data dir:"
+[ -d /usr/share/plasma/plasma-welcome ] \
+    && _log "  *** WARNING: data dir exists" \
+    || _log "  (not found — good)"
+_log "--- ~/.config/plasma-welcomerc:"
+cat ~/.config/plasma-welcomerc >> "$LOG" 2>/dev/null || _log "  *** MISSING"
+_log "--- /etc/xdg/plasma-welcomerc:"
+cat /etc/xdg/plasma-welcomerc >> "$LOG" 2>/dev/null || _log "  (not present)"
+_log "--- ~/.config/kded6rc:"
+cat ~/.config/kded6rc >> "$LOG" 2>/dev/null || _log "  *** MISSING"
+_log "--- /etc/xdg/kded6rc:"
+cat /etc/xdg/kded6rc >> "$LOG" 2>/dev/null || _log "  (not present)"
+_log "--- running plasma-welcome processes:"
+pgrep -a plasma-welcome >> "$LOG" 2>/dev/null || _log "  (none)"
+_log "--- plasmalogin / plasma-login-greeter processes (MUST be absent):"
+pgrep -a -f "plasmalogin|plasma-login-greeter|plasma-login-wallpaper" >> "$LOG" 2>/dev/null \
+    && _log "  *** WARNING: plasma-login greeter is running" \
+    || _log "  (none — good)"
+_log "--- sleeping 15 s for kded6 to settle..."
+sleep 15
+_log "=== post-settle check ==="
+_log "--- running plasma-welcome processes:"
+pgrep -a plasma-welcome >> "$LOG" 2>/dev/null || _log "  (none — good)"
+_log "--- kded6 loaded modules:"
+qdbus org.kde.kded6 /kded loadedModules >> "$LOG" 2>/dev/null \
+    || _log "  (qdbus unavailable)"
+_log "--- plasma-welcome in kded6 modules:"
+qdbus org.kde.kded6 /kded loadedModules 2>/dev/null | grep -i welcome >> "$LOG" \
+    || _log "  (not loaded — good)"
+_log "--- journal entries (plasma-welcome):"
+journalctl --user -b --no-pager -n 200 2>/dev/null \
+    | grep -i "plasma.welcome\|plasma-welcome" >> "$LOG" \
+    || _log "  (none — good)"
+_log "=== diagnostic complete ==="
+if mountpoint -q "${HOSTSHARE}" 2>/dev/null; then
+    cp "$LOG" "${HOSTSHARE}/plasma-welcome-diag.log" 2>/dev/null \
+        && _log "  mirrored to ${HOSTSHARE}/plasma-welcome-diag.log"
+fi
+DIAGEOF
+RUN chmod +x /usr/bin/kyth-plasma-welcome-diag
+
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.
 # Mask ostree/bootc services that require a real ostree deployment.
@@ -300,7 +379,8 @@ RUN echo "uninitialized" > /etc/machine-id \
         systemd-firstboot.service \
         systemd-oomd.service \
         scxd.service \
-        ananicy-cpp.service; do \
+        ananicy-cpp.service \
+        plasmalogin.service; do \
         ln -sf /dev/null "/etc/systemd/system/${unit}"; \
     done \
     && for unit in \
@@ -325,4 +405,50 @@ RUN echo "uninitialized" > /etc/machine-id \
            ln -sf /usr/lib/systemd/user/locale1-x11-sync.service \
                   /home/liveuser/.config/systemd/user/graphical.target.wants/locale1-x11-sync.service; \
        fi \
-    && chown -R liveuser:liveuser /home/liveuser/.config
+    && ln -sf /dev/null /home/liveuser/.config/systemd/user/plasma-welcome.service \
+    && ln -sf /dev/null /home/liveuser/.config/systemd/user/plasma-welcome.timer \
+    && chown -R liveuser:liveuser /home/liveuser/.config \
+    && mkdir -p /etc/xdg \
+    && printf '[General]\nLastSeenVersion=99.0\nShowUpdatePage=false\n' \
+        > /etc/xdg/plasma-welcomerc \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xwaylandvideobridge \
+    && chmod +x /usr/bin/xwaylandvideobridge \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/drkonqi \
+    && chmod +x /usr/bin/drkonqi \
+    && printf '[drkonqi]\nEnabled=false\n' > /etc/xdg/drkonqirc \
+    && rm -f /usr/share/dbus-1/services/org.kde.plasma.welcome.service \
+    && rm -f /usr/share/dbus-1/services/org.kde.plasma-welcome.service \
+    && find /usr/bin /usr/libexec -name "plasma-welcome*" 2>/dev/null \
+        | xargs -r -I{} sh -c 'printf "#!/bin/sh\nexit 0\n" > "{}" && chmod +x "{}"' \
+    && find /usr -name "kded_plasma_welcome.so" -delete \
+    && rm -rf /usr/share/plasma/plasma-welcome \
+    && find /usr/share/autostart /etc/xdg/autostart -name "*plasma*welcome*" -delete 2>/dev/null || true \
+    && mkdir -p /etc/systemd/user \
+    && ln -sf /dev/null /etc/systemd/user/plasma-welcome.service \
+    && ln -sf /dev/null /etc/systemd/user/plasma-welcome.timer
+
+# ── Build-time assertion: plasma-welcome must be fully gone ───────────────────
+# Fails the build immediately if the kded plugin .so survived — so broken ISOs
+# can never be shipped and suppression regressions are caught at build time.
+RUN echo "==> plasma-welcome suppression audit:" \
+    && echo "--- RPM packages:" \
+    && (rpm -q plasma-welcome plasma-welcome-fedora 2>&1 || echo "  (not installed — good)") \
+    && echo "--- kded plugin .so (MUST be absent):" \
+    && if find /usr -name "kded_plasma_welcome.so" 2>/dev/null | grep -q .; then \
+           echo "FAIL: kded_plasma_welcome.so still present in image:"; \
+           find /usr -name "kded_plasma_welcome.so"; \
+           exit 1; \
+       else \
+           echo "  (not found — good)"; \
+       fi \
+    && echo "--- plasma-welcome data dir:" \
+    && ([ -d /usr/share/plasma/plasma-welcome ] \
+           && echo "  WARNING: /usr/share/plasma/plasma-welcome still present" \
+           || echo "  (not found — good)") \
+    && echo "--- /etc/xdg/plasma-welcomerc:" \
+    && (cat /etc/xdg/plasma-welcomerc 2>/dev/null || echo "  MISSING — LastSeenVersion not set") \
+    && echo "--- /home/liveuser/.config/plasma-welcomerc:" \
+    && (cat /home/liveuser/.config/plasma-welcomerc 2>/dev/null || echo "  MISSING") \
+    && echo "--- /home/liveuser/.config/kded6rc:" \
+    && (cat /home/liveuser/.config/kded6rc 2>/dev/null || echo "  MISSING") \
+    && echo "==> audit passed"

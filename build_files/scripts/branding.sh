@@ -113,20 +113,6 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
-# Suppress plasma-welcome system-wide (covers liveuser on the live ISO and all
-# installed users). The skel entry below is a belt-and-suspenders fallback for
-# per-user config that would otherwise override this system-wide setting.
-mkdir -p /etc/xdg
-cat > /etc/xdg/plasma-welcomerc <<'WELCOMERCEOF'
-[General]
-ShowWelcomeWizard=false
-WELCOMERCEOF
-
-cat > /etc/skel/.config/plasma-welcomerc <<'WELCOMERCEOF'
-[General]
-ShowWelcomeWizard=false
-WELCOMERCEOF
-
 # ── Kickoff favorites ─────────────────────────────────────────────────────────
 # Pre-populate the Kickoff launcher favorites for new users.
 # Discord is listed here even though it installs via kyth-default-flatpaks.service
@@ -187,7 +173,21 @@ cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
 
-# ── SDDM login screen background ─────────────────────────────────────────────
+# ── SDDM session type + login screen background ───────────────────────────────
+# Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;
+# KWin Wayland requires a working DRM/GBM backend and crashes on virtio-vga (no
+# virgl) and similar VM GPUs without 3D acceleration, which drops the SPICE
+# connection and makes the VM appear to close. X11 is stable on all hardware
+# and VM GPU drivers; users can switch to Wayland from the session picker.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
+[General]
+DisplayServer=x11
+
+[X11]
+SessionDir=/usr/share/xsessions
+SDDMCONFEOF
+
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
 mkdir -p /usr/share/sddm/themes/breeze
@@ -325,12 +325,42 @@ fi
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+
+# Smoke-test the helper during the build so startup regressions fail the image
+# instead of surfacing only after first login.
+# timeout 30: pages run synchronous subprocess calls (bootc status, flatpak info)
+# in __init__ that can block for minutes in a container. We only care that the
+# app imports and constructs without crashing — not that hardware probes finish.
+# Exit 124 = timed out (treat as pass). Any other non-zero = real crash, fail build.
+smoke_exit=0
+timeout 30 python3 -c '
+import importlib.machinery, importlib.util, pathlib, os
+import sys
+os.environ["QT_QPA_PLATFORM"] = "offscreen"
+path = pathlib.Path("/usr/bin/kyth-welcome")
+loader = importlib.machinery.SourceFileLoader("kyth_welcome_smoke", str(path))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+app = module.QApplication([])
+win = module.MainWindow()
+win.close()
+os._exit(0)
+' || smoke_exit=$?
+if [ "${smoke_exit}" -eq 124 ]; then
+    echo "smoke-test: timed out after 30s (background threads still running) — treating as pass"
+elif [ "${smoke_exit}" -ne 0 ]; then
+    echo "smoke-test: FAILED with exit code ${smoke_exit}"
+    exit 1
+fi
+
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
+install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
@@ -391,14 +421,21 @@ dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the KythOS theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
+# Background ticker prints a heartbeat every 20 s so CI logs don't look frozen.
+echo "dracut: rebuilding initramfs for ${CACHYOS_KVER} (no-hostonly + plymouth, zstd-1) — takes several minutes…"
+( i=0; while true; do sleep 20; i=$((i + 1)); echo "  dracut: still building… $((i * 20))s elapsed"; done ) &
+_DRACUT_TICKER=$!
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --add "plymouth" \
+    --compress "zstd -1" \
     --kver "${CACHYOS_KVER}" \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
-echo "Initramfs rebuilt with Plymouth (theme: kyth)"
+kill "$_DRACUT_TICKER" 2>/dev/null || true
+wait "$_DRACUT_TICKER" 2>/dev/null || true
+echo "dracut: initramfs rebuilt with Plymouth (theme: kyth)"
 
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
