@@ -173,7 +173,21 @@ cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
 
-# ── SDDM login screen background ─────────────────────────────────────────────
+# ── SDDM session type + login screen background ───────────────────────────────
+# Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;
+# KWin Wayland requires a working DRM/GBM backend and crashes on virtio-vga (no
+# virgl) and similar VM GPUs without 3D acceleration, which drops the SPICE
+# connection and makes the VM appear to close. X11 is stable on all hardware
+# and VM GPU drivers; users can switch to Wayland from the session picker.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
+[General]
+DisplayServer=x11
+
+[X11]
+SessionDir=/usr/share/xsessions
+SDDMCONFEOF
+
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
 mkdir -p /usr/share/sddm/themes/breeze
