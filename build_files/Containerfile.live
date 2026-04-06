@@ -413,6 +413,9 @@ RUN echo "uninitialized" > /etc/machine-id \
         > /etc/xdg/plasma-welcomerc \
     && printf '#!/bin/sh\nexit 0\n' > /usr/bin/xwaylandvideobridge \
     && chmod +x /usr/bin/xwaylandvideobridge \
+    && printf '#!/bin/sh\nexit 0\n' > /usr/bin/drkonqi \
+    && chmod +x /usr/bin/drkonqi \
+    && printf '[drkonqi]\nEnabled=false\n' > /etc/xdg/drkonqirc \
     && rm -f /usr/share/dbus-1/services/org.kde.plasma.welcome.service \
     && rm -f /usr/share/dbus-1/services/org.kde.plasma-welcome.service \
     && find /usr/bin /usr/libexec -name "plasma-welcome*" 2>/dev/null \
