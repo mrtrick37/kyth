@@ -387,10 +387,12 @@ dnf5 install -y \
 dnf5 clean packages
 dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
 
-# Ensure SDDM is the active display manager after all packages are installed.
-# Kinoite 44 ships plasmalogin; some KDE package %post scriptlets re-apply the
-# systemd preset and reset display-manager.service back to plasmalogin. Run the
-# enable last so it is the final state entering layer 2 (dnf5 upgrade).
-# sysconfig.sh (layer 4) re-enforces this after the upgrade as belt-and-suspenders.
-systemctl enable sddm.service 2>/dev/null || true
-systemctl set-default graphical.target 2>/dev/null || true
+# Wire up SDDM and graphical boot via explicit symlinks.
+# systemctl enable/set-default are unreliable inside a container build (no
+# running systemd bus) and silently no-op when they fail.  Direct symlinks are
+# the only guaranteed approach; this matches what Universal Blue and other
+# bootc-based distros do.
+ln -sf /usr/lib/systemd/system/sddm.service \
+    /etc/systemd/system/display-manager.service
+ln -sf /usr/lib/systemd/system/graphical.target \
+    /etc/systemd/system/default.target
