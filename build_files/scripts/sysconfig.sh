@@ -394,6 +394,10 @@ systemctl mask systemd-remount-fs.service
 # It conflicts with SDDM and crashes on first boot in VMs (no hardware GL for
 # its login renderer). SDDM is the display manager in use — mask plasmalogin.
 systemctl mask plasmalogin.service
+# Re-enforce SDDM as display-manager.service here (layer 4), after the
+# dnf5 upgrade in layer 2 which can re-apply systemd presets and reset
+# display-manager.service back to plasmalogin.
+systemctl enable sddm.service 2>/dev/null || true
 
 # SDDM greeter software-rendering fallback — mirrors the live ISO's drop-in.
 # SDDM renders its own QML greeter with Mesa; on certain hardware (Intel vPro

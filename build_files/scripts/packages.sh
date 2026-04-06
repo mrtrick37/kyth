@@ -206,11 +206,6 @@ dnf5 install -y --skip-unavailable \
     radeontop \
     libclc
 
-# Ensure SDDM is the active display manager. Kinoite 44 ships plasmalogin
-# instead; sysconfig.sh masks it. Enable SDDM here after the install above.
-systemctl enable sddm.service 2>/dev/null || true
-systemctl set-default graphical.target 2>/dev/null || true
-
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
 
@@ -391,3 +386,11 @@ dnf5 install -y \
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
 dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
+
+# Ensure SDDM is the active display manager after all packages are installed.
+# Kinoite 44 ships plasmalogin; some KDE package %post scriptlets re-apply the
+# systemd preset and reset display-manager.service back to plasmalogin. Run the
+# enable last so it is the final state entering layer 2 (dnf5 upgrade).
+# sysconfig.sh (layer 4) re-enforces this after the upgrade as belt-and-suspenders.
+systemctl enable sddm.service 2>/dev/null || true
+systemctl set-default graphical.target 2>/dev/null || true
