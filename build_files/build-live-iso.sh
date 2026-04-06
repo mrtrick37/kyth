@@ -343,10 +343,12 @@ fi
 
 if [[ -d "${GRUB_X64_MODS}" ]] && command -v grub2-mkimage &>/dev/null; then
     GRUB_EMBED_CFG="${WORK}/grub-efi-embed.cfg"
-    cat > "${GRUB_EMBED_CFG}" << 'EMBEDEOF'
-search --no-floppy --label --set=root KythOS-44-Live
-set prefix=($root)/boot/grub2
-source ($root)/boot/grub2/grub.cfg
+    # Note: unquoted heredoc so ${VOLID} expands; $root is a GRUB variable and
+    # must be escaped to prevent bash expansion.
+    cat > "${GRUB_EMBED_CFG}" << EMBEDEOF
+search --no-floppy --label --set=root ${VOLID}
+set prefix=(\$root)/boot/grub2
+source (\$root)/boot/grub2/grub.cfg
 EMBEDEOF
 
     grub2-mkimage \

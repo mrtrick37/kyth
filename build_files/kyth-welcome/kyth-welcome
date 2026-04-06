@@ -5,6 +5,7 @@ Shows once on first login (via /etc/skel autostart) and is always
 accessible from the application menu.
 """
 
+import glob
 import os
 import sys
 import json
@@ -21,7 +22,7 @@ from PyQt6.QtWidgets import (
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
     QSizePolicy, QDialog, QCheckBox,
 )
-from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl
+from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -30,15 +31,58 @@ _CLOUD_SYNC_CONFIG = os.path.expanduser("~/.config/kyth-cloud-sync.json")
 _SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 _WIZARD_SENTINEL = os.path.expanduser("~/.config/kyth-welcome-done")
 
+
+def _prefer_xwayland_if_wayland_plugin_missing() -> None:
+    # KDE Wayland sessions usually expose both WAYLAND_DISPLAY and DISPLAY.
+    # If qt6-qtwayland is missing in the image, Qt aborts before showing any
+    # window; falling back to xcb lets the helper still open via XWayland.
+    if os.environ.get("QT_QPA_PLATFORM"):
+        return
+    if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("DISPLAY"):
+        return
+
+    plugins_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)
+    platform_dir = os.path.join(plugins_dir, "platforms")
+    if not os.path.isdir(platform_dir):
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+        return
+
+    if not any(
+        name.startswith("libqwayland-") or name == "libqwayland-generic.so"
+        for name in os.listdir(platform_dir)
+    ):
+        os.environ["QT_QPA_PLATFORM"] = "xcb"
+
+
+def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
+                         warn_text: str = "Not Installed") -> None:
+    if ok:
+        bg = "#0f2a31"
+        fg = "#5ee6c1"
+        border = "#1f6b63"
+        text = ok_text
+    else:
+        bg = "#171d27"
+        fg = "#a9b5c7"
+        border = "#2e394c"
+        text = warn_text
+
+    lbl.setText(f"  {text}  ")
+    lbl.setStyleSheet(
+        f"background: {bg}; color: {fg}; border: 1px solid {border}; "
+        "border-radius: 10px; padding: 3px 8px; font-size: 11px; "
+        "font-weight: 700; letter-spacing: 0.2px;"
+    )
+
 QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
     font-size: 14px;
-    color: #f0f0f0;
+    color: #edf3ff;
 }
 
 QMainWindow {
-    background: #0c0c0c;
+    background: #091019;
 }
 
 QWidget {
@@ -51,36 +95,37 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #07090d;
-    border-right: 1px solid #161d28;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #081018, stop:1 #060b12);
+    border-right: 1px solid #182333;
 }
 
 QWidget#sidebar-header {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0b111a, stop:1 #0f1826);
-    border-bottom: 1px solid #182337;
+                                stop:0 #0d1723, stop:0.55 #102133, stop:1 #143050);
+    border-bottom: 1px solid #223552;
 }
 
 QLabel#sidebar-logo {
-    font-size: 20px;
+    font-size: 21px;
     font-weight: 700;
     color: #f8fbff;
-    letter-spacing: 0.3px;
+    letter-spacing: 0.5px;
     padding: 0;
 }
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #7d8aa2;
+    color: #90a4c3;
     padding: 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #7d8798;
+    color: #8896ab;
     border: none;
     border-left: 3px solid transparent;
-    border-radius: 0px;
+    border-radius: 10px;
     padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
@@ -88,18 +133,18 @@ QPushButton#nav-item {
 }
 
 QPushButton#nav-item:hover {
-    background: #101722;
-    color: #dbe7ff;
-    border-left: 3px solid #22314a;
+    background: #111b29;
+    color: #e2ecff;
+    border-left: 3px solid #35537c;
 }
 
 QPushButton#nav-item-active {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #122036, stop:1 #173154);
+                                stop:0 #152845, stop:0.6 #17365d, stop:1 #1d4779);
     color: #ffffff;
-    border: none;
+    border: 1px solid #2f4f7e;
     border-left: 3px solid #7cb2ff;
-    border-radius: 0px;
+    border-radius: 10px;
     padding: 11px 16px 11px 14px;
     text-align: left;
     font-size: 13px;
@@ -109,101 +154,108 @@ QPushButton#nav-item-active {
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0b0f15, stop:0.55 #0b1119, stop:1 #091019);
+                                stop:0 #09111a, stop:0.48 #0b1420, stop:1 #0a1725);
 }
 
 QScrollArea {
     background: transparent;
+    border: none;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
-    background: #101a2a;
-    color: #8cb9ff;
-    border: 1px solid #28446c;
-    border-radius: 10px;
-    padding: 4px 10px;
+    background: #0f1f32;
+    color: #92c8ff;
+    border: 1px solid #2f5a8d;
+    border-radius: 12px;
+    padding: 4px 11px;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 1.1px;
 }
 
 QLabel#heading {
-    font-size: 27px;
+    font-size: 29px;
     font-weight: 700;
     color: #ffffff;
+    letter-spacing: 0.2px;
 }
 
 QLabel#subheading {
     font-size: 14px;
-    color: #95a2b5;
+    color: #95a8c3;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #4dbb6f;
+    color: #58e0bb;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #e8a832;
+    color: #ffbf61;
     font-weight: 600;
 }
 
 QLabel#status-err {
-    color: #f55a75;
+    color: #ff7892;
     font-weight: 600;
 }
 
 QLabel#status-dim {
-    color: #69778d;
+    color: #7386a2;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #161b24;
-    color: #e8edf7;
-    border: 1px solid #2a3342;
-    border-radius: 8px;
-    padding: 8px 18px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #18202c, stop:1 #121923);
+    color: #edf3ff;
+    border: 1px solid #313e52;
+    border-radius: 10px;
+    padding: 9px 18px;
     font-size: 13px;
+    font-weight: 500;
 }
 
 QPushButton:hover {
-    background: #1d2430;
-    border-color: #42526b;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #202a38, stop:1 #171f2b);
+    border-color: #49607d;
 }
 
 QPushButton:pressed {
-    background: #253041;
+    background: #1b2431;
 }
 
 QPushButton:disabled {
-    background: #10141c;
-    color: #556070;
-    border-color: #1b2230;
+    background: #101621;
+    color: #5f6d82;
+    border-color: #202a39;
 }
 
 QPushButton#primary {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #2d66df, stop:1 #4a8cff);
+                                stop:0 #2f6fff, stop:0.55 #3e86ff, stop:1 #5bb7ff);
     color: #ffffff;
     font-weight: 700;
-    border: none;
+    border: 1px solid #4a84ea;
 }
 
 QPushButton#primary:hover {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #3b74eb, stop:1 #5a9aff);
+                                stop:0 #3d7dff, stop:0.55 #4d94ff, stop:1 #69c0ff);
+    border-color: #6aa7ff;
 }
 
 QPushButton#primary:pressed {
-    background: #2556bd;
+    background: #275fcf;
 }
 
 QPushButton#primary:disabled {
-    background: #162a5c;
-    color: #66738b;
+    background: #1a315d;
+    color: #7e8ca3;
+    border-color: #29446f;
 }
 
 QPushButton#danger {
@@ -223,84 +275,96 @@ QPushButton#danger:disabled {
 }
 
 QPushButton#branch-active {
-    background: #162444;
-    color: #6da4f8;
-    border: 1px solid #253d6e;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #13243b, stop:1 #163459);
+    color: #9cc9ff;
+    border: 1px solid #31537f;
     font-weight: 600;
-    border-radius: 6px;
+    border-radius: 10px;
     padding: 10px 22px;
 }
 
 QPushButton#branch-inactive {
-    background: #111111;
-    color: #555555;
-    border: 1px solid #1e1e1e;
-    border-radius: 6px;
+    background: #0f151d;
+    color: #738197;
+    border: 1px solid #222e3d;
+    border-radius: 10px;
     padding: 10px 22px;
 }
 
 QPushButton#branch-inactive:hover {
-    background: #1a1a1a;
-    color: #aaaaaa;
-    border: 1px solid #303030;
+    background: #151d28;
+    color: #d4deef;
+    border: 1px solid #34465d;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #101722, stop:1 #0d141d);
-    border: 1px solid #22304a;
-    border-radius: 12px;
+                                stop:0 #101925, stop:0.58 #0d1824, stop:1 #0b141f);
+    border: 1px solid #243754;
+    border-radius: 14px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
     color: #f5f8ff;
+    letter-spacing: 0.1px;
 }
 
 QLabel#section-heading {
-    font-size: 17px;
+    font-size: 18px;
     font-weight: 700;
     color: #f5f8ff;
-    letter-spacing: 0.2px;
+    letter-spacing: 0.25px;
+}
+
+QLabel#card-summary {
+    color: #eef4ff;
+    font-weight: 600;
+}
+
+QLabel#card-action {
+    color: #7ebcff;
+    font-style: italic;
 }
 
 QLabel#card-copy {
-    color: #9aa4b6;
+    color: #a5b2c7;
     line-height: 1.55;
 }
 
 QFrame#card-accent-ok {
-    background: #0a1a0d;
-    border: 1px solid #1a3b20;
-    border-radius: 10px;
+    background: #0f1f22;
+    border: 1px solid #1f4c4f;
+    border-radius: 12px;
 }
 
 QFrame#card-accent-warn {
-    background: #0d1422;
-    border: 1px solid #1e3358;
-    border-radius: 10px;
+    background: #191722;
+    border: 1px solid #5f4f2d;
+    border-radius: 12px;
 }
 
 QFrame#card-accent-err {
-    background: #170810;
-    border: 1px solid #3e1020;
-    border-radius: 10px;
+    background: #1d1018;
+    border: 1px solid #5b2031;
+    border-radius: 12px;
 }
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #111a28, stop:1 #0d141d);
-    border: 1px solid #294061;
-    border-radius: 12px;
+                                stop:0 #121c2a, stop:1 #0c1520);
+    border: 1px solid #2d4668;
+    border-radius: 14px;
 }
 
 QLabel#stat-label {
     font-size: 11px;
     font-weight: 600;
-    color: #7b8aa5;
+    color: #7f91ae;
     text-transform: uppercase;
     letter-spacing: 1px;
 }
@@ -314,97 +378,103 @@ QLabel#stat-value {
 QLabel#stat-value-ok {
     font-size: 16px;
     font-weight: 700;
-    color: #55d282;
+    color: #5ee6c1;
 }
 
 QLabel#stat-value-warn {
     font-size: 16px;
     font-weight: 700;
-    color: #f0bc5c;
+    color: #ffbf61;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #182131;
+    background: #1a2739;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #060606;
-    color: #c0c0c0;
-    border: 1px solid #1e1e1e;
-    border-radius: 8px;
+    background: #071019;
+    color: #cdd8ea;
+    border: 1px solid #243448;
+    border-radius: 12px;
     font-family: "Noto Mono", "Cascadia Code", "Consolas", monospace;
     font-size: 12px;
     padding: 12px;
-    selection-background-color: #2a2a2a;
+    selection-background-color: #23456f;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #1a1a1a;
+    background: #101824;
     border: none;
-    border-radius: 3px;
-    max-height: 4px;
+    border-radius: 4px;
+    max-height: 6px;
     text-align: center;
     color: transparent;
 }
 
 QProgressBar::chunk {
-    background: #3d70e8;
-    border-radius: 3px;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #3a7bff, stop:1 #58ddb9);
+    border-radius: 4px;
 }
 
 /* ── Scroll bars ─────────────────────────────────────────────────────────── */
 QScrollBar:vertical {
-    background: #080808;
-    width: 8px;
+    background: transparent;
+    width: 12px;
+    margin: 6px 0 6px 0;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background: #252525;
-    border-radius: 4px;
-    min-height: 24px;
+    background: #22354c;
+    border-radius: 6px;
+    min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #363636;
+    background: #315074;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
     height: 0px;
+    background: transparent;
 }
 
 QScrollBar:horizontal {
-    background: #080808;
-    height: 8px;
+    background: transparent;
+    height: 12px;
+    margin: 0 6px 0 6px;
     border: none;
 }
 
 QScrollBar::handle:horizontal {
-    background: #252525;
-    border-radius: 4px;
-    min-width: 24px;
+    background: #22354c;
+    border-radius: 6px;
+    min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #363636;
+    background: #315074;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0px;
+    background: transparent;
 }
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #111111;
-    border: 1px solid #252525;
-    border-radius: 6px;
-    padding: 6px 12px;
-    color: #e0e0e0;
+    background: #0d1621;
+    border: 1px solid #273446;
+    border-radius: 10px;
+    padding: 9px 12px;
+    color: #edf3ff;
+    selection-background-color: #295188;
 }
 
 QLineEdit:focus {
@@ -413,26 +483,26 @@ QLineEdit:focus {
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #d0d0d0;
+    color: #d8e2f3;
     spacing: 8px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #1a1a1a;
-    border: 2px solid #333333;
-    border-radius: 4px;
+    background: #0f1723;
+    border: 1px solid #385274;
+    border-radius: 5px;
 }
 
 QCheckBox::indicator:checked {
-    background: #5b9cf6;
-    border-color: #5b9cf6;
+    background: #367dff;
+    border-color: #5ca2ff;
     image: none;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #5b9cf6;
+    border-color: #5ca2ff;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
@@ -968,6 +1038,52 @@ def _is_flatpak_installed(app_id: str) -> bool:
     return result is not None and result.returncode == 0
 
 
+def _davinci_flatpak_app_id() -> str | None:
+    for app_id in (
+        "com.blackmagic.Resolve",
+        "com.blackmagic.ResolveStudio",
+        "com.blackmagicdesign.resolve",
+    ):
+        if _is_flatpak_installed(app_id):
+            return app_id
+    return None
+
+
+def _davinci_download_dir() -> str:
+    candidate = _command_stdout(["xdg-user-dir", "DOWNLOAD"])
+    if candidate:
+        candidate = os.path.expanduser(candidate)
+        if os.path.isdir(candidate):
+            return candidate
+    return os.path.expanduser("~/Downloads")
+
+
+def _davinci_zip_candidates() -> list[str]:
+    roots: list[str] = []
+    for candidate in (_davinci_download_dir(), os.path.expanduser("~/Downloads")):
+        expanded = os.path.abspath(os.path.expanduser(candidate))
+        if os.path.isdir(expanded) and expanded not in roots:
+            roots.append(expanded)
+
+    patterns = (
+        "DaVinci_Resolve*_Linux.zip",
+        "DaVinci_Resolve_Studio*_Linux.zip",
+        "*DaVinci*Resolve*Linux*.zip",
+    )
+    matches: dict[str, float] = {}
+    for root in roots:
+        for pattern in patterns:
+            for base in (root, os.path.join(root, "*")):
+                for path in glob.glob(os.path.join(base, pattern)):
+                    if os.path.isfile(path):
+                        try:
+                            matches[path] = os.path.getmtime(path)
+                        except OSError:
+                            matches[path] = 0
+
+    return sorted(matches, key=lambda item: (matches[item], item.lower()), reverse=True)
+
+
 def _rclone_available() -> bool:
     return shutil.which("rclone") is not None
 
@@ -1097,7 +1213,7 @@ def _akmod_nvidia_built() -> bool:
 
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
-        return ("#1a2b1f", "#9ece6a", "OK")
+        return ("#0f2a31", "#5ee6c1", "OK")
     if status == "warn":
         return ("#152030", "#e0af68", "Warning")
     if status == "err":
@@ -1468,8 +1584,8 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName(name)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(20, 18, 20, 18)
-    layout.setSpacing(12)
+    layout.setContentsMargins(22, 20, 22, 20)
+    layout.setSpacing(14)
     return card, layout
 
 
@@ -1509,7 +1625,7 @@ class HardwareCard(QFrame):
 
         self._summary = QLabel()
         self._summary.setWordWrap(True)
-        self._summary.setStyleSheet("color: #f0f0f0; font-weight: 600;")
+        self._summary.setObjectName("card-summary")
         layout.addWidget(self._summary)
 
         self._details = QLabel()
@@ -1520,7 +1636,7 @@ class HardwareCard(QFrame):
 
         self._action = QLabel()
         self._action.setWordWrap(True)
-        self._action.setStyleSheet("color: #6da4f8; font-style: italic;")
+        self._action.setObjectName("card-action")
         layout.addWidget(self._action)
 
         self.update_probe(probe)
@@ -1530,10 +1646,12 @@ class HardwareCard(QFrame):
         self._title.setText(probe.title)
         self._summary.setText(probe.summary)
         self._details.setText(probe.details)
+        border = {"ok": "#1f6b63", "warn": "#5a4010", "err": "#6b1f2a"}.get(probe.status, "#2e394c")
         self._badge.setText(f"  {badge_text}  ")
         self._badge.setStyleSheet(
-            f"background: {bg}; color: {fg}; border: 1px solid {fg}33; "
-            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
+            f"background: {bg}; color: {fg}; border: 1px solid {border}; "
+            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700; "
+            f"letter-spacing: 0.2px;"
         )
         if probe.action:
             self._action.setText(probe.action)
@@ -2972,6 +3090,161 @@ class GamingPage(Page):
         )
         self._divider()
 
+        # ── Gaming Tools ──────────────────────────────────────────────────────
+        tools_head = QLabel("Gaming Tools")
+        tools_head.setObjectName("heading")
+        tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(tools_head)
+        tools_sub = QLabel(
+            "Heroic is installed by default alongside Lutris. "
+            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
+            "Other gaming tools can be installed here with one click and are also "
+            "available via the corresponding ujust recipe."
+        )
+        tools_sub.setObjectName("card-copy")
+        tools_sub.setWordWrap(True)
+        self._add(tools_sub)
+
+        self._TOOLS = [
+            {
+                "flatpak": "com.heroicgameslauncher.hgl",
+                "name": "Heroic Games Launcher",
+                "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
+                "ujust": "install-heroic",
+                "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
+            },
+            {
+                "flatpak": "com.usebottles.bottles",
+                "name": "Bottles",
+                "desc": "Best for running standalone Windows .exe and .msi installers in isolated app environments.",
+                "ujust": "install-bottles",
+                "launch": ["flatpak", "run", "com.usebottles.bottles"],
+            },
+            {
+                "flatpak": "org.prismlauncher.PrismLauncher",
+                "name": "Prism Launcher",
+                "desc": "Minecraft launcher with modpacks, multiple instances, and Java version control.",
+                "ujust": "install-prismlauncher",
+                "launch": ["flatpak", "run", "org.prismlauncher.PrismLauncher"],
+            },
+            {
+                "flatpak": "io.itch.itch",
+                "name": "Itch.io",
+                "desc": "Indie game store and library manager.",
+                "ujust": "install-itch",
+                "launch": ["flatpak", "run", "io.itch.itch"],
+            },
+            {
+                "flatpak": "org.libretro.RetroArch",
+                "name": "RetroArch",
+                "desc": "Multi-system emulator frontend (NES, SNES, PS1, N64, …).",
+                "ujust": "install-retroarch",
+                "launch": ["flatpak", "run", "org.libretro.RetroArch"],
+            },
+            {
+                "flatpak": "org.freedesktop.Piper",
+                "name": "Piper",
+                "desc": "GUI for configuring gaming mice — DPI, buttons, and LEDs.",
+                "ujust": "install-piper",
+                "launch": ["flatpak", "run", "org.freedesktop.Piper"],
+            },
+            {
+                "flatpak": "org.openrgb.OpenRGB",
+                "name": "OpenRGB",
+                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals.",
+                "ujust": "install-openrgb",
+                "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
+            },
+        ]
+
+        # Build tiles in a 2-column grid
+        self._tool_refs: list[dict] = []
+        for i in range(0, len(self._TOOLS), 2):
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(16)
+            for tool in self._TOOLS[i:i + 2]:
+                tile, refs = self._make_tool_tile(tool)
+                row_layout.addWidget(tile, 1)
+                self._tool_refs.append(refs)
+            # Pad the last row if odd number of tools
+            if len(self._TOOLS[i:i + 2]) == 1:
+                row_layout.addStretch(1)
+            self._add_layout(row_layout)
+
+        self._divider()
+        launcher_head = QLabel("Launcher setup")
+        launcher_head.setObjectName("card-title")
+        self._add(launcher_head)
+        launcher_sub = QLabel(
+            "Heroic is the recommended default for Epic and GOG. "
+            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
+        )
+        launcher_sub.setObjectName("card-copy")
+        launcher_sub.setWordWrap(True)
+        self._add(launcher_sub)
+
+        launcher_card, launcher_layout = _make_card()
+        launcher_note = QLabel(
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
+            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
+        )
+        launcher_note.setObjectName("card-copy")
+        launcher_note.setWordWrap(True)
+        launcher_layout.addWidget(launcher_note)
+
+        launcher_btns = QHBoxLayout()
+        launcher_btns.setSpacing(8)
+
+        epic_btn = QPushButton("Open Heroic for Epic")
+        epic_btn.setObjectName("primary")
+        epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
+        launcher_btns.addWidget(epic_btn)
+
+        battlenet_btn = QPushButton("Install Battle.net")
+        battlenet_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
+        )
+        launcher_btns.addWidget(battlenet_btn)
+
+        ea_btn = QPushButton("Install EA App")
+        ea_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ea-app-standard", "EA App")
+        )
+        launcher_btns.addWidget(ea_btn)
+
+        ubisoft_btn = QPushButton("Install Ubisoft Connect")
+        ubisoft_btn.clicked.connect(
+            lambda _=False: self._launch_lutris_installer("lutris:ubisoft-connect-latest", "Ubisoft Connect")
+        )
+        launcher_btns.addWidget(ubisoft_btn)
+
+        launcher_btns.addStretch()
+        launcher_layout.addLayout(launcher_btns)
+        self._add(launcher_card)
+
+        # Shared install progress area
+        self._tool_op_status = QLabel()
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.hide()
+        self._add(self._tool_op_status)
+        self._tool_progress = QProgressBar()
+        self._tool_progress.setRange(0, 0)
+        self._tool_progress.hide()
+        self._add(self._tool_progress)
+        self._tool_log_toggle = QPushButton("Show details")
+        self._tool_log_toggle.setCheckable(True)
+        self._tool_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked))
+        self._tool_log_toggle.hide()
+        self._add(self._tool_log_toggle)
+        self._tool_log = QTextEdit()
+        self._tool_log.setReadOnly(True)
+        self._tool_log.setMaximumHeight(120)
+        self._tool_log.hide()
+        self._add(self._tool_log)
+        self._tool_worker = None
+
+        self._divider()
+
         # ── MangoHud ──────────────────────────────────────────────────────────
         mh_card, mh_layout = _make_card()
         mh_top = QHBoxLayout()
@@ -3124,167 +3397,6 @@ class GamingPage(Page):
         vk_layout.addLayout(vk_opts)
         self._add(vk_card)
 
-        # ── Optional gaming tools ─────────────────────────────────────────────
-        self._divider()
-        tools_head = QLabel("Gaming Tools")
-        tools_head.setObjectName("heading")
-        tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
-        self._add(tools_head)
-        tools_sub = QLabel(
-            "Heroic is installed by default alongside Lutris. "
-            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
-            "Other gaming tools can be installed here with one click and are also "
-            "available via the corresponding ujust recipe."
-        )
-        tools_sub.setObjectName("card-copy")
-        tools_sub.setWordWrap(True)
-        self._add(tools_sub)
-
-        self._TOOLS = [
-            {
-                "flatpak": "com.heroicgameslauncher.hgl",
-                "name": "Heroic Games Launcher",
-                "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
-                "ujust": "install-heroic",
-                "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
-            },
-            {
-                "flatpak": "com.usebottles.bottles",
-                "name": "Bottles",
-                "desc": "Best for running standalone Windows `.exe` and `.msi` installers in isolated app environments.",
-                "ujust": "install-bottles",
-                "launch": ["flatpak", "run", "com.usebottles.bottles"],
-            },
-            {
-                "flatpak": "org.prismlauncher.PrismLauncher",
-                "name": "Prism Launcher",
-                "desc": "Minecraft launcher with modpacks, multiple instances, and Java version control.",
-                "ujust": "install-prismlauncher",
-                "launch": ["flatpak", "run", "org.prismlauncher.PrismLauncher"],
-            },
-            {
-                "flatpak": "com.obsproject.Studio",
-                "name": "OBS Studio",
-                "desc": "Screen recording and live streaming.",
-                "ujust": "install-obs",
-                "launch": ["flatpak", "run", "com.obsproject.Studio"],
-            },
-            {
-                "flatpak": "io.itch.itch",
-                "name": "Itch.io",
-                "desc": "Indie game store and library manager.",
-                "ujust": "install-itch",
-                "launch": ["flatpak", "run", "io.itch.itch"],
-            },
-            {
-                "flatpak": "org.libretro.RetroArch",
-                "name": "RetroArch",
-                "desc": "Multi-system emulator frontend (NES, SNES, PS1, N64, …).",
-                "ujust": "install-retroarch",
-                "launch": ["flatpak", "run", "org.libretro.RetroArch"],
-            },
-            {
-                "flatpak": "org.freedesktop.Piper",
-                "name": "Piper",
-                "desc": "GUI for configuring gaming mice — DPI, buttons, and LEDs.",
-                "ujust": "install-piper",
-                "launch": ["flatpak", "run", "org.freedesktop.Piper"],
-            },
-            {
-                "flatpak": "org.openrgb.OpenRGB",
-                "name": "OpenRGB",
-                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals.",
-                "ujust": "install-openrgb",
-                "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
-            },
-        ]
-
-        # Build tiles in a 2-column grid
-        self._tool_refs: list[dict] = []
-        for i in range(0, len(self._TOOLS), 2):
-            row_layout = QHBoxLayout()
-            row_layout.setSpacing(16)
-            for tool in self._TOOLS[i:i + 2]:
-                tile, refs = self._make_tool_tile(tool)
-                row_layout.addWidget(tile, 1)
-                self._tool_refs.append(refs)
-            # Pad the last row if odd number of tools
-            if len(self._TOOLS[i:i + 2]) == 1:
-                row_layout.addStretch(1)
-            self._add_layout(row_layout)
-
-        self._divider()
-        launcher_head = QLabel("Launcher setup")
-        launcher_head.setObjectName("card-title")
-        self._add(launcher_head)
-        launcher_sub = QLabel(
-            "Heroic is the recommended default for Epic and GOG. "
-            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
-        )
-        launcher_sub.setObjectName("card-copy")
-        launcher_sub.setWordWrap(True)
-        self._add(launcher_sub)
-
-        launcher_card, launcher_layout = _make_card()
-        launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
-            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
-        )
-        launcher_note.setObjectName("card-copy")
-        launcher_note.setWordWrap(True)
-        launcher_layout.addWidget(launcher_note)
-
-        launcher_btns = QHBoxLayout()
-        launcher_btns.setSpacing(8)
-
-        epic_btn = QPushButton("Open Heroic for Epic")
-        epic_btn.setObjectName("primary")
-        epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
-        launcher_btns.addWidget(epic_btn)
-
-        battlenet_btn = QPushButton("Install Battle.net")
-        battlenet_btn.clicked.connect(
-            lambda _=False: self._launch_lutris_installer("battlenet", "Battle.net")
-        )
-        launcher_btns.addWidget(battlenet_btn)
-
-        ea_btn = QPushButton("Install EA App")
-        ea_btn.clicked.connect(
-            lambda _=False: self._launch_lutris_installer("lutris:ea-app-standard", "EA App")
-        )
-        launcher_btns.addWidget(ea_btn)
-
-        ubisoft_btn = QPushButton("Install Ubisoft Connect")
-        ubisoft_btn.clicked.connect(
-            lambda _=False: self._launch_lutris_installer("lutris:ubisoft-connect-latest", "Ubisoft Connect")
-        )
-        launcher_btns.addWidget(ubisoft_btn)
-
-        launcher_btns.addStretch()
-        launcher_layout.addLayout(launcher_btns)
-        self._add(launcher_card)
-
-        # Shared install progress area
-        self._tool_op_status = QLabel()
-        self._tool_op_status.setObjectName("subheading")
-        self._tool_op_status.hide()
-        self._add(self._tool_op_status)
-        self._tool_progress = QProgressBar()
-        self._tool_progress.setRange(0, 0)
-        self._tool_progress.hide()
-        self._add(self._tool_progress)
-        self._tool_log_toggle = QPushButton("Show details")
-        self._tool_log_toggle.setCheckable(True)
-        self._tool_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked))
-        self._tool_log_toggle.hide()
-        self._add(self._tool_log_toggle)
-        self._tool_log = QTextEdit()
-        self._tool_log.setReadOnly(True)
-        self._tool_log.setMaximumHeight(120)
-        self._tool_log.hide()
-        self._add(self._tool_log)
-        self._tool_worker = None
-
         # ── Combos quick reference ────────────────────────────────────────────
         self._divider()
         combo_head = QLabel("Combining tools")
@@ -3324,7 +3436,7 @@ class GamingPage(Page):
         top = QHBoxLayout()
         top.setSpacing(8)
         name_lbl = QLabel(tool["name"])
-        name_lbl.setStyleSheet("font-size: 13px; font-weight: 700; color: #f0f0f0;")
+        name_lbl.setObjectName("card-title")
         top.addWidget(name_lbl)
         top.addStretch()
         badge = QLabel()
@@ -3360,22 +3472,12 @@ class GamingPage(Page):
     # ── Status ─────────────────────────────────────────────────────────────────
 
     def _refresh_status(self):
-        def _set_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
-                       warn_text: str = "Not Installed"):
-            color = "#4dbb6f" if ok else "#555555"
-            text = ok_text if ok else warn_text
-            lbl.setText(f"  {text}  ")
-            lbl.setStyleSheet(
-                f"background: {color}22; color: {color}; border: 1px solid {color}44; "
-                f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700;"
-            )
-
-        _set_badge(self._mh_badge, _mangohud_installed())
-        _set_badge(self._gs_badge, _gamescope_installed())
-        _set_badge(self._vk_badge, _vkbasalt_installed())
+        _apply_install_badge(self._mh_badge, _mangohud_installed())
+        _apply_install_badge(self._gs_badge, _gamescope_installed())
+        _apply_install_badge(self._vk_badge, _vkbasalt_installed())
 
         gp_ver = _ge_proton_version()
-        _set_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
+        _apply_install_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
         self._gp_version_lbl.setText(
             f"Installed: {gp_ver}" if gp_ver
             else "GE-Proton not found in compatibilitytools.d"
@@ -3383,7 +3485,7 @@ class GamingPage(Page):
 
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
-            _set_badge(refs["badge"], installed)
+            _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
 
@@ -3541,7 +3643,7 @@ class GamingPage(Page):
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
         self._tool_log.clear()
-        self._tool_log.append(f"→ flatpak install -y flathub {tool['flatpak']}\n")
+        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
         self._tool_log_toggle.show()
         _set_log_panel(self._tool_log_toggle, self._tool_log, False)
         self._tool_progress.show()
@@ -3551,7 +3653,7 @@ class GamingPage(Page):
         _restyle(self._tool_op_status)
 
         self._tool_worker = Worker(
-            ["flatpak", "install", "-y", "flathub", tool["flatpak"]]
+            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
         )
         self._tool_worker.line.connect(lambda ln: (
             self._tool_log.append(ln),
@@ -4602,14 +4704,14 @@ class CloudStoragePage(Page):
     def _install_dropbox(self):
         self._db_install_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ flatpak install -y flathub com.dropbox.Client\n")
+        self._log.append("→ flatpak install -y --user flathub com.dropbox.Client\n")
         self._log.show()
         self._progress.show()
         self._op_status.setText("Installing Dropbox…")
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-        self._worker = Worker(["flatpak", "install", "-y", "flathub", "com.dropbox.Client"])
+        self._worker = Worker(["flatpak", "install", "-y", "--user", "flathub", "com.dropbox.Client"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_dropbox_install_done)
         self._worker.start()
@@ -4636,6 +4738,400 @@ class CloudStoragePage(Page):
     def _on_line(self, text: str):
         self._log.append(text)
         self._log.ensureCursorVisible()
+
+
+# ── Page: Content Creation ───────────────────────────────────────────────────
+class ContentCreationPage(Page):
+    def __init__(self):
+        super().__init__()
+        self._tool_worker = None
+        self._dv_worker = None
+        self._dv_selected_zip: str | None = None
+
+        self._heading("Content Creation")
+        self._subheading(
+            "Recording, streaming, video editing, and audio tools. "
+            "AMD GPU + Mesa-git gives excellent hardware acceleration in DaVinci Resolve."
+        )
+        self._divider()
+
+        # ── Flatpak tools grid ────────────────────────────────────────────────
+        self._TOOLS = [
+            {
+                "flatpak": "com.obsproject.Studio",
+                "name": "OBS Studio",
+                "desc": "Screen recording and live streaming. Virtual cameras, scenes, and plugin support.",
+                "ujust": "install-obs",
+                "launch": ["flatpak", "run", "com.obsproject.Studio"],
+            },
+            {
+                "flatpak": "org.kde.kdenlive",
+                "name": "Kdenlive",
+                "desc": "Open-source non-linear video editor. Multi-track timeline, effects, and transitions.",
+                "launch": ["flatpak", "run", "org.kde.kdenlive"],
+            },
+            {
+                "flatpak": "org.audacityteam.Audacity",
+                "name": "Audacity",
+                "desc": "Multi-track audio editor and recorder. Noise reduction, EQ, compression, and export.",
+                "launch": ["flatpak", "run", "org.audacityteam.Audacity"],
+            },
+            {
+                "flatpak": "org.gimp.GIMP",
+                "name": "GIMP",
+                "desc": "GNU Image Manipulation Program. Photo editing, compositing, and graphic design.",
+                "launch": ["flatpak", "run", "org.gimp.GIMP"],
+            },
+            {
+                "flatpak": "me.amankhanna.opendeck",
+                "name": "OpenDeck",
+                "desc": "Stream Deck controller for Linux. Supports original Elgato plugins via Wine.",
+                "launch": ["flatpak", "run", "me.amankhanna.opendeck"],
+            },
+        ]
+
+        self._tool_refs: list[dict] = []
+        for i in range(0, len(self._TOOLS), 2):
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(16)
+            for tool in self._TOOLS[i:i + 2]:
+                tile, refs = self._make_tool_tile(tool)
+                row_layout.addWidget(tile, 1)
+                self._tool_refs.append(refs)
+            if len(self._TOOLS[i:i + 2]) == 1:
+                row_layout.addStretch(1)
+            self._add_layout(row_layout)
+
+        self._tool_op_status = QLabel()
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.hide()
+        self._add(self._tool_op_status)
+        self._tool_progress = QProgressBar()
+        self._tool_progress.setRange(0, 0)
+        self._tool_progress.hide()
+        self._add(self._tool_progress)
+        self._tool_log_toggle = QPushButton("Show details")
+        self._tool_log_toggle.setCheckable(True)
+        self._tool_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked)
+        )
+        self._tool_log_toggle.hide()
+        self._add(self._tool_log_toggle)
+        self._tool_log = QTextEdit()
+        self._tool_log.setReadOnly(True)
+        self._tool_log.setMaximumHeight(120)
+        self._tool_log.hide()
+        self._add(self._tool_log)
+
+        # ── DaVinci Resolve ───────────────────────────────────────────────────
+        self._divider()
+        dv_section_head = QLabel("DaVinci Resolve")
+        dv_section_head.setObjectName("heading")
+        dv_section_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(dv_section_head)
+        dv_section_sub = QLabel(
+            "Download the Linux ZIP from Blackmagic, then click Install from Download. "
+            "Kyth will auto-detect the ZIP in your Downloads folder or let you pick it manually, "
+            "then package Resolve as a local Flatpak for you."
+        )
+        dv_section_sub.setObjectName("card-copy")
+        dv_section_sub.setWordWrap(True)
+        self._add(dv_section_sub)
+
+        dv_card, dv_layout = _make_card()
+        dv_top = QHBoxLayout()
+        dv_title = QLabel("DaVinci Resolve")
+        dv_title.setObjectName("card-title")
+        dv_top.addWidget(dv_title)
+        dv_top.addStretch()
+        self._dv_badge = QLabel()
+        self._dv_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        dv_top.addWidget(self._dv_badge)
+        dv_layout.addLayout(dv_top)
+        dv_desc = QLabel(
+            "Professional non-linear video editor, color grader, visual effects, and audio "
+            "post-production suite from Blackmagic Design. The free tier is industry-grade."
+        )
+        dv_desc.setObjectName("card-copy")
+        dv_desc.setWordWrap(True)
+        dv_layout.addWidget(dv_desc)
+        dv_btn_row = QHBoxLayout()
+        dv_btn_row.setSpacing(10)
+        dv_dl_btn = QPushButton("Download from Blackmagic")
+        dv_dl_btn.setObjectName("primary")
+        dv_dl_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(
+                QUrl("https://www.blackmagicdesign.com/products/davinciresolve")
+            )
+        )
+        dv_btn_row.addWidget(dv_dl_btn)
+        self._dv_choose_btn = QPushButton("Choose ZIP…")
+        self._dv_choose_btn.clicked.connect(self._pick_davinci_zip)
+        dv_btn_row.addWidget(self._dv_choose_btn)
+        self._dv_install_btn = QPushButton("Install from Download")
+        self._dv_install_btn.setObjectName("primary")
+        self._dv_install_btn.clicked.connect(self._install_davinci)
+        dv_btn_row.addWidget(self._dv_install_btn)
+        self._dv_launch_btn = QPushButton("Launch")
+        self._dv_launch_btn.hide()
+        self._dv_launch_btn.clicked.connect(self._launch_davinci)
+        dv_btn_row.addWidget(self._dv_launch_btn)
+        dv_btn_row.addStretch()
+        dv_layout.addLayout(dv_btn_row)
+        self._dv_zip_hint = QLabel()
+        self._dv_zip_hint.setWordWrap(True)
+        dv_layout.addWidget(self._dv_zip_hint)
+        self._dv_op_status = QLabel()
+        self._dv_op_status.hide()
+        dv_layout.addWidget(self._dv_op_status)
+        self._dv_progress = QProgressBar()
+        self._dv_progress.setRange(0, 0)
+        self._dv_progress.hide()
+        dv_layout.addWidget(self._dv_progress)
+        self._dv_log_toggle = QPushButton("Show details")
+        self._dv_log_toggle.setCheckable(True)
+        self._dv_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._dv_log_toggle, self._dv_log, checked)
+        )
+        self._dv_log_toggle.hide()
+        dv_layout.addWidget(self._dv_log_toggle)
+        self._dv_log = QTextEdit()
+        self._dv_log.setReadOnly(True)
+        self._dv_log.setMaximumHeight(120)
+        self._dv_log.hide()
+        dv_layout.addWidget(self._dv_log)
+        self._add(dv_card)
+
+        self._stretch()
+        self._refresh_status()
+
+    # ── Tool tile ──────────────────────────────────────────────────────────────
+
+    def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
+        card, layout = _make_card()
+        layout.setSpacing(8)
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        name_lbl = QLabel(tool["name"])
+        name_lbl.setObjectName("card-title")
+        top.addWidget(name_lbl)
+        top.addStretch()
+        badge = QLabel()
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        top.addWidget(badge)
+        layout.addLayout(top)
+        desc_lbl = QLabel(tool["desc"])
+        desc_lbl.setObjectName("card-copy")
+        desc_lbl.setWordWrap(True)
+        layout.addWidget(desc_lbl)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        install_btn = QPushButton("Install")
+        install_btn.setObjectName("primary")
+        install_btn.clicked.connect(lambda _=False, t=tool: self._install_tool(t))
+        btn_row.addWidget(install_btn)
+        launch_btn = QPushButton("Launch")
+        launch_btn.hide()
+        launch_btn.clicked.connect(
+            lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
+        )
+        btn_row.addWidget(launch_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+        return card, refs
+
+    # ── Status ─────────────────────────────────────────────────────────────────
+
+    def _refresh_status(self):
+        for refs in self._tool_refs:
+            installed = _is_flatpak_installed(refs["tool"]["flatpak"])
+            _apply_install_badge(refs["badge"], installed)
+            refs["install"].setVisible(not installed)
+            refs["launch"].setVisible(installed)
+
+        dv_installed = _davinci_flatpak_app_id() is not None
+        _apply_install_badge(self._dv_badge, dv_installed)
+        self._dv_install_btn.setVisible(not dv_installed)
+        self._dv_launch_btn.setVisible(dv_installed)
+        self._refresh_davinci_zip_hint()
+
+    # ── Flatpak tool install ───────────────────────────────────────────────────
+
+    def _install_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+        self._dv_install_btn.setEnabled(False)
+        self._tool_log.clear()
+        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_progress.show()
+        self._tool_op_status.setText(f"Installing {tool['name']}…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+        self._tool_worker = Worker(
+            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            self._tool_log.append(ln),
+            self._tool_log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_install_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_install_done(self, code: int, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+        self._dv_install_btn.setEnabled(True)
+        if code == 0:
+            self._tool_op_status.setText(f"{name} installed.")
+            self._tool_op_status.setObjectName("status-ok")
+            self._tool_log.append("\nDone.")
+        else:
+            self._tool_op_status.setText(f"Installation failed (exit {code}).")
+            self._tool_op_status.setObjectName("status-err")
+        _restyle(self._tool_op_status)
+        self._refresh_status()
+
+    # ── DaVinci Resolve install ────────────────────────────────────────────────
+
+    def _pick_davinci_zip(self):
+        start_dir = self._dv_selected_zip or _davinci_download_dir()
+        if os.path.isfile(start_dir):
+            start_dir = os.path.dirname(start_dir)
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select DaVinci Resolve Linux ZIP",
+            start_dir,
+            "ZIP archives (*.zip);;All Files (*)",
+        )
+        if not path:
+            return
+        self._dv_selected_zip = path
+        self._refresh_davinci_zip_hint()
+
+    def _refresh_davinci_zip_hint(self):
+        selected = self._dv_selected_zip
+        if selected and os.path.isfile(selected):
+            self._dv_zip_hint.setText(f"Selected ZIP: {selected}")
+            self._dv_zip_hint.setObjectName("status-ok")
+            _restyle(self._dv_zip_hint)
+            return
+
+        self._dv_selected_zip = None
+        candidates = _davinci_zip_candidates()
+        if candidates:
+            self._dv_zip_hint.setText(f"Auto-detected ZIP: {candidates[0]}")
+            self._dv_zip_hint.setObjectName("status-dim")
+        else:
+            self._dv_zip_hint.setText(
+                f"No DaVinci ZIP found yet. Download it to {_davinci_download_dir()} or click Choose ZIP…"
+            )
+            self._dv_zip_hint.setObjectName("status-warn")
+        _restyle(self._dv_zip_hint)
+
+    def _launch_davinci(self):
+        app_id = _davinci_flatpak_app_id()
+        if not app_id:
+            QMessageBox.warning(self, "DaVinci Resolve", "DaVinci Resolve is not installed yet.")
+            return
+        subprocess.Popen(["flatpak", "run", app_id])
+
+    def _install_davinci(self):
+        if self._dv_worker and self._dv_worker.isRunning():
+            return
+
+        if not shutil.which("flatpak-builder"):
+            self._dv_log.clear()
+            self._dv_log.append("Missing required tool: flatpak-builder\n")
+            self._dv_log.append("Update KythOS to the latest image, then try again.\n")
+            self._dv_log_toggle.show()
+            _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+            self._dv_op_status.setText(
+                "DaVinci installer tools are missing. Please run a system update first."
+            )
+            self._dv_op_status.setObjectName("status-warn")
+            self._dv_op_status.show()
+            _restyle(self._dv_op_status)
+            return
+
+        zip_path = self._dv_selected_zip if self._dv_selected_zip and os.path.isfile(self._dv_selected_zip) else ""
+        if not zip_path:
+            candidates = _davinci_zip_candidates()
+            zip_path = candidates[0] if candidates else ""
+        if not zip_path:
+            self._dv_log.clear()
+            self._dv_log.append("No DaVinci Resolve Linux ZIP was found.\n")
+            self._dv_log.append(
+                f"Download the ZIP from Blackmagic to {_davinci_download_dir()} or click Choose ZIP… and retry.\n"
+            )
+            self._dv_log_toggle.show()
+            _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+            self._dv_op_status.setText("Download the Linux ZIP first, or choose it manually.")
+            self._dv_op_status.setObjectName("status-warn")
+            self._dv_op_status.show()
+            _restyle(self._dv_op_status)
+            QMessageBox.warning(
+                self,
+                "DaVinci Resolve",
+                "I couldn't find the downloaded Linux ZIP automatically.\n\n"
+                "Download it from Blackmagic first, or click “Choose ZIP…” and select it manually.",
+            )
+            return
+
+        self._dv_selected_zip = zip_path
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+        self._dv_install_btn.setEnabled(False)
+        self._dv_choose_btn.setEnabled(False)
+        self._dv_log.clear()
+        self._dv_log.append(f"→ /usr/bin/kyth-davinci-install {zip_path}\n")
+        self._dv_log.append(
+            "Kyth will repackage the official Blackmagic download as a user Flatpak. "
+            "The first build can take a few minutes.\n"
+        )
+        self._dv_log_toggle.show()
+        _set_log_panel(self._dv_log_toggle, self._dv_log, False)
+        self._dv_progress.show()
+        self._dv_op_status.setText("Building and installing DaVinci Resolve…")
+        self._dv_op_status.setObjectName("subheading")
+        self._dv_op_status.show()
+        _restyle(self._dv_op_status)
+        self._dv_worker = Worker(["/usr/bin/kyth-davinci-install", zip_path])
+        self._dv_worker.line.connect(lambda ln: (
+            self._dv_log.append(ln),
+            self._dv_log.ensureCursorVisible(),
+        ))
+        self._dv_worker.done.connect(self._on_davinci_install_done)
+        self._dv_worker.start()
+
+    def _on_davinci_install_done(self, code: int):
+        self._dv_progress.hide()
+        _finish_worker(self, attr="_dv_worker")
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+        self._dv_install_btn.setEnabled(True)
+        self._dv_choose_btn.setEnabled(True)
+        installed = _davinci_flatpak_app_id() is not None
+        if code == 0 and installed:
+            self._dv_op_status.setText("DaVinci Resolve installed. Launch it from here or the app menu.")
+            self._dv_op_status.setObjectName("status-ok")
+            self._dv_log.append("\nDone.")
+        else:
+            self._dv_op_status.setText(
+                f"Installation failed (exit {code}). Check the details below — a fresh ZIP or system update may be needed."
+            )
+            self._dv_op_status.setObjectName("status-err")
+        _restyle(self._dv_op_status)
+        self._refresh_status()
 
 
 # ── Page: Software ────────────────────────────────────────────────────────────
@@ -4816,6 +5312,7 @@ class MainWindow(QMainWindow):
             ("Firmware", "Firmware", FirmwarePage),
             ("Software", "Software", SoftwarePage),
             ("Gaming", "Gaming", GamingPage),
+            ("Content Creation", "Content Creation", ContentCreationPage),
         ]
         if _detect_nvidia():
             page_specs.append(("NVIDIA Drivers", "NVIDIA", NvidiaPage))
@@ -5190,6 +5687,7 @@ class WizardWindow(QMainWindow):
 def main():
     _remove_autostart()
     _wait_for_display_setup()
+    _prefer_xwayland_if_wayland_plugin_missing()
 
     app = QApplication(sys.argv)
     app.setApplicationName("kyth-welcome")

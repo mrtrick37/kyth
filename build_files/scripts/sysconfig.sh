@@ -390,6 +390,11 @@ sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
+# plasmalogin is KDE 6.6's new login service (ships enabled in Kinoite 44).
+# It conflicts with SDDM and crashes on first boot in VMs (no hardware GL for
+# its login renderer). SDDM is the display manager in use — mask plasmalogin.
+systemctl mask plasmalogin.service
+
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
 # On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
