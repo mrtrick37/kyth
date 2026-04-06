@@ -113,36 +113,6 @@ cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 name=breeze-dark
 PLASMAEOF
 
-# Suppress plasma-welcome system-wide (covers liveuser on the live ISO and all
-# installed users). The skel entries below are belt-and-suspenders fallbacks for
-# per-user config that would otherwise override this system-wide setting.
-# KDE 6.4+ plasma-welcome checks two independent keys:
-#   ShowWelcomeWizard=false  — disables the OOBE setup wizard (hostname/timezone/etc.)
-#   Last Shown Version=99.0  — marks the "what's new" screen as already seen
-# Both are required to fully silence plasma-welcome across all KDE 6.x versions.
-mkdir -p /etc/xdg
-cat > /etc/xdg/plasma-welcomerc <<'WELCOMERCEOF'
-[General]
-ShowWelcomeWizard=false
-Last Shown Version=99.0
-WELCOMERCEOF
-
-mkdir -p /etc/skel/.config
-cat > /etc/skel/.config/plasma-welcomerc <<'WELCOMERCEOF'
-[General]
-ShowWelcomeWizard=false
-Last Shown Version=99.0
-WELCOMERCEOF
-
-# Belt-and-suspenders: autostart overrides so plasma-welcome is hidden even if
-# it bypasses the config check (e.g. on KDE version bumps or config resets).
-# Both filename variants are used across different KDE 6.x releases.
-mkdir -p /etc/skel/.config/autostart
-printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
-    > /etc/skel/.config/autostart/plasma-welcome.desktop
-printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
-    > /etc/skel/.config/autostart/org.kde.plasma.welcome.desktop
-
 # ── Kickoff favorites ─────────────────────────────────────────────────────────
 # Pre-populate the Kickoff launcher favorites for new users.
 # Discord is listed here even though it installs via kyth-default-flatpaks.service

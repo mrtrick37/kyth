@@ -204,6 +204,9 @@ dnf5 install -y --skip-unavailable \
     radeontop \
     libclc
 
+# Remove plasma-welcome — plasma-login handles first-boot setup instead.
+dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
+
 # Brave Browser — replaces Firefox
 dnf5 remove -y firefox || true
 # On ostree/bootc-style roots, /opt is often a symlink to /var/opt.
