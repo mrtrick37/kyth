@@ -67,6 +67,8 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 # metadata overhead before the gaming repos are enabled. gamescope stays here
 # so it still comes from Fedora rather than the later Bazzite COPR.
 dnf5 install -y --skip-unavailable \
+    sddm \
+    sddm-breeze \
     irqbalance \
     p7zip \
     p7zip-plugins \
@@ -203,6 +205,11 @@ dnf5 install -y --skip-unavailable \
     xorg-x11-drv-intel \
     radeontop \
     libclc
+
+# Ensure SDDM is the active display manager. Kinoite 44 ships plasmalogin
+# instead; sysconfig.sh masks it. Enable SDDM here after the install above.
+systemctl enable sddm.service 2>/dev/null || true
+systemctl set-default graphical.target 2>/dev/null || true
 
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
