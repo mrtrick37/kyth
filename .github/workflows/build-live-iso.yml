@@ -1,5 +1,5 @@
 name: Build Live ISO
-run-name: "Build Live ISO"
+run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || github.event.workflow_run.head_branch }}"
 
 on:
   workflow_run:
