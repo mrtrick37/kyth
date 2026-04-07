@@ -3643,18 +3643,26 @@ class GamingPage(Page):
             return
 
         if not shutil.which("umu-run"):
-            self._tool_op_status.setText("umu-run not found — run: ujust install-umu")
-            self._tool_op_status.setObjectName("status-err")
+            if self._tool_worker and self._tool_worker.isRunning():
+                return
+            self._tool_log.clear()
+            self._tool_log.append("→ ujust install-umu\n")
+            self._tool_log_toggle.show()
+            _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+            self._tool_progress.show()
+            self._tool_op_status.setText("umu-launcher not found — installing automatically…")
+            self._tool_op_status.setObjectName("subheading")
             self._tool_op_status.show()
             _restyle(self._tool_op_status)
-            QMessageBox.warning(
-                self,
-                "umu-launcher not found",
-                "Lutris requires umu-launcher to use Proton for Windows game installers.\n\n"
-                "Fix it by running this in a terminal:\n\n"
-                "    ujust install-umu\n\n"
-                "Then try again."
+            self._tool_worker = Worker(["ujust", "install-umu"])
+            self._tool_worker.line.connect(lambda ln: (
+                self._tool_log.append(ln),
+                self._tool_log.ensureCursorVisible(),
+            ))
+            self._tool_worker.done.connect(
+                lambda code, t=target, n=name: self._on_umu_install_done(code, t, n)
             )
+            self._tool_worker.start()
             return
 
         self._tool_log.clear()
@@ -3684,6 +3692,17 @@ class GamingPage(Page):
             self._tool_op_status.setObjectName("status-err")
             _restyle(self._tool_op_status)
             QMessageBox.warning(self, f"{name} installer", str(exc))
+
+    def _on_umu_install_done(self, code: int, target: str, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code != 0:
+            self._tool_op_status.setText("umu-launcher installation failed.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            return
+        self._tool_log.append("\numu-launcher installed. Proceeding with installer…")
+        self._launch_lutris_installer(target, name)
 
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
