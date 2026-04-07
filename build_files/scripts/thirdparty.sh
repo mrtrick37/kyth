@@ -54,6 +54,50 @@ head -1 /tmp/winetricks | grep -q '^#!' || { echo "winetricks download looks inv
 install -m 0755 /tmp/winetricks /usr/local/bin/winetricks
 rm -f /tmp/winetricks
 
+# ── umu-launcher ─────────────────────────────────────────────────────────────
+# Not in bazzite COPR for Fedora 44 — install from GitHub releases.
+# Provides umu-run, which Lutris uses to launch Battle.net, EA App, and
+# other installers via Proton.
+UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest"
+TMPDIR_UMU=$(mktemp -d)
+release_json="${TMPDIR_UMU}/release.json"
+if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    UMU_URL=$(
+        grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
+        | grep -i 'x86.64\|x86_64\|amd64' \
+        | grep -iv 'source' \
+        | head -n1
+    ) || true
+    if [[ -n "${UMU_URL}" ]]; then
+        UMU_TARBALL=$(basename "${UMU_URL}")
+        echo "umu-launcher: downloading ${UMU_TARBALL}"
+        curl -fsSL "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
+        tar -xf "${TMPDIR_UMU}/${UMU_TARBALL}" -C "${TMPDIR_UMU}/"
+        # Install umu-run binary
+        UMU_BIN=$(find "${TMPDIR_UMU}" -name 'umu-run' -type f | head -n1)
+        if [[ -n "${UMU_BIN}" ]]; then
+            install -m 0755 "${UMU_BIN}" /usr/bin/umu-run
+            # Install any bundled Python package files (umu/ directory)
+            UMU_PKGDIR=$(find "${TMPDIR_UMU}" -maxdepth 3 -name 'umu' -type d | grep -v '__pycache__' | head -n1)
+            if [[ -n "${UMU_PKGDIR}" ]]; then
+                PY_SITEPKG=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+                mkdir -p "${PY_SITEPKG}"
+                cp -r "${UMU_PKGDIR}" "${PY_SITEPKG}/"
+            fi
+            echo "umu-launcher: installed $(umu-run --version 2>/dev/null || echo 'unknown version')"
+        else
+            echo "umu-launcher: umu-run binary not found in archive; trying setup.sh"
+            SETUP=$(find "${TMPDIR_UMU}" -name 'setup.sh' | head -n1)
+            [[ -n "${SETUP}" ]] && bash "${SETUP}" || echo "umu-launcher: no setup.sh either; skipping."
+        fi
+    else
+        echo "umu-launcher: no x86_64 tarball found in release assets; skipping."
+    fi
+else
+    echo "umu-launcher: failed to fetch release info from GitHub; skipping."
+fi
+rm -rf "${TMPDIR_UMU}"
+
 # ── LatencyFleX ──────────────────────────────────────────────────────────────
 # Frame-pacing / latency-flexibility layer for Wine/Proton. Games that implement
 # the LatencyFleX API (via GE-Proton or natively) can report their ideal frame
