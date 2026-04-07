@@ -3463,10 +3463,17 @@ class GamingPage(Page):
             lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
         )
         btn_row.addWidget(launch_btn)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.hide()
+        uninstall_btn.clicked.connect(
+            lambda _=False, t=tool: self._uninstall_tool(t)
+        )
+        btn_row.addWidget(uninstall_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn, "uninstall": uninstall_btn}
         return card, refs
 
     # ── Status ─────────────────────────────────────────────────────────────────
@@ -3488,6 +3495,7 @@ class GamingPage(Page):
             _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
+            refs["uninstall"].setVisible(installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
 
@@ -3639,9 +3647,10 @@ class GamingPage(Page):
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
             return
-        # Disable all install buttons while one is running
+        # Disable all install/uninstall buttons while one is running
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
         self._tool_log.clear()
         self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
         self._tool_log_toggle.show()
@@ -3677,6 +3686,57 @@ class GamingPage(Page):
         _restyle(self._tool_op_status)
         for refs in self._tool_refs:
             refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
+        self._refresh_status()
+
+    def _uninstall_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        reply = QMessageBox.question(
+            self, f"Uninstall {tool['name']}",
+            f"Remove {tool['name']}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
+        self._tool_log.clear()
+        self._tool_log.append(f"→ flatpak uninstall -y --user {tool['flatpak']}\n")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_progress.show()
+        self._tool_op_status.setText(f"Uninstalling {tool['name']}…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+        self._tool_worker = Worker(
+            ["flatpak", "uninstall", "-y", "--user", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            self._tool_log.append(ln),
+            self._tool_log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_uninstall_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_uninstall_done(self, code: int, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code == 0:
+            self._tool_op_status.setText(f"{name} uninstalled.")
+            self._tool_op_status.setObjectName("status-ok")
+            self._tool_log.append("\nDone.")
+        else:
+            self._tool_op_status.setText(f"Uninstall failed (exit {code}).")
+            self._tool_op_status.setObjectName("status-err")
+        _restyle(self._tool_op_status)
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
         self._refresh_status()
 
     # ── GE-Proton update ───────────────────────────────────────────────────────
@@ -4936,9 +4996,16 @@ class ContentCreationPage(Page):
             lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
         )
         btn_row.addWidget(launch_btn)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.hide()
+        uninstall_btn.clicked.connect(
+            lambda _=False, t=tool: self._uninstall_tool(t)
+        )
+        btn_row.addWidget(uninstall_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
-        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn, "uninstall": uninstall_btn}
         return card, refs
 
     # ── Status ─────────────────────────────────────────────────────────────────
@@ -4949,6 +5016,7 @@ class ContentCreationPage(Page):
             _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
+            refs["uninstall"].setVisible(installed)
 
         dv_installed = _davinci_flatpak_app_id() is not None
         _apply_install_badge(self._dv_badge, dv_installed)
@@ -4963,6 +5031,7 @@ class ContentCreationPage(Page):
             return
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
         self._dv_install_btn.setEnabled(False)
         self._tool_log.clear()
         self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
@@ -4990,6 +5059,7 @@ class ContentCreationPage(Page):
         _finish_worker(self, attr="_tool_worker")
         for refs in self._tool_refs:
             refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
         self._dv_install_btn.setEnabled(True)
         if code == 0:
             self._tool_op_status.setText(f"{name} installed.")
@@ -4999,6 +5069,58 @@ class ContentCreationPage(Page):
             self._tool_op_status.setText(f"Installation failed (exit {code}).")
             self._tool_op_status.setObjectName("status-err")
         _restyle(self._tool_op_status)
+        self._refresh_status()
+
+    def _uninstall_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        reply = QMessageBox.question(
+            self, f"Uninstall {tool['name']}",
+            f"Remove {tool['name']}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
+        self._dv_install_btn.setEnabled(False)
+        self._tool_log.clear()
+        self._tool_log.append(f"→ flatpak uninstall -y --user {tool['flatpak']}\n")
+        self._tool_log_toggle.show()
+        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+        self._tool_progress.show()
+        self._tool_op_status.setText(f"Uninstalling {tool['name']}…")
+        self._tool_op_status.setObjectName("subheading")
+        self._tool_op_status.show()
+        _restyle(self._tool_op_status)
+        self._tool_worker = Worker(
+            ["flatpak", "uninstall", "-y", "--user", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            self._tool_log.append(ln),
+            self._tool_log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_uninstall_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_uninstall_done(self, code: int, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code == 0:
+            self._tool_op_status.setText(f"{name} uninstalled.")
+            self._tool_op_status.setObjectName("status-ok")
+            self._tool_log.append("\nDone.")
+        else:
+            self._tool_op_status.setText(f"Uninstall failed (exit {code}).")
+            self._tool_op_status.setObjectName("status-err")
+        _restyle(self._tool_op_status)
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
+        self._dv_install_btn.setEnabled(True)
         self._refresh_status()
 
     # ── DaVinci Resolve install ────────────────────────────────────────────────
