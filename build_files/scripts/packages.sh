@@ -99,12 +99,16 @@ dnf5 copr enable -y ycollet/audinux
 # negativo17 Steam repo — --overwrite for idempotency (CI caches base layers)
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
+# umu-launcher is a hard requirement: Lutris uses umu-run to launch Battle.net
+# and other installers via Proton. Install separately so the build fails loudly
+# if the bazzite COPR doesn't provide it, rather than silently skipping it.
+dnf5 install -y umu-launcher
+
 # Gaming packages
 # libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
 # 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope-shaders \
-    umu-launcher \
     mangohud.x86_64 \
     mangohud.i686 \
     vkBasalt.x86_64 \
@@ -136,6 +140,9 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     kdeplasma-addons \
     rom-properties-kf6 \
     input-remapper
+
+# Verify umu-run is present so Lutris can use it for Proton-based installers
+command -v umu-run >/dev/null 2>&1 || { echo "ERROR: umu-run not found after install — Lutris Battle.net will not work" >&2; exit 1; }
 
 is_enabled() {
     case "${1,,}" in
