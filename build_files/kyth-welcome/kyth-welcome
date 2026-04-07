@@ -3642,6 +3642,21 @@ class GamingPage(Page):
             )
             return
 
+        if not shutil.which("umu-run"):
+            self._tool_op_status.setText("umu-run not found — run: ujust install-umu")
+            self._tool_op_status.setObjectName("status-err")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            QMessageBox.warning(
+                self,
+                "umu-launcher not found",
+                "Lutris requires umu-launcher to use Proton for Windows game installers.\n\n"
+                "Fix it by running this in a terminal:\n\n"
+                "    ujust install-umu\n\n"
+                "Then try again."
+            )
+            return
+
         self._tool_log.clear()
         if target == "epic-games-store" and not self._prepare_epic_lutris_install():
             return

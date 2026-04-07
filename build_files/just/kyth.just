@@ -344,6 +344,45 @@ install-heroic:
     echo
     echo "Heroic installed. Launch it from the app menu."
 
+# Install or reinstall umu-launcher (umu-run) from the latest GitHub release.
+# Run this if Lutris says "Install umu to use Proton".
+[group('KythOS')]
+install-umu:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest"
+    TMPDIR_UMU=$(mktemp -d)
+    trap 'rm -rf "${TMPDIR_UMU}"' EXIT
+    release_json="${TMPDIR_UMU}/release.json"
+    echo "Fetching latest umu-launcher release info…"
+    curl -fsSL "${UMU_REPO_API}" -o "${release_json}"
+    UMU_URL=$(
+        grep -oP 'https://[^"]+/releases/download/[^"]+\.tar\.(gz|zst)' "${release_json}" \
+        | grep -iv 'source\|src' \
+        | head -n1
+    ) || true
+    if [[ -z "${UMU_URL}" ]]; then
+        echo "Could not find a release tarball. Check https://github.com/Open-Wine-Components/umu-launcher/releases" >&2
+        exit 1
+    fi
+    UMU_TARBALL=$(basename "${UMU_URL}")
+    echo "Downloading ${UMU_TARBALL}…"
+    curl -fsSL "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
+    tar -xf "${TMPDIR_UMU}/${UMU_TARBALL}" -C "${TMPDIR_UMU}/"
+    UMU_BIN=$(find "${TMPDIR_UMU}" -name 'umu-run' -type f | head -n1)
+    if [[ -z "${UMU_BIN}" ]]; then
+        echo "umu-run binary not found in archive." >&2
+        exit 1
+    fi
+    sudo install -m 0755 "${UMU_BIN}" /usr/local/bin/umu-run
+    UMU_PKGDIR=$(find "${TMPDIR_UMU}" -maxdepth 3 -name 'umu' -type d | grep -v '__pycache__' | head -n1)
+    if [[ -n "${UMU_PKGDIR}" ]]; then
+        PY_SITEPKG=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
+        sudo mkdir -p "${PY_SITEPKG}"
+        sudo cp -r "${UMU_PKGDIR}" "${PY_SITEPKG}/"
+    fi
+    echo "umu-launcher installed: $(umu-run --version 2>/dev/null || echo 'ok')"
+
 # Open the Lutris one-click installer for Battle.net.
 [group('KythOS')]
 install-battlenet:

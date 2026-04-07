@@ -62,10 +62,12 @@ UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/rel
 TMPDIR_UMU=$(mktemp -d)
 release_json="${TMPDIR_UMU}/release.json"
 if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    # Match release assets (path contains /releases/download/) — arch suffix not
+    # required because umu-launcher tarballs (e.g. umu-launcher-1.1.4.tar.gz)
+    # carry no x86_64 indicator in the filename.
     UMU_URL=$(
-        grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
-        | grep -i 'x86.64\|x86_64\|amd64' \
-        | grep -iv 'source' \
+        grep -oP 'https://[^"]+/releases/download/[^"]+\.tar\.(gz|zst)' "${release_json}" \
+        | grep -iv 'source\|src' \
         | head -n1
     ) || true
     if [[ -n "${UMU_URL}" ]]; then
