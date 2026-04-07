@@ -67,6 +67,8 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 # metadata overhead before the gaming repos are enabled. gamescope stays here
 # so it still comes from Fedora rather than the later Bazzite COPR.
 dnf5 install -y --skip-unavailable \
+    sddm \
+    sddm-breeze \
     irqbalance \
     p7zip \
     p7zip-plugins \
@@ -384,3 +386,13 @@ dnf5 install -y \
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
 dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
+
+# Wire up SDDM and graphical boot via explicit symlinks.
+# systemctl enable/set-default are unreliable inside a container build (no
+# running systemd bus) and silently no-op when they fail.  Direct symlinks are
+# the only guaranteed approach; this matches what Universal Blue and other
+# bootc-based distros do.
+ln -sf /usr/lib/systemd/system/sddm.service \
+    /etc/systemd/system/display-manager.service
+ln -sf /usr/lib/systemd/system/graphical.target \
+    /etc/systemd/system/default.target
