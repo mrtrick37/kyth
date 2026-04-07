@@ -81,9 +81,12 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # Set kernel args for the installed system via bootc kargs.d.
 # quiet: suppress kernel log spam on the console.
 # splash: activate Plymouth so the boot splash is shown.
+# iommu=pt: Intel VT-d passthrough mode — prevents strict IOMMU isolation from
+#   breaking DRM/KMS on Intel vPro and similar enterprise hardware where VT-d is
+#   enabled by default. Transparent/no-op on AMD systems.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "mitigations=off", "threadirqs"]
+kargs = ["quiet", "splash", "mitigations=off", "threadirqs", "iommu=pt"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

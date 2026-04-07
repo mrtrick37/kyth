@@ -394,6 +394,28 @@ systemctl mask systemd-remount-fs.service
 # It conflicts with SDDM and crashes on first boot in VMs (no hardware GL for
 # its login renderer). SDDM is the display manager in use — mask plasmalogin.
 systemctl mask plasmalogin.service
+# Re-enforce display-manager and default target symlinks here (layer 4).
+# The dnf5 upgrade in layer 2 can re-apply systemd presets and reset the
+# display-manager alias.  Use explicit symlinks — systemctl enable is a
+# no-op in a container build (no running systemd bus, silently swallowed
+# by 2>/dev/null || true).
+ln -sf /usr/lib/systemd/system/sddm.service \
+    /etc/systemd/system/display-manager.service
+ln -sf /usr/lib/systemd/system/graphical.target \
+    /etc/systemd/system/default.target
+
+# SDDM greeter software-rendering fallback — mirrors the live ISO's drop-in.
+# SDDM renders its own QML greeter with Mesa; on certain hardware (Intel vPro
+# with VT-d, VMs without virgl) the GL context creation fails and SDDM crashes
+# before showing the login screen.  QT_QUICK_BACKEND=software makes SDDM itself
+# render via llvmpipe, which works on all hardware.  This does NOT affect KWin
+# or the KDE session — those inherit neither this service env var nor software
+# rendering, so gaming performance is completely unaffected.
+mkdir -p /etc/systemd/system/sddm.service.d
+cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF'
+[Service]
+Environment="QT_QUICK_BACKEND=software"
+SDDMDROPINEOF
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
