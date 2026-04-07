@@ -1687,6 +1687,12 @@ class StatTile(QFrame):
 
 
 # ── Page base ─────────────────────────────────────────────────────────────────
+class _NoAutoScrollArea(QScrollArea):
+    """QScrollArea that does not jump to newly visible/focused child widgets."""
+    def ensureWidgetVisible(self, widget, xmargin=50, ymargin=50):
+        pass  # suppress automatic scroll-to-child on show/focus
+
+
 class Page(QWidget):
     """Base page — provides a scrollable content area with consistent padding."""
     def __init__(self):
@@ -1697,7 +1703,7 @@ class Page(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        scroll = QScrollArea()
+        scroll = _NoAutoScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
