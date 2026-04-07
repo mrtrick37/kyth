@@ -1,4 +1,13 @@
 {
     "claudeCode.initialPermissionMode": "default",
-    "claudeCode.preferredLocation": "sidebar"
+    "claudeCode.preferredLocation": "sidebar",
+    "python.testing.unittestArgs": [
+        "-v",
+        "-s",
+        "./build_files",
+        "-p",
+        "*test.py"
+    ],
+    "python.testing.pytestEnabled": false,
+    "python.testing.unittestEnabled": true
 }
