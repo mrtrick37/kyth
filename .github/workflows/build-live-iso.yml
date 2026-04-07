@@ -94,7 +94,7 @@ jobs:
             | tar -xz -C /usr/local/bin crane
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
-          crane flatten "${IMAGE}"
+          crane flatten --http1 "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
