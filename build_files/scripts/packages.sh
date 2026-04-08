@@ -74,6 +74,7 @@ dnf5 install -y --skip-unavailable \
     p7zip-plugins \
     ntfs-3g \
     ntfsprogs \
+    cifs-utils \
     rsync \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
