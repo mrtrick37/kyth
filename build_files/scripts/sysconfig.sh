@@ -444,7 +444,7 @@ EPPEOF
 install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # KythOS: wheel group may run safe update/firmware commands without a password.
 %wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
-%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch ghcr.io/mrtrick37/kyth\:*
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
