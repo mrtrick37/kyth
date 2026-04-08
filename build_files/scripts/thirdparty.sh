@@ -29,14 +29,19 @@ verify_release_asset() {
 
     local checksum_url="" algo=""
 
-    # 1. Look for a per-file sidecar: <tarball>.sha256 or <tarball>.sha512
-    for ext in sha256 sha512 SHA256 SHA512; do
+    # 1. Look for a per-file sidecar: <tarball>.sha256, .sha512, .sha256sum, .sha512sum
+    # sha256sum/sha512sum extensions cover Winetricks-style naming.
+    for ext in sha256 sha512 sha256sum sha512sum SHA256 SHA512; do
         local candidate
         candidate=$(grep -oP "https://[^\"]+" "${release_json}" \
             | grep -F "${tarball_name}.${ext}" | head -n1 || true)
         if [[ -n "${candidate}" ]]; then
             checksum_url="${candidate}"
-            algo="${ext,,}"
+            # Normalise: sha256sum/SHA256 → sha256; sha512sum/SHA512 → sha512
+            case "${ext,,}" in
+                *512*) algo="sha512" ;;
+                *)     algo="sha256" ;;
+            esac
             break
         fi
     done
@@ -140,22 +145,38 @@ else
 fi
 rm -rf "${TMPDIR_TG}"
 
-# Download winetricks from upstream (package version is often outdated)
-# Pin to the signed release commit so the build does not trust a mutable ref
-# for an executable shell script.
-# /usr/local symlinks to /var/usrlocal — ensure the target dir exists
-WINETRICKS_VER="20260125"
-# Full commit SHA — never use a short prefix (collision-susceptible)
-WINETRICKS_COMMIT="b76e1ee79ac57d7aceb384f74518fc423265810c"
+# Download winetricks from the latest upstream release and verify integrity.
+# Always fetches the current latest release from GitHub — no version pin to bump.
+# Winetricks publishes a .sha256sum sidecar for every release asset.
 # /usr/local is a symlink to /var/usrlocal on ostree/bootc roots; mkdir -p
 # won't traverse a symlink, so resolve it first.
+WINETRICKS_REPO_API="https://api.github.com/repos/Winetricks/winetricks/releases/latest"
+TMPDIR_WTX=$(mktemp -d)
+release_json="${TMPDIR_WTX}/release.json"
 mkdir -p "$(realpath -m /usr/local)/bin"
-curl -fsSL "https://raw.githubusercontent.com/Winetricks/winetricks/${WINETRICKS_COMMIT}/src/winetricks" \
-    -o /tmp/winetricks
-# Sanity-check: must be a shell script before installing
-head -1 /tmp/winetricks | grep -q '^#!' || { echo "winetricks download looks invalid"; exit 1; }
-install -m 0755 /tmp/winetricks /usr/local/bin/winetricks
-rm -f /tmp/winetricks
+if curl -fsSL "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    WTX_SCRIPT_URL=$(
+        grep -oP 'https://[^"]+' "${release_json}" \
+        | grep '/releases/download/' \
+        | grep -v '\.sha256sum\|\.asc\|\.sig\|source' \
+        | grep 'winetricks$' | head -n1 || true
+    )
+    if [[ -n "${WTX_SCRIPT_URL}" ]]; then
+        curl -fsSL "${WTX_SCRIPT_URL}" -o "${TMPDIR_WTX}/winetricks"
+        verify_release_asset "${release_json}" "${TMPDIR_WTX}/winetricks" \
+            "winetricks" "${TMPDIR_WTX}"
+        # Extra sanity: must still be a shell script after hash verification
+        head -1 "${TMPDIR_WTX}/winetricks" | grep -q '^#!' \
+            || { echo "ERROR: winetricks does not look like a shell script after hash verification"; exit 1; }
+        install -m 0755 "${TMPDIR_WTX}/winetricks" /usr/local/bin/winetricks
+        echo "winetricks installed: $(winetricks --version 2>/dev/null || echo 'unknown version')"
+    else
+        echo "winetricks: no release asset found in GitHub response; skipping."
+    fi
+else
+    echo "winetricks: failed to fetch release info from GitHub; skipping."
+fi
+rm -rf "${TMPDIR_WTX}"
 
 # ── umu-launcher ─────────────────────────────────────────────────────────────
 # Not in bazzite COPR for Fedora 44 — install from GitHub releases.
@@ -345,9 +366,17 @@ fi
 # brew via sudo (which brew refuses). Wheel group gets write access so any wheel
 # user can install/update formulae without privilege escalation.
 #
-# Pinned to a release tag so the thirdparty layer hash stays stable between daily
-# CI builds. Bump HOMEBREW_TAG when you want to ship a newer Homebrew version.
-HOMEBREW_TAG="5.1.1"
+# Resolved live from the GitHub releases API so every build gets the current
+# latest Homebrew without a version pin to manually maintain.
+HOMEBREW_TAG=$(
+    curl -fsSL "https://api.github.com/repos/Homebrew/brew/releases/latest" 2>/dev/null \
+    | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1 || echo ""
+)
+if [[ -z "${HOMEBREW_TAG}" ]]; then
+    echo "ERROR: Could not determine latest Homebrew release tag" >&2
+    exit 1
+fi
+echo "Homebrew: installing latest release ${HOMEBREW_TAG}"
 LINUXBREW_HOME="/var/home/linuxbrew"
 # Use /var/home explicitly on ostree/bootc roots; /home may be a symlink that
 # some useradd implementations attempt to re-create and fail on.
