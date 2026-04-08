@@ -13,6 +13,7 @@ Install pipeline:
 
 import sys
 import os
+import re
 
 import glob
 import json
@@ -1015,13 +1016,21 @@ class Handler(BaseHTTPRequestHandler):
             if timezone not in set(list_timezones()):
                 self.send_error(400, "Invalid timezone")
                 return
+            username = body.get("username", "")
+            if not re.fullmatch(r"[a-z_][a-z0-9_-]{0,30}", username):
+                self.send_error(400, "Invalid username")
+                return
+            hostname = body.get("hostname", "kyth")
+            if not re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?", hostname):
+                self.send_error(400, "Invalid hostname")
+                return
             _state.update({
                 "disk":         body.get("disk", ""),
                 "disk_model":   body.get("disk_model", ""),
                 "disk_size":    body.get("disk_size", ""),
-                "hostname":     body.get("hostname", "kyth"),
+                "hostname":     hostname,
                 "timezone":     timezone,
-                "username":     body.get("username", ""),
+                "username":     username,
                 "password":     body.get("password", ""),
                 "install_mode": body.get("install_mode", "erase"),
             })
