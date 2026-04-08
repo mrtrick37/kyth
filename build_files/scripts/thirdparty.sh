@@ -123,7 +123,7 @@ if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
         TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
         curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
         verify_release_asset "${release_json}" "${TMPDIR_TG}/${TOPGRADE_TARBALL}" \
-            "${TOPGRADE_TARBALL}" "${TMPDIR_TG}" || true
+            "${TOPGRADE_TARBALL}" "${TMPDIR_TG}"
         tar -xf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
         find "${TMPDIR_TG}" -name 'topgrade' -type f \
             -exec install -m 0755 {} /usr/bin/topgrade \;
@@ -174,7 +174,7 @@ if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
         echo "umu-launcher: downloading ${UMU_TARBALL}"
         curl -fsSL "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
         verify_release_asset "${release_json}" "${TMPDIR_UMU}/${UMU_TARBALL}" \
-            "${UMU_TARBALL}" "${TMPDIR_UMU}" || true
+            "${UMU_TARBALL}" "${TMPDIR_UMU}"
         tar -xf "${TMPDIR_UMU}/${UMU_TARBALL}" -C "${TMPDIR_UMU}/"
         # Install umu-run binary
         UMU_BIN=$(find "${TMPDIR_UMU}" -name 'umu-run' -type f | head -n1)
@@ -221,7 +221,7 @@ if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
         echo "latencyflex: downloading ${LFX_TARBALL}"
         curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
         verify_release_asset "${release_json}" "${TMPDIR_LFX}/${LFX_TARBALL}" \
-            "${LFX_TARBALL}" "${TMPDIR_LFX}" || true
+            "${LFX_TARBALL}" "${TMPDIR_LFX}"
         tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
 
         LFX_SO=$(find "${TMPDIR_LFX}" -name 'liblatencyflex_layer.so' | head -n1)
@@ -274,7 +274,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
             echo "scx: downloading ${SCX_TARBALL}"
             curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
             verify_release_asset "${release_json}" "${TMPDIR_SCX}/${SCX_TARBALL}" \
-                "${SCX_TARBALL}" "${TMPDIR_SCX}" || true
+                "${SCX_TARBALL}" "${TMPDIR_SCX}"
             tar -xf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
             # Install scx_* scheduler binaries and scxd

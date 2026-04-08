@@ -1,0 +1,27 @@
+#!/bin/bash
+set -euo pipefail
+
+# kyth-rclone-update
+# Install/update pinned rclone release into /usr/local/bin with SHA256 verification.
+# /usr/local is writable on bootc systems and suitable for mutable admin tools.
+
+RCLONE_VERSION="${RCLONE_VERSION:-v1.66.0}"
+RCLONE_BASENAME="rclone-${RCLONE_VERSION}-linux-amd64"
+RCLONE_ZIP="${RCLONE_BASENAME}.zip"
+RCLONE_BASE="https://downloads.rclone.org/${RCLONE_VERSION}"
+
+TMPDIR_RCLONE=$(mktemp -d)
+trap 'rm -rf "${TMPDIR_RCLONE}"' EXIT
+
+cd "${TMPDIR_RCLONE}"
+echo "rclone: downloading ${RCLONE_ZIP}"
+curl -fsSL "${RCLONE_BASE}/${RCLONE_ZIP}" -o "${RCLONE_ZIP}"
+curl -fsSL "${RCLONE_BASE}/SHA256SUMS" -o SHA256SUMS
+
+# Verify only the pinned archive line.
+grep -F "  ${RCLONE_ZIP}" SHA256SUMS > SHA256SUMS.rclone
+sha256sum -c SHA256SUMS.rclone
+
+unzip -o "${RCLONE_ZIP}" "${RCLONE_BASENAME}/rclone"
+install -m 0755 "${RCLONE_BASENAME}/rclone" /usr/local/bin/rclone
+echo "rclone installed: $(/usr/local/bin/rclone --version | head -n1)"

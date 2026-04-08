@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -1230,22 +1231,27 @@ def _build_add_share_script(share: dict, mount_now: bool) -> str:
         "WantedBy=multi-user.target",
     ])
     unit_b64 = _b64.b64encode(unit.encode()).decode()
+    creds_dir_q = shlex.quote(_SMB_CREDS_DIR)
+    cred_file_q = shlex.quote(cred_file)
+    mount_pt_q = shlex.quote(mount_pt)
+    unit_path_q = shlex.quote(f"/etc/systemd/system/{unit_name}")
+    unit_name_q = shlex.quote(unit_name)
 
     lines = [
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        f"mkdir -p {_SMB_CREDS_DIR}",
-        f"chmod 700 {_SMB_CREDS_DIR}",
-        f"echo '{creds_b64}' | base64 -d > {cred_file}",
-        f"chmod 600 {cred_file}",
-        f"mkdir -p {mount_pt}",
-        f"echo '{unit_b64}' | base64 -d > /etc/systemd/system/{unit_name}",
+        f"mkdir -p {creds_dir_q}",
+        f"chmod 700 {creds_dir_q}",
+        f"echo '{creds_b64}' | base64 -d > {cred_file_q}",
+        f"chmod 600 {cred_file_q}",
+        f"mkdir -p {mount_pt_q}",
+        f"echo '{unit_b64}' | base64 -d > {unit_path_q}",
         "systemctl daemon-reload",
     ]
     if auto_mount:
-        lines.append(f"systemctl enable {unit_name}")
+        lines.append(f"systemctl enable {unit_name_q}")
     if mount_now:
-        lines.append(f"systemctl start {unit_name} || true")
+        lines.append(f"systemctl start {unit_name_q} || true")
 
     return "\n".join(lines)
 
@@ -1255,15 +1261,18 @@ def _build_remove_share_script(share: dict) -> str:
     mount_pt  = share["mount_point"]
     unit_name = _systemd_escape_mount_path(mount_pt)
     cred_file = f"{_SMB_CREDS_DIR}/{name}"
+    unit_name_q = shlex.quote(unit_name)
+    unit_path_q = shlex.quote(f"/etc/systemd/system/{unit_name}")
+    cred_file_q = shlex.quote(cred_file)
 
     return "\n".join([
         "#!/usr/bin/env bash",
         "set -euo pipefail",
-        f"systemctl stop {unit_name} 2>/dev/null || true",
-        f"systemctl disable {unit_name} 2>/dev/null || true",
-        f"rm -f /etc/systemd/system/{unit_name}",
+        f"systemctl stop {unit_name_q} 2>/dev/null || true",
+        f"systemctl disable {unit_name_q} 2>/dev/null || true",
+        f"rm -f {unit_path_q}",
         "systemctl daemon-reload",
-        f"rm -f {cred_file}",
+        f"rm -f {cred_file_q}",
     ])
 
 
@@ -5640,24 +5649,14 @@ class CloudStoragePage(Page):
     def _install_rclone(self):
         self._gd_install_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ Downloading rclone binary from rclone.org…\n")
+        self._log.append("→ Running /usr/bin/kyth-rclone-update (pinned + verified)…\n")
         self._log.show()
         self._progress.show()
         self._op_status.setText("Installing rclone…")
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-        # Download the current rclone binary directly — no rpm-ostree, no reboot needed.
-        # Installs to /usr/local/bin which is a writable overlay on bootc systems.
-        install_cmd = (
-            "set -euo pipefail && "
-            "cd /tmp && "
-            "curl -fsSL 'https://downloads.rclone.org/rclone-current-linux-amd64.zip' -o rclone-dl.zip && "
-            "unzip -o rclone-dl.zip 'rclone-*-linux-amd64/rclone' && "
-            "install -m 755 rclone-*-linux-amd64/rclone /usr/local/bin/rclone && "
-            "rm -rf rclone-dl.zip rclone-*-linux-amd64"
-        )
-        self._worker = Worker(["sudo", "-A", "bash", "-c", install_cmd])
+        self._worker = Worker(["sudo", "-A", "/usr/bin/kyth-rclone-update"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_rclone_install_done)
         self._worker.start()

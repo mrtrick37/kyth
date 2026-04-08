@@ -5,18 +5,21 @@
 #   • distrobox disabled (distrobox-upgrade fails without a PTY)
 #   • containers disabled (podman container updates fail on bootc)
 #   • bootc upgrade used as the system update command (with sudo -n)
+#   • pinned mutable tools refreshed via a custom command (rclone)
 #
 # v1 → v2: added distrobox to disable list and sudo -n to the custom command.
 # v2 → v3: rpm_ostree renamed to system in topgrade v17; added containers.
+# v3 → v4: added custom command for kyth-rclone-update.
 #
 # Run once at boot via kyth-topgrade-migrate.service; state is tracked in
-# /var/lib/kyth/migrations/topgrade-v3.done so it never runs again.
+# /var/lib/kyth/migrations/topgrade-v4.done so it never runs again.
 
 import os
+import re
 import sys
 
 STATE_DIR = "/var/lib/kyth/migrations"
-STATE_FILE = os.path.join(STATE_DIR, "topgrade-v3.done")
+STATE_FILE = os.path.join(STATE_DIR, "topgrade-v4.done")
 
 SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 
@@ -32,6 +35,7 @@ disable = ["system", "distrobox", "containers"]
 [commands]
 # -n makes sudo fail fast if NOPASSWD isn't working, rather than hanging.
 "KythOS system update" = "sudo -n bootc upgrade"
+"KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 """
 
 
@@ -51,7 +55,26 @@ def needs_patch(path):
         or '"distrobox"' not in content
         or '"containers"' not in content
         or "sudo -n bootc upgrade" not in content
+        or "sudo -n /usr/bin/kyth-rclone-update" not in content
     )
+
+def _ensure_topgrade_command(content: str, command_line: str) -> tuple[str, bool]:
+    """Ensure command_line exists in [commands], creating the table if needed."""
+    if command_line in content:
+        return content, False
+
+    m = re.search(r"^\[commands\]\s*$", content, re.MULTILINE)
+    if m:
+        body_start = m.end()
+        nxt = re.search(r"^\[", content[body_start:], re.MULTILINE)
+        insert_at = body_start + (nxt.start() if nxt else len(content[body_start:]))
+        prefix = "" if content[insert_at - 1:insert_at] == "\n" else "\n"
+        new_content = content[:insert_at] + f"{prefix}{command_line}\n" + content[insert_at:]
+        return new_content, True
+
+    sep = "" if content.endswith("\n") else "\n"
+    new_content = content + f"{sep}\n[commands]\n{command_line}\n"
+    return new_content, True
 
 
 def patch_config(path):
@@ -76,7 +99,6 @@ def patch_config(path):
 
     # v1/v2 config: containers missing — append it to the disable list.
     if '"containers"' not in content and '"distrobox"' in content:
-        import re
         content = re.sub(
             r'(disable\s*=\s*\[)([^\]]+)(\])',
             lambda m: m.group(1) + m.group(2).rstrip() + ', "containers"' + m.group(3),
@@ -95,6 +117,18 @@ def patch_config(path):
             f.write(TOPGRADE_DISABLE_BLOCK)
         log(f"  appended KythOS config block to {path}")
         return
+
+    content, cmd_changed = _ensure_topgrade_command(
+        content,
+        '"KythOS system update" = "sudo -n bootc upgrade"',
+    )
+    changed = changed or cmd_changed
+
+    content, cmd_changed = _ensure_topgrade_command(
+        content,
+        '"KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"',
+    )
+    changed = changed or cmd_changed
 
     if changed:
         with open(path, "w") as f:
