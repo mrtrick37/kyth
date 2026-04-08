@@ -2,10 +2,22 @@
 set -euo pipefail
 
 # kyth-rclone-update
-# Install/update pinned rclone release into /usr/local/bin with SHA256 verification.
+# Install/update latest rclone release into /usr/local/bin with SHA256 verification.
 # /usr/local is writable on bootc systems and suitable for mutable admin tools.
 
-RCLONE_VERSION="${RCLONE_VERSION:-v1.66.0}"
+# Resolve the latest release tag live unless explicitly overridden.
+RCLONE_VERSION="${RCLONE_VERSION:-}"
+if [[ -z "${RCLONE_VERSION}" ]]; then
+	RCLONE_VERSION=$(
+		curl -fsSL "https://api.github.com/repos/rclone/rclone/releases/latest" 2>/dev/null \
+		| grep -oP '"tag_name":\s*"\K[^"]+' | head -n1 || echo ""
+	)
+fi
+if [[ -z "${RCLONE_VERSION}" ]]; then
+	echo "ERROR: Could not determine latest rclone release tag" >&2
+	exit 1
+fi
+
 RCLONE_BASENAME="rclone-${RCLONE_VERSION}-linux-amd64"
 RCLONE_ZIP="${RCLONE_BASENAME}.zip"
 RCLONE_BASE="https://downloads.rclone.org/${RCLONE_VERSION}"
