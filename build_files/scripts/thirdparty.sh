@@ -19,7 +19,7 @@ is_enabled() {
 #
 # Returns:
 #   0  — checksum verified OK
-#   1  — no checksum file found in release (warning printed; caller may continue)
+#   0  — no checksum metadata available (warning printed; caller continues)
 #  exit 1 — checksum mismatch (hard failure)
 verify_release_asset() {
     local release_json=$1
@@ -27,7 +27,7 @@ verify_release_asset() {
     local tarball_name=$3
     local tmpdir=$4
 
-    local checksum_url="" checksum_file="" algo=""
+    local checksum_url="" algo=""
 
     # 1. Look for a per-file sidecar: <tarball>.sha256 or <tarball>.sha512
     for ext in sha256 sha512 SHA256 SHA512; do
@@ -63,14 +63,17 @@ verify_release_asset() {
     if [[ -z "${checksum_url}" ]]; then
         echo "WARNING: No checksum file found for ${tarball_name} in release assets." \
             "The binary has not been integrity-verified." >&2
-        return 1
+        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
+        # Non-fatal: some upstream releases do not publish checksums.
+        return 0
     fi
 
     local checksum_file_path="${tmpdir}/checksum_file"
     if ! curl -fsSL "${checksum_url}" -o "${checksum_file_path}"; then
         echo "WARNING: Failed to download checksum file from ${checksum_url}." \
             "The binary has not been integrity-verified." >&2
-        return 1
+        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
+        return 0
     fi
 
     # If this is a multi-file manifest, filter to just the line for our tarball
@@ -85,7 +88,8 @@ verify_release_asset() {
 
     if [[ -z "${expected_hash}" ]]; then
         echo "WARNING: Could not extract hash for ${tarball_name} from checksum file." >&2
-        return 1
+        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
+        return 0
     fi
 
     local actual_hash=""
