@@ -214,9 +214,7 @@ if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
             fi
             echo "umu-launcher: installed $(umu-run --version 2>/dev/null || echo 'unknown version')"
         else
-            echo "umu-launcher: umu-run binary not found in archive; trying setup.sh"
-            SETUP=$(find "${TMPDIR_UMU}" -name 'setup.sh' | head -n1)
-            [[ -n "${SETUP}" ]] && bash "${SETUP}" || echo "umu-launcher: no setup.sh either; skipping."
+            echo "umu-launcher: umu-run binary not found at expected path in archive; skipping." >&2
         fi
     else
         echo "umu-launcher: no x86_64 tarball found in release assets; skipping."

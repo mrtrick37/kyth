@@ -101,7 +101,7 @@ jobs:
           tar -xz -C /usr/local/bin crane -f "/tmp/${CRANE_TARBALL}"
           rm -f "/tmp/${CRANE_TARBALL}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
           crane flatten --http1 "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
