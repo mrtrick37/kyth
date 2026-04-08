@@ -1860,7 +1860,9 @@ class Page(QWidget):
         scroll.setWidget(container)
 
         self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(60, 48, 60, 52)
+        # Right padding is 60 + 12 to account for the 12 px vertical scrollbar
+        # that overlaps content when the page is taller than the viewport.
+        self._layout.setContentsMargins(60, 48, 72, 52)
         self._layout.setSpacing(26)
 
     def _add(self, widget: QWidget) -> QWidget:
@@ -2373,10 +2375,11 @@ class UpdatePage(Page):
             row.setSpacing(12)
             key = QLabel(label_text)
             key.setObjectName("card-copy")
-            key.setStyleSheet("color: #888888; min-width: 72px;")
+            key.setStyleSheet("color: #b0bccf; min-width: 72px;")
             row.addWidget(key)
             val = QLabel()
             val.setObjectName("card-copy")
+            val.setStyleSheet("color: #dde6f5;")
             val.setWordWrap(False)
             row.addWidget(val, 1)
             return row, val
@@ -2390,7 +2393,7 @@ class UpdatePage(Page):
         digest_row.setSpacing(12)
         digest_key = QLabel("Digest:")
         digest_key.setObjectName("card-copy")
-        digest_key.setStyleSheet("color: #888888; min-width: 72px;")
+        digest_key.setStyleSheet("color: #b0bccf; min-width: 72px;")
         digest_row.addWidget(digest_key)
         self._digest_val = QLabel()
         self._digest_val.setObjectName("card-copy")
