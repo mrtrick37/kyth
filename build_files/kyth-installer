@@ -16,6 +16,7 @@ import os
 
 import glob
 import json
+import secrets
 import subprocess
 import threading
 import time
@@ -31,6 +32,7 @@ SOURCE_IMAGE = os.environ.get("KYTH_SOURCE_IMAGE", "ghcr.io/mrtrick37/kyth:lates
 TARGET_IMAGE = os.environ.get("KYTH_TARGET_IMAGE", SOURCE_IMAGE)
 LOG_FILE = Path(os.environ.get("KYTH_INSTALLER_LOG", "/tmp/kyth-installer.log"))
 PORT = 7777
+SESSION_TOKEN = secrets.token_urlsafe(32)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -904,7 +906,50 @@ class Handler(BaseHTTPRequestHandler):
 
     # CORS header for local dev convenience
     def _cors(self) -> None:
-        self.send_header("Access-Control-Allow-Origin", "*")
+        # Intentionally omit Access-Control-Allow-Origin so cross-origin websites
+        # cannot read installer API responses.
+        return
+
+    def _require_session_token(self) -> bool:
+        token = self.headers.get("X-Kyth-Session-Token", "")
+        if token != SESSION_TOKEN:
+            self.send_error(403, "Forbidden")
+            return False
+        return True
+
+    @staticmethod
+    def _is_trusted_local_url(value: str) -> bool:
+        try:
+            parsed = urlparse(value)
+        except Exception:
+            return False
+        if parsed.scheme != "http":
+            return False
+        if parsed.hostname not in ("127.0.0.1", "localhost"):
+            return False
+        return parsed.port == PORT
+
+    def _require_same_origin_context(self) -> bool:
+        host = (self.headers.get("Host", "") or "").strip().lower()
+        if host not in (f"127.0.0.1:{PORT}", f"localhost:{PORT}"):
+            self.send_error(403, "Forbidden")
+            return False
+
+        origin = (self.headers.get("Origin", "") or "").strip()
+        referer = (self.headers.get("Referer", "") or "").strip()
+        if origin:
+            if not self._is_trusted_local_url(origin):
+                self.send_error(403, "Forbidden")
+                return False
+            return True
+        if referer:
+            if not self._is_trusted_local_url(referer):
+                self.send_error(403, "Forbidden")
+                return False
+            return True
+
+        self.send_error(403, "Forbidden")
+        return False
 
     def do_GET(self) -> None:
         path = urlparse(self.path).path
@@ -914,6 +959,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({
                 "source_image": SOURCE_IMAGE,
                 "target_image": TARGET_IMAGE,
+                "session_token": SESSION_TOKEN,
             })
         elif path == "/api/disks":
             self._json(list_disks())
@@ -944,9 +990,19 @@ class Handler(BaseHTTPRequestHandler):
             self.send_error(404)
 
     def do_POST(self) -> None:
+        if not self._require_same_origin_context():
+            return
+        if not self._require_session_token():
+            return
         path = urlparse(self.path).path
-        length = int(self.headers.get("Content-Length", 0))
-        body = json.loads(self.rfile.read(length)) if length else {}
+        body = {}
+        if path == "/api/start":
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                body = json.loads(self.rfile.read(length)) if length else {}
+            except json.JSONDecodeError:
+                self.send_error(400, "Invalid JSON body")
+                return
 
         if path == "/api/start":
             _state.update({
@@ -1811,8 +1867,19 @@ const S = {
   installMode: 'erase',   // 'erase' | 'alongside'
   alongsideInfo: null,    // { largest, disk_bytes, can_resize }
 };
+let SESSION_TOKEN = '';
 
 const STEP_ORDER = ['welcome','network','disk','config','review','install'];
+
+function apiFetch(url, opts = {}) {
+  const next = {...opts};
+  // POST APIs are gated server-side by Host + Origin/Referer + X-Kyth-Session-Token.
+  next.credentials = 'same-origin';
+  const headers = new Headers(next.headers || {});
+  if (SESSION_TOKEN) headers.set('X-Kyth-Session-Token', SESSION_TOKEN);
+  next.headers = headers;
+  return fetch(url, next);
+}
 
 // ── Navigation ─────────────────────────────────────────────────────────────
 function goto(name) {
@@ -1991,7 +2058,8 @@ function confirmDisk() {
 }
 
 function launchGparted() {
-  fetch('/api/gparted', {method: 'POST'}).catch(() => {});
+  if (!SESSION_TOKEN) return;
+  apiFetch('/api/gparted', {method: 'POST'}).catch(() => {});
 }
 
 // ── Config ────────────────────────────────────────────────────────────────
@@ -2064,6 +2132,10 @@ function buildReview() {
 // ── Install ───────────────────────────────────────────────────────────────
 function startInstall() {
   if (!S.disk) { alert('No disk selected.'); return; }
+  if (!SESSION_TOKEN) {
+    alert('Installer session is not ready yet. Please wait a moment and try again.');
+    return;
+  }
   goto('install');
 
   const body = {
@@ -2077,7 +2149,7 @@ function startInstall() {
     install_mode: S.installMode,
   };
 
-  fetch('/api/start', {
+  apiFetch('/api/start', {
     method: 'POST',
     headers: {'Content-Type': 'application/json'},
     body: JSON.stringify(body),
@@ -2184,7 +2256,8 @@ function listenSSE() {
 }
 
 function reboot() {
-  fetch('/api/reboot', {method:'POST'});
+  if (!SESSION_TOKEN) return;
+  apiFetch('/api/reboot', {method:'POST'});
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
@@ -2198,6 +2271,7 @@ function setStatus(id, type, msg) {
 // ── Init ──────────────────────────────────────────────────────────────────
 fetch('/api/config').then(r => r.json()).then(c => {
   S.sourceImage = c.source_image;
+  SESSION_TOKEN = c.session_token || '';
 }).catch(() => {});
 
 updateSidebar('welcome');

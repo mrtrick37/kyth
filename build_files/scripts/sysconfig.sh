@@ -448,6 +448,7 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-rclone-update
 SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
