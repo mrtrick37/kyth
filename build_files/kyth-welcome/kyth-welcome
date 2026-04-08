@@ -2682,7 +2682,8 @@ class UpdatePage(Page):
             self._details_toggle.setText("Show bootc status")
 
     def _refresh_summary(self):
-        branch = _branch_display_name(_current_branch())
+        tag = _current_branch()
+        branch = _branch_display_name(tag)
         booted_ts = _bootc_image_timestamp("booted")
         booted_digest = _bootc_image_digest("booted")
 
