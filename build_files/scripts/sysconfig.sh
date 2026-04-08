@@ -32,7 +32,8 @@ vm.watermark_boost_factor = 0
 # in cache longer (default 100; 50 = half as eager to evict)
 vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
-vm.max_map_count = 2147483642
+# 16M is still very high for gaming workloads while avoiding near-INT_MAX values.
+vm.max_map_count = 16777216
 
 # Writeback timing — flush dirty pages after 5 s instead of the kernel default
 # 30 s. Paired with the absolute dirty_bytes limits above this keeps write bursts
@@ -133,6 +134,81 @@ cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
 zram-size = min(ram / 2, 8192)
 compression-algorithm = zstd
 ZRAMEOF
+
+# ── Container image signature verification ──────────────────────────────────
+# Policy enforces that only Cosign-signed images can be pulled/used.
+# This allows any signed bootc ecosystem image (Kyth, Bazzite, Aurora, etc.)
+# while rejecting unsigned images. Users can seamlessly switch to other
+# signed bootc systems and switch back.
+#
+# The policy uses the public Sigstore infrastructure (Fulcio + Rekor),
+# which is what CI uses to sign with Cosign. Fulcio and Rekor public keys
+# are well-known and publicly distributed by the Sigstore project.
+mkdir -p /etc/containers
+cat > /etc/containers/policy.json <<'POLICYEOF'
+{
+  "default": [
+    {
+      "type": "reject"
+    }
+  ],
+  "transports": {
+    "docker": {
+      "": [
+        {
+          "type": "sigstoreSigned",
+          "fulcio": {
+            "caPath": "/etc/containers/policy.d/fulcio_v1.crt.pem",
+            "oidcIssuer": "https://github.com/login/oauth",
+            "subjectEmail": "*"
+          },
+          "rekorPublicKeyPath": "/etc/containers/policy.d/rekor.pub",
+          "signedIdentity": {
+            "type": "matchRepository"
+          }
+        }
+      ]
+    },
+    "containers-storage": [
+      {
+        "type": "insecureAcceptAnything"
+      }
+    ]
+  }
+}
+POLICYEOF
+
+# Fetch Sigstore public keys via cosign's embedded TUF root of trust.
+# cosign initialize downloads the TUF metadata and verifies it against the
+# root trust anchors compiled into the cosign binary — much safer than
+# fetching raw files from GitHub with no verification chain.
+mkdir -p /etc/containers/policy.d
+_cosign_installed=0
+if ! command -v cosign &>/dev/null; then
+    dnf5 install -y --setopt=install_weak_deps=False cosign
+    _cosign_installed=1
+fi
+cosign initialize
+TUF_TARGETS="/root/.sigstore/root/targets"
+if [[ -f "${TUF_TARGETS}/fulcio_v1.crt.pem" ]]; then
+    install -m 0644 "${TUF_TARGETS}/fulcio_v1.crt.pem" /etc/containers/policy.d/fulcio_v1.crt.pem
+    echo "Fulcio CA certificate installed from TUF-verified cache."
+else
+    echo "ERROR: Fulcio CA cert not found in TUF cache after cosign initialize" >&2
+    exit 1
+fi
+if [[ -f "${TUF_TARGETS}/rekor.pub" ]]; then
+    install -m 0644 "${TUF_TARGETS}/rekor.pub" /etc/containers/policy.d/rekor.pub
+    echo "Rekor public key installed from TUF-verified cache."
+else
+    echo "ERROR: Rekor public key not found in TUF cache after cosign initialize" >&2
+    exit 1
+fi
+# Clean up cosign and TUF cache — keys are now in /etc/containers/policy.d/
+rm -rf /root/.sigstore
+if [[ "${_cosign_installed}" == "1" ]]; then
+    dnf5 remove -y cosign
+fi
 
 # ── gamemode configuration ────────────────────────────────────────────────────
 # Applied when a game calls gamemoderun or uses the gamemode SDL hook.
