@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
@@ -62,7 +62,7 @@ jobs:
         run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3.10.0
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
 
       - name: Build and push live container directly to GHCR
         # BuildKit has no 128-layer limit and --push streams finished layers
@@ -90,8 +90,16 @@ jobs:
         # and pushes the result back to the same tag, so Job 2 can pull cleanly.
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
-          curl -sSfL "https://github.com/google/go-containerregistry/releases/download/v0.20.6/go-containerregistry_Linux_x86_64.tar.gz" \
-            | tar -xz -C /usr/local/bin crane
+          # crane v0.20.6 — pinned with SHA256 checksum.
+          # To update: bump the version in the URL and update CRANE_SHA256.
+          CRANE_SHA256="c1d593d01551f2c9a3df5ca0a0be4385a839bd9b86d4a76e18d7b17d16559127"
+          CRANE_TARBALL="go-containerregistry_Linux_x86_64.tar.gz"
+          curl -sSfL \
+            "https://github.com/google/go-containerregistry/releases/download/v0.20.6/${CRANE_TARBALL}" \
+            -o "/tmp/${CRANE_TARBALL}"
+          echo "${CRANE_SHA256}  /tmp/${CRANE_TARBALL}" | sha256sum --check --strict
+          tar -xz -C /usr/local/bin crane -f "/tmp/${CRANE_TARBALL}"
+          rm -f "/tmp/${CRANE_TARBALL}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           crane auth login ghcr.io -u "${{ github.actor }}" -p "${{ secrets.GITHUB_TOKEN }}"
           crane flatten --http1 "${IMAGE}"
@@ -116,7 +124,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v4.2.2
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
@@ -136,8 +144,18 @@ jobs:
           sudo apt-get install -y \
             xorriso squashfs-tools mtools dosfstools git \
             grub-common grub-pc-bin grub-efi-amd64-bin
-          curl --proto '=https' --tlsv1.2 -sSf https://just.systems/install.sh \
-            | sudo bash -s -- --to /usr/local/bin
+          # Install just from a pinned release with checksum verification.
+          # To update: bump JUST_VER and JUST_SHA256 together.
+          JUST_VER="1.49.0"
+          JUST_SHA256="05eb2f068b641b06e5b318796c2e27d4dcca608e65b34329a08c1b9f582611bd"
+          JUST_TARBALL="just-${JUST_VER}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL \
+            "https://github.com/casey/just/releases/download/${JUST_VER}/${JUST_TARBALL}" \
+            -o "/tmp/${JUST_TARBALL}"
+          echo "${JUST_SHA256}  /tmp/${JUST_TARBALL}" | sha256sum --check --strict
+          tar -xf "/tmp/${JUST_TARBALL}" -C /tmp just
+          sudo install -m 0755 /tmp/just /usr/local/bin/just
+          rm -f "/tmp/${JUST_TARBALL}" /tmp/just
           sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
           sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
 
@@ -202,7 +220,7 @@ jobs:
           wait $BUILD_PID
 
       - name: Upload ISO artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kyth-live-iso-${{ matrix.source_tag }}
           path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso

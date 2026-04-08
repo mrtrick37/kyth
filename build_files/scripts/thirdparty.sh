@@ -9,6 +9,102 @@ is_enabled() {
     esac
 }
 
+# verify_release_asset RELEASE_JSON TARBALL_PATH TARBALL_NAME TMPDIR
+#
+# Looks for a checksum file in the GitHub release JSON that corresponds to
+# TARBALL_NAME, downloads it, and verifies TARBALL_PATH against it.
+# Supports common patterns:
+#   - <tarball>.sha256 / <tarball>.sha512 (per-file sidecar)
+#   - SHA256SUMS / SHA512SUMS / checksums.txt (multi-file manifest)
+#
+# Returns:
+#   0  — checksum verified OK
+#   1  — no checksum file found in release (warning printed; caller may continue)
+#  exit 1 — checksum mismatch (hard failure)
+verify_release_asset() {
+    local release_json=$1
+    local tarball_path=$2
+    local tarball_name=$3
+    local tmpdir=$4
+
+    local checksum_url="" checksum_file="" algo=""
+
+    # 1. Look for a per-file sidecar: <tarball>.sha256 or <tarball>.sha512
+    for ext in sha256 sha512 SHA256 SHA512; do
+        local candidate
+        candidate=$(grep -oP "https://[^\"]+" "${release_json}" \
+            | grep -F "${tarball_name}.${ext}" | head -n1 || true)
+        if [[ -n "${candidate}" ]]; then
+            checksum_url="${candidate}"
+            algo="${ext,,}"
+            break
+        fi
+    done
+
+    # 2. If no sidecar, look for a manifest (SHA256SUMS, checksums.txt, etc.)
+    if [[ -z "${checksum_url}" ]]; then
+        for pattern in SHA256SUMS SHA512SUMS checksums.txt sha256sums.txt sha512sums.txt; do
+            local candidate
+            candidate=$(grep -oP "https://[^\"]+" "${release_json}" \
+                | grep -iF "${pattern}" | head -n1 || true)
+            if [[ -n "${candidate}" ]]; then
+                checksum_url="${candidate}"
+                # Infer algo from filename
+                if echo "${pattern,,}" | grep -q 512; then
+                    algo="sha512"
+                else
+                    algo="sha256"
+                fi
+                break
+            fi
+        done
+    fi
+
+    if [[ -z "${checksum_url}" ]]; then
+        echo "WARNING: No checksum file found for ${tarball_name} in release assets." \
+            "The binary has not been integrity-verified." >&2
+        return 1
+    fi
+
+    local checksum_file_path="${tmpdir}/checksum_file"
+    if ! curl -fsSL "${checksum_url}" -o "${checksum_file_path}"; then
+        echo "WARNING: Failed to download checksum file from ${checksum_url}." \
+            "The binary has not been integrity-verified." >&2
+        return 1
+    fi
+
+    # If this is a multi-file manifest, filter to just the line for our tarball
+    local expected_hash=""
+    expected_hash=$(grep -F "${tarball_name}" "${checksum_file_path}" \
+        | awk '{print $1}' | head -n1 || true)
+
+    # Fallback: if the file contains only a bare hash (sidecar style), use it directly
+    if [[ -z "${expected_hash}" ]]; then
+        expected_hash=$(awk '{print $1}' "${checksum_file_path}" | head -n1 || true)
+    fi
+
+    if [[ -z "${expected_hash}" ]]; then
+        echo "WARNING: Could not extract hash for ${tarball_name} from checksum file." >&2
+        return 1
+    fi
+
+    local actual_hash=""
+    case "${algo}" in
+        sha256) actual_hash=$(sha256sum "${tarball_path}" | awk '{print $1}') ;;
+        sha512) actual_hash=$(sha512sum "${tarball_path}" | awk '{print $1}') ;;
+    esac
+
+    if [[ "${actual_hash}" != "${expected_hash}" ]]; then
+        echo "ERROR: ${algo^^} mismatch for ${tarball_name}!" >&2
+        echo "  Expected: ${expected_hash}" >&2
+        echo "  Got:      ${actual_hash}" >&2
+        exit 1
+    fi
+
+    echo "${tarball_name}: ${algo^^} verified OK"
+    return 0
+}
+
 # ── topgrade ─────────────────────────────────────────────────────────────────
 # Not in Fedora 44 repos — install pre-built binary from GitHub releases.
 # Uses the musl-linked build for maximum compatibility across libc versions.
@@ -26,6 +122,8 @@ if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     if [[ -n "${TOPGRADE_URL}" ]]; then
         TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
         curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
+        verify_release_asset "${release_json}" "${TMPDIR_TG}/${TOPGRADE_TARBALL}" \
+            "${TOPGRADE_TARBALL}" "${TMPDIR_TG}" || true
         tar -xf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
         find "${TMPDIR_TG}" -name 'topgrade' -type f \
             -exec install -m 0755 {} /usr/bin/topgrade \;
@@ -43,7 +141,8 @@ rm -rf "${TMPDIR_TG}"
 # for an executable shell script.
 # /usr/local symlinks to /var/usrlocal — ensure the target dir exists
 WINETRICKS_VER="20260125"
-WINETRICKS_COMMIT="b76e1ee"
+# Full commit SHA — never use a short prefix (collision-susceptible)
+WINETRICKS_COMMIT="b76e1ee79ac57d7aceb384f74518fc423265810c"
 # /usr/local is a symlink to /var/usrlocal on ostree/bootc roots; mkdir -p
 # won't traverse a symlink, so resolve it first.
 mkdir -p "$(realpath -m /usr/local)/bin"
@@ -74,6 +173,8 @@ if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
         UMU_TARBALL=$(basename "${UMU_URL}")
         echo "umu-launcher: downloading ${UMU_TARBALL}"
         curl -fsSL "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
+        verify_release_asset "${release_json}" "${TMPDIR_UMU}/${UMU_TARBALL}" \
+            "${UMU_TARBALL}" "${TMPDIR_UMU}" || true
         tar -xf "${TMPDIR_UMU}/${UMU_TARBALL}" -C "${TMPDIR_UMU}/"
         # Install umu-run binary
         UMU_BIN=$(find "${TMPDIR_UMU}" -name 'umu-run' -type f | head -n1)
@@ -119,6 +220,8 @@ if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
         LFX_TARBALL=$(basename "${LFX_URL}")
         echo "latencyflex: downloading ${LFX_TARBALL}"
         curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
+        verify_release_asset "${release_json}" "${TMPDIR_LFX}/${LFX_TARBALL}" \
+            "${LFX_TARBALL}" "${TMPDIR_LFX}" || true
         tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
 
         LFX_SO=$(find "${TMPDIR_LFX}" -name 'liblatencyflex_layer.so' | head -n1)
@@ -170,6 +273,8 @@ if is_enabled "${ENABLE_SCX:-1}"; then
             SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
             echo "scx: downloading ${SCX_TARBALL}"
             curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
+            verify_release_asset "${release_json}" "${TMPDIR_SCX}/${SCX_TARBALL}" \
+                "${SCX_TARBALL}" "${TMPDIR_SCX}" || true
             tar -xf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
             # Install scx_* scheduler binaries and scxd

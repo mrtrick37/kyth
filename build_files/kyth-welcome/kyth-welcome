@@ -2388,30 +2388,7 @@ class UpdatePage(Page):
         staged_row, self._staged_val   = _state_row("Staged:")
         rollback_row, self._rollback_val = _state_row("Rollback:")
 
-        # Digest row with copy button
-        digest_row = QHBoxLayout()
-        digest_row.setSpacing(12)
-        digest_key = QLabel("Digest:")
-        digest_key.setObjectName("card-copy")
-        digest_key.setStyleSheet("color: #b0bccf; min-width: 72px;")
-        digest_row.addWidget(digest_key)
-        self._digest_val = QLabel()
-        self._digest_val.setObjectName("card-copy")
-        self._digest_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        self._digest_val.setStyleSheet(
-            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
-        )
-        digest_row.addWidget(self._digest_val, 1)
-        self._digest_copy_btn = QPushButton("Copy")
-        self._digest_copy_btn.setFixedWidth(56)
-        self._digest_copy_btn.hide()
-        self._digest_full = ""
-        self._digest_copy_btn.clicked.connect(
-            lambda: QApplication.clipboard().setText(f"sha256:{self._digest_full}")
-        )
-        digest_row.addWidget(self._digest_copy_btn)
-
-        for row in (booted_row, staged_row, rollback_row, digest_row):
+        for row in (booted_row, staged_row, rollback_row):
             summary_layout.addLayout(row)
 
         # Full bootc status toggle
@@ -2817,23 +2794,12 @@ class UpdatePage(Page):
         tag = _current_branch()
         branch = _branch_display_name(tag)
         booted_ts = _bootc_image_timestamp("booted")
-        booted_digest = _bootc_image_digest("booted")
 
         # Running row
         running_text = branch
         if booted_ts:
             running_text += f"  ·  built {booted_ts}"
         self._booted_val.setText(running_text)
-
-        # Digest row
-        if booted_digest:
-            short, full = booted_digest
-            self._digest_val.setText(f"{short}…")
-            self._digest_full = full
-            self._digest_copy_btn.show()
-        else:
-            self._digest_val.setText("—")
-            self._digest_copy_btn.hide()
 
         if self._worker is not None:
             self._staged_val.setText("Update in progress…")

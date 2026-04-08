@@ -390,7 +390,7 @@ dnf5 install -y \
 # Clean cached packages before this install: libxcrypt-compat has been showing
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
-dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
+dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no
