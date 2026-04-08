@@ -20,7 +20,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
-    QSizePolicy, QDialog, QCheckBox,
+    QSizePolicy, QDialog, QCheckBox, QComboBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -3432,8 +3432,124 @@ class GamingPage(Page):
         )
         self._add(combo_txt)
 
+        # ── Steam Library Migration ────────────────────────────────────────────
+        self._divider()
+        migrate_head = QLabel("Steam Library — Migrate from Windows")
+        migrate_head.setObjectName("heading")
+        migrate_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(migrate_head)
+        migrate_sub = QLabel(
+            "Dual-booting? Use this tool to copy your Steam library from a Windows "
+            "NTFS partition directly into Steam on KythOS. The drive is mounted "
+            "read-only — your Windows install is never modified."
+        )
+        migrate_sub.setObjectName("card-copy")
+        migrate_sub.setWordWrap(True)
+        self._add(migrate_sub)
+
+        hibernate_warn = QLabel(
+            "⚠  Before scanning: boot Windows and do a full Shut Down (not Restart). "
+            "Windows Fast Startup leaves NTFS volumes in a hibernated state — Linux "
+            "can read them safely read-only, but Windows may report errors on resume "
+            "if any other tool writes to the partition. This tool never writes to it."
+        )
+        hibernate_warn.setObjectName("card-copy")
+        hibernate_warn.setWordWrap(True)
+        hibernate_warn.setStyleSheet("color: #f0a500; padding: 6px 0;")
+        self._add(hibernate_warn)
+
+        migrate_card, migrate_layout = _make_card()
+
+        # Drive selection
+        drive_row = QHBoxLayout()
+        drive_row.setSpacing(8)
+        drive_lbl = QLabel("Windows drive:")
+        drive_lbl.setObjectName("card-copy")
+        drive_row.addWidget(drive_lbl)
+        self._drive_combo = QComboBox()
+        self._drive_combo.setMinimumWidth(280)
+        drive_row.addWidget(self._drive_combo)
+        migrate_refresh_btn = QPushButton("Refresh")
+        migrate_refresh_btn.clicked.connect(self._refresh_ntfs_drives)
+        drive_row.addWidget(migrate_refresh_btn)
+        migrate_scan_btn = QPushButton("Scan for Steam")
+        migrate_scan_btn.setObjectName("primary")
+        migrate_scan_btn.clicked.connect(self._scan_steam_on_drive)
+        drive_row.addWidget(migrate_scan_btn)
+        drive_row.addStretch()
+        migrate_layout.addLayout(drive_row)
+
+        self._migrate_found_lbl = QLabel("Select a drive above and click Scan for Steam.")
+        self._migrate_found_lbl.setObjectName("card-copy")
+        self._migrate_found_lbl.setWordWrap(True)
+        migrate_layout.addWidget(self._migrate_found_lbl)
+
+        self._lib_combo = QComboBox()
+        self._lib_combo.setMinimumWidth(400)
+        self._lib_combo.hide()
+        migrate_layout.addWidget(self._lib_combo)
+
+        # Destination
+        dst_row = QHBoxLayout()
+        dst_row.setSpacing(8)
+        dst_lbl = QLabel("Copy to:")
+        dst_lbl.setObjectName("card-copy")
+        dst_row.addWidget(dst_lbl)
+        self._migrate_dst_edit = QLineEdit(
+            os.path.expanduser("~/.local/share/Steam/steamapps")
+        )
+        dst_row.addWidget(self._migrate_dst_edit, 1)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_migrate_dst)
+        dst_row.addWidget(browse_btn)
+        migrate_layout.addLayout(dst_row)
+
+        # Copy controls
+        copy_btn_row = QHBoxLayout()
+        copy_btn_row.setSpacing(8)
+        self._copy_btn = QPushButton("Copy Library")
+        self._copy_btn.setObjectName("primary")
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._start_steam_copy)
+        copy_btn_row.addWidget(self._copy_btn)
+        self._copy_cancel_btn = QPushButton("Cancel")
+        self._copy_cancel_btn.hide()
+        self._copy_cancel_btn.clicked.connect(self._cancel_steam_copy)
+        copy_btn_row.addWidget(self._copy_cancel_btn)
+        copy_btn_row.addStretch()
+        migrate_layout.addLayout(copy_btn_row)
+
+        self._migrate_status = QLabel()
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.hide()
+        migrate_layout.addWidget(self._migrate_status)
+
+        self._migrate_progress = QProgressBar()
+        self._migrate_progress.setRange(0, 0)
+        self._migrate_progress.hide()
+        migrate_layout.addWidget(self._migrate_progress)
+
+        self._migrate_log_toggle = QPushButton("Show details")
+        self._migrate_log_toggle.setCheckable(True)
+        self._migrate_log_toggle.hide()
+        self._migrate_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._migrate_log_toggle, self._migrate_log, checked)
+        )
+        migrate_layout.addWidget(self._migrate_log_toggle)
+
+        self._migrate_log = QTextEdit()
+        self._migrate_log.setReadOnly(True)
+        self._migrate_log.setMaximumHeight(140)
+        self._migrate_log.hide()
+        migrate_layout.addWidget(self._migrate_log)
+
+        self._add(migrate_card)
+        self._migrate_worker = None
+        self._scanned_mount = None
+
         self._stretch()
         self._refresh_status()
+        self._refresh_ntfs_drives()
 
     # ── Tool tile builder ──────────────────────────────────────────────────────
 
@@ -3849,6 +3965,249 @@ class GamingPage(Page):
             self._gp_op_status.setObjectName("status-err")
         _restyle(self._gp_op_status)
         self._refresh_status()
+
+    # ── Steam migration ────────────────────────────────────────────────────────
+
+    def _refresh_ntfs_drives(self):
+        self._drive_combo.clear()
+        drives = _find_ntfs_drives()
+        if not drives:
+            self._drive_combo.addItem("No NTFS partitions found")
+            return
+        for d in drives:
+            label = f"{d['dev']}  {d['size']}  {d['label'] or '(no label)'}"
+            if d["mount"]:
+                label += f"  [mounted at {d['mount']}]"
+            self._drive_combo.addItem(label, userData=d)
+
+    def _scan_steam_on_drive(self):
+        drive = self._drive_combo.currentData()
+        if not drive:
+            return
+
+        mount = drive["mount"]
+
+        if not mount:
+            self._migrate_status.setText(f"Mounting {drive['dev']}…")
+            self._migrate_status.setObjectName("subheading")
+            self._migrate_status.show()
+            _restyle(self._migrate_status)
+            QApplication.processEvents()
+            try:
+                r = subprocess.run(
+                    ["udisksctl", "mount", "-b", drive["dev"],
+                     "--options", "ro", "--no-user-interaction"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if r.returncode != 0:
+                    err = r.stderr.strip()
+                    if "hibernate" in err.lower() or "windows" in err.lower():
+                        self._migrate_status.setText(
+                            "Mount blocked: Windows did not shut down cleanly (Fast Startup / hibernate). "
+                            "Boot Windows and do a full Shut Down, then try again."
+                        )
+                    else:
+                        self._migrate_status.setText(f"Mount failed: {err}")
+                    self._migrate_status.setObjectName("status-err")
+                    _restyle(self._migrate_status)
+                    return
+                # udisksctl prints: "Mounted /dev/sdX1 at /run/media/user/Label."
+                m = re.search(r" at (.+?)\.$", r.stdout.strip())
+                mount = m.group(1) if m else None
+                if not mount:
+                    self._migrate_status.setText("Could not determine mount point from udisksctl output.")
+                    self._migrate_status.setObjectName("status-err")
+                    _restyle(self._migrate_status)
+                    return
+            except Exception as exc:
+                self._migrate_status.setText(f"Mount error: {exc}")
+                self._migrate_status.setObjectName("status-err")
+                _restyle(self._migrate_status)
+                return
+
+        self._scanned_mount = mount
+        self._migrate_status.setText(f"Scanning {mount} for Steam libraries…")
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.show()
+        _restyle(self._migrate_status)
+        QApplication.processEvents()
+
+        libs = _find_steam_libraries(mount)
+        self._lib_combo.clear()
+        if not libs:
+            self._migrate_found_lbl.setText(f"No Steam libraries found on {mount}.")
+            self._lib_combo.hide()
+            self._copy_btn.setEnabled(False)
+            self._migrate_status.setText("No Steam libraries found on this drive.")
+            self._migrate_status.setObjectName("status-err")
+            _restyle(self._migrate_status)
+            return
+
+        for lib in libs:
+            self._lib_combo.addItem(lib)
+        self._lib_combo.show()
+        self._migrate_found_lbl.setText(f"Found {len(libs)} steamapps folder(s) — select one:")
+        self._copy_btn.setEnabled(True)
+        self._migrate_status.setText(f"Found {len(libs)} folder(s). Select one and click Copy Library.")
+        self._migrate_status.setObjectName("status-ok")
+        _restyle(self._migrate_status)
+
+    def _browse_migrate_dst(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Select destination steamapps folder", self._migrate_dst_edit.text()
+        )
+        if path:
+            self._migrate_dst_edit.setText(path)
+
+    def _start_steam_copy(self):
+        if self._migrate_worker and self._migrate_worker.isRunning():
+            return
+        src = self._lib_combo.currentText().strip()
+        dst = self._migrate_dst_edit.text().strip()
+        if not src or not dst:
+            return
+        self._migrate_log.clear()
+        self._migrate_log_toggle.show()
+        _set_log_panel(self._migrate_log_toggle, self._migrate_log, False)
+        self._migrate_progress.show()
+        self._migrate_status.setText(f"Copying {src} → {dst}…")
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.show()
+        _restyle(self._migrate_status)
+        self._copy_btn.setEnabled(False)
+        self._copy_cancel_btn.show()
+        self._migrate_worker = SteamCopyWorker(src, dst)
+        self._migrate_worker.line.connect(lambda ln: (
+            self._migrate_log.append(ln),
+            self._migrate_log.ensureCursorVisible(),
+        ))
+        self._migrate_worker.done.connect(self._on_steam_copy_done)
+        self._migrate_worker.start()
+
+    def _cancel_steam_copy(self):
+        if self._migrate_worker and self._migrate_worker.isRunning():
+            self._migrate_worker.stop()
+
+    def _on_steam_copy_done(self, code: int):
+        self._migrate_progress.hide()
+        self._copy_cancel_btn.hide()
+        self._copy_btn.setEnabled(True)
+        if code == 0:
+            self._migrate_status.setText("Steam library copied successfully.")
+            self._migrate_status.setObjectName("status-ok")
+            self._migrate_log.append(
+                "\nDone. You may need to add this folder as a Steam library in "
+                "Steam → Settings → Storage."
+            )
+        else:
+            self._migrate_status.setText(f"Copy failed (exit {code}). See details.")
+            self._migrate_status.setObjectName("status-err")
+        _restyle(self._migrate_status)
+        _set_log_panel(self._migrate_log_toggle, self._migrate_log, True)
+
+
+# ── NTFS / Steam migration helpers ───────────────────────────────────────────
+
+def _find_ntfs_drives() -> list[dict]:
+    """Return a list of NTFS partitions visible to lsblk."""
+    try:
+        r = subprocess.run(
+            ["lsblk", "--json", "--output", "NAME,FSTYPE,SIZE,LABEL,MOUNTPOINT,PATH"],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(r.stdout)
+    except Exception:
+        return []
+
+    results: list[dict] = []
+
+    def _walk(devices: list):
+        for dev in devices:
+            if dev.get("fstype") in ("ntfs", "ntfs3"):
+                results.append({
+                    "dev":   dev.get("path") or f"/dev/{dev['name']}",
+                    "name":  dev["name"],
+                    "size":  dev.get("size", "?"),
+                    "label": dev.get("label") or "",
+                    "mount": dev.get("mountpoint") or "",
+                })
+            _walk(dev.get("children") or [])
+
+    _walk(data.get("blockdevices", []))
+    return results
+
+
+def _find_steam_libraries(mount_point: str) -> list[str]:
+    """Scan a mounted NTFS drive for steamapps directories."""
+    found: list[str] = []
+    # Known Windows Steam install locations
+    candidates = [
+        os.path.join(mount_point, "Program Files (x86)", "Steam", "steamapps"),
+        os.path.join(mount_point, "Program Files", "Steam", "steamapps"),
+        os.path.join(mount_point, "SteamLibrary", "steamapps"),
+        os.path.join(mount_point, "Steam", "steamapps"),
+        os.path.join(mount_point, "Games", "Steam", "steamapps"),
+        os.path.join(mount_point, "Games", "SteamLibrary", "steamapps"),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            found.append(path)
+    # Shallow scan: check one level of subdirs for SteamLibrary/steamapps patterns
+    try:
+        for entry in os.scandir(mount_point):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            for sub in (
+                os.path.join(entry.path, "steamapps"),
+                os.path.join(entry.path, "SteamLibrary", "steamapps"),
+            ):
+                if os.path.isdir(sub) and sub not in found:
+                    found.append(sub)
+    except (PermissionError, OSError):
+        pass
+    return found
+
+
+class SteamCopyWorker(QThread):
+    """Copies a steamapps directory using rsync, streaming output line-by-line."""
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def __init__(self, src: str, dst: str):
+        super().__init__()
+        self._src = src
+        self._dst = dst
+        self._proc = None
+
+    def stop(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+    def run(self):
+        try:
+            os.makedirs(self._dst, exist_ok=True)
+        except OSError as exc:
+            self.line.emit(f"Error creating destination: {exc}")
+            self.done.emit(1)
+            return
+        cmd = [
+            "rsync", "-a", "--info=name1,progress2", "--no-inc-recursive",
+            self._src.rstrip("/") + "/",
+            self._dst.rstrip("/") + "/",
+        ]
+        self.line.emit(f"→ {' '.join(cmd)}\n")
+        try:
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for ln in self._proc.stdout:
+                self.line.emit(ln.rstrip())
+            self._proc.wait()
+            self.done.emit(self._proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
 
 
 def _launch_opt_label(text: str) -> QLabel:
