@@ -157,8 +157,9 @@ is_enabled() {
 # boost during gaming without requiring per-app configuration.
 if dnf5 repoquery --available system76-scheduler 2>/dev/null | grep -q .; then
   dnf5 install -y --skip-unavailable system76-scheduler || true
-  rpm -q system76-scheduler >/dev/null 2>&1 && \
+  if rpm -q system76-scheduler >/dev/null 2>&1; then
     systemctl enable com.system76.Scheduler 2>/dev/null || true
+  fi
 else
   echo "system76-scheduler is unavailable in configured repos; skipping."
 fi
@@ -172,8 +173,9 @@ if is_enabled "${ENABLE_ANANICY:-1}"; then
                 ananicy-cpp \
                 ananicy-cpp-rules \
                 ananicy-cpp-rules-git || true
-        rpm -q ananicy-cpp >/dev/null 2>&1 && \
+        if rpm -q ananicy-cpp >/dev/null 2>&1; then
             systemctl enable ananicy-cpp.service 2>/dev/null || true
+        fi
     else
         echo "ananicy-cpp is unavailable in configured repos; skipping."
     fi

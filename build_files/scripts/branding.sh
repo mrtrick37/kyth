@@ -419,7 +419,8 @@ plymouth-set-default-theme kyth
 
 # librsvg2-tools was only needed for rsvg-convert above — remove it now
 # to keep the final image lean.
-dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
+dnf5 remove -y librsvg2-tools || true
+dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the KythOS theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
