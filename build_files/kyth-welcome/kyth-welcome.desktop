@@ -1,6 +1,6 @@
 [Desktop Entry]
 Version=1.0
-Name=KythOS Helper
+Name=KythOS System Hub
 Comment=Helper and settings for KythOS
 Exec=/usr/bin/kyth-welcome
 Icon=kyth
