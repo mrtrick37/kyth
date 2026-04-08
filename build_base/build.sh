@@ -1,12 +1,10 @@
 #!/bin/bash
 set -euo pipefail
 
-# Docker build layers do not preserve security xattrs, so all files deployed
-# via bootc/ostree end up unlabeled.  SELinux enforcing then denies access to
-# unlabeled files, breaking dbus-broker and the entire session at first boot.
-# Permissive mode logs denials without blocking — correct labeling requires
-# either a Podman/buildah build (which preserves xattrs) or a live relabel.
-sed -i 's/^SELINUX=enforcing/SELINUX=permissive/' /etc/selinux/config
+# SELinux: ship enforcing. Docker builds don't preserve security xattrs, but
+# that doesn't matter here — bootc/ostree runs restorecon against the deployed
+# tree on every deployment using the policy bundled in the image, so all files
+# are correctly labeled before the system ever boots.
 
 # Apply KythOS branding to the base image
 cat > /etc/os-release <<'EOF' || true

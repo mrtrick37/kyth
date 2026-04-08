@@ -18,7 +18,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 | **Display** | KDE Plasma 6 on Wayland |
 | **Installer** | Custom PySide6 + Chromium kiosk UI — pulls OS image from the registry at install time via `bootc install to-disk` |
 | **Theme** | Breeze Dark with KythOS branding, Plymouth boot splash |
-| **SELinux** | Permissive (Docker builds cannot preserve security xattrs) |
+| **SELinux** | Enforcing |
 
 ---
 

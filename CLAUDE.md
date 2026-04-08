@@ -65,6 +65,6 @@ sudo bootc upgrade
 - Base: `ghcr.io/ublue-os/kinoite-main:44` (Fedora 44 KDE)
 - Kernel: CachyOS with BORE scheduler, sched-ext, BBRv3, NTSYNC
 - GPU: Mesa-git from xxmitsu/mesa-git COPR (bleeding-edge RADV/RADEONSI)
-- SELinux: permissive (Docker builds can't preserve security xattrs)
+- SELinux: enforcing (bootc/ostree relabels the deployed tree on every deployment using the bundled policy)
 - Live ISOs published to Cloudflare R2: `kyth-live-latest.iso` / `kyth-live-testing.iso`
 - GitHub: https://github.com/mrtrick37/kyth
