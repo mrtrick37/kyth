@@ -1005,12 +1005,19 @@ class Handler(BaseHTTPRequestHandler):
                 return
 
         if path == "/api/start":
+            timezone = body.get("timezone", "UTC")
+            # Validate timezone against the system's known list to prevent
+            # path traversal: the value is used verbatim in `ln -snf
+            # /usr/share/zoneinfo/<timezone>` on the installed system.
+            if timezone not in set(list_timezones()):
+                self.send_error(400, "Invalid timezone")
+                return
             _state.update({
                 "disk":         body.get("disk", ""),
                 "disk_model":   body.get("disk_model", ""),
                 "disk_size":    body.get("disk_size", ""),
                 "hostname":     body.get("hostname", "kyth"),
-                "timezone":     body.get("timezone", "UTC"),
+                "timezone":     timezone,
                 "username":     body.get("username", ""),
                 "password":     body.get("password", ""),
                 "install_mode": body.get("install_mode", "erase"),

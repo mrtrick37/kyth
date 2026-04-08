@@ -247,22 +247,62 @@ dnf5 -y install --enablerepo=code code
 # it pre-populated in ~/.vscode/extensions/ — the location VS Code checks by
 # default. Downloading the VSIX directly avoids running Electron headlessly in
 # the container build, which fails without a display even with --no-sandbox.
-CLAUDE_CODE_VER=$(curl -fsSL -X POST \
+# flags=531: IncludeVersions(0x1) | IncludeFiles(0x2) | IncludeVersionProperties(0x10) | IncludeLatestVersionOnly(0x200)
+# IncludeFiles is needed to get the per-asset SHA256 hash URL for integrity verification.
+# The version and hash URL are always fetched live from the marketplace API, so there
+# is nothing to pin or manually update — they reflect the current latest on every build.
+CLAUDE_CODE_API_JSON=$(curl -fsSL -X POST \
     "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json;api-version=3.0-preview.1" \
-    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":529}' \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
+    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":531}')
+
+CLAUDE_CODE_VER=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
 if [[ -z "${CLAUDE_CODE_VER}" || ! "${CLAUDE_CODE_VER}" =~ ^[0-9]+(\.[0-9]+){1,3}([-.][0-9A-Za-z]+)?$ ]]; then
     echo "ERROR: Could not resolve a valid Claude Code extension version. Got: '${CLAUDE_CODE_VER}'" >&2
     exit 1
 fi
+
+# Extract the SHA256 hash URL for the VSIX from the marketplace API response.
+# The marketplace publishes a per-version hash under the
+# Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash assetType.
+CLAUDE_CODE_SHA256_URL=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+files = d['results'][0]['extensions'][0]['versions'][0].get('files', [])
+for f in files:
+    if f.get('assetType') == 'Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash':
+        print(f.get('source', ''))
+        break
+" 2>/dev/null || echo "")
+
 echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
 curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
     -H "User-Agent: kyth-image-build/1.0" \
     -H "Accept: application/octet-stream" \
     "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
     -o /tmp/claude-code.vsix
+
+# Verify the downloaded VSIX against the marketplace-published SHA256.
+# Hard failure on mismatch; warning-only if the API did not return a hash URL
+# (which would indicate an API change, not an attack).
+if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
+    EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
+    ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
+    if [[ -z "${EXPECTED_SHA256}" ]]; then
+        echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
+    elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
+        echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
+        echo "  Expected: ${EXPECTED_SHA256}" >&2
+        echo "  Got:      ${ACTUAL_SHA256}" >&2
+        exit 1
+    else
+        echo "Claude Code VSIX SHA256 verified (${ACTUAL_SHA256:0:16}...)"
+    fi
+else
+    echo "WARNING: No SHA256 hash URL in marketplace API response; skipping content verification" >&2
+fi
 python3 - <<'PY'
 import zipfile
 import pathlib
