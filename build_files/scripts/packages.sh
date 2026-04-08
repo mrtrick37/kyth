@@ -72,6 +72,9 @@ dnf5 install -y --skip-unavailable \
     irqbalance \
     p7zip \
     p7zip-plugins \
+    ntfs-3g \
+    ntfsprogs \
+    rsync \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
