@@ -9,7 +9,9 @@ set -euo pipefail
 echo '%_install_langs en_US' >> /etc/rpm/macros
 
 ### Install Docker for container operations
-dnf5 install -y docker
+# container-selinux provides the SELinux policy module for container runtimes
+# (docker_t, container_t, etc.) — required for Docker to work under enforcing.
+dnf5 install -y docker container-selinux
 
 # Add rpmfusion free and nonfree repositories for Fedora 44
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
