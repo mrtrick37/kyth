@@ -1019,7 +1019,7 @@ def _has_rollback_deployment() -> bool:
 
 
 def _bootc_image_timestamp(section: str) -> str | None:
-    """Return a human-readable build timestamp for 'booted' or 'staged' image."""
+    """Return a human-readable build timestamp for 'booted', 'staged', or 'rollback'."""
     data = _bootc_status_data() or {}
     section_data = _nested_get(data, ("status", section)) or {}
     for path in (("image", "timestamp"), ("timestamp",)):
@@ -1030,6 +1030,23 @@ def _bootc_image_timestamp(section: str) -> str | None:
                 return dt.strftime("%Y-%m-%d %H:%M %Z")
             except Exception:
                 return value.strip()
+    return None
+
+
+def _bootc_image_digest(section: str) -> tuple[str, str] | None:
+    """Return (short, full) sha256 digest for 'booted', 'staged', or 'rollback'. None if unavailable."""
+    data = _bootc_status_data() or {}
+    section_data = _nested_get(data, ("status", section)) or {}
+    for path in (
+        ("image", "imageDigest"),
+        ("image", "digest"),
+        ("imageDigest",),
+        ("digest",),
+    ):
+        value = _nested_get(section_data, path)
+        if isinstance(value, str) and value.startswith("sha256:"):
+            full = value[7:]  # strip "sha256:" prefix
+            return full[:12], full
     return None
 
 
@@ -2133,14 +2150,70 @@ class UpdatePage(Page):
 
         # Status summary
         self._summary_card, summary_layout = _make_card()
-        summary_layout.setSpacing(12)
+        summary_layout.setSpacing(6)
         summary_title = QLabel("System state")
         summary_title.setObjectName("card-title")
         summary_layout.addWidget(summary_title)
-        self._summary_lbl = QLabel()
-        self._summary_lbl.setObjectName("card-copy")
-        self._summary_lbl.setWordWrap(True)
-        summary_layout.addWidget(self._summary_lbl)
+
+        def _state_row(label_text: str) -> tuple[QHBoxLayout, QLabel]:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            key = QLabel(label_text)
+            key.setObjectName("card-copy")
+            key.setStyleSheet("color: #888888; min-width: 72px;")
+            row.addWidget(key)
+            val = QLabel()
+            val.setObjectName("card-copy")
+            val.setWordWrap(False)
+            row.addWidget(val, 1)
+            return row, val
+
+        booted_row, self._booted_val   = _state_row("Running:")
+        staged_row, self._staged_val   = _state_row("Staged:")
+        rollback_row, self._rollback_val = _state_row("Rollback:")
+
+        # Digest row with copy button
+        digest_row = QHBoxLayout()
+        digest_row.setSpacing(12)
+        digest_key = QLabel("Digest:")
+        digest_key.setObjectName("card-copy")
+        digest_key.setStyleSheet("color: #888888; min-width: 72px;")
+        digest_row.addWidget(digest_key)
+        self._digest_val = QLabel()
+        self._digest_val.setObjectName("card-copy")
+        self._digest_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        self._digest_val.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        digest_row.addWidget(self._digest_val, 1)
+        self._digest_copy_btn = QPushButton("Copy")
+        self._digest_copy_btn.setFixedWidth(56)
+        self._digest_copy_btn.hide()
+        self._digest_full = ""
+        self._digest_copy_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(f"sha256:{self._digest_full}")
+        )
+        digest_row.addWidget(self._digest_copy_btn)
+
+        for row in (booted_row, staged_row, rollback_row, digest_row):
+            summary_layout.addLayout(row)
+
+        # Full bootc status toggle
+        self._details_toggle = QPushButton("Show bootc status")
+        self._details_toggle.setCheckable(True)
+        self._details_toggle.setFlat(True)
+        self._details_toggle.setStyleSheet("color: #5b9cf6; text-align: left; padding: 4px 0;")
+        self._details_log = QTextEdit()
+        self._details_log.setReadOnly(True)
+        self._details_log.setMaximumHeight(160)
+        self._details_log.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        self._details_log.hide()
+        self._details_toggle.clicked.connect(self._toggle_bootc_details)
+        summary_layout.addWidget(self._details_toggle)
+        summary_layout.addWidget(self._details_log)
+
         self._add(self._summary_card)
 
         # Action buttons
@@ -2249,7 +2322,8 @@ class UpdatePage(Page):
     def _set_buttons_enabled(self, enabled: bool):
         self._topgrade_btn.setEnabled(enabled)
         self._os_btn.setEnabled(enabled)
-        self._rollback_btn.setEnabled(enabled and _has_rollback_deployment())
+        rollback_ok = enabled and _has_rollback_deployment()
+        self._rollback_btn.setEnabled(rollback_ok)
 
     def _set_log_expanded(self, expanded: bool):
         _set_log_panel(self._log_toggle, self._log, expanded)
@@ -2430,32 +2504,70 @@ class UpdatePage(Page):
         _restyle(self._status_lbl)
         self._refresh_summary()
 
+    def _toggle_bootc_details(self, checked: bool):
+        if checked:
+            text = _bootc_status_text()
+            self._details_log.setPlainText(text or "(bootc status returned no output)")
+            self._details_log.show()
+            self._details_toggle.setText("Hide bootc status")
+        else:
+            self._details_log.hide()
+            self._details_toggle.setText("Show bootc status")
+
     def _refresh_summary(self):
         branch = _branch_display_name(_current_branch())
         booted_ts = _bootc_image_timestamp("booted")
+        booted_digest = _bootc_image_digest("booted")
 
-        parts = [f"Branch: {branch}"]
+        # Running row
+        running_text = branch
         if booted_ts:
-            parts.append(f"Running image built: {booted_ts}")
+            running_text += f"  ·  built {booted_ts}"
+        self._booted_val.setText(running_text)
+
+        # Digest row
+        if booted_digest:
+            short, full = booted_digest
+            self._digest_val.setText(f"{short}…")
+            self._digest_full = full
+            self._digest_copy_btn.show()
+        else:
+            self._digest_val.setText("—")
+            self._digest_copy_btn.hide()
+
         if self._worker is not None:
-            parts.append("Update in progress…")
-            self._summary_lbl.setText("\n".join(parts))
+            self._staged_val.setText("Update in progress…")
+            self._staged_val.setStyleSheet("")
+            self._rollback_val.setText("—")
             self._rollback_btn.setEnabled(False)
+            self._rollback_btn.setText("Roll Back")
             return
 
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         staged_ts = _bootc_image_timestamp("staged") if staged else None
+        rollback_ts = _bootc_image_timestamp("rollback") if rollback else None
 
+        # Staged row
         if staged:
-            if staged_ts:
-                parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
-            else:
-                parts.append("Update staged — ready for next reboot.")
+            staged_text = f"built {staged_ts}  —  reboot to apply" if staged_ts else "Ready — reboot to apply"
+            self._staged_val.setText(staged_text)
+            self._staged_val.setStyleSheet("color: #5b9cf6;")
         else:
-            parts.append("No update staged right now.")
-        parts.append("Rollback available." if rollback else "No rollback target detected yet.")
-        self._summary_lbl.setText("\n".join(parts))
+            self._staged_val.setText("None")
+            self._staged_val.setStyleSheet("color: #888888;")
+
+        # Rollback row + button label
+        if rollback:
+            rb_text = f"Available  ·  built {rollback_ts}" if rollback_ts else "Available"
+            self._rollback_val.setText(rb_text)
+            self._rollback_val.setStyleSheet("")
+            self._rollback_btn.setText(f"Roll Back  ({rollback_ts})" if rollback_ts else "Roll Back")
+        else:
+            self._rollback_val.setText("None")
+            self._rollback_val.setStyleSheet("color: #888888;")
+            self._rollback_btn.setText("Roll Back")
+
         self._rollback_btn.setEnabled(rollback and self._worker is None)
 
 
