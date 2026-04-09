@@ -18,7 +18,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 | **Display** | KDE Plasma 6 on Wayland |
 | **Installer** | Custom PySide6 + Chromium kiosk UI — pulls OS image from the registry at install time via `bootc install to-disk` |
 | **Theme** | Breeze Dark with KythOS branding, Plymouth boot splash |
-| **SELinux** | Enforcing |
+| **SELinux** | Enforcing — bootc/ostree runs `restorecon` on the full tree every deployment; `/var/home` is relabeled via a first-boot service before SDDM starts |
 
 ---
 
@@ -53,6 +53,22 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 - Full codec stack: ffmpeg, GStreamer (OpenH264, libav, ugly, bad-freeworld), mpv
 - ffmpegthumbnailer for video thumbnail previews
 
+### System Hub
+
+**KythOS System Hub** (`kyth-welcome`) is the post-install management app — opens on first login and is always available from the app menu. Sections:
+
+- **Welcome** — overview and quick links (first-run wizard: branch selection, hardware check, gaming setup)
+- **Update** — trigger `bootc upgrade`, view staged deployment status
+- **Hardware** — system info, GPU probe, firmware info
+- **Firmware** — fwupdmgr integration (check and apply firmware updates)
+- **Software** — curated app installs (Flatpak, Homebrew, misc tools)
+- **Gaming** — GE-Proton management, performance mode toggle, gaming tool installs
+- **Content Creation** — DaVinci Resolve installer, OBS, multimedia tools
+- **NVIDIA Drivers** — NVIDIA setup (shown only when NVIDIA GPU detected)
+- **Cloud Storage** — rclone setup (`kyth-rclone-update` installs/updates rclone to `/usr/local/bin`)
+- **Network Shares** — CIFS/SMB mount configuration (backed by `cifs-utils`)
+- **Repair** — SELinux relabel, flatpak repair, misc diagnostics
+
 ### Development
 
 - Visual Studio Code with the Claude Code extension pre-installed system-wide
@@ -83,6 +99,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 - journald capped at 500 MB persistent / 128 MB runtime (prevents multi-GB growth from verbose game/driver output)
 - spice-vdagent for automatic display resize in QEMU/KVM VMs
 - Automatic updates disabled (no surprise reboots) — update manually: `sudo bootc upgrade` (passwordless for `wheel` group via sudoers drop-in)
+- First boot: Plymouth displays a "Running first boot setup…" message while SELinux relabeling and other one-shot services complete
 
 ---
 
@@ -239,12 +256,13 @@ build_files/
   zink-run                        Run OpenGL apps via Zink (Vulkan-backed GL)
   icons/                          App icons (Outlook PWA, etc.)
   just/kyth.just                  ujust recipes shipped in the installed OS
-  kyth-welcome/                   First-boot welcome app (PyQt6)
+  kyth-welcome/                   KythOS System Hub (PyQt6) — first-run wizard + post-install management app
   MangoHud.conf                   System-wide MangoHud defaults
   vkBasalt.conf                   System-wide vkBasalt defaults
   plymouth/                       Boot splash theme (pulsating KythOS logo)
   wallpaper/                      Desktop wallpaper (SVG)
   kyth-ge-proton-update           Weekly GE-Proton update script (+ .service/.timer)
+  kyth-rclone-update              Install/update latest rclone release into /usr/local/bin with SHA256 verification
   kyth-duperemove                 Weekly deduplication script (+ .service/.timer)
   kyth-performance-mode           Toggle system performance profile (max/gaming/performance/balanced/powersave)
   kyth-kerver                     Print kernel/scheduler info
