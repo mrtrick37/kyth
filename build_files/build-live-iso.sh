@@ -193,7 +193,7 @@ else
             2>/dev/null
 fi
 echo "==> Container export complete."
-docker rm "${CONTAINER}"
+docker rm "${CONTAINER}" 2>/dev/null || true
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
