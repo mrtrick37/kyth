@@ -86,27 +86,32 @@ jobs:
       - name: Flatten live container to a single layer
         # The live image inherits 100+ layers from the kyth base image.
         # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
-        # it can even finish pulling. crane flatten squashes all layers into one
-        # and pushes the result back to the same tag, so Job 2 can pull cleanly.
+        # it can even finish pulling. We flatten here so Job 2 pulls a single layer.
+        #
+        # crane flatten was replaced because it uploads a single merged layer over
+        # the network — on large images the connection drops mid-upload and crane
+        # cannot retry (stream already consumed). Instead we:
+        #   1. Enable Docker's containerd snapshotter (no 128-layer limit) so we
+        #      can pull the just-built multi-layer image into the local daemon.
+        #   2. Flatten with docker export | docker import — runs locally, no
+        #      network upload until the final push of the single-layer image.
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
-          # crane v0.20.6 — pinned with SHA256 checksum.
-          # To update: bump the version in the URL and update CRANE_SHA256.
-          CRANE_SHA256="c1d593d01551f2c9a3df5ca0a0be4385a839bd9b86d4a76e18d7b17d16559127"
-          CRANE_TARBALL="go-containerregistry_Linux_x86_64.tar.gz"
-          curl -sSfL \
-            "https://github.com/google/go-containerregistry/releases/download/v0.20.6/${CRANE_TARBALL}" \
-            -o "/tmp/${CRANE_TARBALL}"
-          echo "${CRANE_SHA256}  /tmp/${CRANE_TARBALL}" | sha256sum --check --strict
-          tar -xz -C /usr/local/bin crane -f "/tmp/${CRANE_TARBALL}"
-          rm -f "/tmp/${CRANE_TARBALL}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
-          for attempt in 1 2 3 4 5; do
-            GODEBUG=http2client=0 crane flatten "${IMAGE}" && break
-            echo "crane flatten attempt ${attempt} failed — retrying in 60s..."
-            sleep 60
-          done
+
+          # Switch Docker to the containerd snapshotter so pulling 100+ layer
+          # images doesn't hit the kernel overlay2 limit of 128 lower dirs.
+          sudo systemctl stop docker docker.socket 2>/dev/null || true
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          # Pull the multi-layer image, flatten to one layer locally, push back.
+          docker pull "${IMAGE}"
+          CID=$(docker create "${IMAGE}" /bin/true)
+          docker export "${CID}" | docker import - "${IMAGE}"
+          docker rm "${CID}"
+          docker push "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
