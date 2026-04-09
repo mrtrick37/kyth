@@ -220,7 +220,14 @@ newgrp docker
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | Build container image | Push to `main`/`testing`, daily at 10:05 UTC, PR | `ghcr.io/mrtrick37/kyth:latest` and `:testing` |
-| Build Live ISO | Manual dispatch (choose `latest` or `testing`) | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
+| Build Live ISO | Automatic after successful container-image pushes to `main`/`testing`, or manual dispatch (choose `latest` or `testing`) | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
+
+The live ISO workflow supports two paths:
+
+- `workflow_run`: after `Build container image` succeeds on `main` or `testing`, the ISO workflow checks out the exact triggering commit via `head_sha`.
+- `workflow_dispatch`: useful for rebuilding `latest` or `testing` on demand from the selected branch.
+
+If the workflow file changes, trigger a fresh run after the merge or push. Re-running an older failed workflow can keep using the older workflow snapshot, which means fixes in `.github/workflows/build-live-iso.yml` may not be picked up.
 
 ---
 
