@@ -9,7 +9,9 @@ set -euo pipefail
 echo '%_install_langs en_US' >> /etc/rpm/macros
 
 ### Install Docker for container operations
-dnf5 install -y docker
+# container-selinux provides the SELinux policy module for container runtimes
+# (docker_t, container_t, etc.) — required for Docker to work under enforcing.
+dnf5 install -y docker container-selinux
 
 # Add rpmfusion free and nonfree repositories for Fedora 44
 dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
@@ -72,6 +74,10 @@ dnf5 install -y --skip-unavailable \
     irqbalance \
     p7zip \
     p7zip-plugins \
+    ntfs-3g \
+    ntfsprogs \
+    cifs-utils \
+    rsync \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -102,9 +108,10 @@ dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/r
 # Gaming packages
 # libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
 # 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
+# umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
+# installed from GitHub releases in thirdparty.sh instead.
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope-shaders \
-    umu-launcher \
     mangohud.x86_64 \
     mangohud.i686 \
     vkBasalt.x86_64 \
@@ -150,8 +157,9 @@ is_enabled() {
 # boost during gaming without requiring per-app configuration.
 if dnf5 repoquery --available system76-scheduler 2>/dev/null | grep -q .; then
   dnf5 install -y --skip-unavailable system76-scheduler || true
-  rpm -q system76-scheduler >/dev/null 2>&1 && \
+  if rpm -q system76-scheduler >/dev/null 2>&1; then
     systemctl enable com.system76.Scheduler 2>/dev/null || true
+  fi
 else
   echo "system76-scheduler is unavailable in configured repos; skipping."
 fi
@@ -165,8 +173,9 @@ if is_enabled "${ENABLE_ANANICY:-1}"; then
                 ananicy-cpp \
                 ananicy-cpp-rules \
                 ananicy-cpp-rules-git || true
-        rpm -q ananicy-cpp >/dev/null 2>&1 && \
+        if rpm -q ananicy-cpp >/dev/null 2>&1; then
             systemctl enable ananicy-cpp.service 2>/dev/null || true
+        fi
     else
         echo "ananicy-cpp is unavailable in configured repos; skipping."
     fi
@@ -242,22 +251,62 @@ dnf5 -y install --enablerepo=code code
 # it pre-populated in ~/.vscode/extensions/ — the location VS Code checks by
 # default. Downloading the VSIX directly avoids running Electron headlessly in
 # the container build, which fails without a display even with --no-sandbox.
-CLAUDE_CODE_VER=$(curl -fsSL -X POST \
+# flags=531: IncludeVersions(0x1) | IncludeFiles(0x2) | IncludeVersionProperties(0x10) | IncludeLatestVersionOnly(0x200)
+# IncludeFiles is needed to get the per-asset SHA256 hash URL for integrity verification.
+# The version and hash URL are always fetched live from the marketplace API, so there
+# is nothing to pin or manually update — they reflect the current latest on every build.
+CLAUDE_CODE_API_JSON=$(curl -fsSL -X POST \
     "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
     -H "Content-Type: application/json" \
     -H "Accept: application/json;api-version=3.0-preview.1" \
-    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":529}' \
-    | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
+    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":531}')
+
+CLAUDE_CODE_VER=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c \
+    "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
 if [[ -z "${CLAUDE_CODE_VER}" || ! "${CLAUDE_CODE_VER}" =~ ^[0-9]+(\.[0-9]+){1,3}([-.][0-9A-Za-z]+)?$ ]]; then
     echo "ERROR: Could not resolve a valid Claude Code extension version. Got: '${CLAUDE_CODE_VER}'" >&2
     exit 1
 fi
+
+# Extract the SHA256 hash URL for the VSIX from the marketplace API response.
+# The marketplace publishes a per-version hash under the
+# Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash assetType.
+CLAUDE_CODE_SHA256_URL=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c "
+import sys, json
+d = json.load(sys.stdin)
+files = d['results'][0]['extensions'][0]['versions'][0].get('files', [])
+for f in files:
+    if f.get('assetType') == 'Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash':
+        print(f.get('source', ''))
+        break
+" 2>/dev/null || echo "")
+
 echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
 curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
     -H "User-Agent: kyth-image-build/1.0" \
     -H "Accept: application/octet-stream" \
     "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
     -o /tmp/claude-code.vsix
+
+# Verify the downloaded VSIX against the marketplace-published SHA256.
+# Hard failure on mismatch; warning-only if the API did not return a hash URL
+# (which would indicate an API change, not an attack).
+if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
+    EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
+    ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
+    if [[ -z "${EXPECTED_SHA256}" ]]; then
+        echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
+    elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
+        echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
+        echo "  Expected: ${EXPECTED_SHA256}" >&2
+        echo "  Got:      ${ACTUAL_SHA256}" >&2
+        exit 1
+    else
+        echo "Claude Code VSIX SHA256 verified (${ACTUAL_SHA256:0:16}...)"
+    fi
+else
+    echo "WARNING: No SHA256 hash URL in marketplace API response; skipping content verification" >&2
+fi
 python3 - <<'PY'
 import zipfile
 import pathlib
@@ -385,7 +434,7 @@ dnf5 install -y \
 # Clean cached packages before this install: libxcrypt-compat has been showing
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
-dnf5 install -y --nogpgcheck gcc glibc-devel libxcrypt-compat patch ruby
+dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no

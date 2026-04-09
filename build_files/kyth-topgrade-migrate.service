@@ -1,7 +1,7 @@
 [Unit]
-Description=KythOS migration: configure topgrade for KythOS (v3: system step, containers)
+Description=KythOS migration: configure topgrade for KythOS (v4: add rclone update step)
 After=local-fs.target
-ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v3.done
+ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v4.done
 
 [Service]
 Type=oneshot

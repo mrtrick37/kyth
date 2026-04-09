@@ -128,27 +128,40 @@ apply_mode() {
     reconfigure_kwin
 }
 
+read_state_key() {
+    local key=$1
+    # Extract VALUE from KEY=VALUE lines; only allows alphanumeric, underscore,
+    # hyphen, and dot in values — prevents code injection from a modified file.
+    grep -m1 "^${key}=" "$STATE_FILE" 2>/dev/null \
+        | sed 's/^[^=]*=//' \
+        | grep -Eo '^[A-Za-z0-9_. -]*' \
+        || true
+}
+
 restore_state() {
     if [[ ! -f "$STATE_FILE" ]]; then
         return 0
     fi
 
-    # shellcheck disable=SC1090
-    source "$STATE_FILE"
+    local POWER_PROFILE ANIMATION_DURATION_FACTOR BLUR_ENABLED EPP
+    POWER_PROFILE=$(read_state_key POWER_PROFILE)
+    ANIMATION_DURATION_FACTOR=$(read_state_key ANIMATION_DURATION_FACTOR)
+    BLUR_ENABLED=$(read_state_key BLUR_ENABLED)
+    EPP=$(read_state_key EPP)
 
-    if [[ -n "${POWER_PROFILE:-}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
+    if [[ -n "${POWER_PROFILE}" ]] && command -v powerprofilesctl >/dev/null 2>&1; then
         powerprofilesctl set "$POWER_PROFILE" >/dev/null 2>&1 || true
     fi
 
-    if [[ -n "${ANIMATION_DURATION_FACTOR:-}" ]]; then
+    if [[ -n "${ANIMATION_DURATION_FACTOR}" ]]; then
         write_kde_value kdeglobals KDE AnimationDurationFactor "$ANIMATION_DURATION_FACTOR"
     fi
 
-    if [[ -n "${BLUR_ENABLED:-}" ]]; then
+    if [[ -n "${BLUR_ENABLED}" ]]; then
         write_kde_value kwinrc Plugins blurEnabled "$BLUR_ENABLED"
     fi
 
-    if [[ -n "${EPP:-}" ]]; then
+    if [[ -n "${EPP}" ]]; then
         set_epp "${EPP}"
     fi
 

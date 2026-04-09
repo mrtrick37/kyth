@@ -52,6 +52,7 @@ else
     unset _build_pw
     _ASKPASS=$(mktemp -p /var/tmp kyth-build-askpass.XXXXXXXX)
     chmod 0700 "$_ASKPASS"
+    # shellcheck disable=SC2016  # single quotes intentional: var expands when askpass script runs, not now
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
     export SUDO_ASKPASS="$_ASKPASS"
     sudo() { command sudo -A "$@"; }
@@ -100,7 +101,7 @@ fi
 cleanup() {
     echo "==> Cleaning up ${WORK}"
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    [[ -n "${_ASKPASS:-}" ]] && rm -f "$_ASKPASS" 2>/dev/null || true
+    if [[ -n "${_ASKPASS:-}" ]]; then rm -f "$_ASKPASS" 2>/dev/null || true; fi
     unset _KYTH_BUILD_PW
     # kyth-live:build is kept intentionally so Docker layer cache is preserved
     # for the next build. Run 'docker rmi kyth-live:build' to force a rebuild.
@@ -441,7 +442,7 @@ if ! "${HAVE_BIOS_GRUB}" && sudo test -f "${ISOLINUX_BIN}"; then
     sudo cp "${ISOLINUX_BIN}" "${ISO_DIR}/isolinux/" 2>/dev/null
     for f in ldlinux.c32 vesamenu.c32 libcom32.c32 libutil.c32; do
         src="${ROOTFS}/usr/share/syslinux/${f}"
-        sudo test -f "${src}" && sudo cp "${src}" "${ISO_DIR}/isolinux/" 2>/dev/null || true
+        if sudo test -f "${src}"; then sudo cp "${src}" "${ISO_DIR}/isolinux/" 2>/dev/null || true; fi
     done
 
     cat > "${ISO_DIR}/isolinux/isolinux.cfg" << ISOLINUXEOF

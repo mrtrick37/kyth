@@ -96,6 +96,7 @@ disable = ["system", "distrobox", "containers"]
 # -n makes sudo fail fast if it can't run non-interactively, rather than hanging
 # waiting for a password. NOPASSWD is granted in /etc/sudoers.d/kyth-bootc.
 "KythOS system update" = "sudo -n bootc upgrade"
+"KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 TOPGRADEEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
@@ -368,6 +369,7 @@ install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemo
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
+install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
@@ -417,7 +419,8 @@ plymouth-set-default-theme kyth
 
 # librsvg2-tools was only needed for rsvg-convert above — remove it now
 # to keep the final image lean.
-dnf5 remove -y librsvg2-tools && dnf5 autoremove -y || true
+dnf5 remove -y librsvg2-tools || true
+dnf5 autoremove -y || true
 
 # Rebuild the initramfs to include Plymouth + the KythOS theme.
 # TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.

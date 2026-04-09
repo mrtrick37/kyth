@@ -18,7 +18,7 @@ KythOS is a custom bootc image. The OS is a container image built with Docker, i
 | **Display** | KDE Plasma 6 on Wayland |
 | **Installer** | Custom PySide6 + Chromium kiosk UI — pulls OS image from the registry at install time via `bootc install to-disk` |
 | **Theme** | Breeze Dark with KythOS branding, Plymouth boot splash |
-| **SELinux** | Permissive (Docker builds cannot preserve security xattrs) |
+| **SELinux** | Enforcing |
 
 ---
 
@@ -247,11 +247,14 @@ build_files/
   kyth-ge-proton-update           Weekly GE-Proton update script (+ .service/.timer)
   kyth-duperemove                 Weekly deduplication script (+ .service/.timer)
   kyth-performance-mode           Toggle system performance profile (max/gaming/performance/balanced/powersave)
-  kyth-set-epp                    Set AMD CPU energy_performance_preference on all cores (called by kyth-performance-mode via sudo)
   kyth-kerver                     Print kernel/scheduler info
   kyth-device-info                Print hardware summary
+  kyth-creator-check              Diagnostics dump for content-creation session issues
+  kyth-davinci-install            DaVinci Resolve installer helper (finds latest ZIP in Downloads)
   kyth-bootc-sudo                 Wrapper for bootc operations with sudo
   kyth-nvidia-setup               NVIDIA driver setup helper (+ .service)
+  kyth-local-bin-migrate          One-shot migration: moves binaries from /usr/local/bin → /usr/bin (+ .service)
+  kyth-topgrade-migrate           One-shot migration: configures topgrade for bootc systems (+ .service)
   kyth-default-flatpaks.service   First-boot Flatpak installation
   kyth-flathub-setup.service      Flathub repo configuration
 

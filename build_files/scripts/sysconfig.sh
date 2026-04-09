@@ -32,7 +32,8 @@ vm.watermark_boost_factor = 0
 # in cache longer (default 100; 50 = half as eager to evict)
 vm.vfs_cache_pressure = 50
 # Raise memory map limit for games with large numbers of mappings (Star Citizen, etc.)
-vm.max_map_count = 2147483642
+# 16M is still very high for gaming workloads while avoiding near-INT_MAX values.
+vm.max_map_count = 16777216
 
 # Writeback timing — flush dirty pages after 5 s instead of the kernel default
 # 30 s. Paired with the absolute dirty_bytes limits above this keeps write bursts
@@ -404,6 +405,54 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
+# ── SELinux: relabel /var/home before login ───────────────────────────────────
+# bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
+# is writable state — it is never touched. On enforcing systems, /var/home
+# files with missing labels cause PAM and dbus-broker to be denied, making
+# login impossible. This service runs restorecon on /var/home before SDDM
+# starts so user home directories are always correctly labeled.
+cat > /usr/lib/systemd/system/kyth-selinux-relabel-home.service <<'RELABELEOF'
+[Unit]
+Description=SELinux relabel /var/home
+DefaultDependencies=no
+After=local-fs.target
+Before=sddm.service
+ConditionSecurity=selinux
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/restorecon -RF /var/home
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+RELABELEOF
+systemctl enable kyth-selinux-relabel-home.service 2>/dev/null || true
+
+# ── First-boot Plymouth message ───────────────────────────────────────────────
+# On the very first boot after install, the SELinux relabel and other setup
+# tasks add a few extra seconds before login. Show a message on the boot splash
+# so the user knows something is happening. The sentinel file ensures this only
+# ever runs once — after first boot it is a no-op for all future reboots.
+cat > /usr/lib/systemd/system/kyth-first-boot-message.service <<'FIRSTBOOTEOF'
+[Unit]
+Description=KythOS first-boot splash message
+DefaultDependencies=no
+After=plymouth-start.service local-fs.target
+Before=sddm.service
+ConditionPathExists=!/var/lib/kyth/.first-boot-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/plymouth message --text="Running first boot setup, this may take a few moments..."
+ExecStart=/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/.first-boot-complete'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+FIRSTBOOTEOF
+systemctl enable kyth-first-boot-message.service 2>/dev/null || true
+
 # SDDM greeter software-rendering fallback — mirrors the live ISO's drop-in.
 # SDDM renders its own QML greeter with Mesa; on certain hardware (Intel vPro
 # with VT-d, VMs without virgl) the GL context creation fails and SDDM crashes
@@ -443,11 +492,12 @@ EPPEOF
 install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # KythOS: wheel group may run safe update/firmware commands without a password.
 %wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
-%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch *
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch ghcr.io/mrtrick37/kyth\:*
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-rclone-update
 SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
