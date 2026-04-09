@@ -27,6 +27,53 @@ verify_release_asset() {
     local tmpdir=$4
 
     local checksum_url="" algo=""
+    local expected_hash=""
+
+    # 0. Prefer immutable per-asset digests embedded directly in the GitHub
+    # release metadata when available.
+    local asset_digest=""
+    asset_digest=$(python3 - "$release_json" "$tarball_name" <<'PY'
+import json
+import sys
+
+release_json, tarball_name = sys.argv[1], sys.argv[2]
+with open(release_json, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+for asset in data.get("assets", []):
+    if asset.get("name") == tarball_name:
+        print(asset.get("digest", ""))
+        break
+PY
+    )
+    if [[ -n "${asset_digest}" ]]; then
+        algo="${asset_digest%%:*}"
+        expected_hash="${asset_digest#*:}"
+        if [[ "${algo}" == "${expected_hash}" || -z "${expected_hash}" ]]; then
+            echo "ERROR: Release metadata exposed an invalid digest for ${tarball_name}." >&2
+            exit 1
+        fi
+
+        local actual_hash=""
+        case "${algo}" in
+            sha256) actual_hash=$(sha256sum "${tarball_path}" | awk '{print $1}') ;;
+            sha512) actual_hash=$(sha512sum "${tarball_path}" | awk '{print $1}') ;;
+            *)
+                echo "ERROR: Unsupported digest algorithm '${algo}' for ${tarball_name}." >&2
+                exit 1
+                ;;
+        esac
+
+        if [[ "${actual_hash}" != "${expected_hash}" ]]; then
+            echo "ERROR: ${algo^^} mismatch for ${tarball_name}!" >&2
+            echo "  Expected: ${expected_hash}" >&2
+            echo "  Got:      ${actual_hash}" >&2
+            exit 1
+        fi
+
+        echo "${tarball_name}: ${algo^^} verified OK (release asset digest)"
+        return 0
+    fi
 
     # 1. Look for a per-file sidecar: <tarball>.sha256, .sha512, .sha256sum, .sha512sum
     # sha256sum/sha512sum extensions cover Winetricks-style naming.
@@ -78,7 +125,6 @@ verify_release_asset() {
     fi
 
     # If this is a multi-file manifest, filter to just the line for our tarball
-    local expected_hash=""
     expected_hash=$(grep -F "${tarball_name}" "${checksum_file_path}" \
         | awk '{print $1}' | head -n1 || true)
 
