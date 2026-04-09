@@ -102,7 +102,11 @@ jobs:
           rm -f "/tmp/${CRANE_TARBALL}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           echo "${{ secrets.GITHUB_TOKEN }}" | crane auth login ghcr.io -u "${{ github.actor }}" --password-stdin
-          crane flatten "${IMAGE}"
+          for attempt in 1 2 3 4 5; do
+            GODEBUG=http2client=0 crane flatten "${IMAGE}" && break
+            echo "crane flatten attempt ${attempt} failed — retrying in 60s..."
+            sleep 60
+          done
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
