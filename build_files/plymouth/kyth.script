@@ -29,3 +29,21 @@ fun refresh_callback () {
 }
 
 Plymouth.SetRefreshFunction (refresh_callback);
+
+# ── Message overlay (first-boot notice, etc.) ─────────────────────────────────
+msg_sprite = Sprite ();
+msg_sprite.SetOpacity (0.0);
+
+fun message_callback (text) {
+    if (text != "") {
+        img = Image.Text (text, 0.75, 0.75, 0.75, 1);
+        msg_sprite.SetImage (img);
+        msg_sprite.SetX (Window.GetWidth ()  / 2 - img.GetWidth ()  / 2);
+        msg_sprite.SetY (Window.GetHeight () * 0.68);
+        msg_sprite.SetOpacity (1.0);
+    } else {
+        msg_sprite.SetOpacity (0.0);
+    }
+}
+
+Plymouth.SetMessageFunction (message_callback);
