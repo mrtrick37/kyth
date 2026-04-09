@@ -19,8 +19,7 @@ is_enabled() {
 #
 # Returns:
 #   0  — checksum verified OK
-#   0  — no checksum metadata available (warning printed; caller continues)
-#  exit 1 — checksum mismatch (hard failure)
+#  exit 1 — checksum missing, unreadable, or mismatched
 verify_release_asset() {
     local release_json=$1
     local tarball_path=$2
@@ -66,19 +65,16 @@ verify_release_asset() {
     fi
 
     if [[ -z "${checksum_url}" ]]; then
-        echo "WARNING: No checksum file found for ${tarball_name} in release assets." \
-            "The binary has not been integrity-verified." >&2
-        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
-        # Non-fatal: some upstream releases do not publish checksums.
-        return 0
+        echo "ERROR: No checksum file found for ${tarball_name} in release assets." >&2
+        echo "Refusing to install ${tarball_name} without integrity metadata." >&2
+        exit 1
     fi
 
     local checksum_file_path="${tmpdir}/checksum_file"
     if ! curl -fsSL "${checksum_url}" -o "${checksum_file_path}"; then
-        echo "WARNING: Failed to download checksum file from ${checksum_url}." \
-            "The binary has not been integrity-verified." >&2
-        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
-        return 0
+        echo "ERROR: Failed to download checksum file from ${checksum_url}." >&2
+        echo "Refusing to install ${tarball_name} without a trusted checksum." >&2
+        exit 1
     fi
 
     # If this is a multi-file manifest, filter to just the line for our tarball
@@ -92,9 +88,9 @@ verify_release_asset() {
     fi
 
     if [[ -z "${expected_hash}" ]]; then
-        echo "WARNING: Could not extract hash for ${tarball_name} from checksum file." >&2
-        echo "WARNING: Proceeding without checksum verification for ${tarball_name}." >&2
-        return 0
+        echo "ERROR: Could not extract hash for ${tarball_name} from checksum file." >&2
+        echo "Refusing to install ${tarball_name} with unverifiable checksum metadata." >&2
+        exit 1
     fi
 
     local actual_hash=""
