@@ -429,6 +429,30 @@ WantedBy=multi-user.target
 RELABELEOF
 systemctl enable kyth-selinux-relabel-home.service 2>/dev/null || true
 
+# ── First-boot Plymouth message ───────────────────────────────────────────────
+# On the very first boot after install, the SELinux relabel and other setup
+# tasks add a few extra seconds before login. Show a message on the boot splash
+# so the user knows something is happening. The sentinel file ensures this only
+# ever runs once — after first boot it is a no-op for all future reboots.
+cat > /usr/lib/systemd/system/kyth-first-boot-message.service <<'FIRSTBOOTEOF'
+[Unit]
+Description=KythOS first-boot splash message
+DefaultDependencies=no
+After=plymouth-start.service local-fs.target
+Before=sddm.service
+ConditionPathExists=!/var/lib/kyth/.first-boot-complete
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/plymouth message --text="Running first boot setup, this may take a few moments..."
+ExecStart=/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/.first-boot-complete'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+FIRSTBOOTEOF
+systemctl enable kyth-first-boot-message.service 2>/dev/null || true
+
 # SDDM greeter software-rendering fallback — mirrors the live ISO's drop-in.
 # SDDM renders its own QML greeter with Mesa; on certain hardware (Intel vPro
 # with VT-d, VMs without virgl) the GL context creation fails and SDDM crashes

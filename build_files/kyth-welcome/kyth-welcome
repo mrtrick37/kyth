@@ -606,6 +606,17 @@ QWidget#wizard-footer {
     border-top: 1px solid #1c1c1c;
 }
 
+/* ── First-boot setup banner ─────────────────────────────────────────────── */
+QWidget#setup-banner {
+    background: #0c1320;
+    border-top: 1px solid #1a2a44;
+}
+
+QLabel#setup-banner-label {
+    font-size: 12px;
+    color: #7a9cc8;
+}
+
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
     background: #080808;
@@ -6943,6 +6954,39 @@ class WizardWindow(QMainWindow):
         self._next_btn.clicked.connect(self._go_next)
         footer_layout.addWidget(self._next_btn)
         root_layout.addWidget(footer)
+
+        # ── First-boot setup banner ───────────────────────────────────────────
+        # kyth-default-flatpaks.service runs after network comes up, which is
+        # after the graphical target — it can't appear in the Plymouth splash.
+        # Show a banner here instead so the user knows setup is still in progress.
+        self._setup_banner = QWidget()
+        self._setup_banner.setObjectName("setup-banner")
+        banner_layout = QHBoxLayout(self._setup_banner)
+        banner_layout.setContentsMargins(20, 6, 20, 6)
+        banner_layout.setSpacing(12)
+        banner_lbl = QLabel("Installing apps in the background — this may take a few minutes on first boot.")
+        banner_lbl.setObjectName("setup-banner-label")
+        self._setup_banner_bar = QProgressBar()
+        self._setup_banner_bar.setRange(0, 0)
+        self._setup_banner_bar.setFixedWidth(120)
+        self._setup_banner_bar.setFixedHeight(6)
+        self._setup_banner_bar.setTextVisible(False)
+        banner_layout.addWidget(self._setup_banner_bar)
+        banner_layout.addWidget(banner_lbl)
+        banner_layout.addStretch()
+        root_layout.addWidget(self._setup_banner)
+
+        _FLATPAK_SENTINEL = "/var/lib/kyth/default-flatpaks-done"
+        if os.path.exists(_FLATPAK_SENTINEL):
+            self._setup_banner.hide()
+        else:
+            self._setup_poll = QTimer(self)
+            self._setup_poll.setInterval(3000)
+            self._setup_poll.timeout.connect(
+                lambda: self._setup_banner.hide() or self._setup_poll.stop()
+                if os.path.exists(_FLATPAK_SENTINEL) else None
+            )
+            self._setup_poll.start()
 
         self._current = 0
         self._update_nav()
