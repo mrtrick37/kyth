@@ -6567,7 +6567,17 @@ class NetworkSharesPage(Page):
         safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
         if not mount_pt:
             mount_pt = f"/mnt/kyth/{safe_name}"
-        mount_pt = os.path.expanduser(mount_pt)
+        mount_pt = os.path.normpath(os.path.expanduser(mount_pt))
+        # Restrict mount points to safe prefixes — the add-share script runs as
+        # root and creates the directory, so mounting over /etc or /usr would
+        # corrupt the system.
+        _SAFE_MOUNT_PREFIXES = ("/mnt/", "/media/", "/run/media/", "/home/")
+        if not any(mount_pt.startswith(p) for p in _SAFE_MOUNT_PREFIXES):
+            QMessageBox.warning(
+                self, "Invalid Mount Point",
+                "Mount point must be under /mnt/, /media/, /run/media/, or /home/.",
+            )
+            return None
 
         existing = {s["name"] for s in self._shares}
         if safe_name in existing:

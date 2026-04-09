@@ -374,6 +374,10 @@ if [[ -z "${HOMEBREW_TAG}" ]]; then
     echo "ERROR: Could not determine latest Homebrew release tag" >&2
     exit 1
 fi
+if [[ ! "${HOMEBREW_TAG}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    echo "ERROR: Unexpected Homebrew tag format: ${HOMEBREW_TAG}" >&2
+    exit 1
+fi
 echo "Homebrew: installing latest release ${HOMEBREW_TAG}"
 LINUXBREW_HOME="/var/home/linuxbrew"
 # Use /var/home explicitly on ostree/bootc roots; /home may be a symlink that
