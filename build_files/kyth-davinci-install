@@ -62,17 +62,21 @@ mkdir -p "${CACHE_ROOT}"
 
 echo "Using ZIP: ${ZIP_PATH}"
 echo "Preparing the Resolve Flatpak helper sources…"
+# Pinned to a specific commit for supply-chain integrity.
+# To update: verify the new commit in the repo, then change both values.
+RESOLVE_FLATPAK_COMMIT="000efab2df0cc781a47dff13321bfdb688aad14f"  # 2026-03-01
 if [[ -d "${SRC_DIR}/.git" ]]; then
-    if ! git -C "${SRC_DIR}" fetch --depth=1 origin main; then
+    if ! git -C "${SRC_DIR}" fetch --depth=1 origin "${RESOLVE_FLATPAK_COMMIT}"; then
         echo "Warning: couldn't refresh the helper sources, using the cached copy instead."
     else
-        git -C "${SRC_DIR}" reset --hard FETCH_HEAD >/dev/null
+        git -C "${SRC_DIR}" reset --hard "${RESOLVE_FLATPAK_COMMIT}" >/dev/null
     fi
 else
     rm -rf "${SRC_DIR}"
-    git clone --depth=1 --recurse-submodules \
+    git clone --recurse-submodules \
         "https://github.com/pobthebuilder/resolve-flatpak.git" \
         "${SRC_DIR}"
+    git -C "${SRC_DIR}" checkout "${RESOLVE_FLATPAK_COMMIT}"
 fi
 
 if [[ ! -d "${SRC_DIR}/.git" ]]; then

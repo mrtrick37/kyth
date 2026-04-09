@@ -10,6 +10,7 @@ import os
 import sys
 import json
 import re
+import shlex
 import shutil
 import subprocess
 import time
@@ -20,7 +21,7 @@ from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
-    QSizePolicy, QDialog, QCheckBox,
+    QSizePolicy, QDialog, QCheckBox, QComboBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -30,6 +31,8 @@ REGISTRY = "ghcr.io/mrtrick37/kyth"
 _CLOUD_SYNC_CONFIG = os.path.expanduser("~/.config/kyth-cloud-sync.json")
 _SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 _WIZARD_SENTINEL = os.path.expanduser("~/.config/kyth-welcome-done")
+_SMB_CONFIG = os.path.expanduser("~/.config/kyth-smb-shares.json")
+_SMB_CREDS_DIR = "/etc/kyth-smb-creds"
 
 
 def _prefer_xwayland_if_wayland_plugin_missing() -> None:
@@ -603,6 +606,17 @@ QWidget#wizard-footer {
     border-top: 1px solid #1c1c1c;
 }
 
+/* ── First-boot setup banner ─────────────────────────────────────────────── */
+QWidget#setup-banner {
+    background: #0c1320;
+    border-top: 1px solid #1a2a44;
+}
+
+QLabel#setup-banner-label {
+    font-size: 12px;
+    color: #7a9cc8;
+}
+
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
     background: #080808;
@@ -1019,7 +1033,7 @@ def _has_rollback_deployment() -> bool:
 
 
 def _bootc_image_timestamp(section: str) -> str | None:
-    """Return a human-readable build timestamp for 'booted' or 'staged' image."""
+    """Return a human-readable build timestamp for 'booted', 'staged', or 'rollback'."""
     data = _bootc_status_data() or {}
     section_data = _nested_get(data, ("status", section)) or {}
     for path in (("image", "timestamp"), ("timestamp",)):
@@ -1030,6 +1044,23 @@ def _bootc_image_timestamp(section: str) -> str | None:
                 return dt.strftime("%Y-%m-%d %H:%M %Z")
             except Exception:
                 return value.strip()
+    return None
+
+
+def _bootc_image_digest(section: str) -> tuple[str, str] | None:
+    """Return (short, full) sha256 digest for 'booted', 'staged', or 'rollback'. None if unavailable."""
+    data = _bootc_status_data() or {}
+    section_data = _nested_get(data, ("status", section)) or {}
+    for path in (
+        ("image", "imageDigest"),
+        ("image", "digest"),
+        ("imageDigest",),
+        ("digest",),
+    ):
+        value = _nested_get(section_data, path)
+        if isinstance(value, str) and value.startswith("sha256:"):
+            full = value[7:]  # strip "sha256:" prefix
+            return full[:12], full
     return None
 
 
@@ -1119,6 +1150,141 @@ def _save_sync_config(cfg: dict) -> None:
     os.makedirs(os.path.dirname(_CLOUD_SYNC_CONFIG), exist_ok=True)
     with open(_CLOUD_SYNC_CONFIG, "w") as f:
         json.dump(cfg, f, indent=2)
+
+
+# ── SMB/CIFS network share helpers ────────────────────────────────────────────
+
+def _load_smb_config() -> list[dict]:
+    try:
+        with open(_SMB_CONFIG) as f:
+            data = json.load(f)
+            return data if isinstance(data, list) else []
+    except (FileNotFoundError, json.JSONDecodeError):
+        return []
+
+
+def _save_smb_config(shares: list[dict]) -> None:
+    os.makedirs(os.path.dirname(_SMB_CONFIG), exist_ok=True)
+    with open(_SMB_CONFIG, "w") as f:
+        json.dump(shares, f, indent=2)
+
+
+def _systemd_escape_mount_path(path: str) -> str:
+    """Return the systemd .mount unit filename for a given absolute mount path."""
+    try:
+        r = subprocess.run(
+            ["systemd-escape", "--path", "--suffix=mount", path],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            return r.stdout.strip()
+    except Exception:
+        pass
+    # Fallback: strip leading /, replace / with -, append .mount
+    return path.lstrip("/").replace("/", "-") + ".mount"
+
+
+def _is_cifs_available() -> bool:
+    return bool(shutil.which("mount.cifs"))
+
+
+def _is_mounted(path: str) -> bool:
+    try:
+        r = subprocess.run(
+            ["findmnt", "--noheadings", "--target", path],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode == 0 and bool(r.stdout.strip())
+    except Exception:
+        return False
+
+
+def _build_add_share_script(share: dict, mount_now: bool) -> str:
+    import base64 as _b64
+    name       = share["name"]
+    server     = share["server"]
+    share_path = share["share_path"].lstrip("/")
+    mount_pt   = share["mount_point"]
+    username   = share["username"]
+    password   = share.get("password", "")
+    domain     = share.get("domain", "")
+    auto_mount = share.get("auto_mount", False)
+    uid        = os.getuid()
+    gid        = os.getgid()
+
+    unit_name  = _systemd_escape_mount_path(mount_pt)
+    cred_file  = f"{_SMB_CREDS_DIR}/{name}"
+    unc        = f"//{server}/{share_path}"
+    opts       = (
+        f"credentials={cred_file},uid={uid},gid={gid},"
+        "iocharset=utf8,vers=3.0,nofail,_netdev"
+    )
+
+    creds = f"username={username}\npassword={password}\n"
+    if domain:
+        creds += f"domain={domain}\n"
+    creds_b64 = _b64.b64encode(creds.encode()).decode()
+
+    unit = "\n".join([
+        "[Unit]",
+        f"Description=SMB Share {unc}",
+        "After=network-online.target",
+        "Wants=network-online.target",
+        "",
+        "[Mount]",
+        f"What={unc}",
+        f"Where={mount_pt}",
+        "Type=cifs",
+        f"Options={opts}",
+        "TimeoutSec=30",
+        "",
+        "[Install]",
+        "WantedBy=multi-user.target",
+    ])
+    unit_b64 = _b64.b64encode(unit.encode()).decode()
+    creds_dir_q = shlex.quote(_SMB_CREDS_DIR)
+    cred_file_q = shlex.quote(cred_file)
+    mount_pt_q = shlex.quote(mount_pt)
+    unit_path_q = shlex.quote(f"/etc/systemd/system/{unit_name}")
+    unit_name_q = shlex.quote(unit_name)
+
+    lines = [
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f"mkdir -p {creds_dir_q}",
+        f"chmod 700 {creds_dir_q}",
+        f"echo '{creds_b64}' | base64 -d > {cred_file_q}",
+        f"chmod 600 {cred_file_q}",
+        f"mkdir -p {mount_pt_q}",
+        f"echo '{unit_b64}' | base64 -d > {unit_path_q}",
+        "systemctl daemon-reload",
+    ]
+    if auto_mount:
+        lines.append(f"systemctl enable {unit_name_q}")
+    if mount_now:
+        lines.append(f"systemctl start {unit_name_q} || true")
+
+    return "\n".join(lines)
+
+
+def _build_remove_share_script(share: dict) -> str:
+    name      = share["name"]
+    mount_pt  = share["mount_point"]
+    unit_name = _systemd_escape_mount_path(mount_pt)
+    cred_file = f"{_SMB_CREDS_DIR}/{name}"
+    unit_name_q = shlex.quote(unit_name)
+    unit_path_q = shlex.quote(f"/etc/systemd/system/{unit_name}")
+    cred_file_q = shlex.quote(cred_file)
+
+    return "\n".join([
+        "#!/usr/bin/env bash",
+        "set -euo pipefail",
+        f"systemctl stop {unit_name_q} 2>/dev/null || true",
+        f"systemctl disable {unit_name_q} 2>/dev/null || true",
+        f"rm -f {unit_path_q}",
+        "systemctl daemon-reload",
+        f"rm -f {cred_file_q}",
+    ])
 
 
 def _open_terminal_with_cmd(args: list[str], title: str = "") -> bool:
@@ -1687,6 +1853,12 @@ class StatTile(QFrame):
 
 
 # ── Page base ─────────────────────────────────────────────────────────────────
+class _NoAutoScrollArea(QScrollArea):
+    """QScrollArea that does not jump to newly visible/focused child widgets."""
+    def ensureWidgetVisible(self, widget, xmargin=50, ymargin=50):
+        pass  # suppress automatic scroll-to-child on show/focus
+
+
 class Page(QWidget):
     """Base page — provides a scrollable content area with consistent padding."""
     def __init__(self):
@@ -1697,7 +1869,7 @@ class Page(QWidget):
         outer.setContentsMargins(0, 0, 0, 0)
         outer.setSpacing(0)
 
-        scroll = QScrollArea()
+        scroll = _NoAutoScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -1708,7 +1880,9 @@ class Page(QWidget):
         scroll.setWidget(container)
 
         self._layout = QVBoxLayout(container)
-        self._layout.setContentsMargins(60, 48, 60, 52)
+        # Right padding is 60 + 12 to account for the 12 px vertical scrollbar
+        # that overlaps content when the page is taller than the viewport.
+        self._layout.setContentsMargins(60, 48, 72, 52)
         self._layout.setSpacing(26)
 
     def _add(self, widget: QWidget) -> QWidget:
@@ -1901,6 +2075,7 @@ class HardwarePage(Page):
         super().__init__()
         self._worker = None
         self._cards: list[HardwareCard] = []
+        self._last_probes: list[HardwareProbe] = []
 
         self._heading("Hardware")
         self._subheading("Graphics, firmware, connectivity, audio, storage, and platform checks.")
@@ -1930,8 +2105,49 @@ class HardwarePage(Page):
         self._card_col.setContentsMargins(0, 0, 0, 0)
         self._card_col.setSpacing(12)
         self._add(self._card_container)
-        self._stretch()
 
+        # ── Diagnostics Report ────────────────────────────────────────────────
+        self._divider()
+        diag_head = QLabel("Diagnostics Report")
+        diag_head.setObjectName("heading")
+        diag_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(diag_head)
+        diag_sub = QLabel(
+            "A full system report covering all hardware checks above. "
+            "Paste into a bug report or save to a file."
+        )
+        diag_sub.setObjectName("card-copy")
+        diag_sub.setWordWrap(True)
+        self._add(diag_sub)
+
+        diag_btn_row = QHBoxLayout()
+        diag_btn_row.setSpacing(10)
+        self._diag_refresh_btn = QPushButton("Refresh & Regenerate")
+        self._diag_refresh_btn.clicked.connect(self.refresh)
+        diag_btn_row.addWidget(self._diag_refresh_btn)
+        self._diag_copy_btn = QPushButton("Copy Report")
+        self._diag_copy_btn.setEnabled(False)
+        self._diag_copy_btn.clicked.connect(self._copy_diag_report)
+        diag_btn_row.addWidget(self._diag_copy_btn)
+        self._diag_save_btn = QPushButton("Save Report…")
+        self._diag_save_btn.setEnabled(False)
+        self._diag_save_btn.clicked.connect(self._save_diag_report)
+        diag_btn_row.addWidget(self._diag_save_btn)
+        diag_btn_row.addStretch()
+        self._diag_status_lbl = QLabel()
+        self._diag_status_lbl.setObjectName("subheading")
+        diag_btn_row.addWidget(self._diag_status_lbl)
+        self._add_layout(diag_btn_row)
+
+        self._diag_report = QTextEdit()
+        self._diag_report.setReadOnly(True)
+        self._diag_report.setMinimumHeight(260)
+        self._diag_report.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        self._add(self._diag_report)
+
+        self._stretch()
         self.refresh()
 
     def refresh(self):
@@ -1960,28 +2176,70 @@ class HardwarePage(Page):
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
+        self._diag_refresh_btn.setEnabled(True)
         _finish_worker(self)
         self._replace_cards(probes)
+        self._last_probes = probes
 
         levels = {p.status for p in probes}
         if "err" in levels:
             self._status_lbl.setText("One or more issues need attention.")
             self._status_lbl.setObjectName("status-err")
+            self._diag_status_lbl.setText("Issues found — review before filing a bug.")
+            self._diag_status_lbl.setObjectName("status-err")
         elif "warn" in levels:
             self._status_lbl.setText("Mostly healthy — a few items worth checking.")
             self._status_lbl.setObjectName("status-warn")
+            self._diag_status_lbl.setText("Completed with warnings.")
+            self._diag_status_lbl.setObjectName("status-warn")
         else:
             self._status_lbl.setText("All checks passed.")
             self._status_lbl.setObjectName("status-ok")
+            self._diag_status_lbl.setText("All checks passed.")
+            self._diag_status_lbl.setObjectName("status-ok")
         _restyle(self._status_lbl)
+        _restyle(self._diag_status_lbl)
+
+        self._diag_report.setPlainText(_diagnostics_report(probes))
+        self._diag_copy_btn.setEnabled(True)
+        self._diag_save_btn.setEnabled(True)
 
     def _on_failed(self, message: str):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
+        self._diag_refresh_btn.setEnabled(True)
         _finish_worker(self)
         self._status_lbl.setText(f"Probe failed: {message}")
         self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
+        self._diag_status_lbl.setText(f"Failed: {message}")
+        self._diag_status_lbl.setObjectName("status-err")
+        _restyle(self._diag_status_lbl)
+
+    def _copy_diag_report(self):
+        QApplication.clipboard().setText(self._diag_report.toPlainText())
+        self._diag_status_lbl.setText("Report copied to clipboard.")
+        self._diag_status_lbl.setObjectName("status-ok")
+        _restyle(self._diag_status_lbl)
+
+    def _save_diag_report(self):
+        default = os.path.expanduser(
+            f"~/Documents/kyth-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
+        )
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save Diagnostics Report", default, "Text Files (*.txt);;All Files (*)"
+        )
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(self._diag_report.toPlainText())
+            self._diag_status_lbl.setText(f"Saved to {path}.")
+            self._diag_status_lbl.setObjectName("status-ok")
+        except OSError as exc:
+            self._diag_status_lbl.setText(f"Could not save: {exc}")
+            self._diag_status_lbl.setObjectName("status-err")
+        _restyle(self._diag_status_lbl)
 
 
 # ── Page: Diagnostics ─────────────────────────────────────────────────────────
@@ -2127,14 +2385,48 @@ class UpdatePage(Page):
 
         # Status summary
         self._summary_card, summary_layout = _make_card()
-        summary_layout.setSpacing(12)
+        summary_layout.setSpacing(6)
         summary_title = QLabel("System state")
         summary_title.setObjectName("card-title")
         summary_layout.addWidget(summary_title)
-        self._summary_lbl = QLabel()
-        self._summary_lbl.setObjectName("card-copy")
-        self._summary_lbl.setWordWrap(True)
-        summary_layout.addWidget(self._summary_lbl)
+
+        def _state_row(label_text: str) -> tuple[QHBoxLayout, QLabel]:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            key = QLabel(label_text)
+            key.setObjectName("card-copy")
+            key.setStyleSheet("color: #b0bccf; min-width: 72px;")
+            row.addWidget(key)
+            val = QLabel()
+            val.setObjectName("card-copy")
+            val.setStyleSheet("color: #dde6f5;")
+            val.setWordWrap(False)
+            row.addWidget(val, 1)
+            return row, val
+
+        booted_row, self._booted_val   = _state_row("Running:")
+        staged_row, self._staged_val   = _state_row("Staged:")
+        rollback_row, self._rollback_val = _state_row("Rollback:")
+
+        for row in (booted_row, staged_row, rollback_row):
+            summary_layout.addLayout(row)
+
+        # Full bootc status toggle
+        self._details_toggle = QPushButton("Show bootc status")
+        self._details_toggle.setCheckable(True)
+        self._details_toggle.setFlat(True)
+        self._details_toggle.setStyleSheet("color: #5b9cf6; text-align: left; padding: 4px 0;")
+        self._details_log = QTextEdit()
+        self._details_log.setReadOnly(True)
+        self._details_log.setMaximumHeight(160)
+        self._details_log.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        self._details_log.hide()
+        self._details_toggle.clicked.connect(self._toggle_bootc_details)
+        summary_layout.addWidget(self._details_toggle)
+        summary_layout.addWidget(self._details_log)
+
         self._add(self._summary_card)
 
         # Action buttons
@@ -2236,6 +2528,67 @@ class UpdatePage(Page):
         cl_layout.addLayout(cl_btn_row)
         self._add(changelog_card)
 
+        # ── Channel ───────────────────────────────────────────────────────────
+        self._divider()
+        channel_head = QLabel("Channel")
+        channel_head.setObjectName("heading")
+        channel_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(channel_head)
+        channel_sub = QLabel(
+            "Choose which KythOS image stream this system follows. "
+            "Switching downloads the new branch image and stages it for the next reboot."
+        )
+        channel_sub.setObjectName("card-copy")
+        channel_sub.setWordWrap(True)
+        self._add(channel_sub)
+
+        channel_row = QHBoxLayout()
+        channel_row.setSpacing(14)
+
+        stable_card, stable_layout = _make_card()
+        stable_title = QLabel("Stable")
+        stable_title.setObjectName("card-title")
+        stable_layout.addWidget(stable_title)
+        stable_desc = QLabel(
+            "Daily rebuilds from the main branch. Thoroughly tested before tagging.\n"
+            "Recommended for most users."
+        )
+        stable_desc.setObjectName("card-copy")
+        stable_desc.setWordWrap(True)
+        stable_layout.addWidget(stable_desc)
+        self._stable_build_lbl = QLabel()
+        self._stable_build_lbl.setObjectName("card-copy")
+        self._stable_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
+        self._stable_build_lbl.hide()
+        stable_layout.addWidget(self._stable_build_lbl)
+        self._stable_btn = QPushButton("Switch to Stable")
+        self._stable_btn.clicked.connect(lambda: self._run_branch_switch("latest"))
+        stable_layout.addWidget(self._stable_btn)
+        channel_row.addWidget(stable_card, 1)
+
+        testing_card, testing_layout = _make_card()
+        testing_title = QLabel("Testing")
+        testing_title.setObjectName("card-title")
+        testing_layout.addWidget(testing_title)
+        testing_desc = QLabel(
+            "Tracks the testing branch — latest features and changes as they land.\n"
+            "May occasionally be unstable."
+        )
+        testing_desc.setObjectName("card-copy")
+        testing_desc.setWordWrap(True)
+        testing_layout.addWidget(testing_desc)
+        self._testing_build_lbl = QLabel()
+        self._testing_build_lbl.setObjectName("card-copy")
+        self._testing_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
+        self._testing_build_lbl.hide()
+        testing_layout.addWidget(self._testing_build_lbl)
+        self._testing_btn = QPushButton("Switch to Testing")
+        self._testing_btn.clicked.connect(lambda: self._run_branch_switch("testing"))
+        testing_layout.addWidget(self._testing_btn)
+        channel_row.addWidget(testing_card, 1)
+
+        self._add_layout(channel_row)
+
         self._stretch()
 
         self._refresh_summary()
@@ -2243,7 +2596,13 @@ class UpdatePage(Page):
     def _set_buttons_enabled(self, enabled: bool):
         self._topgrade_btn.setEnabled(enabled)
         self._os_btn.setEnabled(enabled)
-        self._rollback_btn.setEnabled(enabled and _has_rollback_deployment())
+        rollback_ok = enabled and _has_rollback_deployment()
+        self._rollback_btn.setEnabled(rollback_ok)
+        # Branch buttons: disable everything during any operation;
+        # _refresh_summary re-enables the non-current one when done.
+        if not enabled:
+            self._stable_btn.setEnabled(False)
+            self._testing_btn.setEnabled(False)
 
     def _set_log_expanded(self, expanded: bool):
         _set_log_panel(self._log_toggle, self._log, expanded)
@@ -2301,6 +2660,15 @@ class UpdatePage(Page):
             "Staging the previous deployment for next boot…",
             ["sudo", "bootc", "rollback"],
             "KythOS is staging a system rollback",
+        )
+
+    def _run_branch_switch(self, tag: str):
+        ref = f"{REGISTRY}:{tag}"
+        self._start_operation(
+            "switch",
+            f"Switching to {_branch_display_name(tag)}…",
+            ["sudo", "bootc", "switch", ref],
+            "KythOS is switching the system branch",
         )
 
     def _on_line(self, text: str):
@@ -2403,6 +2771,11 @@ class UpdatePage(Page):
                 self._status_lbl.setObjectName("status-warn")
                 self._log.append("\nDone. Reboot to switch to the previous deployment.")
                 self._reboot_btn.show()
+            elif self._mode == "switch":
+                self._status_lbl.setText("Branch staged — reboot to apply the new channel.")
+                self._status_lbl.setObjectName("status-ok")
+                self._log.append("\nDone. Reboot to boot into the new branch.")
+                self._reboot_btn.show()
             elif _has_staged_update():
                 self._status_lbl.setText("Update ready — reboot when you want to apply it.")
                 self._status_lbl.setObjectName("status-ok")
@@ -2417,40 +2790,105 @@ class UpdatePage(Page):
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nNo OS image update was staged. System is current.")
         else:
-            label = {"topgrade": "topgrade", "update": "bootc upgrade", "rollback": "bootc rollback"}.get(self._mode, "operation")
+            label = {
+                "topgrade": "topgrade", "update": "bootc upgrade",
+                "rollback": "bootc rollback", "switch": "bootc switch",
+            }.get(self._mode, "operation")
             self._status_lbl.setText(f"{label} failed (exit code {code}).")
             self._status_lbl.setObjectName("status-err")
 
         _restyle(self._status_lbl)
         self._refresh_summary()
 
+    def _toggle_bootc_details(self, checked: bool):
+        if checked:
+            text = _bootc_status_text()
+            self._details_log.setPlainText(text or "(bootc status returned no output)")
+            self._details_log.show()
+            self._details_toggle.setText("Hide bootc status")
+        else:
+            self._details_log.hide()
+            self._details_toggle.setText("Show bootc status")
+
     def _refresh_summary(self):
-        branch = _branch_display_name(_current_branch())
+        tag = _current_branch()
+        branch = _branch_display_name(tag)
         booted_ts = _bootc_image_timestamp("booted")
 
-        parts = [f"Branch: {branch}"]
+        # Running row
+        running_text = branch
         if booted_ts:
-            parts.append(f"Running image built: {booted_ts}")
+            running_text += f"  ·  built {booted_ts}"
+        self._booted_val.setText(running_text)
+
         if self._worker is not None:
-            parts.append("Update in progress…")
-            self._summary_lbl.setText("\n".join(parts))
+            self._staged_val.setText("Update in progress…")
+            self._staged_val.setStyleSheet("")
+            self._rollback_val.setText("—")
             self._rollback_btn.setEnabled(False)
+            self._rollback_btn.setText("Roll Back")
             return
 
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         staged_ts = _bootc_image_timestamp("staged") if staged else None
+        rollback_ts = _bootc_image_timestamp("rollback") if rollback else None
 
+        # Staged row
         if staged:
-            if staged_ts:
-                parts.append(f"Staged image built: {staged_ts} — reboot to apply.")
-            else:
-                parts.append("Update staged — ready for next reboot.")
+            staged_text = f"built {staged_ts}  —  reboot to apply" if staged_ts else "Ready — reboot to apply"
+            self._staged_val.setText(staged_text)
+            self._staged_val.setStyleSheet("color: #5b9cf6;")
         else:
-            parts.append("No update staged right now.")
-        parts.append("Rollback available." if rollback else "No rollback target detected yet.")
-        self._summary_lbl.setText("\n".join(parts))
+            self._staged_val.setText("None")
+            self._staged_val.setStyleSheet("color: #888888;")
+
+        # Rollback row + button label
+        if rollback:
+            rb_text = f"Available  ·  built {rollback_ts}" if rollback_ts else "Available"
+            self._rollback_val.setText(rb_text)
+            self._rollback_val.setStyleSheet("")
+            self._rollback_btn.setText(f"Roll Back  ({rollback_ts})" if rollback_ts else "Roll Back")
+        else:
+            self._rollback_val.setText("None")
+            self._rollback_val.setStyleSheet("color: #888888;")
+            self._rollback_btn.setText("Roll Back")
+
         self._rollback_btn.setEnabled(rollback and self._worker is None)
+
+        # Branch channel cards
+        is_idle = self._worker is None
+        if tag == "latest":
+            self._stable_btn.setObjectName("branch-active")
+            self._stable_btn.setText("On Stable  (current)")
+            self._stable_btn.setEnabled(False)
+            self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
+            self._stable_build_lbl.setVisible(bool(booted_ts))
+            self._testing_btn.setObjectName("branch-inactive")
+            self._testing_btn.setText("Switch to Testing")
+            self._testing_btn.setEnabled(is_idle)
+            self._testing_build_lbl.hide()
+        elif tag == "testing":
+            self._stable_btn.setObjectName("branch-inactive")
+            self._stable_btn.setText("Switch to Stable")
+            self._stable_btn.setEnabled(is_idle)
+            self._stable_build_lbl.hide()
+            self._testing_btn.setObjectName("branch-active")
+            self._testing_btn.setText("On Testing  (current)")
+            self._testing_btn.setEnabled(False)
+            self._testing_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
+            self._testing_build_lbl.setVisible(bool(booted_ts))
+        else:
+            self._stable_btn.setObjectName("branch-inactive")
+            self._stable_btn.setText("Switch to Stable")
+            self._stable_btn.setEnabled(is_idle)
+            self._stable_build_lbl.hide()
+            self._testing_btn.setObjectName("branch-inactive")
+            self._testing_btn.setText("Switch to Testing")
+            self._testing_btn.setEnabled(is_idle)
+            self._testing_build_lbl.hide()
+        _restyle(self._stable_btn)
+        _restyle(self._testing_btn)
 
 
 # ── Page: Branches ────────────────────────────────────────────────────────────
@@ -2472,9 +2910,43 @@ class BranchesPage(Page):
         self._subheading("Choose which KythOS image stream this system follows.")
         self._divider()
 
-        self._current_lbl = QLabel()
-        self._current_lbl.setObjectName("subheading")
-        self._add(self._current_lbl)
+        # Compact current deployment state bar
+        state_card, state_layout = _make_card()
+        state_layout.setSpacing(4)
+        state_top = QHBoxLayout()
+        state_top.setSpacing(16)
+        state_branch_lbl = QLabel("Running:")
+        state_branch_lbl.setObjectName("card-copy")
+        state_branch_lbl.setStyleSheet("color: #888888; min-width: 64px;")
+        state_top.addWidget(state_branch_lbl)
+        self._state_branch_val = QLabel()
+        self._state_branch_val.setObjectName("card-copy")
+        state_top.addWidget(self._state_branch_val, 1)
+        state_layout.addLayout(state_top)
+
+        state_bottom = QHBoxLayout()
+        state_bottom.setSpacing(16)
+        state_digest_lbl = QLabel("Digest:")
+        state_digest_lbl.setObjectName("card-copy")
+        state_digest_lbl.setStyleSheet("color: #888888; min-width: 64px;")
+        state_bottom.addWidget(state_digest_lbl)
+        self._state_digest_val = QLabel()
+        self._state_digest_val.setObjectName("card-copy")
+        self._state_digest_val.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        self._state_digest_val.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        state_bottom.addWidget(self._state_digest_val, 1)
+        self._state_copy_btn = QPushButton("Copy")
+        self._state_copy_btn.setFixedWidth(56)
+        self._state_copy_btn.hide()
+        self._state_digest_full = ""
+        self._state_copy_btn.clicked.connect(
+            lambda: QApplication.clipboard().setText(f"sha256:{self._state_digest_full}")
+        )
+        state_bottom.addWidget(self._state_copy_btn)
+        state_layout.addLayout(state_bottom)
+        self._add(state_card)
 
         # Branch selector cards
         selector_row = QHBoxLayout()
@@ -2484,27 +2956,43 @@ class BranchesPage(Page):
         stable_title = QLabel("Stable")
         stable_title.setObjectName("card-title")
         stable_layout.addWidget(stable_title)
-        stable_desc = QLabel("Thoroughly tested updates.\nRecommended for most users.")
+        stable_desc = QLabel(
+            "Daily rebuilds from the main branch. Thoroughly tested before tagging.\n"
+            "Recommended for most users."
+        )
         stable_desc.setObjectName("card-copy")
         stable_desc.setWordWrap(True)
         stable_layout.addWidget(stable_desc)
+        self._stable_build_lbl = QLabel()
+        self._stable_build_lbl.setObjectName("card-copy")
+        self._stable_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
+        self._stable_build_lbl.hide()
+        stable_layout.addWidget(self._stable_build_lbl)
         self._stable_btn = QPushButton("Switch to Stable")
         self._stable_btn.clicked.connect(lambda: self._switch("latest"))
         stable_layout.addWidget(self._stable_btn)
-        selector_row.addWidget(stable_card)
+        selector_row.addWidget(stable_card, 1)
 
         testing_card, testing_layout = _make_card()
         testing_title = QLabel("Testing")
         testing_title.setObjectName("card-title")
         testing_layout.addWidget(testing_title)
-        testing_desc = QLabel("Latest features and changes.\nMay occasionally be unstable.")
+        testing_desc = QLabel(
+            "Tracks the testing branch — latest features and changes as they land.\n"
+            "May occasionally be unstable."
+        )
         testing_desc.setObjectName("card-copy")
         testing_desc.setWordWrap(True)
         testing_layout.addWidget(testing_desc)
+        self._testing_build_lbl = QLabel()
+        self._testing_build_lbl.setObjectName("card-copy")
+        self._testing_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
+        self._testing_build_lbl.hide()
+        testing_layout.addWidget(self._testing_build_lbl)
         self._testing_btn = QPushButton("Switch to Testing")
         self._testing_btn.clicked.connect(lambda: self._switch("testing"))
         testing_layout.addWidget(self._testing_btn)
-        selector_row.addWidget(testing_card)
+        selector_row.addWidget(testing_card, 1)
 
         self._add_layout(selector_row)
         self._divider()
@@ -2547,23 +3035,48 @@ class BranchesPage(Page):
 
     def _refresh_current(self):
         tag = _current_branch()
-        self._current_lbl.setText(f"Currently on: {_branch_display_name(tag)}")
+        booted_ts = _bootc_image_timestamp("booted")
+        booted_digest = _bootc_image_digest("booted")
 
+        # State bar
+        branch_text = _branch_display_name(tag)
+        if booted_ts:
+            branch_text += f"  ·  built {booted_ts}"
+        self._state_branch_val.setText(branch_text)
+
+        if booted_digest:
+            short, full = booted_digest
+            self._state_digest_val.setText(f"{short}…")
+            self._state_digest_full = full
+            self._state_copy_btn.show()
+        else:
+            self._state_digest_val.setText("—")
+            self._state_copy_btn.hide()
+
+        # Branch cards
         if tag == "latest":
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
+            self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
+            self._stable_build_lbl.setVisible(bool(booted_ts))
             self._testing_btn.setObjectName("branch-inactive")
             self._testing_btn.setText("Switch to Testing")
+            self._testing_build_lbl.hide()
         elif tag == "testing":
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
+            self._stable_build_lbl.hide()
             self._testing_btn.setObjectName("branch-active")
             self._testing_btn.setText("On Testing  (current)")
+            self._testing_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
+            self._testing_build_lbl.setVisible(bool(booted_ts))
         else:
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
+            self._stable_build_lbl.hide()
             self._testing_btn.setObjectName("branch-inactive")
             self._testing_btn.setText("Switch to Testing")
+            self._testing_build_lbl.hide()
 
         _restyle(self._stable_btn)
         _restyle(self._testing_btn)
@@ -3220,28 +3733,30 @@ class GamingPage(Page):
 
         launcher_btns.addStretch()
         launcher_layout.addLayout(launcher_btns)
-        self._add(launcher_card)
 
-        # Shared install progress area
+        # Launcher status / log (used by Open Heroic / Lutris installer buttons)
         self._tool_op_status = QLabel()
         self._tool_op_status.setObjectName("subheading")
         self._tool_op_status.hide()
-        self._add(self._tool_op_status)
+        launcher_layout.addWidget(self._tool_op_status)
         self._tool_progress = QProgressBar()
         self._tool_progress.setRange(0, 0)
         self._tool_progress.hide()
-        self._add(self._tool_progress)
+        launcher_layout.addWidget(self._tool_progress)
         self._tool_log_toggle = QPushButton("Show details")
         self._tool_log_toggle.setCheckable(True)
         self._tool_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked))
         self._tool_log_toggle.hide()
-        self._add(self._tool_log_toggle)
+        launcher_layout.addWidget(self._tool_log_toggle)
         self._tool_log = QTextEdit()
         self._tool_log.setReadOnly(True)
         self._tool_log.setMaximumHeight(120)
         self._tool_log.hide()
-        self._add(self._tool_log)
+        launcher_layout.addWidget(self._tool_log)
+        self._add(launcher_card)
+
         self._tool_worker = None
+        self._active_tool_refs = None
 
         self._divider()
 
@@ -3424,8 +3939,124 @@ class GamingPage(Page):
         )
         self._add(combo_txt)
 
+        # ── Steam Library Migration ────────────────────────────────────────────
+        self._divider()
+        migrate_head = QLabel("Steam Library — Migrate from Windows")
+        migrate_head.setObjectName("heading")
+        migrate_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+        self._add(migrate_head)
+        migrate_sub = QLabel(
+            "Dual-booting? Use this tool to copy your Steam library from a Windows "
+            "NTFS partition directly into Steam on KythOS. The drive is mounted "
+            "read-only — your Windows install is never modified."
+        )
+        migrate_sub.setObjectName("card-copy")
+        migrate_sub.setWordWrap(True)
+        self._add(migrate_sub)
+
+        hibernate_warn = QLabel(
+            "⚠  Before scanning: boot Windows and do a full Shut Down (not Restart). "
+            "Windows Fast Startup leaves NTFS volumes in a hibernated state — Linux "
+            "can read them safely read-only, but Windows may report errors on resume "
+            "if any other tool writes to the partition. This tool never writes to it."
+        )
+        hibernate_warn.setObjectName("card-copy")
+        hibernate_warn.setWordWrap(True)
+        hibernate_warn.setStyleSheet("color: #f0a500; padding: 6px 0;")
+        self._add(hibernate_warn)
+
+        migrate_card, migrate_layout = _make_card()
+
+        # Drive selection
+        drive_row = QHBoxLayout()
+        drive_row.setSpacing(8)
+        drive_lbl = QLabel("Windows drive:")
+        drive_lbl.setObjectName("card-copy")
+        drive_row.addWidget(drive_lbl)
+        self._drive_combo = QComboBox()
+        self._drive_combo.setMinimumWidth(280)
+        drive_row.addWidget(self._drive_combo)
+        migrate_refresh_btn = QPushButton("Refresh")
+        migrate_refresh_btn.clicked.connect(self._refresh_ntfs_drives)
+        drive_row.addWidget(migrate_refresh_btn)
+        migrate_scan_btn = QPushButton("Scan for Steam")
+        migrate_scan_btn.setObjectName("primary")
+        migrate_scan_btn.clicked.connect(self._scan_steam_on_drive)
+        drive_row.addWidget(migrate_scan_btn)
+        drive_row.addStretch()
+        migrate_layout.addLayout(drive_row)
+
+        self._migrate_found_lbl = QLabel("Select a drive above and click Scan for Steam.")
+        self._migrate_found_lbl.setObjectName("card-copy")
+        self._migrate_found_lbl.setWordWrap(True)
+        migrate_layout.addWidget(self._migrate_found_lbl)
+
+        self._lib_combo = QComboBox()
+        self._lib_combo.setMinimumWidth(400)
+        self._lib_combo.hide()
+        migrate_layout.addWidget(self._lib_combo)
+
+        # Destination
+        dst_row = QHBoxLayout()
+        dst_row.setSpacing(8)
+        dst_lbl = QLabel("Copy to:")
+        dst_lbl.setObjectName("card-copy")
+        dst_row.addWidget(dst_lbl)
+        self._migrate_dst_edit = QLineEdit(
+            os.path.expanduser("~/.local/share/Steam/steamapps")
+        )
+        dst_row.addWidget(self._migrate_dst_edit, 1)
+        browse_btn = QPushButton("Browse…")
+        browse_btn.clicked.connect(self._browse_migrate_dst)
+        dst_row.addWidget(browse_btn)
+        migrate_layout.addLayout(dst_row)
+
+        # Copy controls
+        copy_btn_row = QHBoxLayout()
+        copy_btn_row.setSpacing(8)
+        self._copy_btn = QPushButton("Copy Library")
+        self._copy_btn.setObjectName("primary")
+        self._copy_btn.setEnabled(False)
+        self._copy_btn.clicked.connect(self._start_steam_copy)
+        copy_btn_row.addWidget(self._copy_btn)
+        self._copy_cancel_btn = QPushButton("Cancel")
+        self._copy_cancel_btn.hide()
+        self._copy_cancel_btn.clicked.connect(self._cancel_steam_copy)
+        copy_btn_row.addWidget(self._copy_cancel_btn)
+        copy_btn_row.addStretch()
+        migrate_layout.addLayout(copy_btn_row)
+
+        self._migrate_status = QLabel()
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.hide()
+        migrate_layout.addWidget(self._migrate_status)
+
+        self._migrate_progress = QProgressBar()
+        self._migrate_progress.setRange(0, 0)
+        self._migrate_progress.hide()
+        migrate_layout.addWidget(self._migrate_progress)
+
+        self._migrate_log_toggle = QPushButton("Show details")
+        self._migrate_log_toggle.setCheckable(True)
+        self._migrate_log_toggle.hide()
+        self._migrate_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._migrate_log_toggle, self._migrate_log, checked)
+        )
+        migrate_layout.addWidget(self._migrate_log_toggle)
+
+        self._migrate_log = QTextEdit()
+        self._migrate_log.setReadOnly(True)
+        self._migrate_log.setMaximumHeight(140)
+        self._migrate_log.hide()
+        migrate_layout.addWidget(self._migrate_log)
+
+        self._add(migrate_card)
+        self._migrate_worker = None
+        self._scanned_mount = None
+
         self._stretch()
         self._refresh_status()
+        self._refresh_ntfs_drives()
 
     # ── Tool tile builder ──────────────────────────────────────────────────────
 
@@ -3433,16 +4064,9 @@ class GamingPage(Page):
         card, layout = _make_card()
         layout.setSpacing(8)
 
-        top = QHBoxLayout()
-        top.setSpacing(8)
         name_lbl = QLabel(tool["name"])
         name_lbl.setObjectName("card-title")
-        top.addWidget(name_lbl)
-        top.addStretch()
-        badge = QLabel()
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        top.addWidget(badge)
-        layout.addLayout(top)
+        layout.addWidget(name_lbl)
 
         desc_lbl = QLabel(tool["desc"])
         desc_lbl.setObjectName("card-copy")
@@ -3463,10 +4087,43 @@ class GamingPage(Page):
             lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
         )
         btn_row.addWidget(launch_btn)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.hide()
+        uninstall_btn.clicked.connect(
+            lambda _=False, t=tool: self._uninstall_tool(t)
+        )
+        btn_row.addWidget(uninstall_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
 
-        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+        status_lbl = QLabel()
+        status_lbl.setObjectName("subheading")
+        status_lbl.hide()
+        layout.addWidget(status_lbl)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.hide()
+        layout.addWidget(progress)
+
+        log_toggle = QPushButton("Show details")
+        log_toggle.setCheckable(True)
+        log_toggle.hide()
+        layout.addWidget(log_toggle)
+
+        log = QTextEdit()
+        log.setReadOnly(True)
+        log.setMaximumHeight(100)
+        log.hide()
+        layout.addWidget(log)
+
+        log_toggle.clicked.connect(lambda checked, lt=log_toggle, lg=log: _set_log_panel(lt, lg, checked))
+
+        refs = {
+            "tool": tool, "install": install_btn, "launch": launch_btn, "uninstall": uninstall_btn,
+            "status": status_lbl, "progress": progress, "log_toggle": log_toggle, "log": log,
+        }
         return card, refs
 
     # ── Status ─────────────────────────────────────────────────────────────────
@@ -3485,9 +4142,9 @@ class GamingPage(Page):
 
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
-            _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
+            refs["uninstall"].setVisible(installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
 
@@ -3608,6 +4265,29 @@ class GamingPage(Page):
             )
             return
 
+        if not shutil.which("umu-run"):
+            if self._tool_worker and self._tool_worker.isRunning():
+                return
+            self._tool_log.clear()
+            self._tool_log.append("→ ujust install-umu\n")
+            self._tool_log_toggle.show()
+            _set_log_panel(self._tool_log_toggle, self._tool_log, False)
+            self._tool_progress.show()
+            self._tool_op_status.setText("umu-launcher not found — installing automatically…")
+            self._tool_op_status.setObjectName("subheading")
+            self._tool_op_status.show()
+            _restyle(self._tool_op_status)
+            self._tool_worker = Worker(["ujust", "install-umu"])
+            self._tool_worker.line.connect(lambda ln: (
+                self._tool_log.append(ln),
+                self._tool_log.ensureCursorVisible(),
+            ))
+            self._tool_worker.done.connect(
+                lambda code, t=target, n=name: self._on_umu_install_done(code, t, n)
+            )
+            self._tool_worker.start()
+            return
+
         self._tool_log.clear()
         if target == "epic-games-store" and not self._prepare_epic_lutris_install():
             return
@@ -3636,28 +4316,46 @@ class GamingPage(Page):
             _restyle(self._tool_op_status)
             QMessageBox.warning(self, f"{name} installer", str(exc))
 
+    def _on_umu_install_done(self, code: int, target: str, name: str):
+        self._tool_progress.hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code != 0:
+            self._tool_op_status.setText("umu-launcher installation failed.")
+            self._tool_op_status.setObjectName("status-err")
+            _restyle(self._tool_op_status)
+            return
+        self._tool_log.append("\numu-launcher installed. Proceeding with installer…")
+        self._launch_lutris_installer(target, name)
+
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
             return
-        # Disable all install buttons while one is running
+        active_refs = next(r for r in self._tool_refs if r["tool"] is tool)
+        self._active_tool_refs = active_refs
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
-        self._tool_log.clear()
-        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
-        self._tool_log_toggle.show()
-        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
-        self._tool_progress.show()
-        self._tool_op_status.setText(f"Installing {tool['name']}…")
-        self._tool_op_status.setObjectName("subheading")
-        self._tool_op_status.show()
-        _restyle(self._tool_op_status)
-
-        self._tool_worker = Worker(
-            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
-        )
+            refs["uninstall"].setEnabled(False)
+        log = active_refs["log"]
+        log_toggle = active_refs["log_toggle"]
+        progress = active_refs["progress"]
+        status_lbl = active_refs["status"]
+        log.clear()
+        log.append(f"→ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo\n→ flatpak install -y flathub {tool['flatpak']}\n")
+        log_toggle.show()
+        _set_log_panel(log_toggle, log, False)
+        progress.show()
+        status_lbl.setText(f"Installing {tool['name']}…")
+        status_lbl.setObjectName("subheading")
+        status_lbl.show()
+        _restyle(status_lbl)
+        self._tool_worker = Worker([
+            "bash", "-c",
+            f"flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            f" && flatpak install -y flathub {tool['flatpak']}",
+        ])
         self._tool_worker.line.connect(lambda ln: (
-            self._tool_log.append(ln),
-            self._tool_log.ensureCursorVisible(),
+            log.append(ln),
+            log.ensureCursorVisible(),
         ))
         self._tool_worker.done.connect(
             lambda code, name=tool["name"]: self._on_tool_install_done(code, name)
@@ -3665,18 +4363,77 @@ class GamingPage(Page):
         self._tool_worker.start()
 
     def _on_tool_install_done(self, code: int, name: str):
-        self._tool_progress.hide()
+        active_refs = self._active_tool_refs
+        active_refs["progress"].hide()
         _finish_worker(self, attr="_tool_worker")
         if code == 0:
-            self._tool_op_status.setText(f"{name} installed.")
-            self._tool_op_status.setObjectName("status-ok")
-            self._tool_log.append("\nDone.")
+            active_refs["status"].setText(f"{name} installed.")
+            active_refs["status"].setObjectName("status-ok")
+            active_refs["log"].append("\nDone.")
         else:
-            self._tool_op_status.setText(f"Installation failed (exit {code}).")
-            self._tool_op_status.setObjectName("status-err")
-        _restyle(self._tool_op_status)
+            active_refs["status"].setText(f"Installation failed (exit {code}).")
+            active_refs["status"].setObjectName("status-err")
+        _restyle(active_refs["status"])
         for refs in self._tool_refs:
             refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
+        self._refresh_status()
+
+    def _uninstall_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        reply = QMessageBox.question(
+            self, f"Uninstall {tool['name']}",
+            f"Remove {tool['name']}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        active_refs = next(r for r in self._tool_refs if r["tool"] is tool)
+        self._active_tool_refs = active_refs
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
+        log = active_refs["log"]
+        log_toggle = active_refs["log_toggle"]
+        progress = active_refs["progress"]
+        status_lbl = active_refs["status"]
+        log.clear()
+        log.append(f"→ flatpak uninstall -y {tool['flatpak']}\n")
+        log_toggle.show()
+        _set_log_panel(log_toggle, log, False)
+        progress.show()
+        status_lbl.setText(f"Uninstalling {tool['name']}…")
+        status_lbl.setObjectName("subheading")
+        status_lbl.show()
+        _restyle(status_lbl)
+        self._tool_worker = Worker(
+            ["flatpak", "uninstall", "-y", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            log.append(ln),
+            log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_uninstall_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_uninstall_done(self, code: int, name: str):
+        active_refs = self._active_tool_refs
+        active_refs["progress"].hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code == 0:
+            active_refs["status"].setText(f"{name} uninstalled.")
+            active_refs["status"].setObjectName("status-ok")
+            active_refs["log"].append("\nDone.")
+        else:
+            active_refs["status"].setText(f"Uninstall failed (exit {code}).")
+            active_refs["status"].setObjectName("status-err")
+        _restyle(active_refs["status"])
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
         self._refresh_status()
 
     # ── GE-Proton update ───────────────────────────────────────────────────────
@@ -3715,6 +4472,249 @@ class GamingPage(Page):
             self._gp_op_status.setObjectName("status-err")
         _restyle(self._gp_op_status)
         self._refresh_status()
+
+    # ── Steam migration ────────────────────────────────────────────────────────
+
+    def _refresh_ntfs_drives(self):
+        self._drive_combo.clear()
+        drives = _find_ntfs_drives()
+        if not drives:
+            self._drive_combo.addItem("No NTFS partitions found")
+            return
+        for d in drives:
+            label = f"{d['dev']}  {d['size']}  {d['label'] or '(no label)'}"
+            if d["mount"]:
+                label += f"  [mounted at {d['mount']}]"
+            self._drive_combo.addItem(label, userData=d)
+
+    def _scan_steam_on_drive(self):
+        drive = self._drive_combo.currentData()
+        if not drive:
+            return
+
+        mount = drive["mount"]
+
+        if not mount:
+            self._migrate_status.setText(f"Mounting {drive['dev']}…")
+            self._migrate_status.setObjectName("subheading")
+            self._migrate_status.show()
+            _restyle(self._migrate_status)
+            QApplication.processEvents()
+            try:
+                r = subprocess.run(
+                    ["udisksctl", "mount", "-b", drive["dev"],
+                     "--options", "ro", "--no-user-interaction"],
+                    capture_output=True, text=True, timeout=15,
+                )
+                if r.returncode != 0:
+                    err = r.stderr.strip()
+                    if "hibernate" in err.lower() or "windows" in err.lower():
+                        self._migrate_status.setText(
+                            "Mount blocked: Windows did not shut down cleanly (Fast Startup / hibernate). "
+                            "Boot Windows and do a full Shut Down, then try again."
+                        )
+                    else:
+                        self._migrate_status.setText(f"Mount failed: {err}")
+                    self._migrate_status.setObjectName("status-err")
+                    _restyle(self._migrate_status)
+                    return
+                # udisksctl prints: "Mounted /dev/sdX1 at /run/media/user/Label."
+                m = re.search(r" at (.+?)\.$", r.stdout.strip())
+                mount = m.group(1) if m else None
+                if not mount:
+                    self._migrate_status.setText("Could not determine mount point from udisksctl output.")
+                    self._migrate_status.setObjectName("status-err")
+                    _restyle(self._migrate_status)
+                    return
+            except Exception as exc:
+                self._migrate_status.setText(f"Mount error: {exc}")
+                self._migrate_status.setObjectName("status-err")
+                _restyle(self._migrate_status)
+                return
+
+        self._scanned_mount = mount
+        self._migrate_status.setText(f"Scanning {mount} for Steam libraries…")
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.show()
+        _restyle(self._migrate_status)
+        QApplication.processEvents()
+
+        libs = _find_steam_libraries(mount)
+        self._lib_combo.clear()
+        if not libs:
+            self._migrate_found_lbl.setText(f"No Steam libraries found on {mount}.")
+            self._lib_combo.hide()
+            self._copy_btn.setEnabled(False)
+            self._migrate_status.setText("No Steam libraries found on this drive.")
+            self._migrate_status.setObjectName("status-err")
+            _restyle(self._migrate_status)
+            return
+
+        for lib in libs:
+            self._lib_combo.addItem(lib)
+        self._lib_combo.show()
+        self._migrate_found_lbl.setText(f"Found {len(libs)} steamapps folder(s) — select one:")
+        self._copy_btn.setEnabled(True)
+        self._migrate_status.setText(f"Found {len(libs)} folder(s). Select one and click Copy Library.")
+        self._migrate_status.setObjectName("status-ok")
+        _restyle(self._migrate_status)
+
+    def _browse_migrate_dst(self):
+        path = QFileDialog.getExistingDirectory(
+            self, "Select destination steamapps folder", self._migrate_dst_edit.text()
+        )
+        if path:
+            self._migrate_dst_edit.setText(path)
+
+    def _start_steam_copy(self):
+        if self._migrate_worker and self._migrate_worker.isRunning():
+            return
+        src = self._lib_combo.currentText().strip()
+        dst = self._migrate_dst_edit.text().strip()
+        if not src or not dst:
+            return
+        self._migrate_log.clear()
+        self._migrate_log_toggle.show()
+        _set_log_panel(self._migrate_log_toggle, self._migrate_log, False)
+        self._migrate_progress.show()
+        self._migrate_status.setText(f"Copying {src} → {dst}…")
+        self._migrate_status.setObjectName("subheading")
+        self._migrate_status.show()
+        _restyle(self._migrate_status)
+        self._copy_btn.setEnabled(False)
+        self._copy_cancel_btn.show()
+        self._migrate_worker = SteamCopyWorker(src, dst)
+        self._migrate_worker.line.connect(lambda ln: (
+            self._migrate_log.append(ln),
+            self._migrate_log.ensureCursorVisible(),
+        ))
+        self._migrate_worker.done.connect(self._on_steam_copy_done)
+        self._migrate_worker.start()
+
+    def _cancel_steam_copy(self):
+        if self._migrate_worker and self._migrate_worker.isRunning():
+            self._migrate_worker.stop()
+
+    def _on_steam_copy_done(self, code: int):
+        self._migrate_progress.hide()
+        self._copy_cancel_btn.hide()
+        self._copy_btn.setEnabled(True)
+        if code == 0:
+            self._migrate_status.setText("Steam library copied successfully.")
+            self._migrate_status.setObjectName("status-ok")
+            self._migrate_log.append(
+                "\nDone. You may need to add this folder as a Steam library in "
+                "Steam → Settings → Storage."
+            )
+        else:
+            self._migrate_status.setText(f"Copy failed (exit {code}). See details.")
+            self._migrate_status.setObjectName("status-err")
+        _restyle(self._migrate_status)
+        _set_log_panel(self._migrate_log_toggle, self._migrate_log, True)
+
+
+# ── NTFS / Steam migration helpers ───────────────────────────────────────────
+
+def _find_ntfs_drives() -> list[dict]:
+    """Return a list of NTFS partitions visible to lsblk."""
+    try:
+        r = subprocess.run(
+            ["lsblk", "--json", "--output", "NAME,FSTYPE,SIZE,LABEL,MOUNTPOINT,PATH"],
+            capture_output=True, text=True, timeout=10,
+        )
+        data = json.loads(r.stdout)
+    except Exception:
+        return []
+
+    results: list[dict] = []
+
+    def _walk(devices: list):
+        for dev in devices:
+            if dev.get("fstype") in ("ntfs", "ntfs3"):
+                results.append({
+                    "dev":   dev.get("path") or f"/dev/{dev['name']}",
+                    "name":  dev["name"],
+                    "size":  dev.get("size", "?"),
+                    "label": dev.get("label") or "",
+                    "mount": dev.get("mountpoint") or "",
+                })
+            _walk(dev.get("children") or [])
+
+    _walk(data.get("blockdevices", []))
+    return results
+
+
+def _find_steam_libraries(mount_point: str) -> list[str]:
+    """Scan a mounted NTFS drive for steamapps directories."""
+    found: list[str] = []
+    # Known Windows Steam install locations
+    candidates = [
+        os.path.join(mount_point, "Program Files (x86)", "Steam", "steamapps"),
+        os.path.join(mount_point, "Program Files", "Steam", "steamapps"),
+        os.path.join(mount_point, "SteamLibrary", "steamapps"),
+        os.path.join(mount_point, "Steam", "steamapps"),
+        os.path.join(mount_point, "Games", "Steam", "steamapps"),
+        os.path.join(mount_point, "Games", "SteamLibrary", "steamapps"),
+    ]
+    for path in candidates:
+        if os.path.isdir(path):
+            found.append(path)
+    # Shallow scan: check one level of subdirs for SteamLibrary/steamapps patterns
+    try:
+        for entry in os.scandir(mount_point):
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            for sub in (
+                os.path.join(entry.path, "steamapps"),
+                os.path.join(entry.path, "SteamLibrary", "steamapps"),
+            ):
+                if os.path.isdir(sub) and sub not in found:
+                    found.append(sub)
+    except (PermissionError, OSError):
+        pass
+    return found
+
+
+class SteamCopyWorker(QThread):
+    """Copies a steamapps directory using rsync, streaming output line-by-line."""
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def __init__(self, src: str, dst: str):
+        super().__init__()
+        self._src = src
+        self._dst = dst
+        self._proc = None
+
+    def stop(self):
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+    def run(self):
+        try:
+            os.makedirs(self._dst, exist_ok=True)
+        except OSError as exc:
+            self.line.emit(f"Error creating destination: {exc}")
+            self.done.emit(1)
+            return
+        cmd = [
+            "rsync", "-a", "--info=name1,progress2", "--no-inc-recursive",
+            self._src.rstrip("/") + "/",
+            self._dst.rstrip("/") + "/",
+        ]
+        self.line.emit(f"→ {' '.join(cmd)}\n")
+        try:
+            self._proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, bufsize=1,
+            )
+            for ln in self._proc.stdout:
+                self.line.emit(ln.rstrip())
+            self._proc.wait()
+            self.done.emit(self._proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
 
 
 def _launch_opt_label(text: str) -> QLabel:
@@ -4660,24 +5660,14 @@ class CloudStoragePage(Page):
     def _install_rclone(self):
         self._gd_install_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ Downloading rclone binary from rclone.org…\n")
+        self._log.append("→ Running /usr/bin/kyth-rclone-update (pinned + verified)…\n")
         self._log.show()
         self._progress.show()
         self._op_status.setText("Installing rclone…")
         self._op_status.setObjectName("subheading")
         self._op_status.show()
         _restyle(self._op_status)
-        # Download the current rclone binary directly — no rpm-ostree, no reboot needed.
-        # Installs to /usr/local/bin which is a writable overlay on bootc systems.
-        install_cmd = (
-            "set -euo pipefail && "
-            "cd /tmp && "
-            "curl -fsSL 'https://downloads.rclone.org/rclone-current-linux-amd64.zip' -o rclone-dl.zip && "
-            "unzip -o rclone-dl.zip 'rclone-*-linux-amd64/rclone' && "
-            "install -m 755 rclone-*-linux-amd64/rclone /usr/local/bin/rclone && "
-            "rm -rf rclone-dl.zip rclone-*-linux-amd64"
-        )
-        self._worker = Worker(["sudo", "-A", "bash", "-c", install_cmd])
+        self._worker = Worker(["sudo", "-A", "/usr/bin/kyth-rclone-update"])
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_rclone_install_done)
         self._worker.start()
@@ -4802,26 +5792,7 @@ class ContentCreationPage(Page):
                 row_layout.addStretch(1)
             self._add_layout(row_layout)
 
-        self._tool_op_status = QLabel()
-        self._tool_op_status.setObjectName("subheading")
-        self._tool_op_status.hide()
-        self._add(self._tool_op_status)
-        self._tool_progress = QProgressBar()
-        self._tool_progress.setRange(0, 0)
-        self._tool_progress.hide()
-        self._add(self._tool_progress)
-        self._tool_log_toggle = QPushButton("Show details")
-        self._tool_log_toggle.setCheckable(True)
-        self._tool_log_toggle.clicked.connect(
-            lambda checked: _set_log_panel(self._tool_log_toggle, self._tool_log, checked)
-        )
-        self._tool_log_toggle.hide()
-        self._add(self._tool_log_toggle)
-        self._tool_log = QTextEdit()
-        self._tool_log.setReadOnly(True)
-        self._tool_log.setMaximumHeight(120)
-        self._tool_log.hide()
-        self._add(self._tool_log)
+        self._active_tool_refs = None
 
         # ── DaVinci Resolve ───────────────────────────────────────────────────
         self._divider()
@@ -4910,16 +5881,9 @@ class ContentCreationPage(Page):
     def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
         card, layout = _make_card()
         layout.setSpacing(8)
-        top = QHBoxLayout()
-        top.setSpacing(8)
         name_lbl = QLabel(tool["name"])
         name_lbl.setObjectName("card-title")
-        top.addWidget(name_lbl)
-        top.addStretch()
-        badge = QLabel()
-        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        top.addWidget(badge)
-        layout.addLayout(top)
+        layout.addWidget(name_lbl)
         desc_lbl = QLabel(tool["desc"])
         desc_lbl.setObjectName("card-copy")
         desc_lbl.setWordWrap(True)
@@ -4936,9 +5900,43 @@ class ContentCreationPage(Page):
             lambda _=False, cmd=tool["launch"]: subprocess.Popen(cmd)
         )
         btn_row.addWidget(launch_btn)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.hide()
+        uninstall_btn.clicked.connect(
+            lambda _=False, t=tool: self._uninstall_tool(t)
+        )
+        btn_row.addWidget(uninstall_btn)
         btn_row.addStretch()
         layout.addLayout(btn_row)
-        refs = {"tool": tool, "badge": badge, "install": install_btn, "launch": launch_btn}
+
+        status_lbl = QLabel()
+        status_lbl.setObjectName("subheading")
+        status_lbl.hide()
+        layout.addWidget(status_lbl)
+
+        progress = QProgressBar()
+        progress.setRange(0, 0)
+        progress.hide()
+        layout.addWidget(progress)
+
+        log_toggle = QPushButton("Show details")
+        log_toggle.setCheckable(True)
+        log_toggle.hide()
+        layout.addWidget(log_toggle)
+
+        log = QTextEdit()
+        log.setReadOnly(True)
+        log.setMaximumHeight(100)
+        log.hide()
+        layout.addWidget(log)
+
+        log_toggle.clicked.connect(lambda checked, lt=log_toggle, lg=log: _set_log_panel(lt, lg, checked))
+
+        refs = {
+            "tool": tool, "install": install_btn, "launch": launch_btn, "uninstall": uninstall_btn,
+            "status": status_lbl, "progress": progress, "log_toggle": log_toggle, "log": log,
+        }
         return card, refs
 
     # ── Status ─────────────────────────────────────────────────────────────────
@@ -4946,9 +5944,9 @@ class ContentCreationPage(Page):
     def _refresh_status(self):
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
-            _apply_install_badge(refs["badge"], installed)
             refs["install"].setVisible(not installed)
             refs["launch"].setVisible(installed)
+            refs["uninstall"].setVisible(installed)
 
         dv_installed = _davinci_flatpak_app_id() is not None
         _apply_install_badge(self._dv_badge, dv_installed)
@@ -4961,24 +5959,33 @@ class ContentCreationPage(Page):
     def _install_tool(self, tool: dict):
         if self._tool_worker and self._tool_worker.isRunning():
             return
+        active_refs = next(r for r in self._tool_refs if r["tool"] is tool)
+        self._active_tool_refs = active_refs
         for refs in self._tool_refs:
             refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
         self._dv_install_btn.setEnabled(False)
-        self._tool_log.clear()
-        self._tool_log.append(f"→ flatpak install -y --user flathub {tool['flatpak']}\n")
-        self._tool_log_toggle.show()
-        _set_log_panel(self._tool_log_toggle, self._tool_log, False)
-        self._tool_progress.show()
-        self._tool_op_status.setText(f"Installing {tool['name']}…")
-        self._tool_op_status.setObjectName("subheading")
-        self._tool_op_status.show()
-        _restyle(self._tool_op_status)
-        self._tool_worker = Worker(
-            ["flatpak", "install", "-y", "--user", "flathub", tool["flatpak"]]
-        )
+        log = active_refs["log"]
+        log_toggle = active_refs["log_toggle"]
+        progress = active_refs["progress"]
+        status_lbl = active_refs["status"]
+        log.clear()
+        log.append(f"→ flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo\n→ flatpak install -y flathub {tool['flatpak']}\n")
+        log_toggle.show()
+        _set_log_panel(log_toggle, log, False)
+        progress.show()
+        status_lbl.setText(f"Installing {tool['name']}…")
+        status_lbl.setObjectName("subheading")
+        status_lbl.show()
+        _restyle(status_lbl)
+        self._tool_worker = Worker([
+            "bash", "-c",
+            f"flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            f" && flatpak install -y flathub {tool['flatpak']}",
+        ])
         self._tool_worker.line.connect(lambda ln: (
-            self._tool_log.append(ln),
-            self._tool_log.ensureCursorVisible(),
+            log.append(ln),
+            log.ensureCursorVisible(),
         ))
         self._tool_worker.done.connect(
             lambda code, name=tool["name"]: self._on_tool_install_done(code, name)
@@ -4986,19 +5993,80 @@ class ContentCreationPage(Page):
         self._tool_worker.start()
 
     def _on_tool_install_done(self, code: int, name: str):
-        self._tool_progress.hide()
+        active_refs = self._active_tool_refs
+        active_refs["progress"].hide()
         _finish_worker(self, attr="_tool_worker")
         for refs in self._tool_refs:
             refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
         self._dv_install_btn.setEnabled(True)
         if code == 0:
-            self._tool_op_status.setText(f"{name} installed.")
-            self._tool_op_status.setObjectName("status-ok")
-            self._tool_log.append("\nDone.")
+            active_refs["status"].setText(f"{name} installed.")
+            active_refs["status"].setObjectName("status-ok")
+            active_refs["log"].append("\nDone.")
         else:
-            self._tool_op_status.setText(f"Installation failed (exit {code}).")
-            self._tool_op_status.setObjectName("status-err")
-        _restyle(self._tool_op_status)
+            active_refs["status"].setText(f"Installation failed (exit {code}).")
+            active_refs["status"].setObjectName("status-err")
+        _restyle(active_refs["status"])
+        self._refresh_status()
+
+    def _uninstall_tool(self, tool: dict):
+        if self._tool_worker and self._tool_worker.isRunning():
+            return
+        reply = QMessageBox.question(
+            self, f"Uninstall {tool['name']}",
+            f"Remove {tool['name']}?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        active_refs = next(r for r in self._tool_refs if r["tool"] is tool)
+        self._active_tool_refs = active_refs
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(False)
+            refs["uninstall"].setEnabled(False)
+        self._dv_install_btn.setEnabled(False)
+        log = active_refs["log"]
+        log_toggle = active_refs["log_toggle"]
+        progress = active_refs["progress"]
+        status_lbl = active_refs["status"]
+        log.clear()
+        log.append(f"→ flatpak uninstall -y {tool['flatpak']}\n")
+        log_toggle.show()
+        _set_log_panel(log_toggle, log, False)
+        progress.show()
+        status_lbl.setText(f"Uninstalling {tool['name']}…")
+        status_lbl.setObjectName("subheading")
+        status_lbl.show()
+        _restyle(status_lbl)
+        self._tool_worker = Worker(
+            ["flatpak", "uninstall", "-y", tool["flatpak"]]
+        )
+        self._tool_worker.line.connect(lambda ln: (
+            log.append(ln),
+            log.ensureCursorVisible(),
+        ))
+        self._tool_worker.done.connect(
+            lambda code, name=tool["name"]: self._on_tool_uninstall_done(code, name)
+        )
+        self._tool_worker.start()
+
+    def _on_tool_uninstall_done(self, code: int, name: str):
+        active_refs = self._active_tool_refs
+        active_refs["progress"].hide()
+        _finish_worker(self, attr="_tool_worker")
+        if code == 0:
+            active_refs["status"].setText(f"{name} uninstalled.")
+            active_refs["status"].setObjectName("status-ok")
+            active_refs["log"].append("\nDone.")
+        else:
+            active_refs["status"].setText(f"Uninstall failed (exit {code}).")
+            active_refs["status"].setObjectName("status-err")
+        _restyle(active_refs["status"])
+        for refs in self._tool_refs:
+            refs["install"].setEnabled(True)
+            refs["uninstall"].setEnabled(True)
+        self._dv_install_btn.setEnabled(True)
         self._refresh_status()
 
     # ── DaVinci Resolve install ────────────────────────────────────────────────
@@ -5246,6 +6314,405 @@ class SoftwarePage(Page):
                     pass
 
 
+# ── Page: Network Shares ──────────────────────────────────────────────────────
+class NetworkSharesPage(Page):
+    """Mount and manage Windows network shares (SMB/CIFS)."""
+
+    def __init__(self):
+        super().__init__()
+        self._worker: Worker | None = None
+        self._shares: list[dict] = _load_smb_config()
+
+        badge = QLabel("PRODUCTIVITY")
+        badge.setObjectName("eyebrow")
+        self._add(badge)
+
+        self._heading("Network Shares")
+        self._subheading(
+            "Mount Windows file shares (SMB/CIFS) and access them as local folders. "
+            "Shares can auto-mount at boot so they are always available."
+        )
+        self._divider()
+
+        # ── cifs-utils warning (shown only when missing) ───────────────────────
+        self._cifs_warn, cw_layout = _make_card("card-accent-warn")
+        cw_title = QLabel("cifs-utils not installed")
+        cw_title.setObjectName("card-title")
+        cw_layout.addWidget(cw_title)
+        cw_body = QLabel(
+            "The mount.cifs helper is missing. It will be present after the next OS update "
+            "(cifs-utils has been added to the image). You can still configure shares now; "
+            "mounting will work once the image is applied."
+        )
+        cw_body.setObjectName("card-copy")
+        cw_body.setWordWrap(True)
+        cw_layout.addWidget(cw_body)
+        self._add(self._cifs_warn)
+
+        # ── Add share form ────────────────────────────────────────────────────
+        add_card, add_layout = _make_card()
+        add_title = QLabel("Add a Network Share")
+        add_title.setObjectName("card-title")
+        add_layout.addWidget(add_title)
+        add_desc = QLabel(
+            "Enter the share details. A password prompt will appear to apply system changes."
+        )
+        add_desc.setObjectName("card-copy")
+        add_desc.setWordWrap(True)
+        add_layout.addWidget(add_desc)
+
+        form_row = QHBoxLayout()
+        form_row.setSpacing(20)
+
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        right = QVBoxLayout()
+        right.setSpacing(8)
+
+        def _field_label(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setObjectName("card-copy")
+            return lbl
+
+        # Left column
+        left.addWidget(_field_label("Share Name (label)"))
+        self._f_name = QLineEdit()
+        self._f_name.setPlaceholderText("e.g.  NAS-Media")
+        left.addWidget(self._f_name)
+
+        left.addWidget(_field_label("Server (hostname or IP)"))
+        self._f_server = QLineEdit()
+        self._f_server.setPlaceholderText("e.g.  192.168.1.100  or  mypc")
+        left.addWidget(self._f_server)
+
+        left.addWidget(_field_label("Share Path on Server"))
+        self._f_share = QLineEdit()
+        self._f_share.setPlaceholderText("e.g.  Media  or  Users/Alice/Documents")
+        left.addWidget(self._f_share)
+
+        left.addWidget(_field_label("Local Mount Point"))
+        self._f_mount = QLineEdit()
+        self._f_mount.setPlaceholderText("e.g.  /mnt/kyth/NAS-Media  (default: /mnt/kyth/<name>)")
+        left.addWidget(self._f_mount)
+
+        # Right column
+        right.addWidget(_field_label("Username"))
+        self._f_user = QLineEdit()
+        self._f_user.setPlaceholderText("Windows / Samba username")
+        right.addWidget(self._f_user)
+
+        right.addWidget(_field_label("Password"))
+        self._f_pass = QLineEdit()
+        self._f_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self._f_pass.setPlaceholderText("Windows / Samba password")
+        right.addWidget(self._f_pass)
+
+        right.addWidget(_field_label("Domain (optional)"))
+        self._f_domain = QLineEdit()
+        self._f_domain.setPlaceholderText("e.g.  WORKGROUP  (leave blank if unsure)")
+        right.addWidget(self._f_domain)
+
+        right.addSpacing(4)
+        self._f_auto = QCheckBox("Auto-mount on boot")
+        self._f_auto.setChecked(True)
+        right.addWidget(self._f_auto)
+
+        form_row.addLayout(left, 1)
+        form_row.addLayout(right, 1)
+        add_layout.addLayout(form_row)
+
+        add_btn_row = QHBoxLayout()
+        add_btn_row.setSpacing(12)
+        add_btn = QPushButton("Add Share")
+        add_btn.setObjectName("primary")
+        add_btn.clicked.connect(self._add_share)
+        add_btn_row.addWidget(add_btn)
+        self._mount_now_chk = QCheckBox("Mount immediately")
+        self._mount_now_chk.setChecked(True)
+        add_btn_row.addWidget(self._mount_now_chk)
+        add_btn_row.addStretch()
+        add_layout.addLayout(add_btn_row)
+        self._add(add_card)
+
+        # ── Operation progress ────────────────────────────────────────────────
+        self._op_status = QLabel()
+        self._op_status.setWordWrap(True)
+        self._op_status.hide()
+        self._add(self._op_status)
+
+        self._op_progress = QProgressBar()
+        self._op_progress.setRange(0, 0)
+        self._op_progress.hide()
+        self._add(self._op_progress)
+
+        self._op_log = QTextEdit()
+        self._op_log.setReadOnly(True)
+        self._op_log.setMinimumHeight(110)
+        self._op_log.hide()
+        self._add(self._op_log)
+
+        # ── Configured shares list ─────────────────────────────────────────────
+        self._divider()
+
+        shares_heading = QLabel("Configured Shares")
+        shares_heading.setObjectName("section-heading")
+        self._add(shares_heading)
+
+        self._shares_container = QWidget()
+        self._shares_container.setObjectName("content-area")
+        self._shares_inner = QVBoxLayout(self._shares_container)
+        self._shares_inner.setContentsMargins(0, 0, 0, 0)
+        self._shares_inner.setSpacing(12)
+        self._add(self._shares_container)
+
+        self._stretch()
+        self._update_cifs_warning()
+        self._rebuild_shares_list()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _update_cifs_warning(self):
+        self._cifs_warn.setVisible(not _is_cifs_available())
+
+    def _rebuild_shares_list(self):
+        while self._shares_inner.count():
+            item = self._shares_inner.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self._shares = _load_smb_config()
+
+        if not self._shares:
+            empty = QLabel("No shares configured yet. Use the form above to add one.")
+            empty.setObjectName("status-dim")
+            self._shares_inner.addWidget(empty)
+            return
+
+        for share in self._shares:
+            self._shares_inner.addWidget(self._make_share_card(share))
+
+    def _make_share_card(self, share: dict) -> QFrame:
+        card, layout = _make_card()
+
+        # Header row
+        hdr = QHBoxLayout()
+        unc = f"//{share['server']}/{share['share_path'].lstrip('/')}"
+        name_lbl = QLabel(share["name"])
+        name_lbl.setObjectName("card-title")
+        hdr.addWidget(name_lbl)
+        hdr.addStretch()
+        mounted = _is_mounted(share["mount_point"])
+        badge = QLabel()
+        _apply_install_badge(badge, mounted, "Mounted", "Not Mounted")
+        hdr.addWidget(badge)
+        layout.addLayout(hdr)
+
+        # Info labels
+        unc_lbl = QLabel(f"{unc}  →  {share['mount_point']}")
+        unc_lbl.setObjectName("card-copy")
+        layout.addWidget(unc_lbl)
+
+        # Auto-mount toggle
+        auto_chk = QCheckBox("Auto-mount on boot")
+        auto_chk.setChecked(share.get("auto_mount", False))
+        auto_chk.toggled.connect(
+            lambda checked, s=share: self._toggle_auto_mount(s, checked)
+        )
+        layout.addWidget(auto_chk)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        if mounted:
+            u_btn = QPushButton("Unmount")
+            u_btn.clicked.connect(lambda checked=False, s=share: self._unmount_share(s))
+            btn_row.addWidget(u_btn)
+        else:
+            m_btn = QPushButton("Mount Now")
+            m_btn.clicked.connect(lambda checked=False, s=share: self._mount_share(s))
+            btn_row.addWidget(m_btn)
+        rm_btn = QPushButton("Remove")
+        rm_btn.clicked.connect(lambda checked=False, s=share: self._remove_share(s))
+        btn_row.addWidget(rm_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        return card
+
+    # ── Form validation ───────────────────────────────────────────────────────
+
+    def _validate_form(self) -> dict | None:
+        name       = self._f_name.text().strip()
+        server     = self._f_server.text().strip()
+        share_path = self._f_share.text().strip()
+        mount_pt   = self._f_mount.text().strip()
+        username   = self._f_user.text().strip()
+        password   = self._f_pass.text()
+        domain     = self._f_domain.text().strip()
+        auto_mount = self._f_auto.isChecked()
+
+        if not name:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Share Name.")
+            return None
+        if not server:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Server address.")
+            return None
+        if not share_path:
+            QMessageBox.warning(self, "Missing Field", "Please enter the Share Path.")
+            return None
+        if not username:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Username.")
+            return None
+
+        safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
+        if not mount_pt:
+            mount_pt = f"/mnt/kyth/{safe_name}"
+        mount_pt = os.path.normpath(os.path.expanduser(mount_pt))
+        # Restrict mount points to safe prefixes — the add-share script runs as
+        # root and creates the directory, so mounting over /etc or /usr would
+        # corrupt the system.
+        _SAFE_MOUNT_PREFIXES = ("/mnt/", "/media/", "/run/media/", "/home/")
+        if not any(mount_pt.startswith(p) for p in _SAFE_MOUNT_PREFIXES):
+            QMessageBox.warning(
+                self, "Invalid Mount Point",
+                "Mount point must be under /mnt/, /media/, /run/media/, or /home/.",
+            )
+            return None
+
+        existing = {s["name"] for s in self._shares}
+        if safe_name in existing:
+            QMessageBox.warning(
+                self, "Duplicate Name",
+                f'A share named "{safe_name}" already exists. Remove it first or use a different name.',
+            )
+            return None
+
+        return {
+            "name":       safe_name,
+            "server":     server,
+            "share_path": share_path.lstrip("/"),
+            "mount_point": mount_pt,
+            "username":   username,
+            "password":   password,
+            "domain":     domain,
+            "auto_mount": auto_mount,
+        }
+
+    # ── Actions ───────────────────────────────────────────────────────────────
+
+    def _add_share(self):
+        if self._worker and self._worker.isRunning():
+            return
+        share = self._validate_form()
+        if not share:
+            return
+        mount_now = self._mount_now_chk.isChecked()
+        script = _build_add_share_script(share, mount_now)
+        self._begin_op(f"Adding share {share['name']}…")
+        self._worker = Worker(["sudo", "-A", "bash", "-c", script])
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(lambda code, s=share: self._on_add_done(code, s))
+        self._worker.start()
+
+    def _on_add_done(self, code: int, share: dict):
+        self._op_progress.hide()
+        if code == 0:
+            saved = {k: v for k, v in share.items() if k != "password"}
+            self._shares.append(saved)
+            _save_smb_config(self._shares)
+            self._op_status.setText("Share added successfully.")
+            self._op_status.setObjectName("status-ok")
+            for field in (self._f_name, self._f_server, self._f_share, self._f_mount,
+                          self._f_user, self._f_pass, self._f_domain):
+                field.clear()
+        else:
+            self._op_status.setText(f"Add failed (exit {code}). Check the log below.")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _mount_share(self, share: dict):
+        if self._worker and self._worker.isRunning():
+            return
+        unit = _systemd_escape_mount_path(share["mount_point"])
+        self._run_sudo(["systemctl", "start", unit], f"Mounting {share['name']}…")
+
+    def _unmount_share(self, share: dict):
+        if self._worker and self._worker.isRunning():
+            return
+        unit = _systemd_escape_mount_path(share["mount_point"])
+        self._run_sudo(["systemctl", "stop", unit], f"Unmounting {share['name']}…")
+
+    def _toggle_auto_mount(self, share: dict, enabled: bool):
+        if self._worker and self._worker.isRunning():
+            return
+        for s in self._shares:
+            if s["name"] == share["name"]:
+                s["auto_mount"] = enabled
+        _save_smb_config(self._shares)
+        unit   = _systemd_escape_mount_path(share["mount_point"])
+        action = "enable" if enabled else "disable"
+        label  = "Enabling" if enabled else "Disabling"
+        self._run_sudo(["systemctl", action, unit], f"{label} auto-mount for {share['name']}…")
+
+    def _remove_share(self, share: dict):
+        reply = QMessageBox.question(
+            self, "Remove Share",
+            f"Remove \"{share['name']}\" and delete its systemd unit and credentials?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if self._worker and self._worker.isRunning():
+            return
+        script = _build_remove_share_script(share)
+        self._begin_op(f"Removing {share['name']}…")
+        self._worker = Worker(["sudo", "-A", "bash", "-c", script])
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(lambda code, s=share: self._on_remove_done(code, s))
+        self._worker.start()
+
+    def _on_remove_done(self, code: int, share: dict):
+        self._op_progress.hide()
+        if code == 0:
+            self._shares = [s for s in self._shares if s["name"] != share["name"]]
+            _save_smb_config(self._shares)
+            self._op_status.setText(f"{share['name']} removed.")
+            self._op_status.setObjectName("status-ok")
+        else:
+            self._op_status.setText(f"Remove failed (exit {code}). Check the log below.")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _run_sudo(self, cmd: list[str], status_msg: str):
+        self._begin_op(status_msg)
+        self._worker = Worker(["sudo", "-A"] + cmd)
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(self._on_generic_done)
+        self._worker.start()
+
+    def _on_generic_done(self, code: int):
+        self._op_progress.hide()
+        if code == 0:
+            self._op_status.setText("Done.")
+            self._op_status.setObjectName("status-ok")
+        else:
+            self._op_status.setText(f"Operation failed (exit {code}).")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _begin_op(self, msg: str):
+        self._op_log.clear()
+        self._op_log.show()
+        self._op_status.setText(msg)
+        self._op_status.setObjectName("status-dim")
+        _restyle(self._op_status)
+        self._op_status.show()
+        self._op_progress.show()
+
+
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 class NavButton(QPushButton):
     def __init__(self, label: str):
@@ -5318,8 +6785,7 @@ class MainWindow(QMainWindow):
             page_specs.append(("NVIDIA Drivers", "NVIDIA", NvidiaPage))
         page_specs.extend([
             ("Cloud Storage", "Cloud Storage", CloudStoragePage),
-            ("Branches", "Branches", BranchesPage),
-            ("Diagnostics", "Diagnostics", DiagnosticsPage),
+            ("Network Shares", "Network Shares", NetworkSharesPage),
             ("Repair", "Repair", RepairPage),
         ])
 
@@ -5498,6 +6964,39 @@ class WizardWindow(QMainWindow):
         self._next_btn.clicked.connect(self._go_next)
         footer_layout.addWidget(self._next_btn)
         root_layout.addWidget(footer)
+
+        # ── First-boot setup banner ───────────────────────────────────────────
+        # kyth-default-flatpaks.service runs after network comes up, which is
+        # after the graphical target — it can't appear in the Plymouth splash.
+        # Show a banner here instead so the user knows setup is still in progress.
+        self._setup_banner = QWidget()
+        self._setup_banner.setObjectName("setup-banner")
+        banner_layout = QHBoxLayout(self._setup_banner)
+        banner_layout.setContentsMargins(20, 6, 20, 6)
+        banner_layout.setSpacing(12)
+        banner_lbl = QLabel("Installing apps in the background — this may take a few minutes on first boot.")
+        banner_lbl.setObjectName("setup-banner-label")
+        self._setup_banner_bar = QProgressBar()
+        self._setup_banner_bar.setRange(0, 0)
+        self._setup_banner_bar.setFixedWidth(120)
+        self._setup_banner_bar.setFixedHeight(6)
+        self._setup_banner_bar.setTextVisible(False)
+        banner_layout.addWidget(self._setup_banner_bar)
+        banner_layout.addWidget(banner_lbl)
+        banner_layout.addStretch()
+        root_layout.addWidget(self._setup_banner)
+
+        _FLATPAK_SENTINEL = "/var/lib/kyth/default-flatpaks-done"
+        if os.path.exists(_FLATPAK_SENTINEL):
+            self._setup_banner.hide()
+        else:
+            self._setup_poll = QTimer(self)
+            self._setup_poll.setInterval(3000)
+            self._setup_poll.timeout.connect(
+                lambda: self._setup_banner.hide() or self._setup_poll.stop()
+                if os.path.exists(_FLATPAK_SENTINEL) else None
+            )
+            self._setup_poll.start()
 
         self._current = 0
         self._update_nav()

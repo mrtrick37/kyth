@@ -33,7 +33,7 @@ newgrp docker   # Activate docker group in current shell without logging out
 ```text
 Dockerfile              # Main OS image (layers 2+3)
 Justfile                # Build orchestration
-build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 43
+build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 44
   Dockerfile
   build.sh
 build_files/            # Layer 2+: packages, gaming tweaks, branding
@@ -62,9 +62,9 @@ sudo bootc upgrade
 
 ## Key Details
 
-- Base: `ghcr.io/ublue-os/kinoite-main:43` (Fedora 43 KDE)
+- Base: `ghcr.io/ublue-os/kinoite-main:44` (Fedora 44 KDE)
 - Kernel: CachyOS with BORE scheduler, sched-ext, BBRv3, NTSYNC
 - GPU: Mesa-git from xxmitsu/mesa-git COPR (bleeding-edge RADV/RADEONSI)
-- SELinux: permissive (Docker builds can't preserve security xattrs)
+- SELinux: enforcing (bootc/ostree relabels the deployed tree on every deployment using the bundled policy)
 - Live ISOs published to Cloudflare R2: `kyth-live-latest.iso` / `kyth-live-testing.iso`
 - GitHub: https://github.com/mrtrick37/kyth

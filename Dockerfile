@@ -76,6 +76,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
     /ctx/scripts/ge-proton.sh
 
 # Layer 7: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds.

@@ -246,6 +246,15 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     fi
 
     if ! docker image inspect {{ base_image }} >/dev/null 2>&1; then
+        if command -v cosign &>/dev/null; then
+            echo "Verifying base image signature with cosign..."
+            cosign verify \
+                --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+                --certificate-identity-regexp='^https://github\.com/ublue-os/main/' \
+                {{ base_image }}
+        else
+            echo "WARNING: cosign not found — skipping signature verification. Install cosign to verify the base image."
+        fi
         docker pull {{ base_image }}
     else
         echo "Base image {{ base_image }} already present locally. Skipping pull."

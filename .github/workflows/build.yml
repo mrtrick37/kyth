@@ -136,6 +136,22 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Save exact RPM versions from the built image for supply-chain diffing
+      # between daily runs.
+      - name: Capture RPM manifest
+        run: |
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          OUT_FILE="rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt"
+          docker run --rm "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" \
+            bash -lc "rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\\n' | sort" \
+            > "${OUT_FILE}"
+
+      - name: Upload RPM manifest artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rpm-manifest-${{ matrix.branch }}-${{ github.run_id }}
+          path: rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt
+
       # Tag the docker-built image with all metadata tags (date variants, etc.)
       # so the Push To GHCR step can find them in the docker store.
       - name: Tag date variants
@@ -162,7 +178,6 @@ jobs:
         id: push
         timeout-minutes: 60
         run: |
-          echo "${{ github.token }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           for tag in ${{ steps.metadata.outputs.tags }}; do
             for attempt in 1 2 3; do
