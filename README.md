@@ -2,8 +2,6 @@
 
 An atomic gaming and development desktop built on Fedora Kinoite with the CachyOS kernel. The entire OS ships as a container image — immutable, atomic updates, one-command rollback. Installed via a custom graphical installer from a live ISO.
 
-> Work in progress. Don't install on anything you care about.
-
 ---
 
 ## What it is
