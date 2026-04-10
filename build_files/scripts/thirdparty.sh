@@ -47,32 +47,43 @@ for asset in data.get("assets", []):
 PY
     )
     if [[ -n "${asset_digest}" ]]; then
-        algo="${asset_digest%%:*}"
-        expected_hash="${asset_digest#*:}"
-        if [[ "${algo}" == "${expected_hash}" || -z "${expected_hash}" ]]; then
-            echo "ERROR: Release metadata exposed an invalid digest for ${tarball_name}." >&2
-            exit 1
+        if [[ "${asset_digest}" == *:* ]]; then
+            algo="${asset_digest%%:*}"
+            expected_hash="${asset_digest#*:}"
+        elif [[ "${asset_digest}" =~ ^[0-9a-fA-F]{64}$ ]]; then
+            algo="sha256"
+            expected_hash="${asset_digest}"
+        elif [[ "${asset_digest}" =~ ^[0-9a-fA-F]{128}$ ]]; then
+            algo="sha512"
+            expected_hash="${asset_digest}"
+        else
+            algo=""
+            expected_hash=""
         fi
 
-        local actual_hash=""
-        case "${algo}" in
-            sha256) actual_hash=$(sha256sum "${tarball_path}" | awk '{print $1}') ;;
-            sha512) actual_hash=$(sha512sum "${tarball_path}" | awk '{print $1}') ;;
-            *)
-                echo "ERROR: Unsupported digest algorithm '${algo}' for ${tarball_name}." >&2
-                exit 1
-                ;;
-        esac
+        if [[ -n "${algo}" && -n "${expected_hash}" ]]; then
+            local actual_hash=""
+            case "${algo}" in
+                sha256) actual_hash=$(sha256sum "${tarball_path}" | awk '{print $1}') ;;
+                sha512) actual_hash=$(sha512sum "${tarball_path}" | awk '{print $1}') ;;
+                *)
+                    echo "WARNING: Unsupported release digest algorithm '${algo}' for ${tarball_name}; falling back to checksum files." >&2
+                    actual_hash=""
+                    ;;
+            esac
 
-        if [[ "${actual_hash}" != "${expected_hash}" ]]; then
-            echo "ERROR: ${algo^^} mismatch for ${tarball_name}!" >&2
-            echo "  Expected: ${expected_hash}" >&2
-            echo "  Got:      ${actual_hash}" >&2
-            exit 1
+            if [[ -n "${actual_hash}" ]]; then
+                if [[ "${actual_hash}" != "${expected_hash,,}" ]]; then
+                    echo "ERROR: ${algo^^} mismatch for ${tarball_name}!" >&2
+                    echo "  Expected: ${expected_hash}" >&2
+                    echo "  Got:      ${actual_hash}" >&2
+                    exit 1
+                fi
+
+                echo "${tarball_name}: ${algo^^} verified OK (release asset digest)"
+                return 0
+            fi
         fi
-
-        echo "${tarball_name}: ${algo^^} verified OK (release asset digest)"
-        return 0
     fi
 
     # 1. Look for a per-file sidecar: <tarball>.sha256, .sha512, .sha256sum, .sha512sum
