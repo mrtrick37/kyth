@@ -18,6 +18,9 @@ on:
     paths:
       - '**/*.sh'
       - '.github/workflows/lint.yml'
+  schedule:
+    - cron: '30 10 * * *'
+  workflow_dispatch:
 
 jobs:
   shellcheck:
@@ -27,7 +30,33 @@ jobs:
       - name: Checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Run shellcheck
+      - name: Compute changed shell files
+        id: changed
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" ]]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+            HEAD="${{ github.event.pull_request.head.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+            HEAD="${{ github.sha }}"
+          fi
+
+          FILES=$(git diff --name-only "${BASE}" "${HEAD}" -- '*.sh' | tr '\n' ' ')
+          echo "files=${FILES}" >> "$GITHUB_OUTPUT"
+
+      - name: Run shellcheck (changed files)
+        if: github.event_name == 'push' || github.event_name == 'pull_request'
+        run: |
+          if [[ -z "${{ steps.changed.outputs.files }}" ]]; then
+            echo "No changed shell files; skipping shellcheck"
+            exit 0
+          fi
+          # shellcheck disable=SC2086
+          shellcheck ${{ steps.changed.outputs.files }}
+
+      - name: Run shellcheck (full scan)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
         run: |
           find . -iname "*.sh" -type f -print0 \
             | xargs -0 shellcheck
