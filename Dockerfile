@@ -60,6 +60,7 @@ RUN --mount=type=cache,dst=/var/cache \
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
     ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
 
 # Layer 4: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).

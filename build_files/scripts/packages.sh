@@ -8,14 +8,21 @@ set -euo pipefail
 # on an English workstation.
 echo '%_install_langs en_US' >> /etc/rpm/macros
 
+# ── DNF parallelism ───────────────────────────────────────────────────────────
+# Raise parallel download slots from the default 3 to 10 — same value used by
+# UBlue, Bazzite, and recommended in Fedora documentation.
+echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
+
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
 # (docker_t, container_t, etc.) — required for Docker to work under enforcing.
 dnf5 install -y docker container-selinux
 
 # Add rpmfusion free and nonfree repositories for Fedora 44
-dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
+dnf5 install -y \
+    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
+    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm \
+    || true
 
 # Fedora 44 transitions can leave debug/source repo metalinks unpublished or
 # intermittently unavailable. We never install from those repos in image builds,

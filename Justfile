@@ -263,13 +263,20 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
 
 # Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
+# Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
 build: build-base
     #!/usr/bin/env bash
     set -euo pipefail
-    docker build \
+    REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
+    docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --tag localhost/kyth:latest .
+        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
+        --tag localhost/kyth:latest \
+        --load \
+        .
 
 
 # Command: _rootful_load_image
