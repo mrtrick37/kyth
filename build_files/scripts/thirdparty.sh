@@ -167,6 +167,44 @@ PY
     return 0
 }
 
+release_asset_has_verification() {
+    local release_json=$1
+    local tarball_name=$2
+
+    local asset_digest=""
+    asset_digest=$(python3 - "$release_json" "$tarball_name" <<'PY'
+import json
+import sys
+
+release_json, tarball_name = sys.argv[1], sys.argv[2]
+with open(release_json, "r", encoding="utf-8") as f:
+    data = json.load(f)
+
+for asset in data.get("assets", []):
+    if asset.get("name") == tarball_name and asset.get("digest"):
+        print(asset["digest"])
+        break
+PY
+    )
+    if [[ -n "${asset_digest}" ]]; then
+        return 0
+    fi
+
+    for ext in sha256 sha512 sha256sum sha512sum SHA256 SHA512; do
+        if grep -oP 'https://[^"]+' "${release_json}" | grep -Fq "${tarball_name}.${ext}"; then
+            return 0
+        fi
+    done
+
+    for pattern in SHA256SUMS SHA512SUMS checksums.txt sha256sums.txt sha512sums.txt; do
+        if grep -oP 'https://[^"]+' "${release_json}" | grep -iFq "${pattern}"; then
+            return 0
+        fi
+    done
+
+    return 1
+}
+
 # ── topgrade ─────────────────────────────────────────────────────────────────
 # Not in Fedora 44 repos — install pre-built binary from GitHub releases.
 # Uses the musl-linked build for maximum compatibility across libc versions.
@@ -294,26 +332,30 @@ if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
     ) || true
     if [[ -n "${LFX_URL}" ]]; then
         LFX_TARBALL=$(basename "${LFX_URL}")
-        echo "latencyflex: downloading ${LFX_TARBALL}"
-        curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
-        verify_release_asset "${release_json}" "${TMPDIR_LFX}/${LFX_TARBALL}" \
-            "${LFX_TARBALL}" "${TMPDIR_LFX}"
-        tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
-
-        LFX_SO=$(find "${TMPDIR_LFX}" -name 'liblatencyflex_layer.so' | head -n1)
-        LFX_JSON=$(find "${TMPDIR_LFX}" -name '*.json' | grep -i 'latencyflex' | head -n1)
-
-        if [[ -n "${LFX_SO}" && -n "${LFX_JSON}" ]]; then
-            install -m 0755 "${LFX_SO}" /usr/lib64/liblatencyflex_layer.so
-            mkdir -p /usr/share/vulkan/implicit_layer.d
-            install -m 0644 "${LFX_JSON}" \
-                /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
-            # Ensure the JSON points to the installed library path
-            sed -i 's|"library_path":.*|"library_path": "/usr/lib64/liblatencyflex_layer.so"|' \
-                /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
-            echo "latencyflex: Vulkan layer installed"
+        if ! release_asset_has_verification "${release_json}" "${LFX_TARBALL}"; then
+            echo "latencyflex: no verification metadata for ${LFX_TARBALL}; skipping."
         else
-            echo "latencyflex: could not find layer .so or .json in archive; skipping."
+            echo "latencyflex: downloading ${LFX_TARBALL}"
+            curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
+            verify_release_asset "${release_json}" "${TMPDIR_LFX}/${LFX_TARBALL}" \
+                "${LFX_TARBALL}" "${TMPDIR_LFX}"
+            tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
+
+            LFX_SO=$(find "${TMPDIR_LFX}" -name 'liblatencyflex_layer.so' | head -n1)
+            LFX_JSON=$(find "${TMPDIR_LFX}" -name '*.json' | grep -i 'latencyflex' | head -n1)
+
+            if [[ -n "${LFX_SO}" && -n "${LFX_JSON}" ]]; then
+                install -m 0755 "${LFX_SO}" /usr/lib64/liblatencyflex_layer.so
+                mkdir -p /usr/share/vulkan/implicit_layer.d
+                install -m 0644 "${LFX_JSON}" \
+                    /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
+                # Ensure the JSON points to the installed library path
+                sed -i 's|"library_path":.*|"library_path": "/usr/lib64/liblatencyflex_layer.so"|' \
+                    /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json
+                echo "latencyflex: Vulkan layer installed"
+            else
+                echo "latencyflex: could not find layer .so or .json in archive; skipping."
+            fi
         fi
     else
         echo "latencyflex: no tarball found in release assets; skipping."
