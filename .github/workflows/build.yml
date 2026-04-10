@@ -64,6 +64,9 @@ jobs:
         id: checkout_sha
         run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
@@ -115,26 +118,57 @@ jobs:
           sep-labels: "\n"
           sep-annotations: "\n"
 
-      - name: Configure git identity
-        run: |
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build base image
         run: |
-          docker build \
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${{ matrix.branch }}"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-${{ steps.prep.outputs.default_tag }}"
+
+          docker buildx build \
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44 \
-            --tag localhost/kyth-base:stable \
+            --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
+            --cache-to "type=registry,ref=${BASE_CACHE_REF},mode=max" \
+            --tag "${BASE_IMAGE_REF}" \
+            --push \
             build_base/
 
       - name: Build final image
         run: |
-          docker build \
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
+          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${{ matrix.branch }}"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-${{ steps.prep.outputs.default_tag }}"
+
+          TAG_ARGS=()
+          for tag in ${{ steps.metadata.outputs.tags }}; do
+            TAG_ARGS+=(--tag "${IMAGE_FULL}:${tag}")
+          done
+
+          docker buildx build \
             --secret id=github_token,env=GITHUB_TOKEN \
-            --tag ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}:${{ steps.prep.outputs.default_tag }} \
+            --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
+            --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
+            --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
+            "${TAG_ARGS[@]}" \
+            --push \
             .
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Enable containerd snapshotter for runtime image inspection
+        run: |
+          # Avoid overlay2 lowerdir limits when pulling very deep images for docker run.
+          sudo systemctl stop docker docker.socket 2>/dev/null || true
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
 
       # Save exact RPM versions from the built image for supply-chain diffing
       # between daily runs.
@@ -152,57 +186,10 @@ jobs:
           name: rpm-manifest-${{ matrix.branch }}-${{ github.run_id }}
           path: rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt
 
-      # Tag the docker-built image with all metadata tags (date variants, etc.)
-      # so the Push To GHCR step can find them in the docker store.
-      - name: Tag date variants
-        run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            docker tag "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" "${IMAGE_FULL}:${tag}" || true
-          done
-
-      - name: Ensure Docker
-        run: |
-          if ! command -v docker >/dev/null 2>&1; then
-            sudo apt-get update
-            sudo apt-get install -y docker.io
-            sudo systemctl start docker
-            sudo systemctl enable docker
-          fi
-
-      - name: Login to GitHub Container Registry (docker)
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Push To GHCR
-        id: push
-        timeout-minutes: 60
-        run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            for attempt in 1 2 3; do
-              echo "Pushing $IMAGE_FULL:$tag (attempt $attempt)..."
-              if docker push "$IMAGE_FULL:$tag"; then
-                break
-              fi
-              [ $attempt -lt 3 ] && sleep 30
-            done
-          done
-          # Capture digest of the primary tag for cosign
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "$IMAGE_FULL:${{ steps.prep.outputs.default_tag }}" 2>/dev/null | cut -d@ -f2 || true)
-          echo "digest=${DIGEST}" >> $GITHUB_OUTPUT
-
       - name: Install Cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
         with:
           cosign-release: 'v2.6.1'
-
-      - name: Login to GitHub Container Registry (cosign)
-        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sign container image
         run: |
@@ -211,6 +198,5 @@ jobs:
             cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE_FULL:$tag
           done
         env:
-          TAGS: ${{ steps.push.outputs.digest }}
           COSIGN_EXPERIMENTAL: false
           COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}

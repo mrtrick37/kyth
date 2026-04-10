@@ -1,9 +1,12 @@
+ARG BASE_IMAGE=localhost/kyth-base:stable
+
 # Allow build scripts to be referenced without being copied into the final image
 FROM scratch AS ctx
 COPY build_files /
 
 # Base Image
-FROM localhost/kyth-base:stable
+ARG BASE_IMAGE
+FROM ${BASE_IMAGE}
 
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
 LABEL org.opencontainers.image.title="KythOS"
