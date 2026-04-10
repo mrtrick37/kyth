@@ -184,6 +184,7 @@ jobs:
       # Save exact RPM versions from the built image for supply-chain diffing
       # between daily runs.
       - name: Capture RPM manifest
+        if: matrix.branch == 'main' || github.event_name == 'schedule'
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           OUT_FILE="rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt"
@@ -192,6 +193,7 @@ jobs:
             > "${OUT_FILE}"
 
       - name: Upload RPM manifest artifact
+        if: matrix.branch == 'main' || github.event_name == 'schedule'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rpm-manifest-${{ matrix.branch }}-${{ github.run_id }}

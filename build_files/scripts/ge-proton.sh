@@ -1,6 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
+CURL_COMMON_ARGS=(--retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 300)
+
 # ── GE-Proton ────────────────────────────────────────────────────────────────
 # Installed system-wide so Steam picks it up for all users without manual setup.
 # Steam looks in /usr/share/steam/compatibilitytools.d/ in addition to ~/.steam.
@@ -22,7 +24,7 @@ CURL_AUTH_ARGS=()
 if [[ -f /run/secrets/github_token ]]; then
     CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
 fi
-if ! curl -fsSL "${CURL_AUTH_ARGS[@]}" "${release_api}" -o "${release_json}"; then
+if ! curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${release_api}" -o "${release_json}"; then
     echo "Failed to fetch GE-Proton release info from ${release_api}" >&2
     exit 1
 fi
@@ -43,9 +45,9 @@ GE_PROTON_TARBALL=$(basename "${GE_PROTON_TARBALL_URL}")
 GE_PROTON_SHA512=$(basename "${GE_PROTON_SHA512_URL}")
 
 mkdir -p /usr/share/steam/compatibilitytools.d
-curl -fsSL "${GE_PROTON_TARBALL_URL}" \
+curl -fsSL "${CURL_COMMON_ARGS[@]}" "${GE_PROTON_TARBALL_URL}" \
     -o "${TMPDIR_GE}/${GE_PROTON_TARBALL}"
-curl -fsSL "${GE_PROTON_SHA512_URL}" \
+curl -fsSL "${CURL_COMMON_ARGS[@]}" "${GE_PROTON_SHA512_URL}" \
     -o "${TMPDIR_GE}/${GE_PROTON_SHA512}"
 
 (
