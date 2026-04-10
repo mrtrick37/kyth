@@ -2,8 +2,8 @@
 # kyth-launch-installer — desktop launcher for the KythOS graphical installer.
 #
 # Loads the source image URL baked in at ISO build time, then launches
-# kyth-installer (PySide6 GUI). The app re-execs itself under sudo if needed.
-# liveuser has NOPASSWD sudo in the live environment — no password prompt.
+# kyth-installer as root. The installer hands GUI apps back to the desktop user
+# when needed, so the live session does not need blanket sudo or Polkit access.
 
 set -u
 
@@ -22,7 +22,23 @@ LAUNCH_LOG="/tmp/kyth-installer-launch.log"
 export KYTH_SOURCE_IMAGE="${KYTH_SOURCE_IMAGE:-ghcr.io/mrtrick37/kyth:latest}"
 export KYTH_TARGET_IMAGE="${KYTH_TARGET_IMAGE:-${KYTH_SOURCE_IMAGE}}"
 
-if ! /usr/bin/kyth-installer "$@" >> "${LAUNCH_LOG}" 2>&1; then
+INSTALLER_CMD=(sudo -n env)
+for key in \
+	DISPLAY \
+	WAYLAND_DISPLAY \
+	XAUTHORITY \
+	XDG_RUNTIME_DIR \
+	DBUS_SESSION_BUS_ADDRESS \
+	XDG_SESSION_TYPE
+do
+	val=${!key-}
+	if [ -n "${val}" ]; then
+		INSTALLER_CMD+=("${key}=${val}")
+	fi
+done
+INSTALLER_CMD+=(/usr/bin/kyth-installer "$@")
+
+if ! "${INSTALLER_CMD[@]}" >> "${LAUNCH_LOG}" 2>&1; then
 	msg="KythOS installer failed to launch. See /tmp/kyth-installer-launch.log"
 	command -v kdialog >/dev/null 2>&1 && kdialog --error "${msg}" || true
 	command -v zenity  >/dev/null 2>&1 && zenity --error --text "${msg}" || true
