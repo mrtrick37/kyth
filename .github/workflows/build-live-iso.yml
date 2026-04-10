@@ -31,14 +31,14 @@ jobs:
     runs-on: ubuntu-24.04
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion == 'success'
+      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
     concurrency:
       group: build-live-container-${{ matrix.source_tag }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'push' && fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) || fromJSON('["latest","testing"]')) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
     permissions:
       packages: write
 
@@ -126,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'push' && fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) || fromJSON('["latest","testing"]')) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
     permissions:
       contents: write
       packages: read
@@ -184,9 +184,7 @@ jobs:
 
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           docker pull "${IMAGE}"
-          CID=$(docker create "${IMAGE}" /bin/true)
-          docker export "${CID}" | docker import - "${LIVE_TAG}"
-          docker rm "${CID}"
+          docker tag "${IMAGE}" "${LIVE_TAG}"
           docker rmi "${IMAGE}" || true
 
       - name: Ensure permissions and directories
