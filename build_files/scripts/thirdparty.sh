@@ -2,6 +2,15 @@
 
 set -euo pipefail
 
+# Authenticated GitHub API calls — avoids the 60 req/hr unauthenticated rate limit
+# on shared GitHub Actions runner IP ranges. Token is injected via BuildKit secret
+# and never written to any image layer. Falls back gracefully to unauthenticated
+# calls when building locally without the secret.
+CURL_AUTH_ARGS=()
+if [[ -f /run/secrets/github_token ]]; then
+    CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
+fi
+
 is_enabled() {
     case "${1,,}" in
         1|true|yes|on) return 0 ;;
@@ -211,7 +220,7 @@ PY
 TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
 TMPDIR_TG=$(mktemp -d)
 release_json="${TMPDIR_TG}/release.json"
-if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
+if curl -fsSL "${CURL_AUTH_ARGS[@]}" "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     TOPGRADE_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
         | grep -i 'x86.64\|x86_64\|amd64' \
@@ -245,7 +254,7 @@ WINETRICKS_REPO_API="https://api.github.com/repos/Winetricks/winetricks/releases
 TMPDIR_WTX=$(mktemp -d)
 release_json="${TMPDIR_WTX}/release.json"
 mkdir -p "$(realpath -m /usr/local)/bin"
-if curl -fsSL "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
+if curl -fsSL "${CURL_AUTH_ARGS[@]}" "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
     WTX_SCRIPT_URL=$(
         grep -oP 'https://[^"]+' "${release_json}" \
         | grep '/releases/download/' \
@@ -276,7 +285,7 @@ rm -rf "${TMPDIR_WTX}"
 UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest"
 TMPDIR_UMU=$(mktemp -d)
 release_json="${TMPDIR_UMU}/release.json"
-if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
+if curl -fsSL "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
     # Match release assets (path contains /releases/download/) — arch suffix not
     # required because umu-launcher tarballs (e.g. umu-launcher-1.1.4.tar.gz)
     # carry no x86_64 indicator in the filename.
@@ -324,7 +333,7 @@ rm -rf "${TMPDIR_UMU}"
 LFX_REPO_API="https://api.github.com/repos/ishitatsuyuki/LatencyFleX/releases/latest"
 TMPDIR_LFX=$(mktemp -d)
 release_json="${TMPDIR_LFX}/release.json"
-if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+if curl -fsSL "${CURL_AUTH_ARGS[@]}" "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
     LFX_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|xz|zst)' "${release_json}" \
         | grep -iv 'source' \
@@ -377,7 +386,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
     TMPDIR_SCX=$(mktemp -d)
 
     release_json="${TMPDIR_SCX}/release.json"
-    if curl -fsSL "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+    if curl -fsSL "${CURL_AUTH_ARGS[@]}" "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
         # Find a Linux x86_64 binary tarball in the release assets.
         # Accept .tar.gz and .tar.zst (SCX releases have used both formats).
         SCX_TARBALL_URL=$(
@@ -462,7 +471,7 @@ fi
 # Resolved live from the GitHub releases API so every build gets the current
 # latest Homebrew without a version pin to manually maintain.
 HOMEBREW_TAG=$(
-    curl -fsSL "https://api.github.com/repos/Homebrew/brew/releases/latest" 2>/dev/null \
+    curl -fsSL "${CURL_AUTH_ARGS[@]}" "https://api.github.com/repos/Homebrew/brew/releases/latest" 2>/dev/null \
     | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1 || echo ""
 )
 if [[ -z "${HOMEBREW_TAG}" ]]; then
