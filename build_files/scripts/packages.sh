@@ -242,7 +242,13 @@ if [ -L /opt ]; then
 fi
 # Pre-import Brave GPG key before fetching the .repo file so a MITM on the
 # repofile URL cannot redirect dnf to a different signing key.
-rpm --import https://brave-keyring.s3.brave.com/signing-key.pub
+# Use our own curl (with retries) rather than rpm's internal one, which has no
+# retry logic and fails on transient DNS hiccups in CI.
+_brave_key=$(mktemp)
+curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 60 \
+    https://brave-keyring.s3.brave.com/signing-key.pub -o "${_brave_key}"
+rpm --import "${_brave_key}"
+rm -f "${_brave_key}"
 dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 dnf5 install -y brave-browser
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
