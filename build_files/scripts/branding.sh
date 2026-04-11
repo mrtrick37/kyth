@@ -116,12 +116,13 @@ PLASMAEOF
 
 # ── Kickoff favorites ─────────────────────────────────────────────────────────
 # Pre-populate the Kickoff launcher favorites for new users.
-# Discord is listed here even though it installs via kyth-default-flatpaks.service
-# at first boot — KDE silently omits entries whose desktop files don't exist yet
-# and shows them automatically once the flatpak finishes installing.
+# Brave and Discord are listed here even though they install via
+# kyth-default-flatpaks.service at first boot — KDE silently omits entries
+# whose desktop files don't exist yet and shows them automatically once the
+# flatpak finishes installing.
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
-FavoriteURLs=applications:steam.desktop,applications:brave-browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
+FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
 KICKOFFEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
