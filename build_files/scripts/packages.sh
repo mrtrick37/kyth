@@ -112,10 +112,9 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo — pre-import GPG key before fetching the .repo file so
-# a MITM on the repofile URL cannot redirect dnf to a different signing key.
-rpm --import https://negativo17.org/keys/negativo17.asc
-# --overwrite for idempotency (CI caches base layers)
+# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers).
+# dnf imports the GPG key automatically from the gpgkey= field in the repofile
+# on first package install; there is no separately hosted key URL to pre-import.
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
