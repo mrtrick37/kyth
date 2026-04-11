@@ -13,6 +13,7 @@ Type=oneshot
 # --or-update: idempotent — updates if already present, installs if not
 ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flathub \
     org.fedoraproject.MediaWriter \
+    com.brave.Browser \
     com.discordapp.Discord \
     it.mijorus.gearlever \
     com.heroicgameslauncher.hgl \

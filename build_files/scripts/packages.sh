@@ -230,31 +230,10 @@ dnf5 install -y --skip-unavailable \
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
 
-# Brave Browser — replaces Firefox
+# Remove Firefox — Brave Browser is installed as a Flatpak on first boot
+# via kyth-default-flatpaks.service (avoids baking external repo keys into
+# the build and eliminates DNS-dependent rpm --import calls in CI).
 dnf5 remove -y firefox || true
-# On ostree/bootc-style roots, /opt is often a symlink to /var/opt.
-# Ensure the symlink target exists before installing RPMs that place files in /opt.
-if [ -L /opt ]; then
-    opt_target="$(readlink /opt || true)"
-    if [ "${opt_target}" = "var/opt" ] || [ "${opt_target}" = "/var/opt" ]; then
-        mkdir -p /var/opt
-    fi
-fi
-# Pre-import Brave GPG key before fetching the .repo file so a MITM on the
-# repofile URL cannot redirect dnf to a different signing key.
-# Use our own curl (with retries) rather than rpm's internal one, which has no
-# retry logic and fails on transient DNS hiccups in CI.
-_brave_key=$(mktemp)
-curl -fsSL --retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 60 \
-    https://brave-keyring.s3.brave.com/signing-key.pub -o "${_brave_key}"
-rpm --import "${_brave_key}"
-rm -f "${_brave_key}"
-dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
-dnf5 install -y brave-browser
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
-# Set Brave as the default browser for all users
-update-alternatives --set x-www-browser /usr/bin/brave-browser || true
-xdg-settings set default-web-browser brave-browser.desktop || true
 
 # Visual Studio Code (repo added but disabled by default)
 tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'
