@@ -36,7 +36,9 @@ curl -fsSL "${RCLONE_BASE}/${RCLONE_ZIP}" -o "${RCLONE_ZIP}"
 curl -fsSL "${RCLONE_BASE}/SHA256SUMS" -o SHA256SUMS
 
 # Verify only the pinned archive line.
-grep -F "  ${RCLONE_ZIP}" SHA256SUMS > SHA256SUMS.rclone
+# Anchored pattern prevents a filename that contains our zip name as a
+# substring from matching (e.g. rclone-v1.2.3-linux-amd64.zip.bak).
+grep -E "^[0-9a-f]{64}  ${RCLONE_ZIP}$" SHA256SUMS > SHA256SUMS.rclone
 sha256sum -c SHA256SUMS.rclone
 
 unzip -o "${RCLONE_ZIP}" "${RCLONE_BASENAME}/rclone"

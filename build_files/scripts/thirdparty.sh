@@ -222,6 +222,7 @@ PY
 TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
 TMPDIR_TG=$(mktemp -d)
 release_json="${TMPDIR_TG}/release.json"
+
 if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     TOPGRADE_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
@@ -256,6 +257,7 @@ WINETRICKS_REPO_API="https://api.github.com/repos/Winetricks/winetricks/releases
 TMPDIR_WTX=$(mktemp -d)
 release_json="${TMPDIR_WTX}/release.json"
 mkdir -p "$(realpath -m /usr/local)/bin"
+
 if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
     WTX_SCRIPT_URL=$(
         grep -oP 'https://[^"]+' "${release_json}" \
@@ -287,6 +289,7 @@ rm -rf "${TMPDIR_WTX}"
 UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest"
 TMPDIR_UMU=$(mktemp -d)
 release_json="${TMPDIR_UMU}/release.json"
+
 if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
     # Match release assets (path contains /releases/download/) — arch suffix not
     # required because umu-launcher tarballs (e.g. umu-launcher-1.1.4.tar.gz)
@@ -335,6 +338,7 @@ rm -rf "${TMPDIR_UMU}"
 LFX_REPO_API="https://api.github.com/repos/ishitatsuyuki/LatencyFleX/releases/latest"
 TMPDIR_LFX=$(mktemp -d)
 release_json="${TMPDIR_LFX}/release.json"
+
 if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
     LFX_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|xz|zst)' "${release_json}" \
@@ -344,7 +348,7 @@ if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${LFX_REPO_API}" 
     if [[ -n "${LFX_URL}" ]]; then
         LFX_TARBALL=$(basename "${LFX_URL}")
         if ! release_asset_has_verification "${release_json}" "${LFX_TARBALL}"; then
-            echo "latencyflex: no verification metadata for ${LFX_TARBALL}; skipping."
+            echo "WARNING: latencyflex: no verification metadata for ${LFX_TARBALL}; skipping unverified install." >&2
         else
             echo "latencyflex: downloading ${LFX_TARBALL}"
             curl -fsSL "${CURL_COMMON_ARGS[@]}" "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
@@ -388,6 +392,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
     TMPDIR_SCX=$(mktemp -d)
 
     release_json="${TMPDIR_SCX}/release.json"
+
     if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
         # Find a Linux x86_64 binary tarball in the release assets.
         # Accept .tar.gz and .tar.zst (SCX releases have used both formats).

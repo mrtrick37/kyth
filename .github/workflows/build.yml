@@ -205,11 +205,15 @@ jobs:
           cosign-release: 'v2.6.1'
 
       - name: Sign container image
+        # Keyless signing via GitHub Actions OIDC — no private key required.
+        # Signatures are stored in the Rekor transparency log.
+        # Verify with:
+        #   cosign verify \
+        #     --certificate-identity=https://github.com/mrtrick37/kyth/.github/workflows/build.yml@refs/heads/<branch> \
+        #     --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+        #     ghcr.io/mrtrick37/kyth:<tag>
         run: |
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           for tag in ${{ steps.metadata.outputs.tags }}; do
-            cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE_FULL:$tag
+            cosign sign -y $IMAGE_FULL:$tag
           done
-        env:
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
