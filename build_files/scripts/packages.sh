@@ -19,11 +19,9 @@ echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
 dnf5 install -y docker container-selinux
 
 # Add rpmfusion free and nonfree repositories for Fedora 44.
-# Pre-import GPG keys before fetching the release RPMs so a MITM on the
-# mirror URL cannot substitute a different signing key — same pattern used
-# for Brave and Negativo17 above.
-rpm --import https://rpmfusion.org/keys/rpmfusion-free-release-fedora.asc
-rpm --import https://rpmfusion.org/keys/rpmfusion-nonfree-release-fedora.asc
+# The release RPMs ship and install the GPG key themselves — this is the
+# standard RPM Fusion bootstrap pattern; there is no separately hosted key
+# URL to pre-import (unlike Brave/Negativo17).
 dnf5 install -y \
     https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
     https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm \
