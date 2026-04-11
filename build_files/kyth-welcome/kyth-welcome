@@ -80,12 +80,12 @@ def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
 QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
-    font-size: 14px;
-    color: #edf3ff;
+    font-size: 13px;
+    color: #c6d4df;
 }
 
 QMainWindow {
-    background: #091019;
+    background: #1b2838;
 }
 
 QWidget {
@@ -98,66 +98,72 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #081018, stop:1 #060b12);
-    border-right: 1px solid #182333;
+    background: #171a21;
+    border-right: 1px solid #0d1117;
 }
 
 QWidget#sidebar-header {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0d1723, stop:0.55 #102133, stop:1 #143050);
-    border-bottom: 1px solid #223552;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #1e2d3e, stop:1 #171a21);
+    border-bottom: 1px solid #0d1117;
 }
 
 QLabel#sidebar-logo {
-    font-size: 21px;
-    font-weight: 700;
-    color: #f8fbff;
-    letter-spacing: 0.5px;
+    font-size: 20px;
+    font-weight: 800;
+    color: #ffffff;
+    letter-spacing: 1px;
     padding: 0;
 }
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #90a4c3;
+    color: #66c0f4;
+    font-weight: 600;
     padding: 0;
+}
+
+QLabel#nav-section {
+    font-size: 10px;
+    font-weight: 700;
+    color: #4a5a6a;
+    letter-spacing: 1.4px;
+    padding: 0 0 2px 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #8896ab;
+    color: #8f98a0;
     border: none;
     border-left: 3px solid transparent;
-    border-radius: 10px;
-    padding: 11px 16px 11px 14px;
+    border-radius: 0;
+    padding: 10px 16px 10px 13px;
     text-align: left;
     font-size: 13px;
     font-weight: 500;
 }
 
 QPushButton#nav-item:hover {
-    background: #111b29;
-    color: #e2ecff;
-    border-left: 3px solid #35537c;
+    background: rgba(255, 255, 255, 0.04);
+    color: #c6d4df;
+    border-left: 3px solid #2a475e;
 }
 
 QPushButton#nav-item-active {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #152845, stop:0.6 #17365d, stop:1 #1d4779);
-    color: #ffffff;
-    border: 1px solid #2f4f7e;
-    border-left: 3px solid #7cb2ff;
-    border-radius: 10px;
-    padding: 11px 16px 11px 14px;
+    background: rgba(102, 192, 244, 0.12);
+    color: #66c0f4;
+    border: none;
+    border-left: 3px solid #66c0f4;
+    border-radius: 0;
+    padding: 10px 16px 10px 13px;
     text-align: left;
     font-size: 13px;
-    font-weight: 600;
+    font-weight: 700;
 }
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #09111a, stop:0.48 #0b1420, stop:1 #0a1725);
+    background: #1b2838;
 }
 
 QScrollArea {
@@ -165,255 +171,273 @@ QScrollArea {
     border: none;
 }
 
+/* ── Page header band ────────────────────────────────────────────────────── */
+QWidget#page-header {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #1f2d3e, stop:1 #1b2838);
+    border-bottom: 1px solid #2a3f5a;
+}
+
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
-    background: #0f1f32;
-    color: #92c8ff;
-    border: 1px solid #2f5a8d;
-    border-radius: 12px;
-    padding: 4px 11px;
-    font-size: 11px;
+    background: transparent;
+    color: #66c0f4;
+    border: none;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 1.1px;
+    letter-spacing: 1.8px;
+    padding: 0;
 }
 
 QLabel#heading {
-    font-size: 29px;
+    font-size: 26px;
     font-weight: 700;
     color: #ffffff;
-    letter-spacing: 0.2px;
+    letter-spacing: -0.5px;
 }
 
 QLabel#subheading {
-    font-size: 14px;
-    color: #95a8c3;
+    font-size: 13px;
+    color: #8f98a0;
+    line-height: 1.5;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #58e0bb;
+    color: #57cbde;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #ffbf61;
+    color: #e8a838;
     font-weight: 600;
 }
 
 QLabel#status-err {
-    color: #ff7892;
+    color: #e96060;
     font-weight: 600;
 }
 
 QLabel#status-dim {
-    color: #7386a2;
+    color: #6a7a8a;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #18202c, stop:1 #121923);
-    color: #edf3ff;
-    border: 1px solid #313e52;
-    border-radius: 10px;
-    padding: 9px 18px;
+    background: #2a475e;
+    color: #c6d4df;
+    border: 1px solid #1e3448;
+    border-radius: 3px;
+    padding: 9px 20px;
     font-size: 13px;
     font-weight: 500;
 }
 
 QPushButton:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #202a38, stop:1 #171f2b);
-    border-color: #49607d;
+    background: #3d6680;
+    color: #ffffff;
+    border-color: #2a5a80;
 }
 
 QPushButton:pressed {
-    background: #1b2431;
+    background: #1e3448;
+    color: #c6d4df;
 }
 
 QPushButton:disabled {
-    background: #101621;
-    color: #5f6d82;
-    border-color: #202a39;
+    background: #1b2838;
+    color: #4a6070;
+    border-color: #1e3448;
 }
 
 QPushButton#primary {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #2f6fff, stop:0.55 #3e86ff, stop:1 #5bb7ff);
-    color: #ffffff;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #4cb8f5, stop:1 #1a9fe8);
+    color: #051625;
     font-weight: 700;
-    border: 1px solid #4a84ea;
+    border: none;
+    border-radius: 3px;
+    padding: 9px 22px;
 }
 
 QPushButton#primary:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #3d7dff, stop:0.55 #4d94ff, stop:1 #69c0ff);
-    border-color: #6aa7ff;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #6dcbff, stop:1 #3ab2f5);
+    color: #020c16;
 }
 
 QPushButton#primary:pressed {
-    background: #275fcf;
+    background: #1483d4;
+    color: #020c16;
 }
 
 QPushButton#primary:disabled {
-    background: #1a315d;
-    color: #7e8ca3;
-    border-color: #29446f;
-}
-
-QPushButton#danger {
-    background: #b8172e;
-    color: #ffffff;
-    font-weight: 700;
+    background: #1b3a52;
+    color: #3a5a6a;
     border: none;
 }
 
+QPushButton#danger {
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #c0392b, stop:1 #96281b);
+    color: #ffffff;
+    font-weight: 700;
+    border: none;
+    border-radius: 3px;
+    padding: 9px 20px;
+}
+
 QPushButton#danger:hover {
-    background: #cc2040;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #e74c3c, stop:1 #c0392b);
+}
+
+QPushButton#danger:pressed {
+    background: #7a1f14;
 }
 
 QPushButton#danger:disabled {
-    background: #3a0c17;
-    color: #555555;
+    background: #2a1a1a;
+    color: #5a3a3a;
 }
 
 QPushButton#branch-active {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #13243b, stop:1 #163459);
-    color: #9cc9ff;
-    border: 1px solid #31537f;
-    font-weight: 600;
-    border-radius: 10px;
-    padding: 10px 22px;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                                stop:0 #4cb8f5, stop:1 #1a9fe8);
+    color: #051625;
+    font-weight: 700;
+    border: none;
+    border-radius: 3px;
+    padding: 10px 24px;
 }
 
 QPushButton#branch-inactive {
-    background: #0f151d;
-    color: #738197;
-    border: 1px solid #222e3d;
-    border-radius: 10px;
-    padding: 10px 22px;
+    background: #2a475e;
+    color: #8f98a0;
+    border: 1px solid #1e3448;
+    border-radius: 3px;
+    padding: 10px 24px;
 }
 
 QPushButton#branch-inactive:hover {
-    background: #151d28;
-    color: #d4deef;
-    border: 1px solid #34465d;
+    background: #3d6680;
+    color: #c6d4df;
+    border-color: #2a5a80;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #101925, stop:0.58 #0d1824, stop:1 #0b141f);
-    border: 1px solid #243754;
-    border-radius: 14px;
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    border-radius: 4px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
-    color: #f5f8ff;
-    letter-spacing: 0.1px;
+    color: #ffffff;
 }
 
 QLabel#section-heading {
-    font-size: 18px;
+    font-size: 15px;
     font-weight: 700;
-    color: #f5f8ff;
-    letter-spacing: 0.25px;
+    color: #c6d4df;
+    letter-spacing: 0.1px;
 }
 
 QLabel#card-summary {
-    color: #eef4ff;
+    color: #c6d4df;
     font-weight: 600;
 }
 
 QLabel#card-action {
-    color: #7ebcff;
-    font-style: italic;
+    color: #66c0f4;
 }
 
 QLabel#card-copy {
-    color: #a5b2c7;
-    line-height: 1.55;
+    color: #8f98a0;
+    line-height: 1.6;
 }
 
 QFrame#card-accent-ok {
-    background: #0f1f22;
-    border: 1px solid #1f4c4f;
-    border-radius: 12px;
+    background: #12231e;
+    border: 1px solid #1e4a3a;
+    border-radius: 4px;
 }
 
 QFrame#card-accent-warn {
-    background: #191722;
-    border: 1px solid #5f4f2d;
-    border-radius: 12px;
+    background: #221a0a;
+    border: 1px solid #4a3a10;
+    border-radius: 4px;
 }
 
 QFrame#card-accent-err {
-    background: #1d1018;
-    border: 1px solid #5b2031;
-    border-radius: 12px;
+    background: #221010;
+    border: 1px solid #4a1a1a;
+    border-radius: 4px;
 }
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #121c2a, stop:1 #0c1520);
-    border: 1px solid #2d4668;
-    border-radius: 14px;
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    border-radius: 4px;
+}
+
+QFrame#stat-tile:hover {
+    border-color: #3d6680;
+    background: #1b2940;
 }
 
 QLabel#stat-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #7f91ae;
-    text-transform: uppercase;
-    letter-spacing: 1px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #6a7a8a;
+    letter-spacing: 1.4px;
 }
 
 QLabel#stat-value {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    color: #edf3ff;
+    color: #c6d4df;
 }
 
 QLabel#stat-value-ok {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    color: #5ee6c1;
+    color: #57cbde;
 }
 
 QLabel#stat-value-warn {
-    font-size: 16px;
+    font-size: 14px;
     font-weight: 700;
-    color: #ffbf61;
+    color: #e8a838;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #1a2739;
+    background: #2a3f5a;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #071019;
-    color: #cdd8ea;
-    border: 1px solid #243448;
-    border-radius: 12px;
-    font-family: "Noto Mono", "Cascadia Code", "Consolas", monospace;
+    background: #0d1520;
+    color: #acbdd3;
+    border: 1px solid #2a3f5a;
+    border-radius: 4px;
+    font-family: "Cascadia Code", "Noto Mono", "Consolas", monospace;
     font-size: 12px;
-    padding: 12px;
-    selection-background-color: #23456f;
+    padding: 12px 14px;
+    selection-background-color: #2a5a80;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #101824;
+    background: #0d1520;
     border: none;
-    border-radius: 4px;
+    border-radius: 3px;
     max-height: 6px;
     text-align: center;
     color: transparent;
@@ -421,26 +445,26 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #3a7bff, stop:1 #58ddb9);
-    border-radius: 4px;
+                                stop:0 #1a9fe8, stop:1 #57cbde);
+    border-radius: 3px;
 }
 
 /* ── Scroll bars ─────────────────────────────────────────────────────────── */
 QScrollBar:vertical {
     background: transparent;
-    width: 12px;
-    margin: 6px 0 6px 0;
+    width: 8px;
+    margin: 0;
     border: none;
 }
 
 QScrollBar::handle:vertical {
-    background: #22354c;
-    border-radius: 6px;
+    background: #2a3f5a;
+    border-radius: 4px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #315074;
+    background: #3d6680;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -450,19 +474,19 @@ QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
 
 QScrollBar:horizontal {
     background: transparent;
-    height: 12px;
-    margin: 0 6px 0 6px;
+    height: 8px;
+    margin: 0;
     border: none;
 }
 
 QScrollBar::handle:horizontal {
-    background: #22354c;
-    border-radius: 6px;
+    background: #2a3f5a;
+    border-radius: 4px;
     min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #315074;
+    background: #3d6680;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -472,184 +496,262 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #0d1621;
-    border: 1px solid #273446;
-    border-radius: 10px;
+    background: #0d1520;
+    border: 1px solid #2a3f5a;
+    border-radius: 3px;
     padding: 9px 12px;
-    color: #edf3ff;
-    selection-background-color: #295188;
+    color: #c6d4df;
+    selection-background-color: #2a5a80;
 }
 
 QLineEdit:focus {
-    border-color: #5b9cf6;
+    border-color: #66c0f4;
+    background: #101d2e;
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #d8e2f3;
-    spacing: 8px;
+    color: #c6d4df;
+    spacing: 9px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #0f1723;
-    border: 1px solid #385274;
-    border-radius: 5px;
+    background: #0d1520;
+    border: 1px solid #2a3f5a;
+    border-radius: 3px;
 }
 
 QCheckBox::indicator:checked {
-    background: #367dff;
-    border-color: #5ca2ff;
-    image: none;
+    background: #1a9fe8;
+    border-color: #4cb8f5;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #5ca2ff;
+    border-color: #66c0f4;
+}
+
+/* ── ComboBox ────────────────────────────────────────────────────────────── */
+QComboBox {
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    border-radius: 3px;
+    padding: 8px 12px;
+    color: #c6d4df;
+    min-width: 80px;
+}
+
+QComboBox:hover {
+    border-color: #66c0f4;
+    background: #1b2940;
+}
+
+QComboBox::drop-down {
+    border: none;
+    width: 22px;
+}
+
+QComboBox QAbstractItemView {
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    color: #c6d4df;
+    selection-background-color: #2a475e;
+    outline: none;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
 QFrame#step-item {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #101722, stop:1 #0f141c);
-    border: 1px solid #243149;
-    border-radius: 12px;
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    border-radius: 4px;
 }
 
 QFrame#step-item:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #111d2d, stop:1 #101926);
-    border: 1px solid #4a74b8;
+    background: #1b2940;
+    border-color: #3d6680;
 }
 
 QLabel#step-number {
-    background: #162a52;
-    color: #8ab6ff;
-    border: 1px solid #36598f;
-    border-radius: 15px;
-    font-size: 13px;
+    background: #2a475e;
+    color: #66c0f4;
+    border: none;
+    border-radius: 14px;
+    font-size: 12px;
     font-weight: 700;
 }
 
 QLabel#step-title {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 600;
-    color: #f4f7ff;
+    color: #c6d4df;
 }
 
 QLabel#step-desc {
-    color: #9aa4b6;
-    line-height: 1.45;
+    color: #6a7a8a;
+    font-size: 12px;
+    line-height: 1.5;
 }
 
 QPushButton#step-action {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #131c2a, stop:1 #162538);
-    color: #e6eeff;
-    border: 1px solid #30415f;
-    border-radius: 8px;
-    padding: 8px 14px;
-    font-weight: 600;
+    background: #2a475e;
+    color: #c6d4df;
+    border: 1px solid #1e3448;
+    border-radius: 3px;
+    padding: 7px 16px;
+    font-weight: 500;
+    font-size: 12px;
 }
 
 QPushButton#step-action:hover {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #182335, stop:1 #1c2e46);
-    border-color: #5f8fe0;
+    background: #3d6680;
+    color: #ffffff;
+    border-color: #2a5a80;
 }
 
 /* ── Update alert card ───────────────────────────────────────────────────── */
 QFrame#card-update {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #0a1a30, stop:1 #091320);
-    border: 1px solid #31578f;
-    border-radius: 12px;
+    background: #0f1e30;
+    border: 1px solid #1a5a8a;
+    border-radius: 4px;
 }
 
 QLabel#card-title-update {
-    font-size: 15px;
+    font-size: 14px;
     font-weight: 700;
-    color: #8ab6ff;
+    color: #66c0f4;
 }
 
 /* ── Wizard header ───────────────────────────────────────────────────────── */
 QWidget#wizard-header {
-    background: #080808;
-    border-bottom: 1px solid #1c1c1c;
+    background: #171a21;
+    border-bottom: 1px solid #0d1117;
 }
 
 QLabel#wizard-step-label {
-    font-size: 11px;
-    font-weight: 600;
-    color: #444444;
-    letter-spacing: 1px;
+    font-size: 10px;
+    font-weight: 700;
+    color: #66c0f4;
+    letter-spacing: 1.4px;
 }
 
 QLabel#step-dot-active {
-    background: #5b9cf6;
+    background: #66c0f4;
     border-radius: 5px;
 }
 
 QLabel#step-dot-done {
-    background: #4dbb6f;
+    background: #57cbde;
     border-radius: 5px;
 }
 
 QLabel#step-dot-inactive {
-    background: #252525;
+    background: #2a3f5a;
     border-radius: 5px;
+}
+
+/* ── Wizard progress track ────────────────────────────────────────────────── */
+QLabel#wizard-progress-step {
+    font-size: 11px;
+    font-weight: 600;
+    color: #4a6070;
+}
+
+QLabel#wizard-progress-step-active {
+    font-size: 11px;
+    font-weight: 700;
+    color: #66c0f4;
+}
+
+QLabel#wizard-progress-step-done {
+    font-size: 11px;
+    font-weight: 600;
+    color: #57cbde;
 }
 
 /* ── Wizard footer ───────────────────────────────────────────────────────── */
 QWidget#wizard-footer {
-    background: #080808;
-    border-top: 1px solid #1c1c1c;
+    background: #171a21;
+    border-top: 1px solid #0d1117;
 }
 
 /* ── First-boot setup banner ─────────────────────────────────────────────── */
 QWidget#setup-banner {
-    background: #0c1320;
-    border-top: 1px solid #1a2a44;
+    background: #0f1a28;
+    border-top: 1px solid #1a3a5a;
 }
 
 QLabel#setup-banner-label {
     font-size: 12px;
-    color: #7a9cc8;
+    color: #6a8aa0;
 }
 
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
-    background: #080808;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #1b2d42, stop:0.5 #1b2838, stop:1 #16202d);
 }
 
 QLabel#wizard-logo {
-    font-size: 56px;
+    font-size: 54px;
     font-weight: 800;
     color: #ffffff;
-    letter-spacing: -2px;
+    letter-spacing: -1px;
 }
 
 QLabel#wizard-tagline {
-    font-size: 16px;
-    color: #5b9cf6;
-    font-weight: 500;
+    font-size: 17px;
+    color: #66c0f4;
+    font-weight: 600;
+    letter-spacing: 0.3px;
 }
 
 QLabel#wizard-desc {
-    font-size: 14px;
-    color: #888888;
+    font-size: 13px;
+    color: #8f98a0;
+    line-height: 1.6;
 }
 
 /* ── Wizard finish screen ────────────────────────────────────────────────── */
 QLabel#finish-title {
-    font-size: 30px;
+    font-size: 28px;
     font-weight: 800;
     color: #ffffff;
 }
 
 QLabel#finish-subtitle {
-    font-size: 15px;
-    color: #888888;
+    font-size: 14px;
+    color: #8f98a0;
+    line-height: 1.6;
+}
+
+/* ── Hardware card ────────────────────────────────────────────────────────── */
+QFrame#hw-card-ok {
+    background: #12231e;
+    border: 1px solid #1e4a3a;
+    border-left: 3px solid #57cbde;
+    border-radius: 4px;
+}
+
+QFrame#hw-card-warn {
+    background: #221a0a;
+    border: 1px solid #4a3a10;
+    border-left: 3px solid #e8a838;
+    border-radius: 4px;
+}
+
+QFrame#hw-card-err {
+    background: #221010;
+    border: 1px solid #4a1a1a;
+    border-left: 3px solid #e96060;
+    border-radius: 4px;
+}
+
+QFrame#hw-card-dim {
+    background: #16202d;
+    border: 1px solid #2a3f5a;
+    border-left: 3px solid #2a475e;
+    border-radius: 4px;
 }
 """
 
@@ -1770,13 +1872,26 @@ def _set_log_panel(toggle: QPushButton, log: QTextEdit, expanded: bool):
 
 # ── Hardware card widget ───────────────────────────────────────────────────────
 class HardwareCard(QFrame):
+    _CARD_NAME = {
+        "ok":   "hw-card-ok",
+        "warn": "hw-card-warn",
+        "err":  "hw-card-err",
+        "dim":  "hw-card-dim",
+    }
+    _BADGE_STYLE = {
+        "ok":   ("background: #1a4a3a; color: #57cbde; border: 1px solid #2a6a5a;",  "OK"),
+        "warn": ("background: #3a2a00; color: #e8a838; border: 1px solid #5a4010;",  "Warning"),
+        "err":  ("background: #3a1010; color: #e96060; border: 1px solid #5a1a1a;",  "Issue"),
+        "dim":  ("background: #1e2d3e; color: #6a7a8a; border: 1px solid #2a3f5a;",  "Info"),
+    }
+
     def __init__(self, probe: HardwareProbe):
         super().__init__()
-        self.setObjectName("card")
+        self.setObjectName("hw-card-dim")
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 16)
-        layout.setSpacing(10)
+        layout.setContentsMargins(18, 14, 18, 14)
+        layout.setSpacing(8)
 
         top = QHBoxLayout()
         top.setSpacing(10)
@@ -1786,6 +1901,7 @@ class HardwareCard(QFrame):
         top.addStretch()
         self._badge = QLabel()
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._badge.setStyleSheet("border-radius: 3px; padding: 3px 9px; font-size: 11px; font-weight: 700;")
         top.addWidget(self._badge)
         layout.addLayout(top)
 
@@ -1808,17 +1924,22 @@ class HardwareCard(QFrame):
         self.update_probe(probe)
 
     def update_probe(self, probe: HardwareProbe):
-        bg, fg, badge_text = _status_palette(probe.status)
         self._title.setText(probe.title)
         self._summary.setText(probe.summary)
         self._details.setText(probe.details)
-        border = {"ok": "#1f6b63", "warn": "#5a4010", "err": "#6b1f2a"}.get(probe.status, "#2e394c")
+
+        style, badge_text = self._BADGE_STYLE.get(
+            probe.status, self._BADGE_STYLE["dim"]
+        )
         self._badge.setText(f"  {badge_text}  ")
         self._badge.setStyleSheet(
-            f"background: {bg}; color: {fg}; border: 1px solid {border}; "
-            f"border-radius: 10px; padding: 3px 8px; font-size: 11px; font-weight: 700; "
-            f"letter-spacing: 0.2px;"
+            style + " border-radius: 3px; padding: 3px 9px; font-size: 11px; font-weight: 700;"
         )
+
+        card_name = self._CARD_NAME.get(probe.status, "hw-card-dim")
+        self.setObjectName(card_name)
+        _restyle(self)
+
         if probe.action:
             self._action.setText(probe.action)
             self._action.show()
@@ -1831,11 +1952,13 @@ class StatTile(QFrame):
     def __init__(self, label: str, value: str, value_style: str = "stat-value"):
         super().__init__()
         self.setObjectName("stat-tile")
-        self.setMinimumHeight(82)
+        self.setMinimumHeight(76)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.setCursor(Qt.CursorShape.ArrowCursor)
+
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(18, 16, 18, 16)
-        layout.setSpacing(6)
+        layout.setContentsMargins(16, 14, 16, 14)
+        layout.setSpacing(5)
 
         self._label = QLabel(label.upper())
         self._label.setObjectName("stat-label")
@@ -1860,30 +1983,59 @@ class _NoAutoScrollArea(QScrollArea):
 
 
 class Page(QWidget):
-    """Base page — provides a scrollable content area with consistent padding."""
+    """Base page — provides a scrollable content area with consistent padding.
+
+    Subclasses can call _page_header(eyebrow, title, subtitle) to render a
+    distinct header band before the scroll area, matching the wizard style.
+    """
     def __init__(self):
         super().__init__()
         self.setObjectName("content-area")
 
-        outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(0)
+        self._outer = QVBoxLayout(self)
+        self._outer.setContentsMargins(0, 0, 0, 0)
+        self._outer.setSpacing(0)
 
         scroll = _NoAutoScrollArea()
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        outer.addWidget(scroll)
+        self._outer.addWidget(scroll)
 
         container = QWidget()
         container.setObjectName("content-area")
         scroll.setWidget(container)
 
         self._layout = QVBoxLayout(container)
-        # Right padding is 60 + 12 to account for the 12 px vertical scrollbar
-        # that overlaps content when the page is taller than the viewport.
-        self._layout.setContentsMargins(60, 48, 72, 52)
-        self._layout.setSpacing(26)
+        # Right padding accounts for the 8 px vertical scrollbar overlap
+        self._layout.setContentsMargins(56, 44, 64, 48)
+        self._layout.setSpacing(24)
+
+    def _page_header(self, eyebrow: str, title: str, subtitle: str = "") -> None:
+        """Insert a styled header band at the top of the page (above scroll)."""
+        hdr = QWidget()
+        hdr.setObjectName("page-header")
+        hdr_layout = QVBoxLayout(hdr)
+        hdr_layout.setContentsMargins(56, 24, 56, 20)
+        hdr_layout.setSpacing(5)
+
+        ew = QLabel(eyebrow.upper())
+        ew.setObjectName("eyebrow")
+        hdr_layout.addWidget(ew)
+
+        ttl = QLabel(title)
+        ttl.setObjectName("heading")
+        hdr_layout.addWidget(ttl)
+
+        if subtitle:
+            sub = QLabel(subtitle)
+            sub.setObjectName("subheading")
+            sub.setWordWrap(True)
+            hdr_layout.addWidget(sub)
+
+        # Insert header before the scroll area
+        self._outer.insertWidget(0, hdr)
+        self._outer.insertWidget(1, _divider())
 
     def _add(self, widget: QWidget) -> QWidget:
         self._layout.addWidget(widget)
@@ -1918,27 +2070,26 @@ class WelcomePage(Page):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
 
-        intro_badge = QLabel("SYSTEM HUB")
-        intro_badge.setObjectName("eyebrow")
-        self._add(intro_badge)
+        self._page_header(
+            "System Hub",
+            "Welcome to KythOS",
+            "A fast, atomic gaming desktop. Updates are atomic, rollbacks are instant.",
+        )
 
-        self._heading("Welcome to KythOS")
-        self._subheading("A fast, atomic desktop built for gaming and development.")
-        self._divider()
-
-        # System status tiles
+        # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
+        ge_ver = _ge_proton_version() or "—"
 
         tiles_row = QHBoxLayout()
-        tiles_row.setSpacing(12)
+        tiles_row.setSpacing(10)
 
-        self._branch_tile = StatTile("Branch", branch)
+        self._branch_tile = StatTile("Channel", branch)
         tiles_row.addWidget(self._branch_tile, 1)
 
-        staged_val = "Staged" if staged else "Up to date"
+        staged_val = "Update Staged" if staged else "Up to Date"
         staged_style = "stat-value-warn" if staged else "stat-value-ok"
         self._update_tile = StatTile("System", staged_val, staged_style)
         tiles_row.addWidget(self._update_tile, 1)
@@ -1951,17 +2102,29 @@ class WelcomePage(Page):
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile, 1)
 
+        self._ge_tile = StatTile("GE-Proton", ge_ver)
+        tiles_row.addWidget(self._ge_tile, 1)
+
         self._add_layout(tiles_row)
 
-        # Staged update banner
+        # ── Staged update alert ──────────────────────────────────────────────
         if staged:
             alert, alert_layout = _make_card("card-update")
-            alert_title = QLabel("Update staged — reboot to apply")
+            alert_header = QHBoxLayout()
+            alert_icon = QLabel("↑")
+            alert_icon.setStyleSheet(
+                "font-size: 18px; color: #66c0f4; font-weight: 700; background: transparent;"
+            )
+            alert_header.addWidget(alert_icon)
+            alert_title = QLabel("OS update staged — reboot to apply")
             alert_title.setObjectName("card-title-update")
-            alert_layout.addWidget(alert_title)
+            alert_header.addWidget(alert_title)
+            alert_header.addStretch()
+            alert_layout.addLayout(alert_header)
             alert_body = QLabel(
-                "A new KythOS OS image has been downloaded and is waiting. "
-                "Reboot at any time to switch to the updated system."
+                "A new KythOS image has been downloaded and is ready. "
+                "Reboot at any time to switch to the updated system. "
+                "Your previous OS is saved as a rollback target."
             )
             alert_body.setObjectName("card-copy")
             alert_body.setWordWrap(True)
@@ -1975,30 +2138,31 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
-        # Getting started section
-        section_lbl = QLabel("Getting started")
+        # ── Getting started section ──────────────────────────────────────────
+        section_lbl = QLabel("Getting Started")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
-        # Page destinations are resolved by name so optional pages can be hidden
-        # without breaking the quick links on the welcome screen.
         steps = [
-            (1, "Run a system update",      "Start with the latest packages and OS image.",            "Update"),
-            (2, "Check your hardware",       "Confirm graphics, audio, and wireless are working.",      "Hardware"),
-            (3, "Update device firmware",    "Check for BIOS and peripheral firmware updates.",         "Firmware"),
-            (4, "Set up gaming",             "Configure Steam, Proton, and performance tools.",         "Gaming"),
-            (5, "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",             "Software"),
+            ("↻", "Run a system update",      "Start with the latest packages and OS image.",       "Update"),
+            ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.", "Hardware"),
+            ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",    "Firmware"),
+            ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",    "Gaming"),
+            ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",        "Software"),
         ]
-        for num, title, desc, page_key in steps:
-            self._add(self._make_step(num, title, desc, page_key))
+        for num, (icon, title, desc, page_key) in enumerate(steps, 1):
+            self._add(self._make_step(num, icon, title, desc, page_key))
 
         self._divider()
 
-        # Backup card
+        # ── Backup card ──────────────────────────────────────────────────────
         backup_card, backup_layout = _make_card()
-        backup_title = QLabel("Back up your personal files")
+        backup_header = QHBoxLayout()
+        backup_title = QLabel("Back Up Your Personal Files")
         backup_title.setObjectName("card-title")
-        backup_layout.addWidget(backup_title)
+        backup_header.addWidget(backup_title)
+        backup_header.addStretch()
+        backup_layout.addLayout(backup_header)
         backup_body = QLabel(
             "OS rollbacks protect the system — they are not a substitute for personal file backups. "
             "Keep game saves, projects, and documents in /home and copy them to an external drive "
@@ -2010,46 +2174,61 @@ class WelcomePage(Page):
         backup_btn_row = QHBoxLayout()
         backup_btn_row.setSpacing(10)
         home_btn = QPushButton("Open Home Folder")
-        home_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+        home_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~")))
+        )
+        cloud_btn = QPushButton("Cloud Storage Setup")
+        cloud_btn.clicked.connect(lambda: self._navigate("Cloud Storage"))
         backup_btn_row.addWidget(home_btn)
+        backup_btn_row.addWidget(cloud_btn)
         backup_btn_row.addStretch()
         backup_layout.addLayout(backup_btn_row)
         self._add(backup_card)
 
-        self._divider()
-
+        # ── Links ────────────────────────────────────────────────────────────
         link_row = QHBoxLayout()
         link_row.setSpacing(10)
         gh_btn = QPushButton("GitHub")
-        gh_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth")))
+        gh_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))
+        )
         issue_btn = QPushButton("Report an Issue")
-        issue_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new")))
+        issue_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))
+        )
         link_row.addWidget(gh_btn)
         link_row.addWidget(issue_btn)
         link_row.addStretch()
         self._add_layout(link_row)
 
-        note = QLabel("This window will not reappear on login. Reopen it anytime from the application menu.")
+        note = QLabel(
+            "This window won't reappear on login. Reopen it anytime from the application menu."
+        )
         note.setObjectName("status-dim")
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
 
-    def _make_step(self, num: int, title: str, desc: str, page_key: str) -> QFrame:
+    def _make_step(self, num: int, icon: str, title: str, desc: str, page_key: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName("step-item")
         row = QHBoxLayout(frame)
-        row.setContentsMargins(20, 16, 20, 16)
-        row.setSpacing(16)
+        row.setContentsMargins(18, 14, 18, 14)
+        row.setSpacing(14)
 
-        num_lbl = QLabel(str(num))
-        num_lbl.setObjectName("step-number")
-        num_lbl.setFixedSize(30, 30)
-        num_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        row.addWidget(num_lbl)
+        # Icon badge
+        icon_lbl = QLabel(icon)
+        icon_lbl.setObjectName("step-number")
+        icon_lbl.setFixedSize(32, 32)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        icon_lbl.setStyleSheet(
+            "background: #2a475e; color: #66c0f4; border-radius: 16px; "
+            "font-size: 14px; font-weight: 700;"
+        )
+        row.addWidget(icon_lbl)
 
         text_col = QVBoxLayout()
-        text_col.setSpacing(4)
+        text_col.setSpacing(3)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("step-title")
         text_col.addWidget(title_lbl)
@@ -2059,10 +2238,10 @@ class WelcomePage(Page):
         text_col.addWidget(desc_lbl)
         row.addLayout(text_col, 1)
 
-        go_btn = QPushButton("Go →")
+        go_btn = QPushButton("Open →")
         go_btn.setObjectName("step-action")
         go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        go_btn.setMinimumWidth(72)
+        go_btn.setFixedWidth(80)
         go_btn.clicked.connect(lambda checked=False, key=page_key: self._navigate(key))
         row.addWidget(go_btn, 0, Qt.AlignmentFlag.AlignVCenter)
 
@@ -2077,9 +2256,11 @@ class HardwarePage(Page):
         self._cards: list[HardwareCard] = []
         self._last_probes: list[HardwareProbe] = []
 
-        self._heading("Hardware")
-        self._subheading("Graphics, firmware, connectivity, audio, storage, and platform checks.")
-        self._divider()
+        self._page_header(
+            "System",
+            "Hardware",
+            "Graphics, firmware, connectivity, audio, storage, and platform checks.",
+        )
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -2249,12 +2430,12 @@ class DiagnosticsPage(Page):
         self._worker = None
         self._last_probes: list[HardwareProbe] = []
 
-        self._heading("Diagnostics")
-        self._subheading(
+        self._page_header(
+            "System",
+            "Diagnostics",
             "Generate a support report covering hardware, firmware, connectivity, audio, "
-            "storage, and system state. Paste it into a bug report or save it as a file."
+            "storage, and system state. Paste it into a bug report or save it as a file.",
         )
-        self._divider()
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -2376,12 +2557,12 @@ class UpdatePage(Page):
         self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
 
-        self._heading("Update")
-        self._subheading(
+        self._page_header(
+            "System",
+            "Update",
             "Keep the OS image, Flatpaks, and system tools current. "
-            "Updates download while you keep working — reboot when you are ready."
+            "Updates download in the background — reboot when you are ready.",
         )
-        self._divider()
 
         # Status summary
         self._summary_card, summary_layout = _make_card()
@@ -2906,9 +3087,11 @@ class BranchesPage(Page):
         self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
 
-        self._heading("Branches")
-        self._subheading("Choose which KythOS image stream this system follows.")
-        self._divider()
+        self._page_header(
+            "System",
+            "Channels",
+            "Choose which KythOS image stream this system follows.",
+        )
 
         # Compact current deployment state bar
         state_card, state_layout = _make_card()
@@ -3200,9 +3383,11 @@ class FirmwarePage(Page):
         super().__init__()
         self._worker = None
 
-        self._heading("Firmware")
-        self._subheading("Check for and apply device firmware updates via fwupd.")
-        self._divider()
+        self._page_header(
+            "System",
+            "Firmware",
+            "Check for and apply device firmware updates via fwupd.",
+        )
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -3340,9 +3525,12 @@ class NvidiaPage(Page):
         super().__init__()
         self._worker = None
 
-        self._heading("NVIDIA Drivers")
+        self._page_header(
+            "System",
+            "NVIDIA Drivers",
+            "Install and verify proprietary NVIDIA kernel modules.",
+        )
         self._sub = self._subheading("")
-        self._divider()
 
         self._status_lbl = QLabel()
         self._status_lbl.setWordWrap(True)
@@ -3460,11 +3648,11 @@ class RepairPage(Page):
         super().__init__()
         self._worker = None
 
-        self._heading("Repair")
-        self._subheading(
-            "Reset the OS back to a clean KythOS state. Your personal files in /home are never touched."
+        self._page_header(
+            "Advanced",
+            "Repair",
+            "Reset the OS back to a clean KythOS state. Your personal files in /home are never touched.",
         )
-        self._divider()
 
         # Info card
         info, info_layout = _make_card()
@@ -3596,12 +3784,12 @@ class GamingPage(Page):
         super().__init__()
         self._ge_update_worker = None
 
-        self._heading("Gaming")
-        self._subheading(
-            "KythOS ships a full gaming stack. Everything below is pre-installed "
-            "and pre-configured — just add the right launch options in Steam."
+        self._page_header(
+            "Apps",
+            "Gaming",
+            "KythOS ships a full gaming stack. Everything is pre-installed and pre-configured "
+            "— just add the right launch options in Steam.",
         )
-        self._divider()
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
         tools_head = QLabel("Gaming Tools")
@@ -5353,11 +5541,11 @@ class CloudStoragePage(Page):
         self._gd_sync_worker: RcloneSyncWorker | None = None
         self._sync_config: dict = _load_sync_config()
 
-        self._heading("Cloud Storage")
-        self._subheading(
-            "Connect Google Drive or Dropbox to keep your files in sync."
+        self._page_header(
+            "Network",
+            "Cloud Storage",
+            "Connect Google Drive or Dropbox to keep your files automatically in sync.",
         )
-        self._divider()
 
         # ── Google Drive card ─────────────────────────────────────────────────
         gd_card, gd_layout = _make_card()
@@ -5738,12 +5926,12 @@ class ContentCreationPage(Page):
         self._dv_worker = None
         self._dv_selected_zip: str | None = None
 
-        self._heading("Content Creation")
-        self._subheading(
+        self._page_header(
+            "Apps",
+            "Content Creation",
             "Recording, streaming, video editing, and audio tools. "
-            "AMD GPU + Mesa-git gives excellent hardware acceleration in DaVinci Resolve."
+            "AMD GPU + Mesa-git gives excellent hardware acceleration in DaVinci Resolve.",
         )
-        self._divider()
 
         # ── Flatpak tools grid ────────────────────────────────────────────────
         self._TOOLS = [
@@ -6207,9 +6395,11 @@ class SoftwarePage(Page):
     def __init__(self):
         super().__init__()
 
-        self._heading("Software")
-        self._subheading("How to install and manage applications on KythOS.")
-        self._divider()
+        self._page_header(
+            "Apps",
+            "Software",
+            "How to install and manage applications on KythOS.",
+        )
 
         # Why dnf doesn't work
         why_card, why_layout = _make_card()
@@ -6323,16 +6513,12 @@ class NetworkSharesPage(Page):
         self._worker: Worker | None = None
         self._shares: list[dict] = _load_smb_config()
 
-        badge = QLabel("PRODUCTIVITY")
-        badge.setObjectName("eyebrow")
-        self._add(badge)
-
-        self._heading("Network Shares")
-        self._subheading(
+        self._page_header(
+            "Network",
+            "Network Shares",
             "Mount Windows file shares (SMB/CIFS) and access them as local folders. "
-            "Shares can auto-mount at boot so they are always available."
+            "Shares can auto-mount at boot so they are always available.",
         )
-        self._divider()
 
         # ── cifs-utils warning (shown only when missing) ───────────────────────
         self._cifs_warn, cw_layout = _make_card("card-accent-warn")
@@ -6714,15 +6900,24 @@ class NetworkSharesPage(Page):
 
 
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
+def _nav_section_label(text: str) -> QLabel:
+    """Create a sidebar section header label (e.g. 'SYSTEM', 'APPS')."""
+    lbl = QLabel(text.upper())
+    lbl.setObjectName("nav-section")
+    lbl.setContentsMargins(20, 14, 16, 4)
+    return lbl
+
+
 class NavButton(QPushButton):
-    def __init__(self, label: str):
-        super().__init__(label)
+    def __init__(self, icon: str, label: str):
+        super().__init__(f"  {icon}  {label}")
         self.setObjectName("nav-item")
         self.setCheckable(False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         sp = self.sizePolicy()
         sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
         self.setSizePolicy(sp)
+        self.setMinimumHeight(38)
 
     def set_active(self, active: bool):
         self.setObjectName("nav-item-active" if active else "nav-item")
@@ -6734,8 +6929,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KythOS")
-        self.setMinimumSize(900, 620)
-        self.resize(1040, 700)
+        self.setMinimumSize(920, 640)
+        self.resize(1100, 740)
 
         root = QWidget()
         root.setObjectName("content-area")
@@ -6747,66 +6942,93 @@ class MainWindow(QMainWindow):
         # ── Sidebar ──────────────────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(212)
+        sidebar.setFixedWidth(224)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
 
+        # Header / branding
         logo_area = QWidget()
         logo_area.setObjectName("sidebar-header")
         logo_layout = QVBoxLayout(logo_area)
-        logo_layout.setContentsMargins(18, 20, 18, 16)
-        logo_layout.setSpacing(2)
+        logo_layout.setContentsMargins(20, 22, 20, 18)
+        logo_layout.setSpacing(3)
 
         logo_lbl = QLabel("KythOS")
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
         _branch = _current_branch()
-        _branch_text = {"latest": "Stable", "testing": "Testing"}.get(_branch or "", "KythOS 43")
+        _branch_text = {"latest": "Stable Channel", "testing": "Testing Channel"}.get(
+            _branch or "", "System Hub"
+        )
         ver_lbl = QLabel(_branch_text)
         ver_lbl.setObjectName("sidebar-ver")
         logo_layout.addWidget(ver_lbl)
         sidebar_layout.addWidget(logo_area)
+        sidebar_layout.addWidget(_divider())
 
-        sep = _divider()
-        sidebar_layout.addWidget(sep)
+        # Nav groups: (section_label, [(icon, label, key, factory), ...])
+        page_specs: list[tuple[str, str, object]] = []
 
-        page_specs = [
-            ("Welcome", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
-            ("Update", "Update", UpdatePage),
-            ("Hardware", "Hardware", HardwarePage),
-            ("Firmware", "Firmware", FirmwarePage),
-            ("Software", "Software", SoftwarePage),
-            ("Gaming", "Gaming", GamingPage),
-            ("Content Creation", "Content Creation", ContentCreationPage),
+        nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
+            ("System", [
+                ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
+                ("↻", "Update",   "Update",   UpdatePage),
+                ("◈", "Hardware", "Hardware", HardwarePage),
+                ("⬟", "Firmware", "Firmware", FirmwarePage),
+            ]),
+            ("Apps", [
+                ("⬡", "Software",         "Software",         SoftwarePage),
+                ("◉", "Gaming",           "Gaming",           GamingPage),
+                ("✦", "Content Creation", "Content Creation", ContentCreationPage),
+            ]),
+            ("Network", [
+                ("☁", "Cloud Storage",  "Cloud Storage",  CloudStoragePage),
+                ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
+            ]),
         ]
-        if _detect_nvidia():
-            page_specs.append(("NVIDIA Drivers", "NVIDIA", NvidiaPage))
-        page_specs.extend([
-            ("Cloud Storage", "Cloud Storage", CloudStoragePage),
-            ("Network Shares", "Network Shares", NetworkSharesPage),
-            ("Repair", "Repair", RepairPage),
-        ])
 
-        self._page_index_by_key = {
-            key: idx for idx, (_, key, _) in enumerate(page_specs)
-        }
+        # Conditionally add NVIDIA
+        advanced_items: list[tuple[str, str, str, object]] = []
+        if _detect_nvidia():
+            advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        advanced_items.append(("⚠", "Repair", "Repair", RepairPage))
+        nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
-        for idx, (label, _, _) in enumerate(page_specs):
-            btn = NavButton(label)
-            btn.clicked.connect(self._make_nav_handler(idx))
-            sidebar_layout.addWidget(btn)
-            self._nav_buttons.append(btn)
+        global_idx = 0
+        for section_title, items in nav_groups:
+            sidebar_layout.addSpacing(4)
+            sidebar_layout.addWidget(_nav_section_label(section_title))
+            for icon, label, key, factory in items:
+                page_specs.append((key, factory))
+                btn = NavButton(icon, label)
+                btn.clicked.connect(self._make_nav_handler(global_idx))
+                sidebar_layout.addWidget(btn)
+                self._nav_buttons.append(btn)
+                global_idx += 1
+            sidebar_layout.addSpacing(2)
+
+        self._page_index_by_key = {
+            key: idx for idx, (key, _) in enumerate(page_specs)
+        }
 
         sidebar_layout.addStretch()
+
+        # Bottom version hint
+        sidebar_layout.addWidget(_divider())
+        ver_hint = QLabel("Atomic · Immutable · Gaming")
+        ver_hint.setObjectName("nav-section")
+        ver_hint.setContentsMargins(20, 10, 16, 12)
+        sidebar_layout.addWidget(ver_hint)
+
         root_layout.addWidget(sidebar)
 
         # ── Page stack ───────────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
-        self._pages = [factory() for _, _, factory in page_specs]
+        self._pages = [factory() for _, factory in page_specs]
         for page in self._pages:
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
@@ -6858,8 +7080,8 @@ class WizardWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("Welcome to KythOS")
-        self.setMinimumSize(820, 580)
-        self.resize(960, 680)
+        self.setMinimumSize(840, 600)
+        self.resize(980, 700)
 
         root = QWidget()
         root.setObjectName("content-area")
@@ -6868,10 +7090,10 @@ class WizardWindow(QMainWindow):
         root_layout.setSpacing(0)
         self.setCentralWidget(root)
 
-        # ── Header ───────────────────────────────────────────────────────────
+        # ── Header: logo + step progress track ───────────────────────────────
         header = QWidget()
         header.setObjectName("wizard-header")
-        header.setFixedHeight(54)
+        header.setFixedHeight(60)
         header_layout = QHBoxLayout(header)
         header_layout.setContentsMargins(36, 0, 36, 0)
         header_layout.setSpacing(0)
@@ -6881,25 +7103,41 @@ class WizardWindow(QMainWindow):
         header_layout.addWidget(logo)
         header_layout.addStretch()
 
-        # Step dots
-        self._dot_labels: list[QLabel] = []
-        dots_widget = QWidget()
-        dots_layout = QHBoxLayout(dots_widget)
-        dots_layout.setContentsMargins(0, 0, 0, 0)
-        dots_layout.setSpacing(8)
-        for label in self._STEP_LABELS:
+        # Step progress track (dot + connector + label per step)
+        self._step_label_widgets: list[QLabel] = []
+        progress_widget = QWidget()
+        progress_layout = QHBoxLayout(progress_widget)
+        progress_layout.setContentsMargins(0, 0, 0, 0)
+        progress_layout.setSpacing(0)
+
+        for i, label in enumerate(self._STEP_LABELS):
+            if i > 0:
+                connector = QFrame()
+                connector.setFixedSize(28, 2)
+                connector.setStyleSheet("background: #2a3f5a; border: none;")
+                progress_layout.addWidget(connector)
+
+            step_col = QWidget()
+            step_col_layout = QVBoxLayout(step_col)
+            step_col_layout.setContentsMargins(0, 0, 0, 0)
+            step_col_layout.setSpacing(4)
+            step_col_layout.setAlignment(Qt.AlignmentFlag.AlignHCenter)
+
             dot = QLabel()
             dot.setFixedSize(10, 10)
             dot.setObjectName("step-dot-inactive")
-            dot.setToolTip(label)
-            dots_layout.addWidget(dot)
-            self._dot_labels.append(dot)
-        header_layout.addWidget(dots_widget)
+            dot.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            step_col_layout.addWidget(dot, 0, Qt.AlignmentFlag.AlignHCenter)
 
-        header_layout.addSpacing(16)
-        self._step_lbl = QLabel()
-        self._step_lbl.setObjectName("wizard-step-label")
-        header_layout.addWidget(self._step_lbl)
+            lbl = QLabel(label)
+            lbl.setObjectName("wizard-progress-step")
+            lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            step_col_layout.addWidget(lbl, 0, Qt.AlignmentFlag.AlignHCenter)
+
+            progress_layout.addWidget(step_col)
+            self._step_label_widgets.append((dot, lbl))  # type: ignore[assignment]
+
+        header_layout.addWidget(progress_widget)
         root_layout.addWidget(header)
 
         # Gradient accent line
@@ -6907,7 +7145,7 @@ class WizardWindow(QMainWindow):
         accent.setFixedHeight(2)
         accent.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #5b9cf6, stop:0.5 #7c5cbf, stop:1 #0c0c0c);"
+            "stop:0 #1a9fe8, stop:0.5 #57cbde, stop:1 #1b2838);"
         )
         root_layout.addWidget(accent)
 
@@ -6945,22 +7183,24 @@ class WizardWindow(QMainWindow):
         # ── Footer ────────────────────────────────────────────────────────
         footer = QWidget()
         footer.setObjectName("wizard-footer")
-        footer.setFixedHeight(64)
+        footer.setFixedHeight(68)
         footer_layout = QHBoxLayout(footer)
         footer_layout.setContentsMargins(36, 0, 36, 0)
         footer_layout.setSpacing(10)
 
         self._back_btn = QPushButton("← Back")
+        self._back_btn.setFixedWidth(100)
         self._back_btn.clicked.connect(self._go_back)
         footer_layout.addWidget(self._back_btn)
         footer_layout.addStretch()
 
-        self._skip_btn = QPushButton("Skip")
+        self._skip_btn = QPushButton("Skip for now")
         self._skip_btn.clicked.connect(self._go_next)
         footer_layout.addWidget(self._skip_btn)
 
-        self._next_btn = QPushButton("Let's Go  →")
+        self._next_btn = QPushButton("Get Started  →")
         self._next_btn.setObjectName("primary")
+        self._next_btn.setFixedWidth(160)
         self._next_btn.clicked.connect(self._go_next)
         footer_layout.addWidget(self._next_btn)
         root_layout.addWidget(footer)
@@ -6972,16 +7212,16 @@ class WizardWindow(QMainWindow):
         self._setup_banner = QWidget()
         self._setup_banner.setObjectName("setup-banner")
         banner_layout = QHBoxLayout(self._setup_banner)
-        banner_layout.setContentsMargins(20, 6, 20, 6)
-        banner_layout.setSpacing(12)
-        banner_lbl = QLabel("Installing apps in the background — this may take a few minutes on first boot.")
-        banner_lbl.setObjectName("setup-banner-label")
+        banner_layout.setContentsMargins(24, 7, 24, 7)
+        banner_layout.setSpacing(14)
         self._setup_banner_bar = QProgressBar()
         self._setup_banner_bar.setRange(0, 0)
-        self._setup_banner_bar.setFixedWidth(120)
-        self._setup_banner_bar.setFixedHeight(6)
+        self._setup_banner_bar.setFixedWidth(100)
+        self._setup_banner_bar.setFixedHeight(4)
         self._setup_banner_bar.setTextVisible(False)
         banner_layout.addWidget(self._setup_banner_bar)
+        banner_lbl = QLabel("Setting up your system in the background — this takes a few minutes on first boot.")
+        banner_lbl.setObjectName("setup-banner-label")
         banner_layout.addWidget(banner_lbl)
         banner_layout.addStretch()
         root_layout.addWidget(self._setup_banner)
@@ -7011,14 +7251,14 @@ class WizardWindow(QMainWindow):
         layout.setSpacing(0)
 
         intro = QWidget()
-        intro.setObjectName("wizard-hero")
+        intro.setObjectName("page-header")
         intro_layout = QVBoxLayout(intro)
-        intro_layout.setContentsMargins(52, 20, 52, 18)
-        intro_layout.setSpacing(4)
+        intro_layout.setContentsMargins(56, 22, 56, 20)
+        intro_layout.setSpacing(5)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("heading")
         subtitle_lbl = QLabel(subtitle)
-        subtitle_lbl.setObjectName("wizard-desc")
+        subtitle_lbl.setObjectName("subheading")
         intro_layout.addWidget(title_lbl)
         intro_layout.addWidget(subtitle_lbl)
         layout.addWidget(intro)
@@ -7038,23 +7278,23 @@ class WizardWindow(QMainWindow):
         hero = QWidget()
         hero.setObjectName("wizard-hero")
         hero_layout = QVBoxLayout(hero)
-        hero_layout.setContentsMargins(64, 56, 64, 48)
-        hero_layout.setSpacing(14)
+        hero_layout.setContentsMargins(72, 60, 72, 54)
+        hero_layout.setSpacing(16)
 
         logo = QLabel("KythOS")
         logo.setObjectName("wizard-logo")
         hero_layout.addWidget(logo)
 
-        tagline = QLabel("A fast, atomic desktop built for gaming and development.")
+        tagline = QLabel("Atomic · Gaming · Development")
         tagline.setObjectName("wizard-tagline")
         hero_layout.addWidget(tagline)
 
-        hero_layout.addSpacing(4)
+        hero_layout.addSpacing(8)
 
         desc = QLabel(
-            "Built on an atomic KDE desktop with the CachyOS kernel, Mesa-git Vulkan, and a "
-            "complete gaming stack pre-installed. Updates ship as atomic container images — "
-            "every change is instant to roll back."
+            "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa-git Vulkan drivers, "
+            "and a complete gaming stack pre-installed. Updates ship as atomic container images — "
+            "every change is instant to roll back with a single command."
         )
         desc.setObjectName("wizard-desc")
         desc.setWordWrap(True)
@@ -7067,20 +7307,29 @@ class WizardWindow(QMainWindow):
         stats_bar = QWidget()
         stats_bar.setObjectName("content-area")
         stats_layout = QHBoxLayout(stats_bar)
-        stats_layout.setContentsMargins(64, 18, 64, 18)
-        stats_layout.setSpacing(32)
+        stats_layout.setContentsMargins(72, 20, 72, 20)
+        stats_layout.setSpacing(0)
 
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         branch = _branch_display_name(_current_branch())
+        ge_ver = _ge_proton_version() or "included"
 
-        for i, (label, value) in enumerate([("Kernel", kernel), ("Branch", branch), ("Release", "43")]):
+        stat_items = [
+            ("Kernel", kernel),
+            ("Channel", branch),
+            ("GE-Proton", ge_ver),
+        ]
+        for i, (label, value) in enumerate(stat_items):
             if i > 0:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
-                sep.setStyleSheet("background: #1c1c1c; max-width: 1px; border: none;")
+                sep.setFixedWidth(1)
+                sep.setStyleSheet("background: #2a3f5a; border: none; max-width: 1px;")
+                stats_layout.addSpacing(28)
                 stats_layout.addWidget(sep)
+                stats_layout.addSpacing(28)
             col = QVBoxLayout()
-            col.setSpacing(3)
+            col.setSpacing(4)
             lbl = QLabel(label.upper())
             lbl.setObjectName("stat-label")
             val = QLabel(value)
@@ -7097,33 +7346,40 @@ class WizardWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("content-area")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(64, 0, 64, 0)
+        layout.setContentsMargins(72, 0, 72, 0)
         layout.setSpacing(0)
         layout.addStretch()
 
         check = QLabel("✓")
-        check.setStyleSheet("font-size: 56px; color: #4dbb6f; font-weight: 300;")
+        check.setStyleSheet(
+            "font-size: 52px; color: #57cbde; font-weight: 300; background: transparent;"
+        )
         layout.addWidget(check)
-        layout.addSpacing(16)
+        layout.addSpacing(18)
 
         title = QLabel("You're all set.")
         title.setObjectName("finish-title")
         layout.addWidget(title)
-        layout.addSpacing(8)
+        layout.addSpacing(10)
 
         subtitle = QLabel(
-            "KythOS is ready to go. The system helper is always available from the app menu."
+            "KythOS is ready to go. Steam, Heroic, and your full gaming stack are pre-installed.\n"
+            "The System Hub is always available from the application menu whenever you need it."
         )
         subtitle.setObjectName("finish-subtitle")
         subtitle.setWordWrap(True)
         layout.addWidget(subtitle)
-        layout.addSpacing(32)
+        layout.addSpacing(36)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
         steam_btn = QPushButton("Open Steam")
+        steam_btn.setObjectName("primary")
         steam_btn.clicked.connect(lambda: subprocess.Popen(["steam"]))
         btn_row.addWidget(steam_btn)
+        hub_btn = QPushButton("Open System Hub")
+        hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
+        btn_row.addWidget(hub_btn)
         gh_btn = QPushButton("GitHub")
         gh_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))
@@ -7140,25 +7396,26 @@ class WizardWindow(QMainWindow):
         idx = self._current
         total = len(self._steps)
 
-        for i, dot in enumerate(self._dot_labels):
+        for i, (dot, lbl) in enumerate(self._step_label_widgets):
             if i < idx:
                 dot.setObjectName("step-dot-done")
+                lbl.setObjectName("wizard-progress-step-done")
             elif i == idx:
                 dot.setObjectName("step-dot-active")
+                lbl.setObjectName("wizard-progress-step-active")
             else:
                 dot.setObjectName("step-dot-inactive")
+                lbl.setObjectName("wizard-progress-step")
             _restyle(dot)
+            _restyle(lbl)
 
-        self._step_lbl.setText(
-            f"{self._STEP_LABELS[idx].upper()}  ·  {idx + 1} / {total}"
-        )
         self._back_btn.setVisible(idx > 0)
         self._skip_btn.setVisible(0 < idx < total - 1)
 
         if idx == total - 1:
             self._next_btn.setText("Close")
         elif idx == 0:
-            self._next_btn.setText("Let's Go  →")
+            self._next_btn.setText("Get Started  →")
         else:
             self._next_btn.setText("Next  →")
 
