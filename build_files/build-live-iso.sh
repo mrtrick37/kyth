@@ -56,6 +56,9 @@ else
     chmod 0700 "$_ASKPASS"
     # shellcheck disable=SC2016  # single quotes intentional: var expands when askpass script runs, not now
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
+    # Remove the askpass script on exit (normal or error) so it never
+    # lingers in /var/tmp if the build is killed mid-run.
+    trap '[[ -n "${_ASKPASS:-}" ]] && rm -f "${_ASKPASS}"' EXIT
     export SUDO_ASKPASS="$_ASKPASS"
     sudo() { command sudo -A "$@"; }
 fi

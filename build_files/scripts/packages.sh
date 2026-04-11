@@ -18,7 +18,12 @@ echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
 # (docker_t, container_t, etc.) — required for Docker to work under enforcing.
 dnf5 install -y docker container-selinux
 
-# Add rpmfusion free and nonfree repositories for Fedora 44
+# Add rpmfusion free and nonfree repositories for Fedora 44.
+# Pre-import GPG keys before fetching the release RPMs so a MITM on the
+# mirror URL cannot substitute a different signing key — same pattern used
+# for Brave and Negativo17 above.
+rpm --import https://rpmfusion.org/keys/rpmfusion-free-release-fedora.asc
+rpm --import https://rpmfusion.org/keys/rpmfusion-nonfree-release-fedora.asc
 dnf5 install -y \
     https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
     https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm \
@@ -109,7 +114,10 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers)
+# negativo17 Steam repo — pre-import GPG key before fetching the .repo file so
+# a MITM on the repofile URL cannot redirect dnf to a different signing key.
+rpm --import https://negativo17.org/keys/negativo17.asc
+# --overwrite for idempotency (CI caches base layers)
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
@@ -235,6 +243,9 @@ if [ -L /opt ]; then
         mkdir -p /var/opt
     fi
 fi
+# Pre-import Brave GPG key before fetching the .repo file so a MITM on the
+# repofile URL cannot redirect dnf to a different signing key.
+rpm --import https://brave-keyring.s3.brave.com/signing-key.pub
 dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
 dnf5 install -y brave-browser
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
@@ -301,7 +312,7 @@ curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
 if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
     EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
     ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
-    if [[ -z "${EXPECTED_SHA256}" ]]; then
+    if [[ -z "${EXPECTED_SHA256}" || ${#EXPECTED_SHA256} -ne 64 ]]; then
         echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
     elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
         echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
@@ -452,3 +463,9 @@ ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
+
+# Remove dnf transaction history and repo solver data from the image layer.
+# The download cache is already excluded via --mount=type=cache in the
+# Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates
+# ~30-60 MB of state that serves no purpose in the final OS image.
+dnf5 clean all

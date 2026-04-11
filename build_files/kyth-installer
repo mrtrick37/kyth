@@ -1024,15 +1024,27 @@ class Handler(BaseHTTPRequestHandler):
             if not re.fullmatch(r"[a-zA-Z0-9]([a-zA-Z0-9\-]{0,61}[a-zA-Z0-9])?", hostname):
                 self.send_error(400, "Invalid hostname")
                 return
+            disk = body.get("disk", "")
+            # Validate disk against the live block device list so arbitrary
+            # paths cannot be passed via the HTTP API (e.g. by a local process
+            # that reads the session token from /api/config and crafts a request).
+            valid_disks = {d["name"] for d in list_disks()}
+            if disk not in valid_disks:
+                self.send_error(400, "Invalid disk")
+                return
+            install_mode = body.get("install_mode", "erase")
+            if install_mode not in ("erase", "alongside"):
+                self.send_error(400, "Invalid install_mode")
+                return
             _state.update({
-                "disk":         body.get("disk", ""),
+                "disk":         disk,
                 "disk_model":   body.get("disk_model", ""),
                 "disk_size":    body.get("disk_size", ""),
                 "hostname":     hostname,
                 "timezone":     timezone,
                 "username":     username,
                 "password":     body.get("password", ""),
-                "install_mode": body.get("install_mode", "erase"),
+                "install_mode": install_mode,
             })
             # Reset event log for a fresh install attempt
             with _events_lock:

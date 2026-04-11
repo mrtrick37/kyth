@@ -21,6 +21,14 @@ if ! curl -fsSL "${GE_PROTON_REPO_API}/latest" -o "${release_json}"; then
 fi
 
 GE_PROTON_VER=$(grep '"tag_name"' "${release_json}" | head -n1 | cut -d'"' -f4)
+if [[ -z "${GE_PROTON_VER}" ]]; then
+    echo "Failed to parse GE-Proton version tag from release JSON" >&2
+    exit 1
+fi
+if [[ ! "${GE_PROTON_VER}" =~ ^GE-Proton[0-9]+-[0-9]+$ ]]; then
+    echo "Unexpected GE-Proton version format: ${GE_PROTON_VER}" >&2
+    exit 1
+fi
 INSTALL_PATH="${INSTALL_DIR}/${GE_PROTON_VER}"
 
 if [[ -d "${INSTALL_PATH}" ]]; then

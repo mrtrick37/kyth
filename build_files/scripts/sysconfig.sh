@@ -474,6 +474,14 @@ SDDMDROPINEOF
 install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'
 #!/bin/bash
 EPP="${1:-balance_performance}"
+case "$EPP" in
+    performance|balance_performance|balance_power|power|default) ;;
+    *)
+        echo "kyth-set-epp: invalid EPP value: ${EPP}" >&2
+        echo "Valid values: performance, balance_performance, balance_power, power, default" >&2
+        exit 1
+        ;;
+esac
 changed=0
 for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
     [[ -f "$f" ]] || continue
@@ -493,7 +501,7 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # KythOS: wheel group may run safe update/firmware commands without a password.
 %wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
 %wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch ghcr.io/mrtrick37/kyth\:*
-%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh *
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
