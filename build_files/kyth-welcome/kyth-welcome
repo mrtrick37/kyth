@@ -6462,6 +6462,11 @@ class SecurityPage(Page):
         self._enter_btn.clicked.connect(self._enter_box)
         btn_row.addWidget(self._enter_btn)
 
+        self._export_btn = QPushButton("Export Apps to Menu")
+        self._export_btn.hide()
+        self._export_btn.clicked.connect(self._export_apps)
+        btn_row.addWidget(self._export_btn)
+
         self._remove_btn = QPushButton("Remove Box")
         self._remove_btn.setObjectName("danger")
         self._remove_btn.hide()
@@ -6554,6 +6559,7 @@ class SecurityPage(Page):
         self._create_btn.setVisible(not installed)
         self._gui_check.setVisible(not installed)
         self._enter_btn.setVisible(installed)
+        self._export_btn.setVisible(installed)
         self._remove_btn.setVisible(installed)
 
         for refs in self._host_tool_refs:
@@ -6569,15 +6575,21 @@ class SecurityPage(Page):
             return
 
         also_gui = self._gui_check.isChecked()
+        self._last_install_gui = also_gui
         meta = "kali-linux-default" if also_gui else "kali-linux-headless"
 
         self._create_btn.setEnabled(False)
         self._gui_check.setEnabled(False)
         self._log.clear()
+        export_note = (
+            f"→ distrobox enter {self._BOX_NAME} -- distrobox-export (bulk GUI apps)\n"
+            "→ kbuildsycoca6 (refresh KDE application menu)\n"
+        ) if also_gui else ""
         self._log.append(
             f"→ distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME}\n"
-            f"→ distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}\n\n"
-            "This pulls the Kali container image and installs the tool metapackage.\n"
+            f"→ distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}\n"
+            + export_note
+            + "\nThis pulls the Kali container image and installs the tool metapackage.\n"
             "The first run will take a few minutes depending on your connection.\n"
         )
         self._log_toggle.show()
@@ -6588,10 +6600,18 @@ class SecurityPage(Page):
         self._status_lbl.show()
         _restyle(self._status_lbl)
 
+        export_step = (
+            f" && distrobox enter {self._BOX_NAME} --"
+            r" bash -c 'for f in /usr/share/applications/*.desktop;"
+            r" do app=$(basename \"$f\" .desktop);"
+            r" distrobox-export --app \"$app\" 2>/dev/null || true; done'"
+            " && kbuildsycoca6 --noincremental 2>/dev/null || true"
+        ) if also_gui else ""
         cmd = [
             "bash", "-c",
             f"distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME} --yes"
-            f" && distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}",
+            f" && distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}"
+            + export_step,
         ]
         self._worker = Worker(cmd)
         self._worker.line.connect(lambda ln: (
@@ -6607,7 +6627,12 @@ class SecurityPage(Page):
         self._create_btn.setEnabled(True)
         self._gui_check.setEnabled(True)
         if code == 0:
-            self._status_lbl.setText("Kali box created. Launch a terminal to start hacking.")
+            if getattr(self, "_last_install_gui", False):
+                self._status_lbl.setText(
+                    "Kali box created. GUI apps exported — check your application menu."
+                )
+            else:
+                self._status_lbl.setText("Kali box created. Launch a terminal to start hacking.")
             self._status_lbl.setObjectName("status-ok")
             self._log.append("\nDone.")
         else:
@@ -6633,6 +6658,59 @@ class SecurityPage(Page):
             subprocess.Popen(["konsole", "-e", "distrobox", "enter", self._BOX_NAME])
         else:
             subprocess.Popen([terminal, "--", "distrobox", "enter", self._BOX_NAME])
+
+    # ── Export apps ────────────────────────────────────────────────────────────
+
+    def _export_apps(self):
+        if self._worker and self._worker.isRunning():
+            return
+        self._export_btn.setEnabled(False)
+        self._enter_btn.setEnabled(False)
+        self._remove_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append(
+            f"→ distrobox enter {self._BOX_NAME} -- distrobox-export (bulk GUI apps)\n"
+            "→ kbuildsycoca6 (refresh KDE application menu)\n\n"
+            "Exporting desktop entries from Kali container to the application menu…\n"
+        )
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Exporting apps…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+
+        cmd = [
+            "bash", "-c",
+            f"distrobox enter {self._BOX_NAME} --"
+            r" bash -c 'for f in /usr/share/applications/*.desktop;"
+            r" do app=$(basename \"$f\" .desktop);"
+            r" distrobox-export --app \"$app\" 2>/dev/null || true; done'"
+            " && kbuildsycoca6 --noincremental 2>/dev/null || true",
+        ]
+        self._worker = Worker(cmd)
+        self._worker.line.connect(lambda ln: (
+            self._log.append(ln),
+            self._log.ensureCursorVisible(),
+        ))
+        self._worker.done.connect(self._on_export_done)
+        self._worker.start()
+
+    def _on_export_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self, attr="_worker")
+        self._export_btn.setEnabled(True)
+        self._enter_btn.setEnabled(True)
+        self._remove_btn.setEnabled(True)
+        if code == 0:
+            self._status_lbl.setText("Apps exported — check your application menu.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone.")
+        else:
+            self._status_lbl.setText(f"Export failed (exit {code}). Check the details below.")
+            self._status_lbl.setObjectName("status-err")
+        _restyle(self._status_lbl)
 
     # ── Remove box ─────────────────────────────────────────────────────────────
 
