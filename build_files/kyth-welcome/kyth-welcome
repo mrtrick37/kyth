@@ -6603,8 +6603,8 @@ class SecurityPage(Page):
         export_step = (
             f" && distrobox enter {self._BOX_NAME} --"
             r" bash -c 'for f in /usr/share/applications/*.desktop;"
-            r" do app=$(basename \"$f\" .desktop);"
-            r" distrobox-export --app \"$app\" 2>/dev/null || true; done'"
+            r" do app=$(basename $f .desktop);"
+            r" distrobox-export --app $app 2>/dev/null || true; done'"
             "\n_d=\"$HOME/.local/share/applications\"\n"
             "for _f in \"$_d/\"*.desktop; do\n"
             "    [[ -f \"$_f\" ]] || continue\n"
@@ -6704,10 +6704,10 @@ class SecurityPage(Page):
             r" bash -c '"
             r"shopt -s nullglob; files=(/usr/share/applications/*.desktop);"
             r" if [ ${#files[@]} -eq 0 ]; then exit 2; fi;"
-            r" n=0; for f in \"${files[@]}\"; do"
-            r"   app=$(basename \"$f\" .desktop);"
-            r"   distrobox-export --app \"$app\" 2>&1 && n=$((n+1)) || echo \"  skip: $app\";"
-            r" done; echo \"EXPORTED:$n\"'"
+            r" n=0; for f in ${files[@]}; do"
+            r"   app=$(basename $f .desktop);"
+            r"   distrobox-export --app $app 2>&1 && n=$((n+1)) || echo skip: $app;"
+            r" done; echo EXPORTED:$n'"
             # Step 2: patch host-side .desktop files — set Categories=Security;
             # strip NoDisplay/OnlyShowIn so entries appear in the launcher
             "\n_rc=$?; [ \"$_rc\" -eq 2 ] && exit 2\n"
