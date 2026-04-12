@@ -283,9 +283,97 @@ setup-kali-box tools="headless":
     distrobox create --image kalilinux/kali-rolling --name kali --yes
     distrobox enter kali -- sudo apt-get install -y "${meta}"
 
+    if [[ "${tools}" == "gui" ]]; then
+        echo
+        echo "── Exporting Kali GUI apps to application launcher ─────────────────"
+
+        # Export every .desktop file found in the kali container.
+        # distrobox-export is run from *inside* the container; it writes
+        # host-side .desktop wrappers to ~/.local/share/applications/.
+        distrobox enter kali -- bash -c '
+            exported=0
+            for f in /usr/share/applications/*.desktop; do
+                [[ -f "$f" ]] || continue
+                app=$(basename "$f" .desktop)
+                distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
+            done
+            echo "  Exported ${exported} desktop entries."
+        '
+
+        # Patch the exported wrappers so KDE groups them under "Security Tools".
+        # Identify kali-exported entries by the "--name kali" distrobox argument
+        # that distrobox-export injects into each Exec= line.
+        _appdir="${HOME}/.local/share/applications"
+        _patched=0
+        for _f in "${_appdir}/"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
+                if grep -q '^Categories=' "${_f}"; then
+                    sed -i 's|^Categories=.*|Categories=Security;|' "${_f}"
+                else
+                    printf '\nCategories=Security;\n' >> "${_f}"
+                fi
+                _patched=$((_patched+1))
+            fi
+        done
+        echo "  Set Categories=Security; on ${_patched} entries."
+        update-desktop-database "${_appdir}" 2>/dev/null || true
+        echo "  Done — Kali tools should appear under 'Security' in the app launcher."
+    fi
+
     echo
     echo "━━━ Done ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Kali box ready. Enter it with: distrobox enter kali"
+
+# Export Kali Linux GUI apps to the host application launcher.
+#
+# Re-run this any time you install new GUI tools inside the kali container or
+# if the launchers are missing after a fresh setup.  All exported apps are
+# placed under the "Security" category so KDE groups them together.
+[group('KythOS')]
+export-kali-apps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "No kali container found." >&2
+        echo "Run 'ujust setup-kali-box gui' first." >&2
+        exit 1
+    fi
+
+    echo "━━━ Exporting Kali GUI apps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Export every .desktop file found in the kali container.
+    distrobox enter kali -- bash -c '
+        exported=0
+        for f in /usr/share/applications/*.desktop; do
+            [[ -f "$f" ]] || continue
+            app=$(basename "$f" .desktop)
+            distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
+        done
+        echo "  Exported ${exported} desktop entries."
+    '
+
+    # Patch exported wrappers to use the Security category so KDE groups them.
+    _appdir="${HOME}/.local/share/applications"
+    _patched=0
+    for _f in "${_appdir}/"*.desktop; do
+        [[ -f "${_f}" ]] || continue
+        if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
+            if grep -q '^Categories=' "${_f}"; then
+                sed -i 's|^Categories=.*|Categories=Security;|' "${_f}"
+            else
+                printf '\nCategories=Security;\n' >> "${_f}"
+            fi
+            _patched=$((_patched+1))
+        fi
+    done
+
+    echo "  Set Categories=Security; on ${_patched} entries."
+    update-desktop-database "${_appdir}" 2>/dev/null || true
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Kali tools are now exported to the application launcher under 'Security'."
 
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('KythOS')]
