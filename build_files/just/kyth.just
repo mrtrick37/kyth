@@ -250,8 +250,9 @@ install-boxbuddy:
 # Set up a Kali Linux security toolbox via distrobox.
 #
 # Usage:
-#   ujust setup-kali-box            # headless CLI tools only (kali-linux-headless)
-#   ujust setup-kali-box gui        # headless + GUI tools (kali-linux-default)
+#   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
+#   ujust setup-kali-box gui          # headless + GUI tools (kali-linux-default)
+#   ujust setup-kali-box everything   # every available Kali tool (WARNING: 15-20 GB+)
 #
 # After setup: distrobox enter kali
 [group('KythOS')]
@@ -261,14 +262,23 @@ setup-kali-box tools="headless":
 
     tools="{{ tools }}"
     case "${tools}" in
-        headless) meta="kali-linux-headless" ;;
-        gui)      meta="kali-linux-default"  ;;
+        headless)   meta="kali-linux-headless"   ;;
+        gui)        meta="kali-linux-default"    ;;
+        everything) meta="kali-linux-everything" ;;
         *)
             echo "Unknown tools option: ${tools}" >&2
-            echo "Valid options: headless (default), gui" >&2
+            echo "Valid options: headless (default), gui, everything" >&2
             exit 1
             ;;
     esac
+
+    if [[ "${tools}" == "everything" ]]; then
+        echo "━━━ WARNING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  kali-linux-everything installs every available Kali tool."
+        echo "  Expect 15–20 GB or more of downloads and a very long install time."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo
+    fi
 
     if distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
         echo "Kali box already exists. To enter it: distrobox enter kali"
@@ -283,7 +293,7 @@ setup-kali-box tools="headless":
     distrobox create --image kalilinux/kali-rolling --name kali --yes
     distrobox enter kali -- sudo apt-get install -y "${meta}"
 
-    if [[ "${tools}" == "gui" ]]; then
+    if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
         echo
         echo "── Exporting Kali GUI apps to application launcher ─────────────────"
 
