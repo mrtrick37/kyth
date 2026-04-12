@@ -6692,7 +6692,7 @@ class SecurityPage(Page):
             r" if [ ${#files[@]} -eq 0 ]; then exit 2; fi;"
             r" n=0; for f in \"${files[@]}\"; do"
             r"   app=$(basename \"$f\" .desktop);"
-            r"   distrobox-export --app \"$app\" 2>/dev/null && n=$((n+1)) || true;"
+            r"   distrobox-export --app \"$app\" 2>&1 && n=$((n+1)) || echo \"  skip: $app\";"
             r" done; echo \"EXPORTED:$n\"'"
             " && kbuildsycoca6 --noincremental 2>/dev/null || true",
         ]
@@ -6734,10 +6734,12 @@ class SecurityPage(Page):
             n = getattr(self, "_export_count", 0)
             if n == 0:
                 self._status_lbl.setText(
-                    "Export finished but no apps were exported. "
-                    "They may already be in your menu, or no exportable GUI apps were found."
+                    "No GUI apps exported. kali-linux-headless contains CLI tools only — "
+                    "remove this box and re-create it with the 'kali-linux-default' checkbox "
+                    "to get exportable GUI apps (Zenmap, Autopsy, Faraday, etc.)."
                 )
-                self._status_lbl.setObjectName("subheading")
+                self._status_lbl.setObjectName("status-err")
+                _set_log_panel(self._log_toggle, self._log, True)
             else:
                 self._status_lbl.setText(
                     f"Exported {n} app(s) — they should appear in your application menu shortly. "
