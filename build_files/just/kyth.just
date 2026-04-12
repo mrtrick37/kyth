@@ -317,7 +317,17 @@ setup-kali-box tools="headless":
             fi
         done
         echo "  Set Categories=Security; on ${_patched} entries."
+        # Strip NoDisplay=true so entries actually appear in the launcher.
+        for _f in "${_appdir}/"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+            sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
+            sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+        done
         update-desktop-database "${_appdir}" 2>/dev/null || true
+        # Rebuild KDE's application-launcher cache (update-desktop-database alone
+        # is not enough — KDE maintains its own ksycoca index).
+        kbuildsycoca6 --noincremental 2>/dev/null || true
         echo "  Done — Kali tools should appear under 'Security' in the app launcher."
     fi
 
@@ -370,7 +380,17 @@ export-kali-apps:
     done
 
     echo "  Set Categories=Security; on ${_patched} entries."
+    # Strip NoDisplay=true so entries actually appear in the launcher.
+    for _f in "${_appdir}/"*.desktop; do
+        [[ -f "${_f}" ]] || continue
+        grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+        sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
+        sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+    done
     update-desktop-database "${_appdir}" 2>/dev/null || true
+    # Rebuild KDE's application-launcher cache (update-desktop-database alone
+    # is not enough — KDE maintains its own ksycoca index).
+    kbuildsycoca6 --noincremental 2>/dev/null || true
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Kali tools are now exported to the application launcher under 'Security'."
