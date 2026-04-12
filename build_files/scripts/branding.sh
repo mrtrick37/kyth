@@ -441,6 +441,38 @@ kill "$_DRACUT_TICKER" 2>/dev/null || true
 wait "$_DRACUT_TICKER" 2>/dev/null || true
 echo "dracut: initramfs rebuilt with Plymouth (theme: kyth)"
 
+# ── Security Tools menu group ──────────────────────────────────────────────────
+# Define a custom "Security Tools" group in the XDG application menu so that
+# Kali tools exported via distrobox-export land there instead of "Lost and Found".
+# "Security" alone is not a recognized XDG main category, so apps without a main
+# category fall through to KDE's catch-all bucket.  X-KythSecurity is our custom
+# main category; the .menu merge file teaches KDE what group it belongs to.
+mkdir -p /usr/share/desktop-directories
+cat > /usr/share/desktop-directories/kyth-security.directory <<'SECDIREF'
+[Desktop Entry]
+Version=1.0
+Type=Directory
+Name=Security Tools
+Comment=Security and penetration testing tools
+Icon=security-high
+SECDIREF
+
+mkdir -p /etc/xdg/menus/applications-merged
+cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+  "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
+<Menu>
+  <Name>Applications</Name>
+  <Menu>
+    <Name>Security Tools</Name>
+    <Directory>kyth-security.directory</Directory>
+    <Include>
+      <Category>X-KythSecurity</Category>
+    </Include>
+  </Menu>
+</Menu>
+SECMENUEOF
+
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
