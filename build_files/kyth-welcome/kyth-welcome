@@ -6664,6 +6664,7 @@ class SecurityPage(Page):
     def _export_apps(self):
         if self._worker and self._worker.isRunning():
             return
+        self._export_count = 0
         self._export_btn.setEnabled(False)
         self._enter_btn.setEnabled(False)
         self._remove_btn.setEnabled(False)
@@ -6671,31 +6672,44 @@ class SecurityPage(Page):
         self._log.append(
             f"→ distrobox enter {self._BOX_NAME} -- distrobox-export (bulk GUI apps)\n"
             "→ kbuildsycoca6 (refresh KDE application menu)\n\n"
-            "Exporting desktop entries from Kali container to the application menu…\n"
+            "Scanning Kali container for GUI apps…\n"
         )
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
-        self._status_lbl.setText("Exporting apps…")
+        self._status_lbl.setText("Scanning for GUI apps…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         _restyle(self._status_lbl)
 
+        # Exit 2 = no .desktop files found (headless-only install)
+        # Prints "EXPORTED:<n>" on stdout so we can parse the count
         cmd = [
             "bash", "-c",
             f"distrobox enter {self._BOX_NAME} --"
-            r" bash -c 'for f in /usr/share/applications/*.desktop;"
-            r" do app=$(basename \"$f\" .desktop);"
-            r" distrobox-export --app \"$app\" 2>/dev/null || true; done'"
+            r" bash -c '"
+            r"shopt -s nullglob; files=(/usr/share/applications/*.desktop);"
+            r" if [ ${#files[@]} -eq 0 ]; then exit 2; fi;"
+            r" n=0; for f in \"${files[@]}\"; do"
+            r"   app=$(basename \"$f\" .desktop);"
+            r"   distrobox-export --app \"$app\" 2>/dev/null && n=$((n+1)) || true;"
+            r" done; echo \"EXPORTED:$n\"'"
             " && kbuildsycoca6 --noincremental 2>/dev/null || true",
         ]
         self._worker = Worker(cmd)
-        self._worker.line.connect(lambda ln: (
-            self._log.append(ln),
-            self._log.ensureCursorVisible(),
-        ))
+        self._worker.line.connect(self._on_export_line)
         self._worker.done.connect(self._on_export_done)
         self._worker.start()
+
+    def _on_export_line(self, ln: str):
+        if ln.startswith("EXPORTED:"):
+            try:
+                self._export_count = int(ln.split(":", 1)[1].strip())
+            except ValueError:
+                pass
+        else:
+            self._log.append(ln)
+            self._log.ensureCursorVisible()
 
     def _on_export_done(self, code: int):
         self._progress.hide()
@@ -6703,9 +6717,33 @@ class SecurityPage(Page):
         self._export_btn.setEnabled(True)
         self._enter_btn.setEnabled(True)
         self._remove_btn.setEnabled(True)
-        if code == 0:
-            self._status_lbl.setText("Apps exported — check your application menu.")
-            self._status_lbl.setObjectName("status-ok")
+        if code == 2:
+            # No .desktop files in the container — headless install
+            self._status_lbl.setText(
+                "No GUI apps found. kali-linux-headless only includes CLI tools. "
+                "Re-create the box with the GUI checkbox to also install kali-linux-default."
+            )
+            self._status_lbl.setObjectName("status-err")
+            self._log.append(
+                "\nNo .desktop files found inside the Kali container.\n"
+                "kali-linux-headless does not ship GUI apps — there is nothing to export.\n"
+                "To get GUI apps (Zenmap, Autopsy, Faraday, etc.), remove this box and\n"
+                "re-create it with the 'kali-linux-default' checkbox enabled."
+            )
+        elif code == 0:
+            n = getattr(self, "_export_count", 0)
+            if n == 0:
+                self._status_lbl.setText(
+                    "Export finished but no apps were exported. "
+                    "They may already be in your menu, or no exportable GUI apps were found."
+                )
+                self._status_lbl.setObjectName("subheading")
+            else:
+                self._status_lbl.setText(
+                    f"Exported {n} app(s) — they should appear in your application menu shortly. "
+                    "If you don't see them, try logging out and back in."
+                )
+                self._status_lbl.setObjectName("status-ok")
             self._log.append("\nDone.")
         else:
             self._status_lbl.setText(f"Export failed (exit {code}). Check the details below.")
