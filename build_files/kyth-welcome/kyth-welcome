@@ -6407,7 +6407,7 @@ class SecurityPage(Page):
     """Kali Linux security toolbox via distrobox."""
 
     _BOX_NAME = "kali"
-    _BOX_IMAGE = "kalilinux/kali-rolling"
+    _BOX_IMAGE = "docker.io/kalilinux/kali-rolling"
 
     def __init__(self):
         super().__init__()
