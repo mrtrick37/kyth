@@ -309,14 +309,14 @@ setup-kali-box tools="headless":
             [[ -f "${_f}" ]] || continue
             if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
                 if grep -q '^Categories=' "${_f}"; then
-                    sed -i 's|^Categories=.*|Categories=Security;|' "${_f}"
+                    sed -i 's|^Categories=.*|Categories=X-KythSecurity;|' "${_f}"
                 else
-                    printf '\nCategories=Security;\n' >> "${_f}"
+                    printf '\nCategories=X-KythSecurity;\n' >> "${_f}"
                 fi
                 _patched=$((_patched+1))
             fi
         done
-        echo "  Set Categories=Security; on ${_patched} entries."
+        echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
         # Strip NoDisplay=true so entries actually appear in the launcher.
         for _f in "${_appdir}/"*.desktop; do
             [[ -f "${_f}" ]] || continue
@@ -328,7 +328,7 @@ setup-kali-box tools="headless":
         # Rebuild KDE's application-launcher cache (update-desktop-database alone
         # is not enough — KDE maintains its own ksycoca index).
         kbuildsycoca6 --noincremental 2>/dev/null || true
-        echo "  Done — Kali tools should appear under 'Security' in the app launcher."
+        echo "  Done — Kali tools should appear under 'Security Tools' in the app launcher."
     fi
 
     echo
@@ -371,15 +371,15 @@ export-kali-apps:
         [[ -f "${_f}" ]] || continue
         if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
             if grep -q '^Categories=' "${_f}"; then
-                sed -i 's|^Categories=.*|Categories=Security;|' "${_f}"
+                sed -i 's|^Categories=.*|Categories=X-KythSecurity;|' "${_f}"
             else
-                printf '\nCategories=Security;\n' >> "${_f}"
+                printf '\nCategories=X-KythSecurity;\n' >> "${_f}"
             fi
             _patched=$((_patched+1))
         fi
     done
 
-    echo "  Set Categories=Security; on ${_patched} entries."
+    echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
     # Strip NoDisplay=true so entries actually appear in the launcher.
     for _f in "${_appdir}/"*.desktop; do
         [[ -f "${_f}" ]] || continue
@@ -393,7 +393,7 @@ export-kali-apps:
     kbuildsycoca6 --noincremental 2>/dev/null || true
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Kali tools are now exported to the application launcher under 'Security'."
+    echo "Kali tools are now exported to the application launcher under 'Security Tools'."
 
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('KythOS')]
