@@ -6605,7 +6605,20 @@ class SecurityPage(Page):
             r" bash -c 'for f in /usr/share/applications/*.desktop;"
             r" do app=$(basename \"$f\" .desktop);"
             r" distrobox-export --app \"$app\" 2>/dev/null || true; done'"
-            " && kbuildsycoca6 --noincremental 2>/dev/null || true"
+            "\n_d=\"$HOME/.local/share/applications\"\n"
+            "for _f in \"$_d/\"*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali' \"$_f\" 2>/dev/null || continue\n"
+            "    if grep -q '^Categories=' \"$_f\"; then\n"
+            "        sed -i 's|^Categories=.*|Categories=Security;|' \"$_f\"\n"
+            "    else\n"
+            "        printf '\\nCategories=Security;\\n' >> \"$_f\"\n"
+            "    fi\n"
+            "    sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' \"$_f\"\n"
+            "    sed -i '/^OnlyShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "done\n"
+            "update-desktop-database \"$_d\" 2>/dev/null || true\n"
+            "kbuildsycoca6 --noincremental 2>/dev/null || true"
         ) if also_gui else ""
         cmd = [
             "bash", "-c",
@@ -6686,6 +6699,7 @@ class SecurityPage(Page):
         # Prints "EXPORTED:<n>" on stdout so we can parse the count
         cmd = [
             "bash", "-c",
+            # Step 1: export from inside the container
             f"distrobox enter {self._BOX_NAME} --"
             r" bash -c '"
             r"shopt -s nullglob; files=(/usr/share/applications/*.desktop);"
@@ -6694,7 +6708,23 @@ class SecurityPage(Page):
             r"   app=$(basename \"$f\" .desktop);"
             r"   distrobox-export --app \"$app\" 2>&1 && n=$((n+1)) || echo \"  skip: $app\";"
             r" done; echo \"EXPORTED:$n\"'"
-            " && kbuildsycoca6 --noincremental 2>/dev/null || true",
+            # Step 2: patch host-side .desktop files — set Categories=Security;
+            # strip NoDisplay/OnlyShowIn so entries appear in the launcher
+            "\n_rc=$?; [ \"$_rc\" -eq 2 ] && exit 2\n"
+            "_d=\"$HOME/.local/share/applications\"\n"
+            "for _f in \"$_d/\"*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali' \"$_f\" 2>/dev/null || continue\n"
+            "    if grep -q '^Categories=' \"$_f\"; then\n"
+            "        sed -i 's|^Categories=.*|Categories=Security;|' \"$_f\"\n"
+            "    else\n"
+            "        printf '\\nCategories=Security;\\n' >> \"$_f\"\n"
+            "    fi\n"
+            "    sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' \"$_f\"\n"
+            "    sed -i '/^OnlyShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "done\n"
+            "update-desktop-database \"$_d\" 2>/dev/null || true\n"
+            "kbuildsycoca6 --noincremental 2>/dev/null || true",
         ]
         self._worker = Worker(cmd)
         self._worker.line.connect(self._on_export_line)
