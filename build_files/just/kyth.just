@@ -247,6 +247,46 @@ install-boxbuddy:
     echo
     echo "BoxBuddy installed. Launch it from the app launcher to manage your distrobox containers."
 
+# Set up a Kali Linux security toolbox via distrobox.
+#
+# Usage:
+#   ujust setup-kali-box            # headless CLI tools only (kali-linux-headless)
+#   ujust setup-kali-box gui        # headless + GUI tools (kali-linux-default)
+#
+# After setup: distrobox enter kali
+[group('KythOS')]
+setup-kali-box tools="headless":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    tools="{{ tools }}"
+    case "${tools}" in
+        headless) meta="kali-linux-headless" ;;
+        gui)      meta="kali-linux-default"  ;;
+        *)
+            echo "Unknown tools option: ${tools}" >&2
+            echo "Valid options: headless (default), gui" >&2
+            exit 1
+            ;;
+    esac
+
+    if distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "Kali box already exists. To enter it: distrobox enter kali"
+        exit 0
+    fi
+
+    echo "━━━ Setting up Kali Linux toolbox ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Image:    kalilinux/kali-rolling"
+    echo "  Package:  ${meta}"
+    echo
+
+    distrobox create --image kalilinux/kali-rolling --name kali --yes
+    distrobox enter kali -- sudo apt-get install -y "${meta}"
+
+    echo
+    echo "━━━ Done ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Kali box ready. Enter it with: distrobox enter kali"
+
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('KythOS')]
 update-ge-proton:
