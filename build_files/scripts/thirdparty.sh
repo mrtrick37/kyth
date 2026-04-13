@@ -2,6 +2,17 @@
 
 set -euo pipefail
 
+CURL_COMMON_ARGS=(--retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 300)
+
+# Authenticated GitHub API calls — avoids the 60 req/hr unauthenticated rate limit
+# on shared GitHub Actions runner IP ranges. Token is injected via BuildKit secret
+# and never written to any image layer. Falls back gracefully to unauthenticated
+# calls when building locally without the secret.
+CURL_AUTH_ARGS=()
+if [[ -f /run/secrets/github_token ]]; then
+    CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
+fi
+
 is_enabled() {
     case "${1,,}" in
         1|true|yes|on) return 0 ;;
@@ -129,7 +140,7 @@ PY
     fi
 
     local checksum_file_path="${tmpdir}/checksum_file"
-    if ! curl -fsSL "${checksum_url}" -o "${checksum_file_path}"; then
+    if ! curl -fsSL "${CURL_COMMON_ARGS[@]}" "${checksum_url}" -o "${checksum_file_path}"; then
         echo "ERROR: Failed to download checksum file from ${checksum_url}." >&2
         echo "Refusing to install ${tarball_name} without a trusted checksum." >&2
         exit 1
@@ -211,7 +222,8 @@ PY
 TOPGRADE_REPO_API="https://api.github.com/repos/topgrade-rs/topgrade/releases/latest"
 TMPDIR_TG=$(mktemp -d)
 release_json="${TMPDIR_TG}/release.json"
-if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
+
+if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     TOPGRADE_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|zst)' "${release_json}" \
         | grep -i 'x86.64\|x86_64\|amd64' \
@@ -221,7 +233,7 @@ if curl -fsSL "${TOPGRADE_REPO_API}" -o "${release_json}" 2>/dev/null; then
     ) || true
     if [[ -n "${TOPGRADE_URL}" ]]; then
         TOPGRADE_TARBALL=$(basename "${TOPGRADE_URL}")
-        curl -fsSL "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
+        curl -fsSL "${CURL_COMMON_ARGS[@]}" "${TOPGRADE_URL}" -o "${TMPDIR_TG}/${TOPGRADE_TARBALL}"
         verify_release_asset "${release_json}" "${TMPDIR_TG}/${TOPGRADE_TARBALL}" \
             "${TOPGRADE_TARBALL}" "${TMPDIR_TG}"
         tar -xf "${TMPDIR_TG}/${TOPGRADE_TARBALL}" -C "${TMPDIR_TG}/"
@@ -245,7 +257,8 @@ WINETRICKS_REPO_API="https://api.github.com/repos/Winetricks/winetricks/releases
 TMPDIR_WTX=$(mktemp -d)
 release_json="${TMPDIR_WTX}/release.json"
 mkdir -p "$(realpath -m /usr/local)/bin"
-if curl -fsSL "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
+
+if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
     WTX_SCRIPT_URL=$(
         grep -oP 'https://[^"]+' "${release_json}" \
         | grep '/releases/download/' \
@@ -253,7 +266,7 @@ if curl -fsSL "${WINETRICKS_REPO_API}" -o "${release_json}" 2>/dev/null; then
         | grep 'winetricks$' | head -n1 || true
     )
     if [[ -n "${WTX_SCRIPT_URL}" ]]; then
-        curl -fsSL "${WTX_SCRIPT_URL}" -o "${TMPDIR_WTX}/winetricks"
+        curl -fsSL "${CURL_COMMON_ARGS[@]}" "${WTX_SCRIPT_URL}" -o "${TMPDIR_WTX}/winetricks"
         verify_release_asset "${release_json}" "${TMPDIR_WTX}/winetricks" \
             "winetricks" "${TMPDIR_WTX}"
         # Extra sanity: must still be a shell script after hash verification
@@ -276,7 +289,8 @@ rm -rf "${TMPDIR_WTX}"
 UMU_REPO_API="https://api.github.com/repos/Open-Wine-Components/umu-launcher/releases/latest"
 TMPDIR_UMU=$(mktemp -d)
 release_json="${TMPDIR_UMU}/release.json"
-if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
+
+if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
     # Match release assets (path contains /releases/download/) — arch suffix not
     # required because umu-launcher tarballs (e.g. umu-launcher-1.1.4.tar.gz)
     # carry no x86_64 indicator in the filename.
@@ -288,7 +302,7 @@ if curl -fsSL "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
     if [[ -n "${UMU_URL}" ]]; then
         UMU_TARBALL=$(basename "${UMU_URL}")
         echo "umu-launcher: downloading ${UMU_TARBALL}"
-        curl -fsSL "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
+        curl -fsSL "${CURL_COMMON_ARGS[@]}" "${UMU_URL}" -o "${TMPDIR_UMU}/${UMU_TARBALL}"
         verify_release_asset "${release_json}" "${TMPDIR_UMU}/${UMU_TARBALL}" \
             "${UMU_TARBALL}" "${TMPDIR_UMU}"
         tar -xf "${TMPDIR_UMU}/${UMU_TARBALL}" -C "${TMPDIR_UMU}/"
@@ -324,7 +338,8 @@ rm -rf "${TMPDIR_UMU}"
 LFX_REPO_API="https://api.github.com/repos/ishitatsuyuki/LatencyFleX/releases/latest"
 TMPDIR_LFX=$(mktemp -d)
 release_json="${TMPDIR_LFX}/release.json"
-if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+
+if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
     LFX_URL=$(
         grep -oP 'https://[^"]+\.tar\.(gz|xz|zst)' "${release_json}" \
         | grep -iv 'source' \
@@ -333,10 +348,10 @@ if curl -fsSL "${LFX_REPO_API}" -o "${release_json}" 2>/dev/null; then
     if [[ -n "${LFX_URL}" ]]; then
         LFX_TARBALL=$(basename "${LFX_URL}")
         if ! release_asset_has_verification "${release_json}" "${LFX_TARBALL}"; then
-            echo "latencyflex: no verification metadata for ${LFX_TARBALL}; skipping."
+            echo "WARNING: latencyflex: no verification metadata for ${LFX_TARBALL}; skipping unverified install." >&2
         else
             echo "latencyflex: downloading ${LFX_TARBALL}"
-            curl -fsSL "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
+            curl -fsSL "${CURL_COMMON_ARGS[@]}" "${LFX_URL}" -o "${TMPDIR_LFX}/${LFX_TARBALL}"
             verify_release_asset "${release_json}" "${TMPDIR_LFX}/${LFX_TARBALL}" \
                 "${LFX_TARBALL}" "${TMPDIR_LFX}"
             tar -xf "${TMPDIR_LFX}/${LFX_TARBALL}" -C "${TMPDIR_LFX}/"
@@ -377,7 +392,8 @@ if is_enabled "${ENABLE_SCX:-1}"; then
     TMPDIR_SCX=$(mktemp -d)
 
     release_json="${TMPDIR_SCX}/release.json"
-    if curl -fsSL "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
+
+    if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${SCX_REPO_API}" -o "${release_json}" 2>/dev/null; then
         # Find a Linux x86_64 binary tarball in the release assets.
         # Accept .tar.gz and .tar.zst (SCX releases have used both formats).
         SCX_TARBALL_URL=$(
@@ -390,7 +406,7 @@ if is_enabled "${ENABLE_SCX:-1}"; then
         if [[ -n "${SCX_TARBALL_URL}" ]]; then
             SCX_TARBALL=$(basename "${SCX_TARBALL_URL}")
             echo "scx: downloading ${SCX_TARBALL}"
-            curl -fsSL "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
+            curl -fsSL "${CURL_COMMON_ARGS[@]}" "${SCX_TARBALL_URL}" -o "${TMPDIR_SCX}/${SCX_TARBALL}"
             verify_release_asset "${release_json}" "${TMPDIR_SCX}/${SCX_TARBALL}" \
                 "${SCX_TARBALL}" "${TMPDIR_SCX}"
             tar -xf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
@@ -462,7 +478,7 @@ fi
 # Resolved live from the GitHub releases API so every build gets the current
 # latest Homebrew without a version pin to manually maintain.
 HOMEBREW_TAG=$(
-    curl -fsSL "https://api.github.com/repos/Homebrew/brew/releases/latest" 2>/dev/null \
+    curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "https://api.github.com/repos/Homebrew/brew/releases/latest" 2>/dev/null \
     | grep -oP '"tag_name":\s*"\K[^"]+' | head -n1 || echo ""
 )
 if [[ -z "${HOMEBREW_TAG}" ]]; then

@@ -263,8 +263,17 @@ jobs:
             PRERELEASE="--latest"
           fi
 
-          gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "${TAG}" \
-            --title "${TITLE}" \
-            --notes "${NOTES}" \
-            ${PRERELEASE}
+          # Use edit-or-create to avoid the delete+create window where both
+          # the release and its git tag are absent.  gh release edit is atomic
+          # on an existing release; gh release create handles the first run.
+          if gh release view "${TAG}" &>/dev/null; then
+            gh release edit "${TAG}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              ${PRERELEASE}
+          else
+            gh release create "${TAG}" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              ${PRERELEASE}
+          fi

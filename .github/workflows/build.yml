@@ -73,7 +73,7 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: true
+          large-packages: false
           docker-images: false
           swap-storage: true
 
@@ -125,6 +125,16 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Resolve latest GE-Proton version
+        id: ge_proton
+        run: |
+          VER=$(curl -fsSL \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "Resolved GE-Proton: ${VER}"
+
       - name: Build base image
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
@@ -153,6 +163,7 @@ jobs:
           docker buildx build \
             --secret id=github_token,env=GITHUB_TOKEN \
             --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
+            --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
             --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
             "${TAG_ARGS[@]}" \
@@ -173,6 +184,7 @@ jobs:
       # Save exact RPM versions from the built image for supply-chain diffing
       # between daily runs.
       - name: Capture RPM manifest
+        if: matrix.branch == 'main' || github.event_name == 'schedule'
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           OUT_FILE="rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt"
@@ -181,6 +193,7 @@ jobs:
             > "${OUT_FILE}"
 
       - name: Upload RPM manifest artifact
+        if: matrix.branch == 'main' || github.event_name == 'schedule'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: rpm-manifest-${{ matrix.branch }}-${{ github.run_id }}
@@ -192,11 +205,15 @@ jobs:
           cosign-release: 'v2.6.1'
 
       - name: Sign container image
+        # Keyless signing via GitHub Actions OIDC — no private key required.
+        # Signatures are stored in the Rekor transparency log.
+        # Verify with:
+        #   cosign verify \
+        #     --certificate-identity=https://github.com/mrtrick37/kyth/.github/workflows/build.yml@refs/heads/<branch> \
+        #     --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+        #     ghcr.io/mrtrick37/kyth:<tag>
         run: |
           IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
           for tag in ${{ steps.metadata.outputs.tags }}; do
-            cosign sign -y --key env://COSIGN_PRIVATE_KEY $IMAGE_FULL:$tag
+            cosign sign -y $IMAGE_FULL:$tag
           done
-        env:
-          COSIGN_EXPERIMENTAL: false
-          COSIGN_PRIVATE_KEY: ${{ secrets.SIGNING_SECRET }}
