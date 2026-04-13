@@ -315,9 +315,9 @@ KythOS uses bootc. On update, `bootc upgrade` pulls the new image, stages it, an
 
 - Last refreshed (UTC): 2026-04-13 11:33:36 UTC
 - Current branch: testing
-- HEAD commit: b70d7e5
-- Last commit title: chore: refresh README auto-snapshot
-- Last commit date: 2026-04-13T07:32:25-04:00
+- HEAD commit: 2744779
+- Last commit title: fix: pre-push hook auto-commits snapshot instead of blocking
+- Last commit date: 2026-04-13T07:33:36-04:00
 - CI workflow files: 5
 - Build script files: 7
 
