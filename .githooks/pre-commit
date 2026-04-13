@@ -1,0 +1,10 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+"$repo_root/build_files/scripts/update-readme-snapshot.sh"
+
+if ! git diff --quiet -- README.md; then
+    git add README.md
+    echo "[pre-commit] README.md snapshot refreshed and staged."
+fi

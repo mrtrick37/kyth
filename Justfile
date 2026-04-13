@@ -64,6 +64,22 @@ disk-usage:
     echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
     find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
 
+# Refresh the auto-generated README project snapshot section.
+[group('Utility')]
+sync-readme:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ./build_files/scripts/update-readme-snapshot.sh
+
+# Install tracked git hooks for automatic README snapshot updates.
+[group('Utility')]
+install-git-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git config core.hooksPath .githooks
+    chmod +x .githooks/pre-commit .githooks/pre-push build_files/scripts/update-readme-snapshot.sh
+    echo "Git hooks installed via core.hooksPath=.githooks"
+
 # Remove old output ISOs — keeps only the current live ISO and current BIB ISO.
 # Deletes: output/previous-built-iso/, output/archive/, stale manifest backups.
 [group('Utility')]
