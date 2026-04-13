@@ -18,6 +18,8 @@
 
 set -euo pipefail
 
+SECONDS=0
+
 # ── Docker group bootstrap ─────────────────────────────────────────────────────
 # If docker is inaccessible, add the user to the docker group (if needed) and
 # re-exec under `sg docker` to activate it — no logout required.
@@ -54,6 +56,9 @@ else
     chmod 0700 "$_ASKPASS"
     # shellcheck disable=SC2016  # single quotes intentional: var expands when askpass script runs, not now
     printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
+    # Remove the askpass script on exit (normal or error) so it never
+    # lingers in /var/tmp if the build is killed mid-run.
+    trap '[[ -n "${_ASKPASS:-}" ]] && rm -f "${_ASKPASS}"' EXIT
     export SUDO_ASKPASS="$_ASKPASS"
     sudo() { command sudo -A "$@"; }
 fi
@@ -91,12 +96,6 @@ if ! command -v docker &>/dev/null; then
 fi
 echo "==> Using container engine: docker"
 echo "==> Installer runtime base image: ${INSTALLER_BASE_IMAGE}"
-
-echo "==> Pulling installer runtime base image..."
-if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
-    echo "ERROR: Failed to pull installer runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
-    exit 1
-fi
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
@@ -161,11 +160,24 @@ else
 fi
 
 if [[ "${_need_rebuild}" == "1" ]]; then
+    echo "==> Pulling installer runtime base image for rebuild..."
+    if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
+        echo "ERROR: Failed to pull installer runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
+        exit 1
+    fi
+
     echo "==> Building live container (this takes a while)..."
+    BUILD_ARGS=()
+    if [[ -n "${LIVE_BUILD_CACHE_FROM:-}" ]]; then
+        echo "==> Using live build cache source: ${LIVE_BUILD_CACHE_FROM}"
+        BUILD_ARGS+=(--cache-from "${LIVE_BUILD_CACHE_FROM}")
+    fi
+
     docker build \
         --build-arg BASE_IMAGE="${INSTALLER_BASE_IMAGE}" \
         --build-arg SOURCE_HASH="${SOURCE_HASH}" \
         --build-arg SOURCE_TAG="${SOURCE_TAG}" \
+        "${BUILD_ARGS[@]}" \
         -f "${SCRIPT_DIR}/Containerfile.live" \
         -t "${LIVE_BUILD_TAG}" \
         "${REPO_ROOT}"
@@ -194,6 +206,7 @@ else
 fi
 echo "==> Container export complete."
 docker rm "${CONTAINER}" 2>/dev/null || true
+echo "==> Timing: export complete at ${SECONDS}s"
 
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
@@ -227,6 +240,7 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -no-progress \
     -no-xattrs \
     -e proc -e sys -e dev -e run
+echo "==> Timing: squashfs complete at ${SECONDS}s"
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
@@ -524,6 +538,10 @@ sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
 
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
+elapsed_h=$((SECONDS / 3600))
+elapsed_m=$(((SECONDS % 3600) / 60))
+elapsed_s=$((SECONDS % 60))
 echo ""
 echo "==> KythOS live ISO ready"
 echo "    ${ISO_PATH} (${ISO_SIZE})"
+echo "==> Timing: total elapsed ${elapsed_h}h ${elapsed_m}m ${elapsed_s}s"

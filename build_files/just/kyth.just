@@ -247,6 +247,164 @@ install-boxbuddy:
     echo
     echo "BoxBuddy installed. Launch it from the app launcher to manage your distrobox containers."
 
+# Set up a Kali Linux security toolbox via distrobox.
+#
+# Usage:
+#   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
+#   ujust setup-kali-box gui          # headless + GUI tools (kali-linux-default)
+#   ujust setup-kali-box everything   # every available Kali tool (WARNING: 15-20 GB+)
+#
+# After setup: distrobox enter kali
+[group('KythOS')]
+setup-kali-box tools="headless":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    tools="{{ tools }}"
+    case "${tools}" in
+        headless)   meta="kali-linux-headless"   ;;
+        gui)        meta="kali-linux-default"    ;;
+        everything) meta="kali-linux-everything" ;;
+        *)
+            echo "Unknown tools option: ${tools}" >&2
+            echo "Valid options: headless (default), gui, everything" >&2
+            exit 1
+            ;;
+    esac
+
+    if [[ "${tools}" == "everything" ]]; then
+        echo "━━━ WARNING ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  kali-linux-everything installs every available Kali tool."
+        echo "  Expect 15–20 GB or more of downloads and a very long install time."
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo
+    fi
+
+    if distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "Kali box already exists. To enter it: distrobox enter kali"
+        exit 0
+    fi
+
+    echo "━━━ Setting up Kali Linux toolbox ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Image:    kalilinux/kali-rolling"
+    echo "  Package:  ${meta}"
+    echo
+
+    distrobox create --image kalilinux/kali-rolling --name kali --yes
+    distrobox enter kali -- sudo apt-get install -y "${meta}"
+
+    if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
+        echo
+        echo "── Exporting Kali GUI apps to application launcher ─────────────────"
+
+        # Export every .desktop file found in the kali container.
+        # distrobox-export is run from *inside* the container; it writes
+        # host-side .desktop wrappers to ~/.local/share/applications/.
+        distrobox enter kali -- bash -c '
+            exported=0
+            for f in /usr/share/applications/*.desktop; do
+                [[ -f "$f" ]] || continue
+                app=$(basename "$f" .desktop)
+                distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
+            done
+            echo "  Exported ${exported} desktop entries."
+        '
+
+        # Patch the exported wrappers so KDE groups them under "Security Tools".
+        # Identify kali-exported entries by the "--name kali" distrobox argument
+        # that distrobox-export injects into each Exec= line.
+        _appdir="${HOME}/.local/share/applications"
+        _patched=0
+        for _f in "${_appdir}/"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
+                if grep -q '^Categories=' "${_f}"; then
+                    sed -i 's|^Categories=.*|Categories=X-KythSecurity;|' "${_f}"
+                else
+                    printf '\nCategories=X-KythSecurity;\n' >> "${_f}"
+                fi
+                _patched=$((_patched+1))
+            fi
+        done
+        echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
+        # Strip NoDisplay=true so entries actually appear in the launcher.
+        for _f in "${_appdir}/"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+            sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
+            sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+        done
+        update-desktop-database "${_appdir}" 2>/dev/null || true
+        # Rebuild KDE's application-launcher cache (update-desktop-database alone
+        # is not enough — KDE maintains its own ksycoca index).
+        kbuildsycoca6 --noincremental 2>/dev/null || true
+        echo "  Done — Kali tools should appear under 'Security Tools' in the app launcher."
+    fi
+
+    echo
+    echo "━━━ Done ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Kali box ready. Enter it with: distrobox enter kali"
+
+# Export Kali Linux GUI apps to the host application launcher.
+#
+# Re-run this any time you install new GUI tools inside the kali container or
+# if the launchers are missing after a fresh setup.  All exported apps are
+# placed under the "Security" category so KDE groups them together.
+[group('KythOS')]
+export-kali-apps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "No kali container found." >&2
+        echo "Run 'ujust setup-kali-box gui' first." >&2
+        exit 1
+    fi
+
+    echo "━━━ Exporting Kali GUI apps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+    # Export every .desktop file found in the kali container.
+    distrobox enter kali -- bash -c '
+        exported=0
+        for f in /usr/share/applications/*.desktop; do
+            [[ -f "$f" ]] || continue
+            app=$(basename "$f" .desktop)
+            distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
+        done
+        echo "  Exported ${exported} desktop entries."
+    '
+
+    # Patch exported wrappers to use the Security category so KDE groups them.
+    _appdir="${HOME}/.local/share/applications"
+    _patched=0
+    for _f in "${_appdir}/"*.desktop; do
+        [[ -f "${_f}" ]] || continue
+        if grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null; then
+            if grep -q '^Categories=' "${_f}"; then
+                sed -i 's|^Categories=.*|Categories=X-KythSecurity;|' "${_f}"
+            else
+                printf '\nCategories=X-KythSecurity;\n' >> "${_f}"
+            fi
+            _patched=$((_patched+1))
+        fi
+    done
+
+    echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
+    # Strip NoDisplay=true so entries actually appear in the launcher.
+    for _f in "${_appdir}/"*.desktop; do
+        [[ -f "${_f}" ]] || continue
+        grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+        sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
+        sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+    done
+    update-desktop-database "${_appdir}" 2>/dev/null || true
+    # Rebuild KDE's application-launcher cache (update-desktop-database alone
+    # is not enough — KDE maintains its own ksycoca index).
+    kbuildsycoca6 --noincremental 2>/dev/null || true
+
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "Kali tools are now exported to the application launcher under 'Security Tools'."
+
 # Download and install the latest GE-Proton to /var/lib/kyth/ge-proton/.
 [group('KythOS')]
 update-ge-proton:

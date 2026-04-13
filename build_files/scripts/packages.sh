@@ -8,14 +8,24 @@ set -euo pipefail
 # on an English workstation.
 echo '%_install_langs en_US' >> /etc/rpm/macros
 
+# ── DNF parallelism ───────────────────────────────────────────────────────────
+# Raise parallel download slots from the default 3 to 10 — same value used by
+# UBlue, Bazzite, and recommended in Fedora documentation.
+echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
+
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
 # (docker_t, container_t, etc.) — required for Docker to work under enforcing.
 dnf5 install -y docker container-selinux
 
-# Add rpmfusion free and nonfree repositories for Fedora 44
-dnf5 install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm || true
-dnf5 install -y https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm || true
+# Add rpmfusion free and nonfree repositories for Fedora 44.
+# The release RPMs ship and install the GPG key themselves — this is the
+# standard RPM Fusion bootstrap pattern; there is no separately hosted key
+# URL to pre-import (unlike Brave/Negativo17).
+dnf5 install -y \
+    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
+    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm \
+    || true
 
 # Fedora 44 transitions can leave debug/source repo metalinks unpublished or
 # intermittently unavailable. We never install from those repos in image builds,
@@ -102,7 +112,9 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers)
+# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers).
+# dnf imports the GPG key automatically from the gpgkey= field in the repofile
+# on first package install; there is no separately hosted key URL to pre-import.
 dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
 
 # Gaming packages
@@ -218,22 +230,10 @@ dnf5 install -y --skip-unavailable \
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
 
-# Brave Browser — replaces Firefox
+# Remove Firefox — Brave Browser is installed as a Flatpak on first boot
+# via kyth-default-flatpaks.service (avoids baking external repo keys into
+# the build and eliminates DNS-dependent rpm --import calls in CI).
 dnf5 remove -y firefox || true
-# On ostree/bootc-style roots, /opt is often a symlink to /var/opt.
-# Ensure the symlink target exists before installing RPMs that place files in /opt.
-if [ -L /opt ]; then
-    opt_target="$(readlink /opt || true)"
-    if [ "${opt_target}" = "var/opt" ] || [ "${opt_target}" = "/var/opt" ]; then
-        mkdir -p /var/opt
-    fi
-fi
-dnf5 config-manager addrepo --overwrite --from-repofile=https://brave-browser-rpm-release.s3.brave.com/brave-browser.repo
-dnf5 install -y brave-browser
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/brave-browser.repo
-# Set Brave as the default browser for all users
-update-alternatives --set x-www-browser /usr/bin/brave-browser || true
-xdg-settings set default-web-browser brave-browser.desktop || true
 
 # Visual Studio Code (repo added but disabled by default)
 tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'
@@ -294,7 +294,7 @@ curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
 if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
     EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
     ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
-    if [[ -z "${EXPECTED_SHA256}" ]]; then
+    if [[ -z "${EXPECTED_SHA256}" || ${#EXPECTED_SHA256} -ne 64 ]]; then
         echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
     elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
         echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
@@ -445,3 +445,75 @@ ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
+
+# ── Microsoft Surface hardware support ────────────────────────────────────────
+# Installs user-space daemons for Surface Pro 7+ hardware: touchscreen, Surface
+# Pen, screen auto-rotation, Type Cover detach button, and hardware control.
+#
+# The CachyOS kernel is kept as-is — no kernel swap is needed.  Surface Pro 7+
+# uses IPTS firmware v2, where iptsd communicates through standard HIDRAW (in
+# mainline since 5.17).  The Surface Aggregator Module (battery, thermal, perf
+# profiles, Type Cover hotplug) is also substantially upstream in 6.x kernels.
+#
+# User-space package sources:
+#   linux-surface does not yet publish Fedora 44 packages.  Their Fedora 43
+#   builds are Rust-compiled binaries whose runtime deps (glibc, libgcc) are
+#   forward-compatible with Fedora 44 — we pin the repo to the f43 path until
+#   official f44 packages are available.
+#
+# Hardware covered:
+#   iptsd            — Intel Precision Touch+Stylus daemon (touch + pen)
+#   surface-dtx-daemon — Type Cover attach/detach button events via SAM
+#   surface-control  — CLI for fan speed, brightness, performance modes via SAM
+#   libwacom-surface — Surface pen profile for libwacom-aware apps (GIMP, etc.)
+#   iio-sensor-proxy — Accelerometer → screen auto-rotation (from Fedora repos)
+#
+# Enable with:  ENABLE_SURFACE=1 just build-surface
+if is_enabled "${ENABLE_SURFACE:-0}"; then
+    echo "── Surface support: installing user-space tools ─────────────────────────"
+
+    # Import the linux-surface GPG key
+    curl -fsSL \
+        https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
+        -o /tmp/surface.asc
+    gpg --dearmor < /tmp/surface.asc > /etc/pki/rpm-gpg/surface.gpg
+    rm -f /tmp/surface.asc
+
+    # Pin to fedora/43 — the linux-surface project has not yet published f44
+    # packages.  Rust binaries have no hard Fedora-version deps so these install
+    # cleanly on f44.  Update the path when f44 packages are available.
+    tee /etc/yum.repos.d/linux-surface.repo > /dev/null <<'SURFACEREPOEOF'
+[linux-surface]
+name=Linux Surface
+baseurl=https://pkg.surfacelinux.net/fedora/43/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/surface.gpg
+SURFACEREPOEOF
+
+    # iio-sensor-proxy is in the standard Fedora repos; the rest come from
+    # linux-surface.  --skip-unavailable lets the build continue if any single
+    # package is temporarily missing from the repo.
+    dnf5 install -y --skip-unavailable \
+        iio-sensor-proxy
+    dnf5 install -y --skip-unavailable \
+        --enablerepo=linux-surface \
+        iptsd \
+        surface-dtx-daemon \
+        surface-control \
+        libwacom-surface
+
+    # Disable the repo so it does not leak into the final image
+    sed -i "s/^enabled=.*/enabled=0/" /etc/yum.repos.d/linux-surface.repo
+
+    echo "  Surface user-space tools installed."
+else
+    echo "ENABLE_SURFACE is off; skipping Surface driver install."
+fi
+
+# Remove dnf transaction history and repo solver data from the image layer.
+# The download cache is already excluded via --mount=type=cache in the
+# Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates
+# ~30-60 MB of state that serves no purpose in the final OS image.
+dnf5 clean all

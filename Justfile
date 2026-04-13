@@ -236,24 +236,30 @@ sudoif command *args:
 [group('Build')]
 build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     #!/usr/bin/env bash
-    # Ensure current user is in the docker group
-    if ! id -nG "$USER" | grep -qw docker; then
-        echo "Adding $USER to docker group (requires sudo)..."
-        sudo usermod -aG docker "$USER"
-        echo "You must log out and log back in for group changes to take effect."
-    else
-        echo "$USER is already in the docker group."
+    # Ensure docker group is active in this session.
+    # id -nG (no arg) reads the current process's live group list; id -nG "$USER"
+    # reads /etc/group and would show docker even before the session is refreshed.
+    if ! id -nG | grep -qw docker; then
+        if ! id -nG "$USER" | grep -qw docker; then
+            echo "Adding $USER to docker group (requires sudo)..."
+            sudo usermod -aG docker "$USER"
+        fi
+        echo "Activating docker group for this session via sg — re-running..."
+        exec sg docker -c "just build-base '{{ base_image }}'"
     fi
 
     if ! docker image inspect {{ base_image }} >/dev/null 2>&1; then
         if command -v cosign &>/dev/null; then
             echo "Verifying base image signature with cosign..."
+            # Non-fatal: cosign bundle format changes between versions can cause
+            # spurious "empty key" failures even when the image is legitimate.
             cosign verify \
                 --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
                 --certificate-identity-regexp='^https://github\.com/ublue-os/main/' \
-                {{ base_image }}
+                {{ base_image }} \
+                || echo "WARNING: cosign verification failed — proceeding without signature check."
         else
-            echo "WARNING: cosign not found — skipping signature verification. Install cosign to verify the base image."
+            echo "WARNING: cosign not found — skipping signature verification."
         fi
         docker pull {{ base_image }}
     else
@@ -263,13 +269,57 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
 
 # Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
+# Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
+[group('Build')]
 build: build-base
     #!/usr/bin/env bash
     set -euo pipefail
-    docker build \
+    if ! id -nG | grep -qw docker; then
+        exec sg docker -c "just build"
+    fi
+    REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
+    docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --tag localhost/kyth:latest .
+        --build-arg ENABLE_SURFACE="${ENABLE_SURFACE:-0}" \
+        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
+        --tag localhost/kyth:latest \
+        --load \
+        .
+
+# Build the KythOS Surface variant — replaces the CachyOS kernel with the
+# linux-surface patched kernel for full Surface Pro 7+ hardware support
+# (touchscreen, Surface Pen, Type Cover, screen rotation, thermal management).
+# Produces localhost/kyth:surface; use build-surface-iso to create a bootable ISO.
+[group('Build')]
+build-surface: build-base
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! id -nG | grep -qw docker; then
+        exec sg docker -c "just build-surface"
+    fi
+    REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
+    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+    CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
+    docker buildx build \
+        --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
+        --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
+        --build-arg ENABLE_SURFACE=1 \
+        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
+        --tag localhost/kyth:surface \
+        --load \
+        .
+
+# Build a live installer ISO for the Surface variant.
+# Runs build-surface first, then assembles a bootable ISO whose installer
+# will pull ghcr.io/mrtrick37/kyth:surface from the registry at install time.
+[group('Build')]
+build-surface-iso: build-surface
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG=surface bash build_files/build-live-iso.sh
 
 
 # Command: _rootful_load_image

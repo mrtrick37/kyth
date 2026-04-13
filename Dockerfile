@@ -22,17 +22,33 @@ LABEL org.osbuild.branding.release="KythOS 44"
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1
 ARG ENABLE_SCX=1
+ARG ENABLE_SURFACE=0
 
 # Layer 1: All RPM package installs (~2-3 GB).
-# Stable — only re-downloaded when packages are explicitly added/removed.
+# Stable — only re-run when packages.sh changes or the base image is updated.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
-    ENABLE_ANANICY=${ENABLE_ANANICY} /ctx/scripts/packages.sh
+    ENABLE_ANANICY=${ENABLE_ANANICY} \
+    ENABLE_SURFACE=${ENABLE_SURFACE} \
+    /ctx/scripts/packages.sh
 
-# Layer 2: Upstream RPM upgrades (~50-500 MB daily delta).
-# Isolated so daily package updates don't invalidate the full install layer above.
+# Layer 2: GE-Proton (~700 MB).
+# Placed before the daily upgrade layer so its cache is only busted when
+# ge-proton.sh changes or a new release is detected — not on every daily dnf
+# upgrade run.  GE-Proton is a fully self-contained wine bundle with no
+# system library dependencies, so ordering before the upgrade is safe.
+RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+    --mount=type=cache,dst=/var/cache \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
+    /ctx/scripts/ge-proton.sh
+
+# Layer 3: Upstream RPM upgrades (~50-500 MB daily delta).
+# Isolated so daily package updates don't invalidate the package install layer
+# above.  Layers after this one are re-run on every daily build; layers before
+# it are cached until their scripts or the base image change.
 RUN --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     set -euo pipefail; \
@@ -55,34 +71,30 @@ RUN --mount=type=cache,dst=/var/cache \
     dnf5 upgrade -y libdrm && \
     dnf5 clean all
 
-# Layer 3: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
-# Stable — re-downloaded only when upstream projects cut new releases or pins are bumped.
+# Layer 4: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
+# Re-run on every daily build (sits after the upgrade layer). GitHub API calls
+# use the mounted token to avoid unauthenticated rate limits.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
     ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
 
-# Layer 4: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
-# Re-downloaded only when tuning values change.
+# Layer 5: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
+# Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
+    ENABLE_SURFACE=${ENABLE_SURFACE} \
     /ctx/scripts/sysconfig.sh
 
-# Layer 5: Branding, theming, helper app, Plymouth (~10 MB).
-# Re-downloaded on KythOS version bumps or welcome app updates.
+# Layer 6: Branding, theming, helper app, Plymouth (~10 MB).
+# Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
 
-# Layer 6: GE-Proton (~700 MB). Only re-downloaded when GE_PROTON_VER is bumped.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
-    --mount=type=tmpfs,dst=/tmp \
-    --mount=type=secret,id=github_token \
-    /ctx/scripts/ge-proton.sh
-
-# Layer 7: Mesa-git (~300-500 MB). Re-downloaded on daily CI builds.
+# Layer 7: Mesa-git (~300-500 MB). Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
