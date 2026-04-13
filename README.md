@@ -313,11 +313,11 @@ KythOS uses bootc. On update, `bootc upgrade` pulls the new image, stages it, an
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-13 11:32:25 UTC
+- Last refreshed (UTC): 2026-04-13 11:33:36 UTC
 - Current branch: testing
-- HEAD commit: e7a9d85
-- Last commit title: add auto readme snapshot hooks
-- Last commit date: 2026-04-13T07:31:53-04:00
+- HEAD commit: b70d7e5
+- Last commit title: chore: refresh README auto-snapshot
+- Last commit date: 2026-04-13T07:32:25-04:00
 - CI workflow files: 5
 - Build script files: 7
 
