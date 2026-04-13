@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+repo_root="$(git rev-parse --show-toplevel)"
+"$repo_root/build_files/scripts/update-readme-snapshot.sh"
+
+if ! git diff --quiet -- README.md; then
+    git add README.md
+    echo "[pre-push] README.md snapshot changed and has been staged."
+    echo "[pre-push] Commit the staged README.md update before pushing." >&2
+    exit 1
+fi
