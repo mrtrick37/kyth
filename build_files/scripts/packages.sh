@@ -446,6 +446,72 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
+# ── Microsoft Surface hardware support ────────────────────────────────────────
+# Installs user-space daemons for Surface Pro 7+ hardware: touchscreen, Surface
+# Pen, screen auto-rotation, Type Cover detach button, and hardware control.
+#
+# The CachyOS kernel is kept as-is — no kernel swap is needed.  Surface Pro 7+
+# uses IPTS firmware v2, where iptsd communicates through standard HIDRAW (in
+# mainline since 5.17).  The Surface Aggregator Module (battery, thermal, perf
+# profiles, Type Cover hotplug) is also substantially upstream in 6.x kernels.
+#
+# User-space package sources:
+#   linux-surface does not yet publish Fedora 44 packages.  Their Fedora 43
+#   builds are Rust-compiled binaries whose runtime deps (glibc, libgcc) are
+#   forward-compatible with Fedora 44 — we pin the repo to the f43 path until
+#   official f44 packages are available.
+#
+# Hardware covered:
+#   iptsd            — Intel Precision Touch+Stylus daemon (touch + pen)
+#   surface-dtx-daemon — Type Cover attach/detach button events via SAM
+#   surface-control  — CLI for fan speed, brightness, performance modes via SAM
+#   libwacom-surface — Surface pen profile for libwacom-aware apps (GIMP, etc.)
+#   iio-sensor-proxy — Accelerometer → screen auto-rotation (from Fedora repos)
+#
+# Enable with:  ENABLE_SURFACE=1 just build-surface
+if is_enabled "${ENABLE_SURFACE:-0}"; then
+    echo "── Surface support: installing user-space tools ─────────────────────────"
+
+    # Import the linux-surface GPG key
+    curl -fsSL \
+        https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
+        -o /tmp/surface.asc
+    gpg --dearmor < /tmp/surface.asc > /etc/pki/rpm-gpg/surface.gpg
+    rm -f /tmp/surface.asc
+
+    # Pin to fedora/43 — the linux-surface project has not yet published f44
+    # packages.  Rust binaries have no hard Fedora-version deps so these install
+    # cleanly on f44.  Update the path when f44 packages are available.
+    tee /etc/yum.repos.d/linux-surface.repo > /dev/null <<'SURFACEREPOEOF'
+[linux-surface]
+name=Linux Surface
+baseurl=https://pkg.surfacelinux.net/fedora/43/$basearch
+enabled=1
+gpgcheck=1
+repo_gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/surface.gpg
+SURFACEREPOEOF
+
+    # iio-sensor-proxy is in the standard Fedora repos; the rest come from
+    # linux-surface.  --skip-unavailable lets the build continue if any single
+    # package is temporarily missing from the repo.
+    dnf5 install -y --skip-unavailable \
+        iio-sensor-proxy
+    dnf5 install -y --skip-unavailable \
+        --enablerepo=linux-surface \
+        iptsd \
+        surface-dtx-daemon \
+        surface-control \
+        libwacom-surface
+
+    # Disable the repo so it does not leak into the final image
+    sed -i "s/^enabled=.*/enabled=0/" /etc/yum.repos.d/linux-surface.repo
+
+    echo "  Surface user-space tools installed."
+else
+    echo "ENABLE_SURFACE is off; skipping Surface driver install."
+fi
+
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
 # Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates

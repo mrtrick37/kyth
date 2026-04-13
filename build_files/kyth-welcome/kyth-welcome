@@ -2592,22 +2592,6 @@ class UpdatePage(Page):
         for row in (booted_row, staged_row, rollback_row):
             summary_layout.addLayout(row)
 
-        # Full bootc status toggle
-        self._details_toggle = QPushButton("Show bootc status")
-        self._details_toggle.setCheckable(True)
-        self._details_toggle.setFlat(True)
-        self._details_toggle.setStyleSheet("color: #5b9cf6; text-align: left; padding: 4px 0;")
-        self._details_log = QTextEdit()
-        self._details_log.setReadOnly(True)
-        self._details_log.setMaximumHeight(160)
-        self._details_log.setStyleSheet(
-            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
-        )
-        self._details_log.hide()
-        self._details_toggle.clicked.connect(self._toggle_bootc_details)
-        summary_layout.addWidget(self._details_toggle)
-        summary_layout.addWidget(self._details_log)
-
         self._add(self._summary_card)
 
         # Action buttons
@@ -2980,16 +2964,6 @@ class UpdatePage(Page):
 
         _restyle(self._status_lbl)
         self._refresh_summary()
-
-    def _toggle_bootc_details(self, checked: bool):
-        if checked:
-            text = _bootc_status_text()
-            self._details_log.setPlainText(text or "(bootc status returned no output)")
-            self._details_log.show()
-            self._details_toggle.setText("Hide bootc status")
-        else:
-            self._details_log.hide()
-            self._details_toggle.setText("Show bootc status")
 
     def _refresh_summary(self):
         tag = _current_branch()

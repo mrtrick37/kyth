@@ -1,0 +1,187 @@
+name: Build Surface ISO
+run-name: "Build Surface ISO — ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  # ── Job 1: Build the surface live container and push to GHCR ─────────────────
+  build-live-container:
+    name: Build Surface live container
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: build-live-container-surface
+      cancel-in-progress: true
+    permissions:
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Log in to GHCR
+        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Build and push Surface live container
+        run: |
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:surface"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-surface"
+          CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-surface"
+          docker buildx build \
+            --tag "${IMAGE}" \
+            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
+            --build-arg SOURCE_TAG="surface" \
+            --cache-from "type=registry,ref=${CACHE_REF}" \
+            --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
+            -f build_files/Containerfile.live \
+            --push \
+            .
+
+      - name: Flatten live container to a single layer
+        run: |
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-surface"
+
+          sudo systemctl stop docker docker.socket 2>/dev/null || true
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          docker pull "${IMAGE}"
+          CID=$(docker create "${IMAGE}" /bin/true)
+          docker export "${CID}" | docker import - "${IMAGE}"
+          docker rm "${CID}"
+          docker push "${IMAGE}"
+
+  # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
+  build-iso:
+    name: Build Surface ISO
+    needs: build-live-container
+    runs-on: ubuntu-24.04
+    concurrency:
+      group: build-live-iso-surface
+      cancel-in-progress: true
+    permissions:
+      contents: write
+      packages: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xorriso squashfs-tools mtools dosfstools git \
+            grub-common grub-pc-bin grub-efi-amd64-bin
+          JUST_VER="1.49.0"
+          JUST_SHA256="05eb2f068b641b06e5b318796c2e27d4dcca608e65b34329a08c1b9f582611bd"
+          JUST_TARBALL="just-${JUST_VER}-x86_64-unknown-linux-musl.tar.gz"
+          curl -fsSL \
+            "https://github.com/casey/just/releases/download/${JUST_VER}/${JUST_TARBALL}" \
+            -o "/tmp/${JUST_TARBALL}"
+          echo "${JUST_SHA256}  /tmp/${JUST_TARBALL}" | sha256sum --check --strict
+          tar -xf "/tmp/${JUST_TARBALL}" -C /tmp just
+          sudo install -m 0755 /tmp/just /usr/local/bin/just
+          rm -f "/tmp/${JUST_TARBALL}" /tmp/just
+          sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
+          sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
+
+      - name: Pull pre-built Surface live container
+        run: |
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-surface"
+          docker pull "${IMAGE}"
+          docker tag "${IMAGE}" "kyth-live:build-surface"
+          docker rmi "${IMAGE}" || true
+
+      - name: Ensure permissions and directories
+        run: |
+          mkdir -p output/live-iso
+          chmod -R 777 output
+          chmod -R 777 build_files
+          chmod +x build_files/build-live-iso.sh
+
+      - name: Build Surface ISO
+        env:
+          SKIP_REBUILD: "1"
+        run: |
+          just build-live-iso "surface" &
+          BUILD_PID=$!
+
+          while kill -0 $BUILD_PID 2>/dev/null; do
+            ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
+            if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
+              echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
+              docker rmi "kyth-live:build-surface" || true
+              docker system prune -f || true
+              break
+            fi
+            sleep 5
+          done
+
+          wait $BUILD_PID
+
+      - name: Upload ISO artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: kyth-live-iso-surface
+          path: output/live-iso/kyth-live-surface.iso
+          if-no-files-found: error
+
+      - name: Upload ISO to Cloudflare R2
+        env:
+          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          aws s3 cp "output/live-iso/kyth-live-surface.iso" \
+            "s3://kyth-releases/kyth-live-surface.iso" \
+            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+            --no-progress
+
+      - name: Publish release to GitHub Releases
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-surface.iso"
+          TITLE="Kyth Live ISO — Surface"
+          NOTES=$(printf 'Built for Microsoft Surface Pro 7+.\n\nIncludes touch, pen, Type Cover, screen rotation, and thermal support.\n\n**Download:** [kyth-live-surface.iso](%s)' "${ISO_URL}")
+
+          if gh release view "iso-surface" &>/dev/null; then
+            gh release edit "iso-surface" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              --prerelease
+          else
+            gh release create "iso-surface" \
+              --title "${TITLE}" \
+              --notes "${NOTES}" \
+              --prerelease
+          fi
