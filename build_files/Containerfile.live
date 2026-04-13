@@ -348,6 +348,21 @@ fi
 DIAGEOF
 RUN chmod +x /usr/bin/kyth-plasma-welcome-diag
 
+# ── WiFi: disable power-save and BT coexistence ──────────────────────────────
+# iwlwifi defaults to power_save=1 which allows passive scanning but drops
+# associations during the connect handshake — the symptom is scan works but
+# connect never completes.  bt_coex_active=1 causes retransmit storms on the
+# 2.4 GHz band when Bluetooth is also active.  mt7921e ASPM causes PCIe
+# link state transitions mid-association on some boards.
+# NM wifi.powersave=2 (disable) is belt-and-suspenders at the connection level.
+RUN mkdir -p /etc/NetworkManager/conf.d /etc/modprobe.d \
+    && printf '[connection]\nwifi.powersave = 2\n' \
+        > /etc/NetworkManager/conf.d/wifi-powersave-off.conf \
+    && printf 'options iwlwifi power_save=0 bt_coex_active=0\n' \
+        > /etc/modprobe.d/iwlwifi-kyth.conf \
+    && printf 'options mt7921e disable_aspm=1\n' \
+        > /etc/modprobe.d/mt7921-kyth.conf
+
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.
 # Mask ostree/bootc services that require a real ostree deployment.
@@ -381,7 +396,9 @@ RUN echo "uninitialized" > /etc/machine-id \
         mdmonitor-takeover.service \
         crond.service \
         atd.service \
-        abrtd.service; do \
+        abrtd.service \
+        iio-sensor-proxy.service \
+        power-profiles-daemon.service; do \
         ln -sf /dev/null "/etc/systemd/system/${unit}"; \
     done \
     && printf '[zram0]\nzram-size = min(ram*2, 16384)\ncompression-algorithm = zstd\n' \
