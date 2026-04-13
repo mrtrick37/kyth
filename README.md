@@ -313,11 +313,11 @@ KythOS uses bootc. On update, `bootc upgrade` pulls the new image, stages it, an
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-13 11:58:57 UTC
+- Last refreshed (UTC): 2026-04-13 11:59:01 UTC
 - Current branch: testing
-- HEAD commit: bbe1938
-- Last commit title: chore: refresh README snapshot [skip ci]
-- Last commit date: 2026-04-13T07:33:36-04:00
+- HEAD commit: 3baaed2
+- Last commit title: fix(live): WiFi connect failure and service crashes on surface ISO
+- Last commit date: 2026-04-13T07:58:57-04:00
 - CI workflow files: 5
 - Build script files: 7
 
