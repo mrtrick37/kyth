@@ -125,6 +125,17 @@ cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
 KICKOFFEOF
 
+# ── Screen lock timeout ───────────────────────────────────────────────────────
+# Default auto-lock after 15 minutes of inactivity. KDE's stock default is 5
+# minutes which is too aggressive for a desktop/gaming workstation.
+cat > /etc/skel/.config/kscreenlockerrc <<'SCREENLOCKEOF'
+[Daemon]
+Autolock=true
+LockGracePeriod=5
+LockOnResume=true
+Timeout=15
+SCREENLOCKEOF
+
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
 # KDE documents POWERDEVIL_NO_DDCUTIL=1 as a supported workaround when
 # PowerDevil's DDC/CI monitor integration causes instability. On KythOS's AMD

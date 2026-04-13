@@ -20,13 +20,17 @@ Feature flags:
 ENABLE_ANANICY=0 ENABLE_SCX=0 sudo just build
 ```
 
+Surface variant (Microsoft Surface Pro 7+):
+```bash
+just build-surface        # Build localhost/kyth:surface (linux-surface kernel, touch/pen/rotation)
+just build-surface-iso    # Build surface live installer ISO (runs build-surface first)
+```
+
 ## Common Issues
 
 **Docker permission denied on socket:**
-```bash
-newgrp docker   # Activate docker group in current shell without logging out
-```
-(Occurs after being added to `docker` group — takes effect without full logout via `newgrp`)
+
+`just build-base` now handles this automatically — if you're not in the `docker` group it adds you and re-execs under `sg docker` without requiring a logout. If you hit the error outside of a just recipe, run `newgrp docker` to activate the group in the current shell.
 
 ## Project Layout
 

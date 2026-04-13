@@ -1,0 +1,101 @@
+name: Build Surface image
+run-name: "Build Surface image — ${{ github.ref_name }}"
+
+on:
+  workflow_dispatch:
+
+env:
+  IMAGE_NAME: "${{ github.event.repository.name }}"
+  IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build_surface:
+    name: Build and push Surface image
+    runs-on: ubuntu-24.04
+
+    concurrency:
+      group: build-surface-${{ github.ref_name }}
+      cancel-in-progress: false
+
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: true
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@74a5d142397b4f367a81961eba4e8cd7edddf772 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve latest GE-Proton version
+        id: ge_proton
+        run: |
+          VER=$(curl -fsSL \
+            -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+            https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['tag_name'])")
+          echo "version=${VER}" >> $GITHUB_OUTPUT
+          echo "Resolved GE-Proton: ${VER}"
+
+      - name: Build base image
+        run: |
+          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
+          # Share cache with the main build — surface uses the same base
+          CACHE_BRANCH=$([ "${{ github.ref_name }}" = "testing" ] && echo "testing" || echo "main")
+          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${CACHE_BRANCH}"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-surface"
+
+          docker buildx build \
+            --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44 \
+            --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
+            --tag "${BASE_IMAGE_REF}" \
+            --push \
+            build_base/
+
+      - name: Build Surface image
+        run: |
+          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
+          CACHE_BRANCH=$([ "${{ github.ref_name }}" = "testing" ] && echo "testing" || echo "main")
+          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-surface"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-surface"
+
+          docker buildx build \
+            --secret id=github_token,env=GITHUB_TOKEN \
+            --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
+            --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
+            --build-arg ENABLE_SURFACE=1 \
+            --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
+            --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
+            --tag "${IMAGE_FULL}:surface" \
+            --push \
+            .
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Sign container image
+        run: cosign sign -y "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}:surface"
