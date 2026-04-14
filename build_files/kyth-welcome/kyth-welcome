@@ -250,27 +250,6 @@ QPushButton:disabled {
     border-color: #1e3448;
 }
 
-QPushButton#primary {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #4cb8f5, stop:1 #1a9fe8);
-    color: #051625;
-    font-weight: 700;
-    border: none;
-    border-radius: 3px;
-    padding: 9px 22px;
-}
-
-QPushButton#primary:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #6dcbff, stop:1 #3ab2f5);
-    color: #020c16;
-}
-
-QPushButton#primary:pressed {
-    background: #1483d4;
-    color: #020c16;
-}
-
 QPushButton#primary:disabled {
     background: #1b3a52;
     color: #3a5a6a;
@@ -3885,7 +3864,6 @@ class GamingPage(Page):
         launcher_btns.setSpacing(8)
 
         epic_btn = QPushButton("Open Heroic for Epic")
-        epic_btn.setObjectName("primary")
         epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
         launcher_btns.addWidget(epic_btn)
 
