@@ -3761,8 +3761,8 @@ class GamingPage(Page):
         self._page_header(
             "Apps",
             "Gaming",
-            "KythOS ships a full gaming stack. Everything is pre-installed and pre-configured "
-            "— just add the right launch options in Steam.",
+            "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
+            "Install Steam and Lutris below, then add the right launch options to your games.",
         )
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
@@ -3771,16 +3771,30 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Heroic is installed by default alongside Lutris. "
-            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
-            "Other gaming tools can be installed here with one click and are also "
-            "available via the corresponding ujust recipe."
+            "Steam and Lutris are optional installs — click Install below to add them. "
+            "Heroic is installed by default for Epic, GOG, and Amazon libraries. "
+            "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
+            "All tools are also available via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
         self._add(tools_sub)
 
         self._TOOLS = [
+            {
+                "flatpak": "com.valvesoftware.Steam",
+                "name": "Steam",
+                "desc": "Valve's gaming platform — thousands of native Linux games plus Windows games via Proton.",
+                "ujust": "install-steam",
+                "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
+            },
+            {
+                "flatpak": "net.lutris.Lutris",
+                "name": "Lutris",
+                "desc": "Open gaming platform for Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "ujust": "install-lutris",
+                "launch": ["flatpak", "run", "net.lutris.Lutris"],
+            },
             {
                 "flatpak": "com.heroicgameslauncher.hgl",
                 "name": "Heroic Games Launcher",
@@ -3852,7 +3866,7 @@ class GamingPage(Page):
         self._add(launcher_head)
         launcher_sub = QLabel(
             "Heroic is the recommended default for Epic and GOG. "
-            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
+            "Install Lutris above, then use the buttons below to start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
         )
         launcher_sub.setObjectName("card-copy")
         launcher_sub.setWordWrap(True)
@@ -3860,8 +3874,8 @@ class GamingPage(Page):
 
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
-            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris (install above) for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
+            "CLI shortcuts: ujust install-steam / ujust install-lutris / ujust install-heroic / ujust install-bottles"
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
@@ -4415,7 +4429,7 @@ class GamingPage(Page):
         return True
 
     def _launch_lutris_installer(self, target: str, name: str):
-        if not shutil.which("lutris"):
+        if not _is_flatpak_installed("net.lutris.Lutris"):
             self._tool_op_status.setText("Lutris is not installed.")
             self._tool_op_status.setObjectName("status-err")
             self._tool_op_status.show()
@@ -4423,7 +4437,7 @@ class GamingPage(Page):
             QMessageBox.warning(
                 self,
                 "Lutris not found",
-                f"Lutris is required to install {name}."
+                f"Lutris is required to install {name}.\n\nInstall it from the Gaming Tools section above."
             )
             return
 
@@ -4455,7 +4469,7 @@ class GamingPage(Page):
             return
 
         lutris_target = target if target.startswith("lutris:") else f"lutris:install/{target}"
-        cmd = ["lutris", lutris_target]
+        cmd = ["flatpak", "run", "net.lutris.Lutris", lutris_target]
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Lutris should open the installer dialog.")
         self._tool_log_toggle.show()
