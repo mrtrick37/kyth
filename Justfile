@@ -299,43 +299,10 @@ build: build-base
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --build-arg ENABLE_SURFACE="${ENABLE_SURFACE:-0}" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \
         --load \
         .
-
-# Build the KythOS Surface variant — replaces the CachyOS kernel with the
-# linux-surface patched kernel for full Surface Pro 7+ hardware support
-# (touchscreen, Surface Pen, Type Cover, screen rotation, thermal management).
-# Produces localhost/kyth:surface; use build-surface-iso to create a bootable ISO.
-[group('Build')]
-build-surface: build-base
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! id -nG | grep -qw docker; then
-        exec sg docker -c "just build-surface"
-    fi
-    REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
-    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
-    docker buildx build \
-        --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
-        --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --build-arg ENABLE_SURFACE=1 \
-        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
-        --tag localhost/kyth:surface \
-        --load \
-        .
-
-# Build a live installer ISO for the Surface variant.
-# Runs build-surface first, then assembles a bootable ISO whose installer
-# will pull ghcr.io/mrtrick37/kyth:surface from the registry at install time.
-[group('Build')]
-build-surface-iso: build-surface
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG=surface bash build_files/build-live-iso.sh
 
 
 # Command: _rootful_load_image
