@@ -4252,7 +4252,6 @@ class GamingPage(Page):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         install_btn = QPushButton("Install")
-        install_btn.setObjectName("primary")
         install_btn.clicked.connect(
             lambda _=False, t=tool: self._install_tool(t)
         )
@@ -6067,7 +6066,6 @@ class ContentCreationPage(Page):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         install_btn = QPushButton("Install")
-        install_btn.setObjectName("primary")
         install_btn.clicked.connect(lambda _=False, t=tool: self._install_tool(t))
         btn_row.addWidget(install_btn)
         launch_btn = QPushButton("Launch")
