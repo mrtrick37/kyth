@@ -22,3 +22,17 @@ html body.login-pf {
     font-weight: 300;
     letter-spacing: 2px;
 }
+
+/* Primary buttons — white text on accent blue, Steam-style */
+.pf-v5-c-button.pf-m-primary {
+    --pf-v5-c-button--m-primary--Color: #ffffff;
+    --pf-v5-c-button--m-primary--hover--Color: #ffffff;
+    --pf-v5-c-button--m-primary--focus--Color: #ffffff;
+    --pf-v5-c-button--m-primary--active--Color: #ffffff;
+    --pf-v5-c-button--m-primary--BackgroundColor: #7aa2f7;
+    --pf-v5-c-button--m-primary--hover--BackgroundColor: #89b4fa;
+    --pf-v5-c-button--m-primary--focus--BackgroundColor: #89b4fa;
+    --pf-v5-c-button--m-primary--active--BackgroundColor: #6a8fd8;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+}

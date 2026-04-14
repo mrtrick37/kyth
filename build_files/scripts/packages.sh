@@ -112,14 +112,11 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers).
-# dnf imports the GPG key automatically from the gpgkey= field in the repofile
-# on first package install; there is no separately hosted key URL to pre-import.
-dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
-
 # Gaming packages
-# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
-# 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
+# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by
+# some gaming libs, but it's frequently unavailable on Fedora mirrors and is not needed.
+# steam and lutris are intentionally absent — both are installed as Flatpaks via
+# the kyth-welcome Gaming page so users can opt in without bloating the base image.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
@@ -138,8 +135,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     evtest \
     xdg-user-dirs \
     xdg-terminal-exec \
-    steam \
-    lutris \
     gamemode \
     gamemode.i686 \
     libXScrnSaver \
@@ -202,9 +197,6 @@ dnf5 copr disable -y ublue-os/staging
 dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
-# Disable negativo17 Steam repo so it doesn't leak alternate NVIDIA stacks.
-dnf5 config-manager setopt fedora-steam.enabled=0 || true
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo 2>/dev/null || true
 
 ### GPU drivers
 

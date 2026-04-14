@@ -492,6 +492,26 @@ setup-waydroid image="vanilla":
         echo "MicroG for app store access (Aurora Store, F-Droid)."
     fi
 
+# Install Steam — Valve's gaming platform with Proton for Windows games.
+[group('KythOS')]
+install-steam:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.valvesoftware.Steam
+    echo
+    echo "Steam installed. Launch it from the app menu."
+
+# Install Lutris — open gaming platform for Battle.net, EA App, Ubisoft Connect, and more.
+[group('KythOS')]
+install-lutris:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub net.lutris.Lutris
+    echo
+    echo "Lutris installed. Launch it from the app menu."
+
 # Install Heroic Games Launcher — Epic Games, GOG and Amazon Games library.
 [group('KythOS')]
 install-heroic:
