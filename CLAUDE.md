@@ -20,12 +20,6 @@ Feature flags:
 ENABLE_ANANICY=0 ENABLE_SCX=0 sudo just build
 ```
 
-Surface variant (Microsoft Surface Pro 7+):
-```bash
-just build-surface        # Build localhost/kyth:surface (linux-surface kernel, touch/pen/rotation)
-just build-surface-iso    # Build surface live installer ISO (runs build-surface first)
-```
-
 ## Common Issues
 
 **Docker permission denied on socket:**
