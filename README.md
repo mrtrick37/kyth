@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-15 17:12:55 UTC
+- Last refreshed (UTC): 2026-04-15 17:16:04 UTC
 - Current branch: testing
-- HEAD commit: 269f70b
-- Last commit title: fix: repair gamescope package list formatting
-- Last commit date: 2026-04-15T13:12:53-04:00
+- HEAD commit: ba4cba3
+- Last commit title: chore: refresh README snapshot [skip ci]
+- Last commit date: 2026-04-15T13:12:55-04:00
 - CI workflow files: 3
 - Build script files: 7
 
