@@ -98,7 +98,6 @@ dnf5 install -y --skip-unavailable \
     tmux \
     gh \
     fwupd \
-    gamescope \
     libburn \
     libisoburn \
     libisofs \
@@ -119,8 +118,7 @@ dnf5 copr enable -y ycollet/audinux
 # the kyth-welcome Gaming page so users can opt in without bloating the base image.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
-dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
-    gamescope-shaders \
+dnf5 install -y --skip-unavailable --exclude=libde265.i686 \    gamescope \    gamescope-shaders \
     mangohud.x86_64 \
     mangohud.i686 \
     vkBasalt.x86_64 \

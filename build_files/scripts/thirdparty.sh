@@ -411,23 +411,23 @@ if is_enabled "${ENABLE_SCX:-1}"; then
                 "${SCX_TARBALL}" "${TMPDIR_SCX}"
             tar -xf "${TMPDIR_SCX}/${SCX_TARBALL}" -C "${TMPDIR_SCX}/"
 
-            # Install scx_* scheduler binaries and scxd
-            find "${TMPDIR_SCX}" \( -name 'scx_*' -o -name 'scxd' \) -type f \
+            # Install scx_* scheduler binaries and scx_loader
+            find "${TMPDIR_SCX}" \( -name 'scx_*' -o -name 'scx_loader' \) -type f \
                 -exec install -m 0755 {} /usr/bin/ \;
 
-            if command -v scxd >/dev/null 2>&1; then
-                # Provide scxd.service — not present without the RPM
+            if command -v scx_loader >/dev/null 2>&1; then
+                # Provide scx_loader.service — replaces the older scxd approach
                 mkdir -p /usr/lib/systemd/system
-                cat > /usr/lib/systemd/system/scxd.service <<'SCXSVCEOF'
+                cat > /usr/lib/systemd/system/scx_loader.service <<'SCXSVCEOF'
 [Unit]
-Description=sched-ext userspace scheduler daemon
+Description=sched-ext userspace scheduler loader
 Documentation=https://github.com/sched-ext/scx
 After=basic.target
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/scx/config
-ExecStart=/usr/bin/scxd
+EnvironmentFile=-/etc/scx/scx_loader.conf
+ExecStart=/usr/bin/scx_loader
 Restart=on-failure
 RestartSec=5
 
@@ -446,17 +446,16 @@ SCXSVCEOF
 
                 if [[ -n "$SCX_SCHEDULER" ]]; then
                     mkdir -p /etc/scx
-                    cat > /etc/scx/config <<SCXEOF
+                    cat > /etc/scx/scx_loader.conf <<SCXEOF
 SCX_SCHEDULER=${SCX_SCHEDULER}
-SCX_FLAGS=--auto-mode
 SCXEOF
-                    systemctl enable scxd.service 2>/dev/null || true
+                    systemctl enable scx_loader.service 2>/dev/null || true
                     echo "scx: enabled ${SCX_SCHEDULER}"
                 else
                     echo "scx: no scheduler binaries found in archive"
                 fi
             else
-                echo "scx: scxd not found after extraction"
+                echo "scx: scx_loader not found after extraction"
             fi
         else
             echo "scx: no x86_64 tarball found in release assets; skipping."

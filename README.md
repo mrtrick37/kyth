@@ -308,12 +308,12 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-13 11:59:01 UTC
+- Last refreshed (UTC): 2026-04-15 16:26:13 UTC
 - Current branch: testing
-- HEAD commit: 3baaed2
-- Last commit title: fix(live): WiFi connect failure and service crashes on surface ISO
-- Last commit date: 2026-04-13T07:58:57-04:00
-- CI workflow files: 5
+- HEAD commit: 86bbcf1
+- Last commit title: copr for kernel
+- Last commit date: 2026-04-14T21:54:08-04:00
+- CI workflow files: 3
 - Build script files: 7
 
 <!-- AUTO-README-END -->
