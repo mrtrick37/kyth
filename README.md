@@ -308,10 +308,10 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-15 16:26:13 UTC
+- Last refreshed (UTC): 2026-04-15 17:12:53 UTC
 - Current branch: testing
-- HEAD commit: 89a3891
-- Last commit title: scx_loader migration and gamescope source switch
+- HEAD commit: e55a005
+- Last commit title: chore: refresh README snapshot [skip ci]
 - Last commit date: 2026-04-15T12:26:13-04:00
 - CI workflow files: 3
 - Build script files: 7
