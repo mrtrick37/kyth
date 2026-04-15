@@ -281,7 +281,15 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     else
         echo "Base image {{ base_image }} already present locally. Skipping pull."
     fi
-    docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
+    CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
+        | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
+        2>/dev/null || date +%Y-%m-%d)
+    echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
+    docker build \
+        --build-arg BASE_IMAGE={{ base_image }} \
+        --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
+        --tag localhost/kyth-base:stable \
+        build_base/
 
 # Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
