@@ -310,9 +310,9 @@ disk_config/
 
 - Last refreshed (UTC): 2026-04-15 16:26:13 UTC
 - Current branch: testing
-- HEAD commit: 86bbcf1
-- Last commit title: copr for kernel
-- Last commit date: 2026-04-14T21:54:08-04:00
+- HEAD commit: 89a3891
+- Last commit title: scx_loader migration and gamescope source switch
+- Last commit date: 2026-04-15T12:26:13-04:00
 - CI workflow files: 3
 - Build script files: 7
 
