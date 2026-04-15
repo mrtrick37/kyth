@@ -5014,6 +5014,7 @@ class RcloneSetupWizard(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(640, 540)
         self.setModal(True)
+        self.setStyleSheet("background: #1b2838;")
 
         self._auth_worker: RcloneAuthorizeWorker | None = None
         self._token = ""
@@ -5027,7 +5028,8 @@ class RcloneSetupWizard(QDialog):
         # ── Header ─────────────────────────────────────────────────────────────
         header = QWidget()
         header.setStyleSheet(
-            "QWidget { background: #080808; border-bottom: 1px solid #1c1c1c; }"
+            "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            " stop:0 #1f2d3e, stop:1 #1b2838); border-bottom: 1px solid #2a3f5a; }"
         )
         hdr_layout = QHBoxLayout(header)
         hdr_layout.setContentsMargins(28, 16, 28, 16)
@@ -5036,7 +5038,7 @@ class RcloneSetupWizard(QDialog):
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
         self._step_label = QLabel()
-        self._step_label.setStyleSheet("font-size: 12px; color: #555555;")
+        self._step_label.setStyleSheet("font-size: 12px; color: #4a5a6a;")
         hdr_layout.addWidget(self._step_label)
         root.addWidget(header)
 
@@ -5051,7 +5053,7 @@ class RcloneSetupWizard(QDialog):
         # ── Footer ─────────────────────────────────────────────────────────────
         footer = QWidget()
         footer.setStyleSheet(
-            "QWidget { background: #080808; border-top: 1px solid #1c1c1c; }"
+            "QWidget { background: #171a21; border-top: 1px solid #0d1117; }"
         )
         ftr_layout = QHBoxLayout(footer)
         ftr_layout.setContentsMargins(28, 14, 28, 14)
@@ -5085,7 +5087,7 @@ class RcloneSetupWizard(QDialog):
         page, layout = self._page_container()
 
         heading = QLabel("Choose your cloud storage service")
-        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         layout.addWidget(heading)
 
         sub = QLabel(
@@ -5115,7 +5117,7 @@ class RcloneSetupWizard(QDialog):
             desc_lbl = QLabel(info["description"])
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet(
-                "font-size: 12px; color: #888888; background: transparent; border: none;"
+                "font-size: 12px; color: #8f98a0; background: transparent; border: none;"
             )
             inner.addWidget(desc_lbl)
             btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
@@ -5131,7 +5133,7 @@ class RcloneSetupWizard(QDialog):
         page, layout = self._page_container()
 
         heading = QLabel("Name and local folder")
-        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         layout.addWidget(heading)
 
         sub = QLabel(
@@ -5146,7 +5148,7 @@ class RcloneSetupWizard(QDialog):
         form_layout.setSpacing(10)
 
         name_lbl = QLabel("Remote name")
-        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        name_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
         form_layout.addWidget(name_lbl)
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("e.g. gdrive")
@@ -5157,11 +5159,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
         form_layout.addWidget(sep)
 
         folder_lbl = QLabel("Local sync folder")
-        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
         form_layout.addWidget(folder_lbl)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
@@ -5185,7 +5187,7 @@ class RcloneSetupWizard(QDialog):
 
         self._auth_heading = QLabel("Authorize access")
         self._auth_heading.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #f0f0f0;"
+            "font-size: 17px; font-weight: 700; color: #ffffff;"
         )
         layout.addWidget(self._auth_heading)
 
@@ -5253,11 +5255,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
         done_card_layout.addWidget(sep)
 
         cmds_lbl = QLabel("Useful commands:")
-        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #c6d4df; font-size: 13px;")
         done_card_layout.addWidget(cmds_lbl)
 
         self._done_cmds = QTextEdit()
@@ -5333,13 +5335,14 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: #0f2044; border: 2px solid #3d70e8; "
+                    "QPushButton { background: rgba(102, 192, 244, 0.12); "
+                    "border: 2px solid #66c0f4; "
                     "border-radius: 8px; text-align: left; }"
                 )
             else:
                 btn.setChecked(False)
                 btn.setStyleSheet(
-                    "QPushButton { background: #111111; border: 1px solid #222222; "
+                    "QPushButton { background: #16202d; border: 1px solid #2a3f5a; "
                     "border-radius: 8px; text-align: left; }"
                 )
 
