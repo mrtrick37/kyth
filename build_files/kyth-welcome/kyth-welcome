@@ -5992,6 +5992,7 @@ class CloudStoragePage(Page):
         self._gd_sync_status.show()
         self._gd_sync_btn.show()
         self._gd_sync_btn.setEnabled(False)
+        self._gd_open_btn.show()
         self._gd_log_btn.show()
         self._gd_last_sync_lines = []
         if self._gd_sync_log_visible:
@@ -6094,6 +6095,7 @@ class CloudStoragePage(Page):
         self._od_sync_status.show()
         self._od_sync_btn.show()
         self._od_sync_btn.setEnabled(False)
+        self._od_open_btn.show()
         self._od_log_btn.show()
         self._od_last_sync_lines = []
         if self._od_sync_log_visible:
@@ -6143,26 +6145,30 @@ class CloudStoragePage(Page):
 
     # ── Open local folders ─────────────────────────────────────────────────────
 
+    def _open_folder_in_dolphin(self, folder: str):
+        os.makedirs(folder, exist_ok=True)
+        try:
+            subprocess.Popen(["dolphin", folder])
+        except Exception:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
     def _open_gd_folder(self):
         for info in self._sync_config.values():
             if info.get("service") == "drive":
                 folder = info.get("folder", os.path.expanduser("~/GoogleDrive"))
-                os.makedirs(folder, exist_ok=True)
-                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+                self._open_folder_in_dolphin(folder)
                 return
 
     def _open_od_folder(self):
         for info in self._sync_config.values():
             if info.get("service") == "onedrive":
                 folder = info.get("folder", os.path.expanduser("~/OneDrive"))
-                os.makedirs(folder, exist_ok=True)
-                QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+                self._open_folder_in_dolphin(folder)
                 return
 
     def _open_db_folder(self):
         folder = os.path.expanduser("~/Dropbox")
-        os.makedirs(folder, exist_ok=True)
-        QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+        self._open_folder_in_dolphin(folder)
 
     # ── Sync interval ──────────────────────────────────────────────────────────
 
