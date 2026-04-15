@@ -338,6 +338,22 @@ setup-kali-box tools="headless":
         # Rebuild KDE's application-launcher cache (update-desktop-database alone
         # is not enough — KDE maintains its own ksycoca index).
         kbuildsycoca6 --noincremental 2>/dev/null || true
+
+        # ── Zenmap: fix root launcher (pkexec fails inside distrobox on Wayland) ──
+        # distrobox-export generates kali-zenmap-root.desktop with pkexec, which
+        # can't reach the host polkit agent from inside the container.  Replace it
+        # with sudo -E so Wayland env vars are preserved and no dialog is needed.
+        _zenmapd="${_appdir}/kali-zenmap-root.desktop"
+        if [[ -f "${_zenmapd}" ]]; then
+            sed -i 's|pkexec /usr/bin/zenmap|sudo -E /usr/bin/zenmap|g' "${_zenmapd}"
+            echo "  Patched kali-zenmap-root.desktop to use sudo -E."
+            distrobox enter kali -- bash -c "
+                echo '${USER} ALL=(root) NOPASSWD: /usr/bin/zenmap' \
+                    | sudo tee /etc/sudoers.d/zenmap-nopasswd > /dev/null
+                sudo chmod 0440 /etc/sudoers.d/zenmap-nopasswd
+            " && echo "  Added passwordless sudo for zenmap in kali." || true
+        fi
+
         echo "  Done — Kali tools should appear under 'Security Tools' in the app launcher."
     fi
 
@@ -401,6 +417,18 @@ export-kali-apps:
     # Rebuild KDE's application-launcher cache (update-desktop-database alone
     # is not enough — KDE maintains its own ksycoca index).
     kbuildsycoca6 --noincremental 2>/dev/null || true
+
+    # ── Zenmap: fix root launcher (pkexec fails inside distrobox on Wayland) ──
+    _zenmapd="${_appdir}/kali-zenmap-root.desktop"
+    if [[ -f "${_zenmapd}" ]]; then
+        sed -i 's|pkexec /usr/bin/zenmap|sudo -E /usr/bin/zenmap|g' "${_zenmapd}"
+        echo "  Patched kali-zenmap-root.desktop to use sudo -E."
+        distrobox enter kali -- bash -c "
+            echo '${USER} ALL=(root) NOPASSWD: /usr/bin/zenmap' \
+                | sudo tee /etc/sudoers.d/zenmap-nopasswd > /dev/null
+            sudo chmod 0440 /etc/sudoers.d/zenmap-nopasswd
+        " && echo "  Added passwordless sudo for zenmap in kali." || true
+    fi
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Kali tools are now exported to the application launcher under 'Security Tools'."
