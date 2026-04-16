@@ -1,6 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Skip snapshot refresh if the last commit was already a snapshot refresh —
+# prevents an infinite loop where each push produces a new snapshot commit.
+last_msg="$(git log -1 --pretty=%s 2>/dev/null || echo '')"
+if [[ "$last_msg" == *"refresh README snapshot"* ]]; then
+    exit 0
+fi
+
 repo_root="$(git rev-parse --show-toplevel)"
 "$repo_root/build_files/scripts/update-readme-snapshot.sh"
 
