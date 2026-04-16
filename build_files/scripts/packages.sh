@@ -87,6 +87,9 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
+    openconnect \
+    NetworkManager-openconnect \
+    NetworkManager-openconnect-gnome \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -437,6 +440,14 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
+
+# ── openconnect-sso ──────────────────────────────────────────────────────────
+# Palo Alto GlobalProtect VPNs that use SAML/Azure AD auth require a browser-
+# based flow that the NetworkManager openconnect plugin cannot handle.
+# openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
+# completes the SAML redirect loop and hands the resulting cookie to openconnect.
+# Usage: openconnect-sso --server <host>
+pip3 install --break-system-packages openconnect-sso
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
