@@ -447,7 +447,7 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 # openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
 # completes the SAML redirect loop and hands the resulting cookie to openconnect.
 # Usage: openconnect-sso --server <host>
-dnf5 install -y python3-pip
+dnf5 install -y python3-pip python3-pyqt5 qt5-qtwebengine
 pip3 install --break-system-packages openconnect-sso
 
 # Remove dnf transaction history and repo solver data from the image layer.
