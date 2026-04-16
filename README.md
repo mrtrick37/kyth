@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-16 23:12:31 UTC
+- Last refreshed (UTC): 2026-04-16 23:12:32 UTC
 - Current branch: testing
-- HEAD commit: be1ead2
-- Last commit title: chore: refresh README snapshot [skip ci]
-- Last commit date: 2026-04-15T15:25:52-04:00
+- HEAD commit: 753e924
+- Last commit title: openconnect pan vpn attempted fix
+- Last commit date: 2026-04-16T19:12:31-04:00
 - CI workflow files: 3
 - Build script files: 7
 
