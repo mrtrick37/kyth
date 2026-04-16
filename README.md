@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-16 23:19:18 UTC
+- Last refreshed (UTC): 2026-04-16 23:28:17 UTC
 - Current branch: testing
-- HEAD commit: d498006
-- Last commit title: chore: refresh README snapshot [skip ci]
-- Last commit date: 2026-04-16T19:16:33-04:00
+- HEAD commit: f997164
+- Last commit title: fix: remove pre-push snapshot commit that was suppressing CI with [skip ci] HEAD
+- Last commit date: 2026-04-16T19:19:18-04:00
 - CI workflow files: 3
 - Build script files: 7
 

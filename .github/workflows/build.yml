@@ -34,9 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # push → build only the branch that was pushed (single-item list)
-        # schedule / workflow_dispatch → build both branches in parallel
-        branch: ${{ github.event_name == 'push' && fromJSON(format('["{0}"]', github.ref_name)) || fromJSON('["main","testing"]') }}
+        # schedule → build both branches in parallel
+        # push / workflow_dispatch → build only the triggered branch
+        branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
 
     permissions:
       contents: read
