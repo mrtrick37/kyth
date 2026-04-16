@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-16 23:16:29 UTC
+- Last refreshed (UTC): 2026-04-16 23:16:33 UTC
 - Current branch: testing
-- HEAD commit: 6a7f913
-- Last commit title: chore: refresh README snapshot [skip ci]
-- Last commit date: 2026-04-16T19:14:46-04:00
+- HEAD commit: 3ef103e
+- Last commit title: fix: break pre-push snapshot loop by skipping if last commit was already a snapshot
+- Last commit date: 2026-04-16T19:16:29-04:00
 - CI workflow files: 3
 - Build script files: 7
 
