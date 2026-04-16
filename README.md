@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-16 23:33:59 UTC
+- Last refreshed (UTC): 2026-04-16 23:46:08 UTC
 - Current branch: testing
-- HEAD commit: b1e6b73
-- Last commit title: fix: workflow_dispatch builds only the dispatched branch, not both
-- Last commit date: 2026-04-16T19:28:17-04:00
+- HEAD commit: 81270a1
+- Last commit title: fix: install python3-pip before openconnect-sso pip install
+- Last commit date: 2026-04-16T19:33:59-04:00
 - CI workflow files: 3
 - Build script files: 7
 
