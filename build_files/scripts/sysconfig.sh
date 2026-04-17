@@ -372,20 +372,6 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
-# Steam: disable CEF browser sandbox — required on bootc/ostree systems where
-# user namespace restrictions prevent the Chromium sandbox from initialising,
-# causing steamwebhelper to SEGV at startup.
-echo 'STEAM_DISABLE_BROWSER_SANDBOX=1' > /etc/environment.d/steam.conf
-
-# Steam: override the system .desktop file to remove PrefersNonDefaultGPU and
-# X-KDE-RunOnDiscreteGpu. On multi-GPU systems KDE uses these to launch Steam
-# via DRI_PRIME, which causes steamwebhelper to SEGV on startup. Placing the
-# override in /usr/local/share/applications/ takes XDG priority over
-# /usr/share/applications/ and won't be clobbered by steam package updates.
-mkdir -p /usr/local/share/applications
-sed '/^PrefersNonDefaultGPU=\|^X-KDE-RunOnDiscreteGpu=/d' \
-    /usr/share/applications/steam.desktop \
-    > /usr/local/share/applications/steam.desktop
 
 # systemd-remount-fs tries to remount the root filesystem, which is immutable
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
@@ -536,36 +522,6 @@ systemctl enable fwupd 2>/dev/null || true
 # Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
-
-# ── Microsoft Surface hardware configuration ──────────────────────────────────
-if [[ "${ENABLE_SURFACE:-0}" == "1" ]]; then
-    # Touch and pen — iptsd translates raw IPTS hardware events into pointer input
-    systemctl enable iptsd.service 2>/dev/null || true
-    # Type Cover detach button — sends events when the keyboard is attached/detached
-    systemctl enable surface-dtx-daemon.service 2>/dev/null || true
-    # Accelerometer-driven screen auto-rotation (portrait ↔ landscape)
-    systemctl enable iio-sensor-proxy.service 2>/dev/null || true
-
-    # Surface-specific boot arguments.
-    # mem_sleep_default=deep  — prefer S3 (deep) suspend over Intel S0ix.
-    #   S0ix ("connected standby") drains up to 1 %/hr on Surface hardware;
-    #   S3 cuts that to near zero at the cost of losing network-while-sleeping.
-    # button.lid_init_state=open  — some Surface models mis-report the lid as
-    #   closed at boot, which blocks the graphical login screen from appearing.
-    cat > /usr/lib/bootc/kargs.d/98-kyth-surface.toml <<'SURFACEKARGSEOF'
-kargs = ["mem_sleep_default=deep", "button.lid_init_state=open"]
-SURFACEKARGSEOF
-
-    # Grant userspace access to the Surface Aggregator Module character device.
-    # surface-control and surface-dtx-daemon communicate through this interface
-    # to read/set fan speed, display brightness, performance mode, and detach state.
-    cat > /usr/lib/udev/rules.d/99-surface-aggregator.rules <<'SURFUDEVEOF'
-SUBSYSTEM=="surface_aggregator", TAG+="uaccess"
-KERNEL=="surface_aggregator_cdev", GROUP="users", MODE="0660"
-SURFUDEVEOF
-
-    echo "Surface services enabled."
-fi
 
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.

@@ -1,0 +1,3 @@
+#!/usr/bin/env bash
+set -euo pipefail
+# README snapshot is kept current by the pre-commit hook — no action needed here.

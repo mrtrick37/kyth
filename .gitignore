@@ -15,3 +15,7 @@ _build-*/**
 # Crash dumps
 core
 core.*
+
+
+#Ignore vscode AI rules
+.github/instructions/codacy.instructions.md
