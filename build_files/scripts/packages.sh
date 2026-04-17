@@ -448,13 +448,21 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 # completes the SAML redirect loop and hands the resulting cookie to openconnect.
 # Usage: openconnect-sso --server <host>
 #
-# lxml 4.9.4 must be built from source (openconnect-sso pins lxml<5.0; system
-# python3-lxml is 5.x). Requires python3-devel (Python.h), kernel-headers
-# (linux/limits.h), and libxml2/xslt devel libs.
-# python3-pyqt6-webengine is the system Qt6 WebEngine Python binding — installing
-# it here prevents pip from bundling its own Qt6 libs that conflict with system Qt.
-dnf5 install -y python3-pip python3-devel kernel-headers libxml2-devel libxslt-devel qt6-qtwebengine python3-pyqt6-webengine
-pip3 install --break-system-packages openconnect-sso
+# openconnect-sso pins lxml<5.0 but lxml 4.x cannot compile against Python 3.14
+# (removed private CPython APIs). Work around by installing --no-deps and
+# supplying lxml 5.x (prebuilt manylinux wheel, Python 3.14 compatible) explicitly.
+# python3-pyqt6-webengine supplies system Qt6 WebEngine bindings so pip does not
+# download a bundled Qt6 that conflicts with the system Qt version at runtime.
+dnf5 install -y python3-pip qt6-qtwebengine python3-pyqt6-webengine
+pip3 install --break-system-packages \
+    'lxml>=5.0' \
+    attrs \
+    colorama \
+    'prompt-toolkit>=3.0.3,<4.0.0' \
+    'pyotp>=2.7.0,<3.0.0' \
+    structlog \
+    'toml>=0.10,<0.11'
+pip3 install --break-system-packages --no-deps openconnect-sso
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
