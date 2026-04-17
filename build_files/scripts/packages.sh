@@ -454,6 +454,7 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 # python3-pyqt6-webengine supplies system Qt6 WebEngine bindings so pip does not
 # download a bundled Qt6 that conflicts with the system Qt version at runtime.
 dnf5 install -y python3-pip qt6-qtwebengine python3-pyqt6-webengine
+mkdir -p /usr/local/lib
 pip3 install --break-system-packages \
     'lxml>=5.0' \
     attrs \
