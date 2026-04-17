@@ -90,6 +90,7 @@ dnf5 install -y --skip-unavailable \
     openconnect \
     NetworkManager-openconnect \
     NetworkManager-openconnect-gnome \
+    plasma-nm-openconnect \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
