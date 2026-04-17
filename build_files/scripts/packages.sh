@@ -447,10 +447,10 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 # openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
 # completes the SAML redirect loop and hands the resulting cookie to openconnect.
 # Usage: openconnect-sso --server <host>
-dnf5 install -y python3-pip libxml2-devel libxslt-devel
-# qt6-qtwebengine provides system Qt6 WebEngine libs for PyQt6-WebEngine; if not
-# in the repo, pip will install a bundled copy via the PyQt6-WebEngine wheel.
-dnf5 install -y --skip-unavailable qt6-qtwebengine || true
+#
+# System packages supply lxml and PyQt6-WebEngine so pip does not bundle its own
+# Qt6 WebEngine libs (which conflict with the system Qt version at runtime).
+dnf5 install -y python3-pip python3-lxml qt6-qtwebengine python3-pyqt6-webengine
 pip3 install --break-system-packages openconnect-sso
 
 # Remove dnf transaction history and repo solver data from the image layer.
