@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-17 00:02:41 UTC
+- Last refreshed (UTC): 2026-04-17 16:23:55 UTC
 - Current branch: testing
-- HEAD commit: 493e192
-- Last commit title: fix: add python3-lxml and xml dev libs to avoid lxml build-from-source failure
-- Last commit date: 2026-04-16T19:47:21-04:00
+- HEAD commit: 1ae198d
+- Last commit title: VPN connectivity fix
+- Last commit date: 2026-04-17T07:19:17-04:00
 - CI workflow files: 3
 - Build script files: 7
 
