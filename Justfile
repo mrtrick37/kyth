@@ -64,6 +64,22 @@ disk-usage:
     echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
     find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
 
+# Refresh the auto-generated README project snapshot section.
+[group('Utility')]
+sync-readme:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    ./build_files/scripts/update-readme-snapshot.sh
+
+# Install tracked git hooks for automatic README snapshot updates.
+[group('Utility')]
+install-git-hooks:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    git config core.hooksPath .githooks
+    chmod +x .githooks/pre-commit .githooks/pre-push build_files/scripts/update-readme-snapshot.sh
+    echo "Git hooks installed via core.hooksPath=.githooks"
+
 # Remove old output ISOs — keeps only the current live ISO and current BIB ISO.
 # Deletes: output/previous-built-iso/, output/archive/, stale manifest backups.
 [group('Utility')]
@@ -265,7 +281,15 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     else
         echo "Base image {{ base_image }} already present locally. Skipping pull."
     fi
-    docker build --build-arg BASE_IMAGE={{ base_image }} --tag localhost/kyth-base:stable build_base/
+    CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
+        | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
+        2>/dev/null || date +%Y-%m-%d)
+    echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
+    docker build \
+        --build-arg BASE_IMAGE={{ base_image }} \
+        --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
+        --tag localhost/kyth-base:stable \
+        build_base/
 
 # Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
@@ -283,43 +307,10 @@ build: build-base
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --build-arg ENABLE_SURFACE="${ENABLE_SURFACE:-0}" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \
         --load \
         .
-
-# Build the KythOS Surface variant — replaces the CachyOS kernel with the
-# linux-surface patched kernel for full Surface Pro 7+ hardware support
-# (touchscreen, Surface Pen, Type Cover, screen rotation, thermal management).
-# Produces localhost/kyth:surface; use build-surface-iso to create a bootable ISO.
-[group('Build')]
-build-surface: build-base
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if ! id -nG | grep -qw docker; then
-        exec sg docker -c "just build-surface"
-    fi
-    REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
-    BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
-    CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
-    docker buildx build \
-        --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
-        --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
-        --build-arg ENABLE_SURFACE=1 \
-        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
-        --tag localhost/kyth:surface \
-        --load \
-        .
-
-# Build a live installer ISO for the Surface variant.
-# Runs build-surface first, then assembles a bootable ISO whose installer
-# will pull ghcr.io/mrtrick37/kyth:surface from the registry at install time.
-[group('Build')]
-build-surface-iso: build-surface
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG=surface bash build_files/build-live-iso.sh
 
 
 # Command: _rootful_load_image

@@ -76,8 +76,7 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
     mpv
 
 # Install baseline tooling in a single transaction to reduce solver and
-# metadata overhead before the gaming repos are enabled. gamescope stays here
-# so it still comes from Fedora rather than the later Bazzite COPR.
+# metadata overhead before the gaming repos are enabled.
 dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
@@ -88,6 +87,10 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
+    openconnect \
+    NetworkManager-openconnect \
+    NetworkManager-openconnect-gnome \
+    plasma-nm-openconnect \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -98,7 +101,6 @@ dnf5 install -y --skip-unavailable \
     tmux \
     gh \
     fwupd \
-    gamescope \
     libburn \
     libisoburn \
     libisofs \
@@ -112,17 +114,15 @@ dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
 dnf5 copr enable -y ycollet/audinux
 
-# negativo17 Steam repo — --overwrite for idempotency (CI caches base layers).
-# dnf imports the GPG key automatically from the gpgkey= field in the repofile
-# on first package install; there is no separately hosted key URL to pre-import.
-dnf5 config-manager addrepo --overwrite --from-repofile=https://negativo17.org/repos/fedora-steam.repo
-
 # Gaming packages
-# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by Steam's
-# 32-bit deps, but it's frequently unavailable on Fedora mirrors and is not needed.
+# libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by
+# some gaming libs, but it's frequently unavailable on Fedora mirrors and is not needed.
+# steam and lutris are intentionally absent — both are installed as Flatpaks via
+# the kyth-welcome Gaming page so users can opt in without bloating the base image.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
+    gamescope \
     gamescope-shaders \
     mangohud.x86_64 \
     mangohud.i686 \
@@ -138,8 +138,6 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     evtest \
     xdg-user-dirs \
     xdg-terminal-exec \
-    steam \
-    lutris \
     gamemode \
     gamemode.i686 \
     libXScrnSaver \
@@ -202,9 +200,6 @@ dnf5 copr disable -y ublue-os/staging
 dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
 dnf5 copr disable -y ycollet/audinux
-# Disable negativo17 Steam repo so it doesn't leak alternate NVIDIA stacks.
-dnf5 config-manager setopt fedora-steam.enabled=0 || true
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/fedora-steam.repo 2>/dev/null || true
 
 ### GPU drivers
 
@@ -446,71 +441,29 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
-# ── Microsoft Surface hardware support ────────────────────────────────────────
-# Installs user-space daemons for Surface Pro 7+ hardware: touchscreen, Surface
-# Pen, screen auto-rotation, Type Cover detach button, and hardware control.
+
+# ── openconnect-sso ──────────────────────────────────────────────────────────
+# Palo Alto GlobalProtect VPNs that use SAML/Azure AD auth require a browser-
+# based flow that the NetworkManager openconnect plugin cannot handle.
+# openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
+# completes the SAML redirect loop and hands the resulting cookie to openconnect.
+# Usage: openconnect-sso --server <host>
 #
-# The CachyOS kernel is kept as-is — no kernel swap is needed.  Surface Pro 7+
-# uses IPTS firmware v2, where iptsd communicates through standard HIDRAW (in
-# mainline since 5.17).  The Surface Aggregator Module (battery, thermal, perf
-# profiles, Type Cover hotplug) is also substantially upstream in 6.x kernels.
-#
-# User-space package sources:
-#   linux-surface does not yet publish Fedora 44 packages.  Their Fedora 43
-#   builds are Rust-compiled binaries whose runtime deps (glibc, libgcc) are
-#   forward-compatible with Fedora 44 — we pin the repo to the f43 path until
-#   official f44 packages are available.
-#
-# Hardware covered:
-#   iptsd            — Intel Precision Touch+Stylus daemon (touch + pen)
-#   surface-dtx-daemon — Type Cover attach/detach button events via SAM
-#   surface-control  — CLI for fan speed, brightness, performance modes via SAM
-#   libwacom-surface — Surface pen profile for libwacom-aware apps (GIMP, etc.)
-#   iio-sensor-proxy — Accelerometer → screen auto-rotation (from Fedora repos)
-#
-# Enable with:  ENABLE_SURFACE=1 just build-surface
-if is_enabled "${ENABLE_SURFACE:-0}"; then
-    echo "── Surface support: installing user-space tools ─────────────────────────"
-
-    # Import the linux-surface GPG key
-    curl -fsSL \
-        https://raw.githubusercontent.com/linux-surface/linux-surface/master/pkg/keys/surface.asc \
-        -o /tmp/surface.asc
-    gpg --dearmor < /tmp/surface.asc > /etc/pki/rpm-gpg/surface.gpg
-    rm -f /tmp/surface.asc
-
-    # Pin to fedora/43 — the linux-surface project has not yet published f44
-    # packages.  Rust binaries have no hard Fedora-version deps so these install
-    # cleanly on f44.  Update the path when f44 packages are available.
-    tee /etc/yum.repos.d/linux-surface.repo > /dev/null <<'SURFACEREPOEOF'
-[linux-surface]
-name=Linux Surface
-baseurl=https://pkg.surfacelinux.net/fedora/43/$basearch
-enabled=1
-gpgcheck=1
-repo_gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/surface.gpg
-SURFACEREPOEOF
-
-    # iio-sensor-proxy is in the standard Fedora repos; the rest come from
-    # linux-surface.  --skip-unavailable lets the build continue if any single
-    # package is temporarily missing from the repo.
-    dnf5 install -y --skip-unavailable \
-        iio-sensor-proxy
-    dnf5 install -y --skip-unavailable \
-        --enablerepo=linux-surface \
-        iptsd \
-        surface-dtx-daemon \
-        surface-control \
-        libwacom-surface
-
-    # Disable the repo so it does not leak into the final image
-    sed -i "s/^enabled=.*/enabled=0/" /etc/yum.repos.d/linux-surface.repo
-
-    echo "  Surface user-space tools installed."
-else
-    echo "ENABLE_SURFACE is off; skipping Surface driver install."
-fi
+# openconnect-sso pins lxml<5.0 but lxml 4.x cannot compile against Python 3.14
+# (removed private CPython APIs). Work around by installing --no-deps and
+# supplying lxml 5.x (prebuilt manylinux wheel, Python 3.14 compatible) explicitly.
+# python3-pyqt6-webengine supplies system Qt6 WebEngine bindings so pip does not
+# download a bundled Qt6 that conflicts with the system Qt version at runtime.
+dnf5 install -y python3-pip qt6-qtwebengine python3-pyqt6-webengine
+pip3 install --break-system-packages --prefix=/usr \
+    'lxml>=5.0' \
+    attrs \
+    colorama \
+    'prompt-toolkit>=3.0.3,<4.0.0' \
+    'pyotp>=2.7.0,<3.0.0' \
+    structlog \
+    'toml>=0.10,<0.11'
+pip3 install --break-system-packages --prefix=/usr --no-deps openconnect-sso
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the

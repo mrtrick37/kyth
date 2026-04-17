@@ -250,27 +250,6 @@ QPushButton:disabled {
     border-color: #1e3448;
 }
 
-QPushButton#primary {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #4cb8f5, stop:1 #1a9fe8);
-    color: #051625;
-    font-weight: 700;
-    border: none;
-    border-radius: 3px;
-    padding: 9px 22px;
-}
-
-QPushButton#primary:hover {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #6dcbff, stop:1 #3ab2f5);
-    color: #020c16;
-}
-
-QPushButton#primary:pressed {
-    background: #1483d4;
-    color: #020c16;
-}
-
 QPushButton#primary:disabled {
     background: #1b3a52;
     color: #3a5a6a;
@@ -3761,8 +3740,8 @@ class GamingPage(Page):
         self._page_header(
             "Apps",
             "Gaming",
-            "KythOS ships a full gaming stack. Everything is pre-installed and pre-configured "
-            "— just add the right launch options in Steam.",
+            "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
+            "Install Steam and Lutris below, then add the right launch options to your games.",
         )
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
@@ -3771,16 +3750,30 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Heroic is installed by default alongside Lutris. "
-            "Bottles is the easiest option for random Windows `.exe` and `.msi` installers. "
-            "Other gaming tools can be installed here with one click and are also "
-            "available via the corresponding ujust recipe."
+            "Steam and Lutris are optional installs — click Install below to add them. "
+            "Heroic is installed by default for Epic, GOG, and Amazon libraries. "
+            "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
+            "All tools are also available via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
         self._add(tools_sub)
 
         self._TOOLS = [
+            {
+                "flatpak": "com.valvesoftware.Steam",
+                "name": "Steam",
+                "desc": "Valve's gaming platform — thousands of native Linux games plus Windows games via Proton.",
+                "ujust": "install-steam",
+                "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
+            },
+            {
+                "flatpak": "net.lutris.Lutris",
+                "name": "Lutris",
+                "desc": "Open gaming platform for Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "ujust": "install-lutris",
+                "launch": ["flatpak", "run", "net.lutris.Lutris"],
+            },
             {
                 "flatpak": "com.heroicgameslauncher.hgl",
                 "name": "Heroic Games Launcher",
@@ -3852,7 +3845,7 @@ class GamingPage(Page):
         self._add(launcher_head)
         launcher_sub = QLabel(
             "Heroic is the recommended default for Epic and GOG. "
-            "Use the buttons below to open Heroic or start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
+            "Install Lutris above, then use the buttons below to start Lutris installers for Battle.net, EA App, and Ubisoft Connect."
         )
         launcher_sub.setObjectName("card-copy")
         launcher_sub.setWordWrap(True)
@@ -3860,8 +3853,8 @@ class GamingPage(Page):
 
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
-            "CLI shortcuts: ujust install-heroic / ujust install-bottles / ujust install-battlenet / ujust install-ea-app / ujust install-ubisoft-connect"
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris (install above) for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
+            "CLI shortcuts: ujust install-steam / ujust install-lutris / ujust install-heroic / ujust install-bottles"
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
@@ -3871,7 +3864,6 @@ class GamingPage(Page):
         launcher_btns.setSpacing(8)
 
         epic_btn = QPushButton("Open Heroic for Epic")
-        epic_btn.setObjectName("primary")
         epic_btn.clicked.connect(lambda _=False: self._open_heroic_for_epic())
         launcher_btns.addWidget(epic_btn)
 
@@ -4238,7 +4230,6 @@ class GamingPage(Page):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         install_btn = QPushButton("Install")
-        install_btn.setObjectName("primary")
         install_btn.clicked.connect(
             lambda _=False, t=tool: self._install_tool(t)
         )
@@ -4415,7 +4406,7 @@ class GamingPage(Page):
         return True
 
     def _launch_lutris_installer(self, target: str, name: str):
-        if not shutil.which("lutris"):
+        if not _is_flatpak_installed("net.lutris.Lutris"):
             self._tool_op_status.setText("Lutris is not installed.")
             self._tool_op_status.setObjectName("status-err")
             self._tool_op_status.show()
@@ -4423,7 +4414,7 @@ class GamingPage(Page):
             QMessageBox.warning(
                 self,
                 "Lutris not found",
-                f"Lutris is required to install {name}."
+                f"Lutris is required to install {name}.\n\nInstall it from the Gaming Tools section above."
             )
             return
 
@@ -4455,7 +4446,7 @@ class GamingPage(Page):
             return
 
         lutris_target = target if target.startswith("lutris:") else f"lutris:install/{target}"
-        cmd = ["lutris", lutris_target]
+        cmd = ["flatpak", "run", "net.lutris.Lutris", lutris_target]
         self._tool_log.append(f"→ {' '.join(cmd)}\n")
         self._tool_log.append("Lutris should open the installer dialog.")
         self._tool_log_toggle.show()
@@ -5008,6 +4999,13 @@ class RcloneSetupWizard(QDialog):
             "default_folder": os.path.expanduser("~/GoogleDrive"),
             "docs_url": "https://rclone.org/drive/",
         },
+        "onedrive": {
+            "label": "OneDrive",
+            "description": "Microsoft OneDrive via Microsoft OAuth. Works with personal accounts. Business / SharePoint accounts can be added via rclone config after setup.",
+            "default_name": "onedrive",
+            "default_folder": os.path.expanduser("~/OneDrive"),
+            "docs_url": "https://rclone.org/onedrive/",
+        },
     }
 
     def __init__(self, parent=None, preselect: str = "drive"):
@@ -5016,6 +5014,7 @@ class RcloneSetupWizard(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(640, 540)
         self.setModal(True)
+        self.setStyleSheet("background: #1b2838;")
 
         self._auth_worker: RcloneAuthorizeWorker | None = None
         self._token = ""
@@ -5029,7 +5028,8 @@ class RcloneSetupWizard(QDialog):
         # ── Header ─────────────────────────────────────────────────────────────
         header = QWidget()
         header.setStyleSheet(
-            "QWidget { background: #080808; border-bottom: 1px solid #1c1c1c; }"
+            "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
+            " stop:0 #1f2d3e, stop:1 #1b2838); border-bottom: 1px solid #2a3f5a; }"
         )
         hdr_layout = QHBoxLayout(header)
         hdr_layout.setContentsMargins(28, 16, 28, 16)
@@ -5038,7 +5038,7 @@ class RcloneSetupWizard(QDialog):
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
         self._step_label = QLabel()
-        self._step_label.setStyleSheet("font-size: 12px; color: #555555;")
+        self._step_label.setStyleSheet("font-size: 12px; color: #4a5a6a;")
         hdr_layout.addWidget(self._step_label)
         root.addWidget(header)
 
@@ -5053,7 +5053,7 @@ class RcloneSetupWizard(QDialog):
         # ── Footer ─────────────────────────────────────────────────────────────
         footer = QWidget()
         footer.setStyleSheet(
-            "QWidget { background: #080808; border-top: 1px solid #1c1c1c; }"
+            "QWidget { background: #171a21; border-top: 1px solid #0d1117; }"
         )
         ftr_layout = QHBoxLayout(footer)
         ftr_layout.setContentsMargins(28, 14, 28, 14)
@@ -5087,7 +5087,7 @@ class RcloneSetupWizard(QDialog):
         page, layout = self._page_container()
 
         heading = QLabel("Choose your cloud storage service")
-        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         layout.addWidget(heading)
 
         sub = QLabel(
@@ -5117,7 +5117,7 @@ class RcloneSetupWizard(QDialog):
             desc_lbl = QLabel(info["description"])
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet(
-                "font-size: 12px; color: #888888; background: transparent; border: none;"
+                "font-size: 12px; color: #8f98a0; background: transparent; border: none;"
             )
             inner.addWidget(desc_lbl)
             btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
@@ -5133,7 +5133,7 @@ class RcloneSetupWizard(QDialog):
         page, layout = self._page_container()
 
         heading = QLabel("Name and local folder")
-        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #f0f0f0;")
+        heading.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         layout.addWidget(heading)
 
         sub = QLabel(
@@ -5148,7 +5148,7 @@ class RcloneSetupWizard(QDialog):
         form_layout.setSpacing(10)
 
         name_lbl = QLabel("Remote name")
-        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        name_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
         form_layout.addWidget(name_lbl)
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("e.g. gdrive")
@@ -5159,11 +5159,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
         form_layout.addWidget(sep)
 
         folder_lbl = QLabel("Local sync folder")
-        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
         form_layout.addWidget(folder_lbl)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
@@ -5187,7 +5187,7 @@ class RcloneSetupWizard(QDialog):
 
         self._auth_heading = QLabel("Authorize access")
         self._auth_heading.setStyleSheet(
-            "font-size: 17px; font-weight: 700; color: #f0f0f0;"
+            "font-size: 17px; font-weight: 700; color: #ffffff;"
         )
         layout.addWidget(self._auth_heading)
 
@@ -5255,11 +5255,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #1c1c1c; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
         done_card_layout.addWidget(sep)
 
         cmds_lbl = QLabel("Useful commands:")
-        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #c6d4df; font-size: 13px;")
         done_card_layout.addWidget(cmds_lbl)
 
         self._done_cmds = QTextEdit()
@@ -5335,13 +5335,14 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: #0f2044; border: 2px solid #3d70e8; "
+                    "QPushButton { background: rgba(102, 192, 244, 0.12); "
+                    "border: 2px solid #66c0f4; "
                     "border-radius: 8px; text-align: left; }"
                 )
             else:
                 btn.setChecked(False)
                 btn.setStyleSheet(
-                    "QPushButton { background: #111111; border: 1px solid #222222; "
+                    "QPushButton { background: #16202d; border: 1px solid #2a3f5a; "
                     "border-radius: 8px; text-align: left; }"
                 )
 
@@ -5430,10 +5431,17 @@ class RcloneSetupWizard(QDialog):
             QMessageBox.critical(self, "Folder Error", f"Could not create folder:\n{exc}")
             return
 
+        # OneDrive needs drive_type so rclone can auto-select the root drive
+        # without an interactive prompt.  Personal accounts work automatically;
+        # business / SharePoint users can run `rclone config` manually afterward.
+        extra_params: list[str] = []
+        if svc == "onedrive":
+            extra_params = ["drive_type", "personal"]
+
         try:
             result = subprocess.run(
                 ["rclone", "config", "create", name, svc,
-                 "token", self._token, "--non-interactive"],
+                 "token", self._token, *extra_params, "--non-interactive"],
                 capture_output=True, text=True, timeout=30,
                 stdin=subprocess.DEVNULL,
             )
@@ -5513,12 +5521,13 @@ class CloudStoragePage(Page):
         super().__init__()
         self._worker = None
         self._gd_sync_worker: RcloneSyncWorker | None = None
+        self._od_sync_worker: RcloneSyncWorker | None = None
         self._sync_config: dict = _load_sync_config()
 
         self._page_header(
             "Network",
             "Cloud Storage",
-            "Connect Google Drive or Dropbox to keep your files automatically in sync.",
+            "Connect Google Drive, OneDrive, or Dropbox to keep your files automatically in sync.",
         )
 
         # ── Google Drive card ─────────────────────────────────────────────────
@@ -5567,12 +5576,44 @@ class CloudStoragePage(Page):
         self._gd_sync_btn.clicked.connect(lambda: self._start_gd_sync())
         self._gd_sync_btn.hide()
         gd_sync_btns.addWidget(self._gd_sync_btn)
+        self._gd_open_btn = QPushButton("Open Local Folder")
+        self._gd_open_btn.clicked.connect(self._open_gd_folder)
+        self._gd_open_btn.hide()
+        gd_sync_btns.addWidget(self._gd_open_btn)
         self._gd_log_btn = QPushButton("Sync Log")
         self._gd_log_btn.hide()
         self._gd_log_btn.clicked.connect(self._toggle_gd_sync_log)
         gd_sync_btns.addWidget(self._gd_log_btn)
         gd_sync_btns.addStretch()
         gd_layout.addLayout(gd_sync_btns)
+
+        # Sync interval row
+        gd_interval_row = QHBoxLayout()
+        gd_interval_row.setSpacing(8)
+        self._gd_interval_lbl = QLabel("Auto-sync interval:")
+        self._gd_interval_lbl.setObjectName("card-copy")
+        self._gd_interval_lbl.hide()
+        gd_interval_row.addWidget(self._gd_interval_lbl)
+        self._gd_interval_combo = QComboBox()
+        for label, mins in (
+            ("Every 5 minutes",  5),
+            ("Every 10 minutes", 10),
+            ("Every 15 minutes", 15),
+            ("Every 30 minutes", 30),
+            ("Every hour",       60),
+            ("Manual only",      0),
+        ):
+            self._gd_interval_combo.addItem(label, mins)
+        saved_mins = self._sync_config.get("_sync_interval_min", 5)
+        for i in range(self._gd_interval_combo.count()):
+            if self._gd_interval_combo.itemData(i) == saved_mins:
+                self._gd_interval_combo.setCurrentIndex(i)
+                break
+        self._gd_interval_combo.currentIndexChanged.connect(self._on_interval_changed)
+        self._gd_interval_combo.hide()
+        gd_interval_row.addWidget(self._gd_interval_combo)
+        gd_interval_row.addStretch()
+        gd_layout.addLayout(gd_interval_row)
 
         self._gd_sync_log = QTextEdit()
         self._gd_sync_log.setReadOnly(True)
@@ -5586,11 +5627,115 @@ class CloudStoragePage(Page):
 
         self._add(gd_card)
 
-        # Periodic GD sync timer
+        # Periodic GD sync timer — interval loaded from config (default 5 min)
+        _startup_mins = self._sync_config.get("_sync_interval_min", 5)
         self._gd_sync_timer = QTimer(self)
-        self._gd_sync_timer.setInterval(_SYNC_INTERVAL_MS)
         self._gd_sync_timer.timeout.connect(lambda: self._start_gd_sync())
-        self._gd_sync_timer.start()
+        if _startup_mins > 0:
+            self._gd_sync_timer.setInterval(_startup_mins * 60 * 1000)
+            self._gd_sync_timer.start()
+
+        # ── OneDrive card ─────────────────────────────────────────────────────
+        od_card, od_layout = _make_card()
+        od_title = QLabel("OneDrive")
+        od_title.setObjectName("card-title")
+        od_layout.addWidget(od_title)
+        od_desc = QLabel(
+            "Sync your Microsoft OneDrive via rclone. "
+            "The setup wizard handles Microsoft OAuth in your browser — no terminal required. "
+            "Works with personal accounts; business / SharePoint accounts can be configured "
+            "manually with rclone config after the initial setup."
+        )
+        od_desc.setObjectName("card-copy")
+        od_desc.setWordWrap(True)
+        od_layout.addWidget(od_desc)
+        self._od_status = QLabel()
+        self._od_status.setWordWrap(True)
+        od_layout.addWidget(self._od_status)
+        od_btns = QHBoxLayout()
+        od_btns.setSpacing(10)
+        self._od_install_btn = QPushButton("Install rclone first")
+        self._od_install_btn.setObjectName("primary")
+        self._od_install_btn.hide()
+        self._od_install_btn.clicked.connect(self._install_rclone)
+        od_btns.addWidget(self._od_install_btn)
+        self._od_wizard_btn = QPushButton("Setup Wizard…")
+        self._od_wizard_btn.setObjectName("primary")
+        self._od_wizard_btn.clicked.connect(lambda: self._open_wizard("onedrive"))
+        od_btns.addWidget(self._od_wizard_btn)
+        od_btns.addStretch()
+        od_layout.addLayout(od_btns)
+
+        # OneDrive sync status + controls
+        self._od_sync_status = QLabel()
+        self._od_sync_status.setWordWrap(True)
+        self._od_sync_status.setObjectName("card-copy")
+        self._od_sync_status.hide()
+        od_layout.addWidget(self._od_sync_status)
+        od_sync_btns = QHBoxLayout()
+        od_sync_btns.setSpacing(10)
+        self._od_sync_btn = QPushButton("Sync Now")
+        self._od_sync_btn.clicked.connect(lambda: self._start_od_sync())
+        self._od_sync_btn.hide()
+        od_sync_btns.addWidget(self._od_sync_btn)
+        self._od_open_btn = QPushButton("Open Local Folder")
+        self._od_open_btn.clicked.connect(self._open_od_folder)
+        self._od_open_btn.hide()
+        od_sync_btns.addWidget(self._od_open_btn)
+        self._od_log_btn = QPushButton("Sync Log")
+        self._od_log_btn.hide()
+        self._od_log_btn.clicked.connect(self._toggle_od_sync_log)
+        od_sync_btns.addWidget(self._od_log_btn)
+        od_sync_btns.addStretch()
+        od_layout.addLayout(od_sync_btns)
+
+        # OneDrive interval row
+        od_interval_row = QHBoxLayout()
+        od_interval_row.setSpacing(8)
+        self._od_interval_lbl = QLabel("Auto-sync interval:")
+        self._od_interval_lbl.setObjectName("card-copy")
+        self._od_interval_lbl.hide()
+        od_interval_row.addWidget(self._od_interval_lbl)
+        self._od_interval_combo = QComboBox()
+        for label, mins in (
+            ("Every 5 minutes",  5),
+            ("Every 10 minutes", 10),
+            ("Every 15 minutes", 15),
+            ("Every 30 minutes", 30),
+            ("Every hour",       60),
+            ("Manual only",      0),
+        ):
+            self._od_interval_combo.addItem(label, mins)
+        od_saved_mins = self._sync_config.get("_od_sync_interval_min", 5)
+        for i in range(self._od_interval_combo.count()):
+            if self._od_interval_combo.itemData(i) == od_saved_mins:
+                self._od_interval_combo.setCurrentIndex(i)
+                break
+        self._od_interval_combo.currentIndexChanged.connect(self._on_od_interval_changed)
+        self._od_interval_combo.hide()
+        od_interval_row.addWidget(self._od_interval_combo)
+        od_interval_row.addStretch()
+        od_layout.addLayout(od_interval_row)
+
+        self._od_sync_log = QTextEdit()
+        self._od_sync_log.setReadOnly(True)
+        self._od_sync_log.setMaximumHeight(100)
+        self._od_sync_log.setObjectName("card-copy")
+        self._od_sync_log.setPlaceholderText("Sync output will appear here…")
+        self._od_sync_log.hide()
+        od_layout.addWidget(self._od_sync_log)
+        self._od_sync_log_visible = False
+        self._od_last_sync_lines: list[str] = []
+
+        self._add(od_card)
+
+        # Periodic OneDrive sync timer
+        _od_startup_mins = self._sync_config.get("_od_sync_interval_min", 5)
+        self._od_sync_timer = QTimer(self)
+        self._od_sync_timer.timeout.connect(lambda: self._start_od_sync())
+        if _od_startup_mins > 0:
+            self._od_sync_timer.setInterval(_od_startup_mins * 60 * 1000)
+            self._od_sync_timer.start()
 
         # ── Dropbox card ──────────────────────────────────────────────────────
         db_card, db_layout = _make_card()
@@ -5616,6 +5761,10 @@ class CloudStoragePage(Page):
         self._db_launch_btn = QPushButton("Launch Dropbox")
         self._db_launch_btn.clicked.connect(self._launch_dropbox)
         db_btns.addWidget(self._db_launch_btn)
+        self._db_open_btn = QPushButton("Open Local Folder")
+        self._db_open_btn.clicked.connect(self._open_db_folder)
+        self._db_open_btn.hide()
+        db_btns.addWidget(self._db_open_btn)
         db_btns.addStretch()
         db_layout.addLayout(db_btns)
         self._add(db_card)
@@ -5654,6 +5803,7 @@ class CloudStoragePage(Page):
         rclone = _rclone_available()
         remotes = _rclone_list_remotes() if rclone else []
         gd_remotes = [n for n, t in remotes if t == "drive"]
+        od_remotes = [n for n, t in remotes if t == "onedrive"]
         db_installed = _is_flatpak_installed("com.dropbox.Client") or bool(shutil.which("dropbox"))
 
         # Google Drive
@@ -5689,14 +5839,68 @@ class CloudStoragePage(Page):
         if gd_remotes:
             self._gd_sync_status.show()
             self._gd_sync_btn.show()
+            self._gd_open_btn.show()
             self._gd_log_btn.show()
+            self._gd_interval_lbl.show()
+            self._gd_interval_combo.show()
             if not (self._gd_sync_worker and self._gd_sync_worker.isRunning()):
                 self._update_gd_sync_label()
         else:
             self._gd_sync_status.hide()
             self._gd_sync_btn.hide()
+            self._gd_open_btn.hide()
             self._gd_log_btn.hide()
             self._gd_sync_log.hide()
+            self._gd_interval_lbl.hide()
+            self._gd_interval_combo.hide()
+
+        # OneDrive
+        if not rclone:
+            self._od_status.setText("rclone is not installed. Install it to use OneDrive.")
+            self._od_status.setObjectName("status-warn")
+            self._od_install_btn.show()
+            self._od_install_btn.setEnabled(True)
+            self._od_wizard_btn.hide()
+        elif od_remotes:
+            names = ", ".join(od_remotes)
+            self._od_status.setText(f"Configured: {names}")
+            self._od_status.setObjectName("status-ok")
+            self._od_install_btn.hide()
+            self._od_wizard_btn.setText("Add / Reconfigure…")
+            self._od_wizard_btn.show()
+        else:
+            self._od_status.setText("No OneDrive remote configured yet.")
+            self._od_status.setObjectName("status-warn")
+            self._od_install_btn.hide()
+            self._od_wizard_btn.setText("Setup Wizard…")
+            self._od_wizard_btn.show()
+        _restyle(self._od_status)
+
+        # OneDrive sync controls — backfill config entries as needed
+        for n in od_remotes:
+            if n not in self._sync_config:
+                self._sync_config[n] = {
+                    "folder": os.path.expanduser("~/OneDrive"),
+                    "service": "onedrive",
+                }
+                _save_sync_config(self._sync_config)
+        if od_remotes:
+            self._od_sync_status.show()
+            self._od_sync_btn.show()
+            self._od_open_btn.show()
+            self._od_log_btn.show()
+            self._od_interval_lbl.show()
+            self._od_interval_combo.show()
+            if not (self._od_sync_worker and self._od_sync_worker.isRunning()):
+                self._update_od_sync_label()
+        else:
+            self._od_sync_status.hide()
+            self._od_sync_btn.hide()
+            self._od_open_btn.hide()
+            self._od_log_btn.hide()
+            self._od_sync_log.hide()
+            self._od_interval_lbl.hide()
+            self._od_interval_combo.hide()
 
         # Dropbox
         if db_installed:
@@ -5704,12 +5908,14 @@ class CloudStoragePage(Page):
             self._db_status.setObjectName("status-ok")
             self._db_install_btn.hide()
             self._db_launch_btn.show()
+            self._db_open_btn.show()
         else:
             self._db_status.setText("Dropbox is not installed.")
             self._db_status.setObjectName("status-warn")
             self._db_install_btn.show()
             self._db_install_btn.setEnabled(True)
             self._db_launch_btn.hide()
+            self._db_open_btn.hide()
         _restyle(self._db_status)
 
     # ── Wizard launcher ────────────────────────────────────────────────────────
@@ -5723,12 +5929,22 @@ class CloudStoragePage(Page):
             self._refresh_status()
             if svc == "drive":
                 self._start_gd_sync(name, folder)
+            elif svc == "onedrive":
+                self._start_od_sync(name, folder)
 
         wizard.finished_ok.connect(_on_wizard_done)
         wizard.exec()
 
     def _update_gd_sync_label(self):
         """Refresh the Google Drive sync status label from stored config."""
+        mins = self._sync_config.get("_sync_interval_min", 5)
+        if mins == 0:
+            interval_str = "manual sync only"
+        elif mins < 60:
+            interval_str = f"every {mins} min"
+        else:
+            interval_str = "every hour"
+
         for name, info in self._sync_config.items():
             if info.get("service") != "drive":
                 continue
@@ -5737,14 +5953,21 @@ class CloudStoragePage(Page):
             if last:
                 ts = datetime.fromtimestamp(last).strftime("%H:%M")
                 if ok:
-                    self._gd_sync_status.setText(f"Last synced at {ts} — syncs every 5 min")
+                    self._gd_sync_status.setText(
+                        f"Last synced at {ts} — {interval_str}"
+                    )
                     self._gd_sync_status.setObjectName("status-ok")
                 else:
                     self._gd_sync_status.setText(f"Sync failed at {ts}")
                     self._gd_sync_status.setObjectName("status-err")
                 _restyle(self._gd_sync_status)
                 return
-        self._gd_sync_status.setText("Not synced yet — click Sync Now or wait for auto-sync")
+        if mins == 0:
+            self._gd_sync_status.setText("Auto-sync disabled — click Sync Now to sync manually")
+        else:
+            self._gd_sync_status.setText(
+                f"Not synced yet — click Sync Now or wait for auto-sync ({interval_str})"
+            )
         self._gd_sync_status.setObjectName("card-copy")
         _restyle(self._gd_sync_status)
 
@@ -5769,6 +5992,7 @@ class CloudStoragePage(Page):
         self._gd_sync_status.show()
         self._gd_sync_btn.show()
         self._gd_sync_btn.setEnabled(False)
+        self._gd_open_btn.show()
         self._gd_log_btn.show()
         self._gd_last_sync_lines = []
         if self._gd_sync_log_visible:
@@ -5816,6 +6040,161 @@ class CloudStoragePage(Page):
         else:
             self._gd_sync_log.hide()
             self._gd_log_btn.setText("Sync Log")
+
+    # ── OneDrive sync ──────────────────────────────────────────────────────────
+
+    def _update_od_sync_label(self):
+        """Refresh the OneDrive sync status label from stored config."""
+        mins = self._sync_config.get("_od_sync_interval_min", 5)
+        if mins == 0:
+            interval_str = "manual sync only"
+        elif mins < 60:
+            interval_str = f"every {mins} min"
+        else:
+            interval_str = "every hour"
+
+        for name, info in self._sync_config.items():
+            if info.get("service") != "onedrive":
+                continue
+            last = info.get("last_sync")
+            ok = info.get("last_ok", True)
+            if last:
+                ts = datetime.fromtimestamp(last).strftime("%H:%M")
+                if ok:
+                    self._od_sync_status.setText(
+                        f"Last synced at {ts} — {interval_str}"
+                    )
+                    self._od_sync_status.setObjectName("status-ok")
+                else:
+                    self._od_sync_status.setText(f"Sync failed at {ts}")
+                    self._od_sync_status.setObjectName("status-err")
+                _restyle(self._od_sync_status)
+                return
+        if mins == 0:
+            self._od_sync_status.setText("Auto-sync disabled — click Sync Now to sync manually")
+        else:
+            self._od_sync_status.setText(
+                f"Not synced yet — click Sync Now or wait for auto-sync ({interval_str})"
+            )
+        self._od_sync_status.setObjectName("card-copy")
+        _restyle(self._od_sync_status)
+
+    def _start_od_sync(self, remote: str | None = None, folder: str | None = None):
+        if self._od_sync_worker and self._od_sync_worker.isRunning():
+            return
+        if remote is None or folder is None:
+            for name, info in self._sync_config.items():
+                if info.get("service") == "onedrive":
+                    remote, folder = name, info.get("folder", "")
+                    break
+        if not remote or not folder:
+            return
+        self._od_sync_status.setText(f"Syncing {remote}…")
+        self._od_sync_status.setObjectName("status-warn")
+        _restyle(self._od_sync_status)
+        self._od_sync_status.show()
+        self._od_sync_btn.show()
+        self._od_sync_btn.setEnabled(False)
+        self._od_open_btn.show()
+        self._od_log_btn.show()
+        self._od_last_sync_lines = []
+        if self._od_sync_log_visible:
+            self._od_sync_log.clear()
+            self._od_sync_log.show()
+        self._od_sync_worker = RcloneSyncWorker(remote, folder)
+        self._od_sync_worker.line.connect(self._on_od_sync_line)
+        self._od_sync_worker.done.connect(lambda code: self._on_od_sync_done(remote, code))
+        self._od_sync_worker.start()
+
+    def _on_od_sync_line(self, line: str):
+        if line.strip():
+            self._od_last_sync_lines.append(line)
+            if len(self._od_last_sync_lines) > 200:
+                self._od_last_sync_lines = self._od_last_sync_lines[-200:]
+            if self._od_sync_log_visible:
+                self._od_sync_log.append(line)
+
+    def _on_od_sync_done(self, remote: str, code: int):
+        _finish_worker(self, attr="_od_sync_worker")
+        now = time.time()
+        ok = code == 0
+        if remote in self._sync_config:
+            self._sync_config[remote]["last_sync"] = now
+            self._sync_config[remote]["last_ok"] = ok
+            _save_sync_config(self._sync_config)
+        self._od_sync_btn.setEnabled(True)
+        self._update_od_sync_label()
+        if self._od_sync_log_visible:
+            from datetime import datetime as _dt
+            ts = _dt.now().strftime("%H:%M:%S")
+            self._od_sync_log.append(
+                f"\n[{ts}] Sync {'completed' if ok else 'FAILED'} (exit {code})"
+            )
+
+    def _toggle_od_sync_log(self):
+        self._od_sync_log_visible = not self._od_sync_log_visible
+        if self._od_sync_log_visible:
+            self._od_sync_log.clear()
+            if self._od_last_sync_lines:
+                self._od_sync_log.setPlainText("\n".join(self._od_last_sync_lines))
+            self._od_sync_log.show()
+            self._od_log_btn.setText("Hide Log")
+        else:
+            self._od_sync_log.hide()
+            self._od_log_btn.setText("Sync Log")
+
+    # ── Open local folders ─────────────────────────────────────────────────────
+
+    def _open_folder_in_dolphin(self, folder: str):
+        os.makedirs(folder, exist_ok=True)
+        try:
+            subprocess.Popen(["dolphin", folder])
+        except Exception:
+            QDesktopServices.openUrl(QUrl.fromLocalFile(folder))
+
+    def _open_gd_folder(self):
+        for info in self._sync_config.values():
+            if info.get("service") == "drive":
+                folder = info.get("folder", os.path.expanduser("~/GoogleDrive"))
+                self._open_folder_in_dolphin(folder)
+                return
+
+    def _open_od_folder(self):
+        for info in self._sync_config.values():
+            if info.get("service") == "onedrive":
+                folder = info.get("folder", os.path.expanduser("~/OneDrive"))
+                self._open_folder_in_dolphin(folder)
+                return
+
+    def _open_db_folder(self):
+        folder = os.path.expanduser("~/Dropbox")
+        self._open_folder_in_dolphin(folder)
+
+    # ── Sync interval ──────────────────────────────────────────────────────────
+
+    def _on_interval_changed(self, idx: int):
+        mins = self._gd_interval_combo.itemData(idx)
+        self._sync_config["_sync_interval_min"] = mins
+        _save_sync_config(self._sync_config)
+        if mins == 0:
+            self._gd_sync_timer.stop()
+        else:
+            self._gd_sync_timer.setInterval(mins * 60 * 1000)
+            if not self._gd_sync_timer.isActive():
+                self._gd_sync_timer.start()
+        self._update_gd_sync_label()
+
+    def _on_od_interval_changed(self, idx: int):
+        mins = self._od_interval_combo.itemData(idx)
+        self._sync_config["_od_sync_interval_min"] = mins
+        _save_sync_config(self._sync_config)
+        if mins == 0:
+            self._od_sync_timer.stop()
+        else:
+            self._od_sync_timer.setInterval(mins * 60 * 1000)
+            if not self._od_sync_timer.isActive():
+                self._od_sync_timer.start()
+        self._update_od_sync_label()
 
     # ── rclone install ─────────────────────────────────────────────────────────
 
@@ -6053,7 +6432,6 @@ class ContentCreationPage(Page):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
         install_btn = QPushButton("Install")
-        install_btn.setObjectName("primary")
         install_btn.clicked.connect(lambda _=False, t=tool: self._install_tool(t))
         btn_row.addWidget(install_btn)
         launch_btn = QPushButton("Launch")
@@ -6483,7 +6861,8 @@ class SecurityPage(Page):
         kali_layout.addWidget(self._status_lbl)
 
         self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(0)
         self._progress.hide()
         kali_layout.addWidget(self._progress)
 
@@ -6606,11 +6985,18 @@ class SecurityPage(Page):
         )
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.setRange(0, 100)
+        self._progress.setValue(2)
         self._progress.show()
-        self._status_lbl.setText("Creating Kali box…")
+        self._status_lbl.setText("Pulling Kali container image…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         _restyle(self._status_lbl)
+        # Phase-tracking state for _on_create_line
+        self._install_phase = 0       # 0=pull 1=init 2=apt-update 3=download 4=unpack 5=setup
+        self._total_packages = 0      # parsed from apt "N newly installed"
+        self._unpack_count = 0
+        self._setup_count = 0
 
         export_step = (
             f" && distrobox enter {self._BOX_NAME} --"
@@ -6639,14 +7025,148 @@ class SecurityPage(Page):
             + export_step,
         ]
         self._worker = Worker(cmd)
-        self._worker.line.connect(lambda ln: (
-            self._log.append(ln),
-            self._log.ensureCursorVisible(),
-        ))
+        self._worker.line.connect(self._on_create_line)
         self._worker.done.connect(self._on_create_done)
         self._worker.start()
 
+    def _on_create_line(self, ln: str):
+        self._log.append(ln)
+        self._log.ensureCursorVisible()
+
+        lo = ln.lower()
+        phase = self._install_phase
+
+        # ── Phase 0 / 1: Pulling the container image (2–42 %) ───────────────
+        if phase <= 1:
+            if any(k in lo for k in (
+                "trying to pull", "pulling image", "getting image source",
+                "copying blob", "copying config",
+            )):
+                self._install_phase = 1
+                self._status_lbl.setText("Pulling Kali container image…")
+                _restyle(self._status_lbl)
+                cur = self._progress.value()
+                if cur < 40:
+                    self._progress.setValue(cur + 1)
+                return
+            if "writing manifest" in lo or "storing signatures" in lo:
+                self._install_phase = 1
+                self._progress.setValue(42)
+                return
+            # Distrobox init lines — image was cached or pull just finished
+            if any(k in lo for k in (
+                "container kali", "creating container", "starting container",
+                "image is now available", "image already present",
+            )) or (phase == 1 and "distrobox" in lo and "creat" in lo):
+                self._install_phase = 2
+                self._status_lbl.setText("Initialising Kali container…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 44))
+                return
+
+        # ── Phase 2: Container init / first boot (42–55 %) ───────────────────
+        if phase == 2:
+            if any(k in lo for k in ("installing basic", "bootstrapping", "reading package")):
+                self._install_phase = 3
+                self._status_lbl.setText("Updating package lists…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 55))
+            else:
+                cur = self._progress.value()
+                if cur < 54:
+                    self._progress.setValue(cur + 1)
+            return
+
+        # ── Phase 3: apt updating package lists (55–60 %) ────────────────────
+        if phase == 3:
+            if any(k in lo for k in ("reading package lists", "building dependency",
+                                     "reading state information")):
+                self._status_lbl.setText("Updating package lists…")
+                _restyle(self._status_lbl)
+                cur = self._progress.value()
+                if cur < 59:
+                    self._progress.setValue(cur + 1)
+            elif any(k in lo for k in ("following new package", "following additional",
+                                       "will be installed")):
+                self._status_lbl.setText("Resolving dependencies…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 58))
+            # "0 upgraded, N newly installed" — grab total package count
+            m = re.search(r'(\d+) newly installed', ln)
+            if m:
+                self._total_packages = int(m.group(1))
+            # "Need to get X MB of archives" — transition to download phase
+            if "need to get" in lo and "archive" in lo:
+                self._install_phase = 4
+                self._status_lbl.setText("Downloading packages…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 60))
+            return
+
+        # ── Phase 4: Downloading packages (60–75 %) ──────────────────────────
+        if phase == 4:
+            m = re.match(r'Get:(\d+)\s', ln)
+            if m:
+                n = int(m.group(1))
+                if self._total_packages > 0:
+                    frac = min(1.0, n / self._total_packages)
+                    self._progress.setValue(max(self._progress.value(),
+                                               int(60 + frac * 15)))
+                else:
+                    cur = self._progress.value()
+                    if cur < 74:
+                        self._progress.setValue(cur + 1)
+            if ln.startswith("Selecting previously") or ln.startswith("Preparing to unpack"):
+                self._install_phase = 5
+                self._status_lbl.setText("Unpacking packages…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 75))
+            return
+
+        # ── Phase 5: Unpacking (75–88 %) ─────────────────────────────────────
+        if phase == 5:
+            if ln.startswith("Unpacking "):
+                self._unpack_count += 1
+                if self._total_packages > 0:
+                    frac = min(1.0, self._unpack_count / self._total_packages)
+                    self._progress.setValue(max(self._progress.value(),
+                                               int(75 + frac * 13)))
+                else:
+                    cur = self._progress.value()
+                    if cur < 87:
+                        self._progress.setValue(cur + 1)
+            if ln.startswith("Setting up "):
+                self._install_phase = 6
+                self._status_lbl.setText("Configuring packages…")
+                _restyle(self._status_lbl)
+                self._setup_count = 1
+                if self._total_packages > 0:
+                    frac = min(1.0, 1 / self._total_packages)
+                    self._progress.setValue(max(self._progress.value(),
+                                               int(88 + frac * 10)))
+                else:
+                    self._progress.setValue(max(self._progress.value(), 88))
+            return
+
+        # ── Phase 6: Setting up / configuring (88–98 %) ──────────────────────
+        if phase == 6:
+            if ln.startswith("Setting up "):
+                self._setup_count += 1
+                if self._total_packages > 0:
+                    frac = min(1.0, self._setup_count / self._total_packages)
+                    self._progress.setValue(max(self._progress.value(),
+                                               int(88 + frac * 10)))
+                else:
+                    cur = self._progress.value()
+                    if cur < 97:
+                        self._progress.setValue(cur + 1)
+            if "processing triggers" in lo:
+                self._status_lbl.setText("Finishing up…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 98))
+
     def _on_create_done(self, code: int):
+        self._progress.setValue(100)
         self._progress.hide()
         _finish_worker(self, attr="_worker")
         self._create_btn.setEnabled(True)

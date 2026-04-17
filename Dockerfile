@@ -22,7 +22,6 @@ LABEL org.osbuild.branding.release="KythOS 44"
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1
 ARG ENABLE_SCX=1
-ARG ENABLE_SURFACE=0
 
 # Layer 1: All RPM package installs (~2-3 GB).
 # Stable — only re-run when packages.sh changes or the base image is updated.
@@ -31,7 +30,6 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,dst=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_ANANICY=${ENABLE_ANANICY} \
-    ENABLE_SURFACE=${ENABLE_SURFACE} \
     /ctx/scripts/packages.sh
 
 # Layer 2: GE-Proton (~700 MB).
@@ -84,7 +82,6 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
-    ENABLE_SURFACE=${ENABLE_SURFACE} \
     /ctx/scripts/sysconfig.sh
 
 # Layer 6: Branding, theming, helper app, Plymouth (~10 MB).
