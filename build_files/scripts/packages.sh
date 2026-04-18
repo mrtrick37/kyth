@@ -529,15 +529,31 @@ dnf5 autoremove -y
 
 # ── GlobalProtect VPN agent + GUI ────────────────────────────────────────────
 # Bundled RPMs (proprietary — not available in public repos).
-# qt5-qtwebkit (above) satisfies the UI package's only non-standard dep.
-# --noscripts skips the post-install that calls systemctl start/enable, which
-# fails inside a container build.  Service wiring is done manually below.
-rpm -i --nodeps --noscripts --nodigest --nosignature /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm
-rpm -i --nodeps --noscripts --nodigest --nosignature /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm
+# qt5-qtwebkit (above) satisfies PanGPUI's only non-standard dep.
+#
+# /opt is a symlink to var/opt in the ublue/ostree base image.  rpm's cpio
+# calls mkdir("/opt") which fails with EEXIST because a symlink is already
+# there, aborting the entire unpack.  Work around this by extracting both RPMs
+# into a temp directory first, then cp-ing into place so the shell follows the
+# /opt → var/opt symlink correctly.  This also means the GP binaries end up in
+# /var/opt (the mutable area) so the daemon can write to its own directory at
+# runtime without any read-only filesystem issues.
+GP_TMP=$(mktemp -d)
+for GP_RPM in \
+    /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm \
+    /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm; do
+    (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
+done
 
-cp /opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
+cp -a "$GP_TMP/opt/." /opt/
+# UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
+[[ -d "$GP_TMP/usr" ]] && cp -a "$GP_TMP/usr/." /usr/
+[[ -d "$GP_TMP/etc" ]] && cp -a "$GP_TMP/etc/." /etc/
+rm -rf "$GP_TMP"
+
 chmod +x /opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
 cp /opt/paloaltonetworks/globalprotect/PanMSInit.sh /etc/profile.d/
+cp /opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
 ln -sf /opt/paloaltonetworks/globalprotect/globalprotect /usr/bin/globalprotect
 ln -sf /usr/lib/systemd/system/gpd.service \
     /etc/systemd/system/multi-user.target.wants/gpd.service
