@@ -21,6 +21,7 @@ from urllib.parse import parse_qs, unquote
 
 # Must be set before any Qt WebEngine module is imported or initialized.
 os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -8122,7 +8123,7 @@ if _WEBENGINE_AVAILABLE:
             self._page = _SamlWebPage(self._profile, self)
             self._page.callback_received.connect(self._on_callback)
 
-            self._view = QWebEngineView()
+            self._view = QWebEngineView(self)
             self._view.setPage(self._page)
             layout.addWidget(self._view)
 
