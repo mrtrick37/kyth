@@ -19,6 +19,9 @@ from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import parse_qs, unquote
 
+# Must be set before any Qt WebEngine module is imported or initialized.
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
