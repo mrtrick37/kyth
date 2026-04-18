@@ -591,7 +591,7 @@ cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
 [Desktop Entry]
 Name=PanGPUI
 Type=Application
-Exec=dbus-run-session /usr/lib/paloaltonetworks/globalprotect/PanGPUI
+Exec=/usr/lib/paloaltonetworks/globalprotect/PanGPUI
 Terminal=false
 PANGPUIEOF
 
