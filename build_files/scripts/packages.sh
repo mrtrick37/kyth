@@ -531,13 +531,8 @@ dnf5 autoremove -y
 # Bundled RPMs (proprietary — not available in public repos).
 # qt5-qtwebkit (above) satisfies PanGPUI's only non-standard dep.
 #
-# /opt is a symlink to var/opt in the ublue/ostree base image.  rpm's cpio
-# calls mkdir("/opt") which fails with EEXIST because a symlink is already
-# there, aborting the entire unpack.  Work around this by extracting both RPMs
-# into a temp directory first, then cp-ing into place so the shell follows the
-# /opt → var/opt symlink correctly.  This also means the GP binaries end up in
-# /var/opt (the mutable area) so the daemon can write to its own directory at
-# runtime without any read-only filesystem issues.
+# Extract into a temp dir first to avoid rpm cpio failing with EEXIST on /opt
+# (which is a symlink in the ostree base image).
 GP_TMP=$(mktemp -d)
 for GP_RPM in \
     /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm \
@@ -545,19 +540,71 @@ for GP_RPM in \
     (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
 done
 
-# /opt is a dangling symlink → var/opt in the ostree image; var/opt doesn't
-# exist yet so we create it and copy directly there, bypassing the symlink.
-mkdir -p /var/opt
-cp -a "$GP_TMP/opt/." /var/opt/
+# Install GP binaries to /usr/lib/ (immutable — always present after upgrades).
+# Previously installed to /var/opt/ (mutable), but bootc only migrates /var
+# content on first deployment; upgrades preserve the existing /var, so files
+# added to /var in later image builds were silently missing on upgraded systems.
+mkdir -p /usr/lib/paloaltonetworks/globalprotect
+cp -a "$GP_TMP/opt/paloaltonetworks/globalprotect/." /usr/lib/paloaltonetworks/globalprotect/
 # UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
 [[ -d "$GP_TMP/usr" ]] && cp -a "$GP_TMP/usr/." /usr/
 [[ -d "$GP_TMP/etc" ]] && cp -a "$GP_TMP/etc/." /etc/
 rm -rf "$GP_TMP"
 
-chmod +x /var/opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
-cp /var/opt/paloaltonetworks/globalprotect/PanMSInit.sh /etc/profile.d/
-cp /var/opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
-ln -sf /opt/paloaltonetworks/globalprotect/globalprotect /usr/bin/globalprotect
+chmod +x /usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
+
+# PanMSInit.sh is a login-time shim that starts PanGPA (the per-user GP agent).
+# Override it to reference the new /usr/lib location instead of /opt.
+cat > /etc/profile.d/PanMSInit.sh <<'PANMSINITEOF'
+#!/bin/bash
+PANGPA=/usr/lib/paloaltonetworks/globalprotect/PanGPA
+pgrep -u "$USER" PanGPA > /dev/null 2>&1
+if [ $? -ne 0 ]; then
+  if [ -f "$PANGPA" ]; then
+    "$PANGPA" start &
+  fi
+fi
+PANMSINITEOF
+
+# Override the systemd service to reference the new /usr/lib paths.
+# WorkingDirectory stays in /var/opt (mutable) so PanGPS can write runtime
+# state there; the directory is created below via tmpfiles.d.
+cat > /usr/lib/systemd/system/gpd.service <<'GPDSVCEOF'
+[Unit]
+Description=GlobalProtect VPN client daemon
+
+[Service]
+Type=simple
+ExecStartPre=/usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
+ExecStart=/usr/lib/paloaltonetworks/globalprotect/PanGPS
+WorkingDirectory=/var/opt/paloaltonetworks/globalprotect
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+GPDSVCEOF
+
+# Override the PanGPUI autostart so it references the new /usr/lib path.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
+[Desktop Entry]
+Name=PanGPUI
+Type=Application
+Exec=dbus-run-session /usr/lib/paloaltonetworks/globalprotect/PanGPUI
+Terminal=false
+PANGPUIEOF
+
+# Ensure the daemon has a writable working directory on every boot.
+mkdir -p /usr/lib/tmpfiles.d
+echo 'd /var/opt/paloaltonetworks/globalprotect 0755 root root -' \
+    > /usr/lib/tmpfiles.d/globalprotect.conf
+
+# Install globalprotect CLI directly into /usr/bin — no symlink, so it is
+# always present and executable regardless of /var state.
+install -m 0755 /usr/lib/paloaltonetworks/globalprotect/globalprotect \
+    /usr/bin/globalprotect
+
 ln -sf /usr/lib/systemd/system/gpd.service \
     /etc/systemd/system/multi-user.target.wants/gpd.service
 
