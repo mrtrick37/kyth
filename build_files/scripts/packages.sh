@@ -461,20 +461,18 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 PLASMA_NM_BUILD_DEPS=(
     cmake
     extra-cmake-modules
-    gcc-c++
     kf6-kcoreaddons-devel
     kf6-ki18n-devel
     kf6-kio-devel
     kf6-kwidgetsaddons-devel
     kf6-networkmanager-qt-devel
-    libnma-qt-devel
     ModemManager-devel
     openconnect-devel
     qt6-qtbase-devel
     qt6-qttools-devel
     qt6-qtwebengine-devel
 )
-dnf5 install -y "${PLASMA_NM_BUILD_DEPS[@]}"
+dnf5 install -y --skip-unavailable "${PLASMA_NM_BUILD_DEPS[@]}"
 
 PLASMA_NM_BUILD=/tmp/plasma-nm-build
 mkdir -p "${PLASMA_NM_BUILD}"
