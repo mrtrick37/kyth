@@ -461,12 +461,17 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 PLASMA_NM_BUILD_DEPS=(
     cmake
     extra-cmake-modules
+    kf6-kdbusaddons-devel
+    kf6-kcmutils-devel
     kf6-kcoreaddons-devel
     kf6-ki18n-devel
     kf6-kio-devel
+    kf6-knotifications-devel
+    kf6-ksvg-devel
     kf6-kwidgetsaddons-devel
+    kf6-kwallet-devel
+    kf6-modemmanager-qt-devel
     kf6-networkmanager-qt-devel
-    ModemManager-devel
     openconnect-devel
     qt6-qtbase-devel
     qt6-qttools-devel
