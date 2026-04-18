@@ -595,6 +595,11 @@ Exec=/usr/lib/paloaltonetworks/globalprotect/PanGPUI
 Terminal=false
 PANGPUIEOF
 
+# Override any app-launcher .desktop files shipped by the RPM that still point
+# to /opt (the upstream install prefix) — rewrite them to use /usr/lib.
+find /usr/share/applications -name '*.desktop' -exec \
+    sed -i 's|/opt/paloaltonetworks/globalprotect/|/usr/lib/paloaltonetworks/globalprotect/|g' {} +
+
 # Ensure the daemon has a writable working directory on every boot.
 mkdir -p /usr/lib/tmpfiles.d
 echo 'd /var/opt/paloaltonetworks/globalprotect 0755 root root -' \
