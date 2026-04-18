@@ -532,8 +532,8 @@ dnf5 autoremove -y
 # qt5-qtwebkit (above) satisfies the UI package's only non-standard dep.
 # --noscripts skips the post-install that calls systemctl start/enable, which
 # fails inside a container build.  Service wiring is done manually below.
-rpm -i --nodeps --noscripts /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm
-rpm -i --nodeps --noscripts /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm
+rpm -i --nodeps --noscripts --nodigest --nosignature /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm
+rpm -i --nodeps --noscripts --nodigest --nosignature /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm
 
 cp /opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
 chmod +x /opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
