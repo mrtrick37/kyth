@@ -479,6 +479,7 @@ PLASMA_NM_BUILD_DEPS=(
     qt6-qtwebengine-devel
 )
 dnf5 install -y --skip-unavailable "${PLASMA_NM_BUILD_DEPS[@]}"
+dnf5 builddep -y --skip-unavailable plasma-nm
 
 PLASMA_NM_BUILD=/tmp/plasma-nm-build
 mkdir -p "${PLASMA_NM_BUILD}"
