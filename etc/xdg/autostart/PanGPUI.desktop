@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=PanGPUI
+Type=Application
+Exec=dbus-run-session /opt/paloaltonetworks/globalprotect/PanGPUI
+Terminal=false

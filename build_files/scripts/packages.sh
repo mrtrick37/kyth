@@ -414,6 +414,7 @@ modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
 dnf5 install -y \
     python3-pyqt6 \
     python3-pyqt6-webengine \
+    qt5-qtwebkit \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
@@ -525,6 +526,21 @@ cd /
 rm -rf "${PLASMA_NM_BUILD}"
 dnf5 remove -y "${PLASMA_NM_BUILD_DEPS[@]}"
 dnf5 autoremove -y
+
+# ── GlobalProtect VPN agent + GUI ────────────────────────────────────────────
+# Bundled RPMs (proprietary — not available in public repos).
+# qt5-qtwebkit (above) satisfies the UI package's only non-standard dep.
+# --noscripts skips the post-install that calls systemctl start/enable, which
+# fails inside a container build.  Service wiring is done manually below.
+rpm -i --nodeps --noscripts /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm
+rpm -i --nodeps --noscripts /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm
+
+cp /opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
+chmod +x /opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
+cp /opt/paloaltonetworks/globalprotect/PanMSInit.sh /etc/profile.d/
+ln -sf /opt/paloaltonetworks/globalprotect/globalprotect /usr/bin/globalprotect
+ln -sf /usr/lib/systemd/system/gpd.service \
+    /etc/systemd/system/multi-user.target.wants/gpd.service
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
