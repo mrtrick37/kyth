@@ -545,15 +545,18 @@ for GP_RPM in \
     (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
 done
 
-cp -a "$GP_TMP/opt/." /opt/
+# /opt is a dangling symlink → var/opt in the ostree image; var/opt doesn't
+# exist yet so we create it and copy directly there, bypassing the symlink.
+mkdir -p /var/opt
+cp -a "$GP_TMP/opt/." /var/opt/
 # UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
 [[ -d "$GP_TMP/usr" ]] && cp -a "$GP_TMP/usr/." /usr/
 [[ -d "$GP_TMP/etc" ]] && cp -a "$GP_TMP/etc/." /etc/
 rm -rf "$GP_TMP"
 
-chmod +x /opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
-cp /opt/paloaltonetworks/globalprotect/PanMSInit.sh /etc/profile.d/
-cp /opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
+chmod +x /var/opt/paloaltonetworks/globalprotect/pre_exec_gps.sh
+cp /var/opt/paloaltonetworks/globalprotect/PanMSInit.sh /etc/profile.d/
+cp /var/opt/paloaltonetworks/globalprotect/gpd.service /usr/lib/systemd/system/gpd.service
 ln -sf /opt/paloaltonetworks/globalprotect/globalprotect /usr/bin/globalprotect
 ln -sf /usr/lib/systemd/system/gpd.service \
     /etc/systemd/system/multi-user.target.wants/gpd.service
