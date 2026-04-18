@@ -8,15 +8,22 @@ This app runs openconnect directly via sudo, bypassing the broken plugin.
 
 import configparser
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
+from urllib.parse import parse_qs, unquote
 
-from PyQt6.QtCore import Qt, QThread, pyqtSignal
+# Must be set before any Qt WebEngine module is imported or initialized.
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
+
+from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
+    QDialog,
     QFormLayout,
     QFrame,
     QGroupBox,
@@ -30,7 +37,68 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+    _WEBENGINE_AVAILABLE = True
+except ImportError:
+    _WEBENGINE_AVAILABLE = False
+
 _CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
+_SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
+
+if _WEBENGINE_AVAILABLE:
+    class _SamlWebPage(QWebEnginePage):
+        callback_received = pyqtSignal(str)
+
+        def __init__(self, profile, parent=None):
+            super().__init__(profile, parent)
+            self.navigationRequested.connect(self._on_nav)
+
+        def _on_nav(self, request):
+            url = request.requestUrl().toString()
+            if url.startswith("globalprotectcallback:") or url.startswith("gc:"):
+                self.callback_received.emit(url)
+                request.reject()
+
+    class SamlBrowserDialog(QDialog):
+        cookie_ready = pyqtSignal(str)
+
+        def __init__(self, saml_url: str, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("VPN — SAML Authentication")
+            self.resize(900, 650)
+            self.setModal(True)
+            layout = QVBoxLayout(self)
+            info = QLabel(
+                "Sign in to complete VPN authentication. "
+                "The window will close automatically when done."
+            )
+            info.setWordWrap(True)
+            layout.addWidget(info)
+            self._profile = QWebEngineProfile(self)
+            self._page = _SamlWebPage(self._profile, self)
+            self._page.callback_received.connect(self._on_callback)
+            self._view = QWebEngineView(self)
+            self._view.setPage(self._page)
+            layout.addWidget(self._view)
+            cancel = QPushButton("Cancel")
+            cancel.clicked.connect(self.reject)
+            layout.addWidget(cancel)
+            self._view.load(QUrl(saml_url))
+
+        def _on_callback(self, url: str) -> None:
+            _, _, rest = url.partition(":")
+            params = parse_qs(unquote(rest))
+            cookie_str = ""
+            for name in ("prelogin-cookie", "portal-userauthcookie", "cas"):
+                if name in params:
+                    cookie_str = f"{name}={params[name][0]}"
+                    break
+            if not cookie_str:
+                cookie_str = rest
+            self.cookie_ready.emit(cookie_str)
+            self.accept()
 
 _PROTOCOLS = ["gp", "anyconnect", "pulse", "nc", "f5", "fortinet", "array"]
 _OS_OPTIONS = ["win", "linux", "mac"]
@@ -241,6 +309,41 @@ class MainWindow(QMainWindow):
         lo = line.lower()
         if "connected as" in lo or "established dtls" in lo or "established cstp" in lo:
             self._set_status("connected")
+        else:
+            m = _SAML_URL_RE.search(line)
+            if m:
+                self._on_saml_required(m.group(1))
+
+    def _on_saml_required(self, saml_url: str) -> None:
+        if not _WEBENGINE_AVAILABLE:
+            self._log.append("[SAML auth required but python3-pyqt6-webengine is not installed]")
+            return
+        dlg = SamlBrowserDialog(saml_url, self)
+        dlg.cookie_ready.connect(self._on_saml_cookie)
+        dlg.exec()
+
+    def _on_saml_cookie(self, cookie: str) -> None:
+        self._log.append("[SAML authentication complete — reconnecting…]")
+        if self._worker:
+            self._worker.stop()
+            self._worker.wait(2000)
+        protocol = self._protocol.currentText()
+        os_emul = self._os_emul.currentText()
+        username = self._username.text().strip()
+        gateway = self._gateway.text().strip()
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", protocol,
+            "--os", os_emul,
+            "--cookie", cookie,
+        ]
+        if username:
+            cmd += ["--user", username]
+        cmd.append(gateway)
+        self._worker = _VpnWorker(cmd, "")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
 
     def _on_done(self, code: int) -> None:
         self._set_status("disconnected")
