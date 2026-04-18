@@ -484,7 +484,7 @@ tar xf plasma-nm-*.tar.xz
 PLASMA_NM_SRC="${PLASMA_NM_BUILD}/$(ls -d plasma-nm-*/)"
 
 patch -d "${PLASMA_NM_SRC}" -p1 \
-    < /patches/plasma-nm-globalprotect-callback.patch
+    < /ctx/patches/plasma-nm-globalprotect-callback.patch
 
 cmake -S "${PLASMA_NM_SRC}" -B "${PLASMA_NM_BUILD}/cmake-build" \
     -DCMAKE_BUILD_TYPE=Release \
