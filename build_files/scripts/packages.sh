@@ -472,6 +472,7 @@ PLASMA_NM_BUILD_DEPS=(
     kf6-kwallet-devel
     kf6-modemmanager-qt-devel
     kf6-networkmanager-qt-devel
+    libplasma-devel
     openconnect-devel
     qt6-qtbase-devel
     qt6-qttools-devel
