@@ -1,22 +1,28 @@
 #!/usr/bin/env python3
-"""kyth-vpn-connect — GlobalProtect VPN launcher for KythOS.
+"""kyth-vpn-connect — Generic openconnect VPN launcher for KythOS.
 
 Workaround for KDE bug #485093: the plasma-nm openconnect plugin crashes kded6
 with SIGSEGV in OpenconnectAuthWorkerThread when authenticating GlobalProtect.
 This app runs openconnect directly via sudo, bypassing the broken plugin.
 """
 
+import configparser
 import os
 import subprocess
 import sys
+from pathlib import Path
 
 from PyQt6.QtCore import Qt, QThread, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
+    QComboBox,
+    QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QPushButton,
     QTextEdit,
@@ -24,34 +30,61 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-_GATEWAY = "azuregp.bradfordwhite.com"
-_PROTOCOL = "gp"
-_OS = "win"
+_CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
+
+_PROTOCOLS = ["gp", "anyconnect", "pulse", "nc", "f5", "fortinet", "array"]
+_OS_OPTIONS = ["win", "linux", "mac"]
+
+
+def _load_config() -> configparser.ConfigParser:
+    cfg = configparser.ConfigParser()
+    if _CONFIG_PATH.exists():
+        cfg.read(_CONFIG_PATH)
+    return cfg
+
+
+def _save_config(gateway: str, protocol: str, os_emul: str, username: str) -> None:
+    cfg = configparser.ConfigParser()
+    cfg["vpn"] = {
+        "gateway": gateway,
+        "protocol": protocol,
+        "os": os_emul,
+        "username": username,
+    }
+    _CONFIG_PATH.write_text(cfg.write.__func__(cfg) or "")
+    # Use proper write
+    with open(_CONFIG_PATH, "w") as f:
+        cfg.write(f)
 
 
 class _VpnWorker(QThread):
     line = pyqtSignal(str)
     done = pyqtSignal(int)
 
-    def __init__(self, cmd: list[str]):
+    def __init__(self, cmd: list[str], password: str = ""):
         super().__init__()
         self._cmd = cmd
+        self._password = password
         self._proc: subprocess.Popen | None = None
 
     def run(self) -> None:
         env = os.environ.copy()
         env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
+        stdin_pipe = subprocess.PIPE if self._password else subprocess.DEVNULL
         try:
             self._proc = subprocess.Popen(
                 self._cmd,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                stdin=subprocess.DEVNULL,
+                stdin=stdin_pipe,
                 text=True,
                 bufsize=1,
                 env=env,
                 cwd="/tmp",
             )
+            if self._password and self._proc.stdin:
+                self._proc.stdin.write(self._password + "\n")
+                self._proc.stdin.close()
             assert self._proc.stdout
             for ln in self._proc.stdout:
                 self.line.emit(ln.rstrip())
@@ -71,8 +104,9 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._worker: _VpnWorker | None = None
         self.setWindowTitle("VPN Connect")
-        self.setMinimumSize(540, 480)
+        self.setMinimumSize(560, 560)
         self._build_ui()
+        self._load_saved_config()
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -81,16 +115,40 @@ class MainWindow(QMainWindow):
         layout.setSpacing(10)
         layout.setContentsMargins(20, 20, 20, 20)
 
-        title = QLabel("GlobalProtect VPN")
+        title = QLabel("VPN Connect")
         f = QFont()
         f.setPointSize(15)
         f.setBold(True)
         title.setFont(f)
         layout.addWidget(title)
 
-        gw = QLabel(f"Gateway: {_GATEWAY}")
-        gw.setStyleSheet("color: palette(mid);")
-        layout.addWidget(gw)
+        # Configuration group
+        config_group = QGroupBox("Connection Settings")
+        form = QFormLayout(config_group)
+        form.setRowWrapPolicy(QFormLayout.RowWrapPolicy.WrapLongRows)
+
+        self._gateway = QLineEdit()
+        self._gateway.setPlaceholderText("e.g. vpn.example.com")
+        form.addRow("Gateway:", self._gateway)
+
+        self._protocol = QComboBox()
+        self._protocol.addItems(_PROTOCOLS)
+        form.addRow("Protocol:", self._protocol)
+
+        self._os_emul = QComboBox()
+        self._os_emul.addItems(_OS_OPTIONS)
+        form.addRow("OS emulation:", self._os_emul)
+
+        self._username = QLineEdit()
+        self._username.setPlaceholderText("optional")
+        form.addRow("Username:", self._username)
+
+        self._password = QLineEdit()
+        self._password.setEchoMode(QLineEdit.EchoMode.Password)
+        self._password.setPlaceholderText("optional — leave blank for interactive/SSO auth")
+        form.addRow("Password:", self._password)
+
+        layout.addWidget(config_group)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
@@ -118,20 +176,56 @@ class MainWindow(QMainWindow):
         self._log.setFont(QFont("monospace", 9))
         layout.addWidget(self._log)
 
+    def _load_saved_config(self) -> None:
+        cfg = _load_config()
+        if "vpn" not in cfg:
+            return
+        v = cfg["vpn"]
+        self._gateway.setText(v.get("gateway", ""))
+        proto = v.get("protocol", "gp")
+        idx = self._protocol.findText(proto)
+        if idx >= 0:
+            self._protocol.setCurrentIndex(idx)
+        os_val = v.get("os", "win")
+        idx = self._os_emul.findText(os_val)
+        if idx >= 0:
+            self._os_emul.setCurrentIndex(idx)
+        self._username.setText(v.get("username", ""))
+
     def _on_connect(self) -> None:
+        gateway = self._gateway.text().strip()
+        if not gateway:
+            self._log.append("[Error: Gateway is required]")
+            return
+
+        protocol = self._protocol.currentText()
+        os_emul = self._os_emul.currentText()
+        username = self._username.text().strip()
+        password = self._password.text()
+
+        _save_config(gateway, protocol, os_emul, username)
+
         self._log.clear()
         self._set_status("connecting")
         self._connect_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
+        # Lock config fields while connected
+        for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
+            w.setEnabled(False)
 
         cmd = [
             "sudo", "-E", "-A",
             "/usr/bin/openconnect",
-            "--protocol", _PROTOCOL,
-            "--os", _OS,
-            _GATEWAY,
+            "--protocol", protocol,
+            "--os", os_emul,
         ]
-        self._worker = _VpnWorker(cmd)
+        if username:
+            cmd += ["--user", username]
+        if password:
+            cmd += ["--passwd-on-stdin"]
+        cmd.append(gateway)
+
+        self._worker = _VpnWorker(cmd, password)
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -152,6 +246,8 @@ class MainWindow(QMainWindow):
         self._set_status("disconnected")
         self._connect_btn.setEnabled(True)
         self._disconnect_btn.setEnabled(False)
+        for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
+            w.setEnabled(True)
         self._log.append(f"\n[openconnect exited: code {code}]")
         self._worker = None
 
