@@ -442,28 +442,83 @@ ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
 
-# ── openconnect-sso ──────────────────────────────────────────────────────────
-# Palo Alto GlobalProtect VPNs that use SAML/Azure AD auth require a browser-
-# based flow that the NetworkManager openconnect plugin cannot handle.
-# openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
-# completes the SAML redirect loop and hands the resulting cookie to openconnect.
-# Usage: openconnect-sso --server <host>
+
+# ── plasma-nm-openconnect: GlobalProtect SAML callback fix ───────────────────
+# plasma-nm-openconnect uses QWebEngineView::urlChanged to detect when
+# openconnect has finished SAML auth.  urlChanged only fires for committed
+# navigations — Qt WebEngine silently aborts the globalprotectcallback://
+# redirect (unknown scheme) before the URL ever commits, so the cookie is
+# never passed to openconnect_webview_load_changed and getconfig.esp receives
+# an empty auth token → HTTP 512.
 #
-# openconnect-sso pins lxml<5.0 but lxml 4.x cannot compile against Python 3.14
-# (removed private CPython APIs). Work around by installing --no-deps and
-# supplying lxml 5.x (prebuilt manylinux wheel, Python 3.14 compatible) explicitly.
-# python3-pyqt6-webengine supplies system Qt6 WebEngine bindings so pip does not
-# download a bundled Qt6 that conflicts with the system Qt version at runtime.
-dnf5 install -y python3-pip qt6-qtwebengine python3-pyqt6-webengine
-pip3 install --break-system-packages --prefix=/usr \
-    'lxml>=5.0' \
-    attrs \
-    colorama \
-    'prompt-toolkit>=3.0.3,<4.0.0' \
-    'pyotp>=2.7.0,<3.0.0' \
-    structlog \
-    'toml>=0.10,<0.11'
-pip3 install --break-system-packages --prefix=/usr --no-deps openconnect-sso
+# Fix: intercept globalprotectcallback:// (and the older gc:// alias) via
+# QWebEnginePage::navigationRequested, which fires before Qt drops the
+# navigation, extract the URL, and pass it to handleWebEngineUrl as usual.
+#
+# Build deps are installed, used, then removed in this block so they don't
+# bloat the final image.  The resulting .so files replace the stock ones from
+# plasma-nm-openconnect.
+PLASMA_NM_BUILD_DEPS=(
+    cmake
+    extra-cmake-modules
+    gcc-c++
+    kf6-kcoreaddons-devel
+    kf6-ki18n-devel
+    kf6-kio-devel
+    kf6-kwidgetsaddons-devel
+    kf6-networkmanager-qt-devel
+    libnma-qt-devel
+    ModemManager-devel
+    openconnect-devel
+    qt6-qtbase-devel
+    qt6-qttools-devel
+    qt6-qtwebengine-devel
+)
+dnf5 install -y "${PLASMA_NM_BUILD_DEPS[@]}"
+
+PLASMA_NM_BUILD=/tmp/plasma-nm-build
+mkdir -p "${PLASMA_NM_BUILD}"
+cd "${PLASMA_NM_BUILD}"
+
+dnf5 download --source plasma-nm
+rpm2cpio plasma-nm-*.src.rpm | cpio -idm '*.tar.xz'
+tar xf plasma-nm-*.tar.xz
+PLASMA_NM_SRC="${PLASMA_NM_BUILD}/$(ls -d plasma-nm-*/)"
+
+patch -d "${PLASMA_NM_SRC}" -p1 \
+    < /patches/plasma-nm-globalprotect-callback.patch
+
+cmake -S "${PLASMA_NM_SRC}" -B "${PLASMA_NM_BUILD}/cmake-build" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_OPENCONNECT=ON \
+    -DBUILD_TESTING=OFF \
+    -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
+
+PLUGIN_TARGETS=(
+    plasmanetworkmanagement_openconnect_anyconnect
+    plasmanetworkmanagement_openconnect_arrayui
+    plasmanetworkmanagement_openconnect_f5ui
+    plasmanetworkmanagement_openconnect_fortinetui
+    plasmanetworkmanagement_openconnect_globalprotectui
+    plasmanetworkmanagement_openconnect_juniperui
+    plasmanetworkmanagement_openconnect_pulseui
+)
+cmake --build "${PLASMA_NM_BUILD}/cmake-build" \
+    --parallel "$(nproc)" \
+    $(printf -- '--target %s ' "${PLUGIN_TARGETS[@]}")
+
+PLUGIN_DEST=/usr/lib64/qt6/plugins/plasma/network/vpn
+for target in "${PLUGIN_TARGETS[@]}"; do
+    find "${PLASMA_NM_BUILD}/cmake-build" -name "${target}.so" \
+        -exec install -m 0755 {} "${PLUGIN_DEST}/" \;
+done
+
+# Clean up build tree and build-only deps
+cd /
+rm -rf "${PLASMA_NM_BUILD}"
+dnf5 remove -y "${PLASMA_NM_BUILD_DEPS[@]}"
+dnf5 autoremove -y
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
