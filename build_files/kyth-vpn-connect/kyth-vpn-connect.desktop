@@ -1,0 +1,12 @@
+[Desktop Entry]
+Version=1.0
+Name=VPN Connect
+Comment=GlobalProtect VPN launcher (plasma-nm workaround)
+Exec=/usr/bin/kyth-vpn-connect
+Icon=network-vpn
+Terminal=false
+Type=Application
+Categories=Network;
+Keywords=vpn;globalprotect;openconnect;
+StartupNotify=true
+StartupWMClass=kyth-vpn-connect

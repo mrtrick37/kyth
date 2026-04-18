@@ -6,10 +6,11 @@ FROM ${BASE_IMAGE}
 
 # Passed at build time so the layer cache is busted whenever a new CachyOS
 # kernel version is published. Build scripts resolve the latest version from
-# the COPR API and pass it here; the value itself is unused inside build.sh —
-# it only controls whether Docker re-runs the RUN layer.
+# the COPR API and pass it here. Explicitly referenced via the no-op ':'
+# builtin so Docker (both classic and BuildKit) includes it in the cache key.
 ARG CACHYOS_KERNEL_VER=unset
 
 # Use a bind-mount so the script is never written into any image layer
 RUN --mount=type=bind,source=build.sh,target=/run/build.sh \
-    bash /run/build.sh
+    : "cache-bust=${CACHYOS_KERNEL_VER}" \
+    && bash /run/build.sh
