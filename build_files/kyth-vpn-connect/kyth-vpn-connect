@@ -1,0 +1,185 @@
+#!/usr/bin/env python3
+"""kyth-vpn-connect — GlobalProtect VPN launcher for KythOS.
+
+Workaround for KDE bug #485093: the plasma-nm openconnect plugin crashes kded6
+with SIGSEGV in OpenconnectAuthWorkerThread when authenticating GlobalProtect.
+This app runs openconnect directly via sudo, bypassing the broken plugin.
+"""
+
+import os
+import subprocess
+import sys
+
+from PyQt6.QtCore import Qt, QThread, pyqtSignal
+from PyQt6.QtGui import QFont
+from PyQt6.QtWidgets import (
+    QApplication,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QMainWindow,
+    QPushButton,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+)
+
+_GATEWAY = "azuregp.bradfordwhite.com"
+_PROTOCOL = "gp"
+_OS = "win"
+
+
+class _VpnWorker(QThread):
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+
+    def __init__(self, cmd: list[str]):
+        super().__init__()
+        self._cmd = cmd
+        self._proc: subprocess.Popen | None = None
+
+    def run(self) -> None:
+        env = os.environ.copy()
+        env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
+        try:
+            self._proc = subprocess.Popen(
+                self._cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+                env=env,
+                cwd="/tmp",
+            )
+            assert self._proc.stdout
+            for ln in self._proc.stdout:
+                self.line.emit(ln.rstrip())
+            self._proc.wait()
+            self.done.emit(self._proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
+
+    def stop(self) -> None:
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+
+class MainWindow(QMainWindow):
+    def __init__(self) -> None:
+        super().__init__()
+        self._worker: _VpnWorker | None = None
+        self.setWindowTitle("VPN Connect")
+        self.setMinimumSize(540, 480)
+        self._build_ui()
+
+    def _build_ui(self) -> None:
+        root = QWidget()
+        self.setCentralWidget(root)
+        layout = QVBoxLayout(root)
+        layout.setSpacing(10)
+        layout.setContentsMargins(20, 20, 20, 20)
+
+        title = QLabel("GlobalProtect VPN")
+        f = QFont()
+        f.setPointSize(15)
+        f.setBold(True)
+        title.setFont(f)
+        layout.addWidget(title)
+
+        gw = QLabel(f"Gateway: {_GATEWAY}")
+        gw.setStyleSheet("color: palette(mid);")
+        layout.addWidget(gw)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.Shape.HLine)
+        sep.setFrameShadow(QFrame.Shadow.Sunken)
+        layout.addWidget(sep)
+
+        self._status = QLabel("● Disconnected")
+        self._status.setStyleSheet("color: palette(mid); font-weight: bold;")
+        layout.addWidget(self._status)
+
+        row = QHBoxLayout()
+        self._connect_btn = QPushButton("Connect")
+        self._connect_btn.setMinimumHeight(34)
+        self._connect_btn.clicked.connect(self._on_connect)
+        self._disconnect_btn = QPushButton("Disconnect")
+        self._disconnect_btn.setMinimumHeight(34)
+        self._disconnect_btn.setEnabled(False)
+        self._disconnect_btn.clicked.connect(self._on_disconnect)
+        row.addWidget(self._connect_btn)
+        row.addWidget(self._disconnect_btn)
+        layout.addLayout(row)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setFont(QFont("monospace", 9))
+        layout.addWidget(self._log)
+
+    def _on_connect(self) -> None:
+        self._log.clear()
+        self._set_status("connecting")
+        self._connect_btn.setEnabled(False)
+        self._disconnect_btn.setEnabled(True)
+
+        cmd = [
+            "sudo", "-E", "-A",
+            "/usr/bin/openconnect",
+            "--protocol", _PROTOCOL,
+            "--os", _OS,
+            _GATEWAY,
+        ]
+        self._worker = _VpnWorker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_disconnect(self) -> None:
+        if self._worker:
+            self._worker.stop()
+
+    def _on_line(self, line: str) -> None:
+        self._log.append(line)
+        sb = self._log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        lo = line.lower()
+        if "connected as" in lo or "established dtls" in lo or "established cstp" in lo:
+            self._set_status("connected")
+
+    def _on_done(self, code: int) -> None:
+        self._set_status("disconnected")
+        self._connect_btn.setEnabled(True)
+        self._disconnect_btn.setEnabled(False)
+        self._log.append(f"\n[openconnect exited: code {code}]")
+        self._worker = None
+
+    def _set_status(self, state: str) -> None:
+        if state == "connected":
+            self._status.setText("● Connected")
+            self._status.setStyleSheet("color: #4caf50; font-weight: bold;")
+        elif state == "connecting":
+            self._status.setText("● Connecting…")
+            self._status.setStyleSheet("color: #ff9800; font-weight: bold;")
+        else:
+            self._status.setText("● Disconnected")
+            self._status.setStyleSheet("color: palette(mid); font-weight: bold;")
+
+    def closeEvent(self, event) -> None:  # type: ignore[override]
+        if self._worker and self._worker.isRunning():
+            self._worker.stop()
+            self._worker.wait(3000)
+        event.accept()
+
+
+def main() -> None:
+    app = QApplication(sys.argv)
+    app.setApplicationName("kyth-vpn-connect")
+    win = MainWindow()
+    win.show()
+    sys.exit(app.exec())
+
+
+if __name__ == "__main__":
+    main()

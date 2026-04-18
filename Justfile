@@ -264,25 +264,30 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
         exec sg docker -c "just build-base '{{ base_image }}'"
     fi
 
-    if ! docker image inspect {{ base_image }} >/dev/null 2>&1; then
-        if command -v cosign &>/dev/null; then
-            echo "Verifying base image signature with cosign..."
-            # Non-fatal: cosign bundle format changes between versions can cause
-            # spurious "empty key" failures even when the image is legitimate.
-            cosign verify \
-                --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-                --certificate-identity-regexp='^https://github\.com/ublue-os/main/' \
-                {{ base_image }} \
-                || echo "WARNING: cosign verification failed — proceeding without signature check."
-        else
-            echo "WARNING: cosign not found — skipping signature verification."
-        fi
-        docker pull {{ base_image }}
+    if command -v cosign &>/dev/null; then
+        echo "Verifying base image signature with cosign..."
+        # Non-fatal: cosign bundle format changes between versions can cause
+        # spurious "empty key" failures even when the image is legitimate.
+        cosign verify \
+            --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
+            --certificate-identity-regexp='^https://github\.com/ublue-os/main/' \
+            {{ base_image }} \
+            || echo "WARNING: cosign verification failed — proceeding without signature check."
     else
-        echo "Base image {{ base_image }} already present locally. Skipping pull."
+        echo "WARNING: cosign not found — skipping signature verification."
     fi
+    echo "Refreshing upstream base image {{ base_image }}..."
+    docker pull {{ base_image }}
     CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
-        | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
+        | python3 -c "
+import sys, json, datetime
+d = json.load(sys.stdin)
+sp = d['package']['builds']['latest_succeeded']['source_package']
+ver = sp.get('version', '')
+rel = sp.get('release', '')
+nvr = f'{ver}-{rel}'.strip('-') if (ver or rel) else ''
+print(nvr or datetime.date.today().isoformat())
+" \
         2>/dev/null || date +%Y-%m-%d)
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
     docker build \
