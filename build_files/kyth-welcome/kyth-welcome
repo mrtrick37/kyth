@@ -8097,8 +8097,8 @@ if _WEBENGINE_AVAILABLE:
         def _on_nav(self, request):
             url = request.requestUrl().toString()
             if url.startswith("globalprotectcallback:") or url.startswith("gc:"):
-                self.callback_received.emit(url)
                 request.reject()
+                self.callback_received.emit(url)
 
     class SamlBrowserDialog(QDialog):
         """Embedded browser for GlobalProtect SAML authentication."""
