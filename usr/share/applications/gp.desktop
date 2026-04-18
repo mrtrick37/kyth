@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=GlobalProtect
+Exec=/usr/bin/globalprotect defaultbrowser %u
+Type=Application
+NoDisplay=true
+MimeType=x-scheme-handler/globalprotectcallback;

@@ -1,0 +1,12 @@
+[Desktop Entry]
+Name=GlobalProtect
+Comment=GlobalProtect UI
+Exec=globalprotect launch-ui
+#Icon=accessories-calculator
+#Icon=/opt/paloaltonetworks/globalprotect/globalprotect.png
+Icon=/usr/share/icons/hicolor/48x48/apps/globalprotect.png
+Terminal=false
+Type=Application
+StartupNotify=false
+Categories=Network;VPN;
+Keywords=network;vpn;

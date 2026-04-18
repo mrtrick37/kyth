@@ -1,0 +1,60 @@
+#################################
+# GlobalProtect Linux UI README #
+#################################
+
+### Overview ###
+
+# This README will explain how the user can install and
+# uninstall the GlobalProtect UI for Linux including
+# dependencies and 3rd party software.
+
+##############################
+### Install: RHEL / CENTOS ###
+##############################
+$ tar xvf PanGPLinux-xxx.tgz
+
+$ tar xvf GlobalProtect_UI_tar-xxx.tgz
+
+$ sudo ./gpui_yum_dep.sh
+
+Install 3rd Party Tweak Tool and Top Icons Plus.
+(Note: refer to 'Tweak Tool Instructions' section for details )
+
+$ sudo -E yum -y install ./GlobalProtect_UI_rpm-xxx.rpm
+
+
+#######################
+### Install: Ubuntu ###
+#######################
+$ tar xvf PanGPLinux-xxx.tgz
+
+$ sudo apt-get install ./GlobalProtect_UI_deb-xxx.deb
+
+
+################################
+### Uninstall: RHEL / CENTOS ###
+################################
+$ sudo yum list | grep -i globalprotect
+
+$ sudo yum -y remove [PKG]
+
+
+#########################
+### Uninstall: Ubuntu ###
+#########################
+$ sudo apt-get remove globalprotect
+
+
+###############################
+### Tweak Tool Instructions ###
+###############################
+1. Install Top Icons and Tweak Tool:
+$ sudo ./yum_install_3p.sh
+
+2. Logout and Login
+
+3. Search for for 'Tweak' in applications.
+
+4. Once the Tweak Tool GUI is up select 'Extensions'
+
+5. Verify that 'Top Icons' is present and enabled.
