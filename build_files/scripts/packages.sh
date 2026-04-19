@@ -531,8 +531,18 @@ dnf5 autoremove -y
 # Bundled RPMs (proprietary — not available in public repos).
 # qt5-qtwebkit (above) satisfies PanGPUI's only non-standard dep.
 #
-# Extract into a temp dir first to avoid rpm cpio failing with EEXIST on /opt
-# (which is a symlink in the ostree base image).
+# Root cause of the original /opt install failure: on Fedora Kinoite, /opt is a
+# symlink to var/opt, so /proc/PID/exe for any process always shows /var/opt/...
+# rather than /opt/... PanGPS does a literal string check that the connecting
+# PanGPA's /proc/PID/exe starts with "/opt/paloaltonetworks/globalprotect", which
+# always fails. Fix: make /opt a real directory in the image, then mount an
+# overlayfs at /opt/paloaltonetworks/globalprotect/ at boot (lower = immutable
+# binaries in /usr/lib/, upper = writable data in /var/lib/). Processes exec'd
+# through the overlay show /opt/... in /proc/PID/exe, satisfying the check.
+rm /opt
+mkdir -p /opt
+
+# Extract RPMs into a temp dir.
 GP_TMP=$(mktemp -d)
 for GP_RPM in \
     /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm \
@@ -540,10 +550,8 @@ for GP_RPM in \
     (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
 done
 
-# Install GP binaries to /usr/lib/ (immutable — always present after upgrades).
-# Previously installed to /var/opt/ (mutable), but bootc only migrates /var
-# content on first deployment; upgrades preserve the existing /var, so files
-# added to /var in later image builds were silently missing on upgraded systems.
+# Install GP binaries to /usr/lib/ (overlay lower layer — immutable, always
+# present after upgrades). The overlay mount exposes them at /opt/... at runtime.
 mkdir -p /usr/lib/paloaltonetworks/globalprotect
 cp -a "$GP_TMP/opt/paloaltonetworks/globalprotect/." /usr/lib/paloaltonetworks/globalprotect/
 # UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
@@ -553,11 +561,16 @@ rm -rf "$GP_TMP"
 
 chmod +x /usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
 
-# PanMSInit.sh is a login-time shim that starts PanGPA (the per-user GP agent).
-# Override it to reference the new /usr/lib location instead of /opt.
+# Create the overlay mount point — an empty real directory at the vendor path.
+# The overlayfs mount (see opt-paloaltonetworks-globalprotect.mount below) will
+# populate it at boot with binaries from /usr/lib/ and data from /var/lib/.
+mkdir -p /opt/paloaltonetworks/globalprotect
+
+# PanMSInit.sh — launch PanGPA from the /opt/ overlay so /proc/PID/exe shows
+# /opt/paloaltonetworks/globalprotect/PanGPA, satisfying PanGPS's path check.
 cat > /etc/profile.d/PanMSInit.sh <<'PANMSINITEOF'
 #!/bin/bash
-PANGPA=/usr/lib/paloaltonetworks/globalprotect/PanGPA
+PANGPA=/opt/paloaltonetworks/globalprotect/PanGPA
 pgrep -u "$USER" PanGPA > /dev/null 2>&1
 if [ $? -ne 0 ]; then
   if [ -f "$PANGPA" ]; then
@@ -566,15 +579,16 @@ if [ $? -ne 0 ]; then
 fi
 PANMSINITEOF
 
-# Override the systemd service to reference the new /usr/lib paths.
-# WorkingDirectory is /var/lib/paloaltonetworks/globalprotect (var_lib_t),
-# NOT /var/opt (usr_t) — init_t services can't write to usr_t under the
-# default SELinux policy, and /opt → var/opt in Kinoite means /var/opt
-# inherits the /opt → usr_t label. The dontaudit rule silences the AVC,
-# which is why PanGPS fails to write its registry with no visible denial.
+# gpd.service: WorkingDirectory is /var/lib/paloaltonetworks/globalprotect so
+# PanGPS writes logs and registry there. PanGPS/PanGPA also find data files via
+# /opt/... (which the overlay routes to the upper = /var/lib/...).
+# init_t SELinux note: semanage permissive -a init_t (below) is required for
+# PanGPS to open /dev/net/tun; without it the IPC listener never starts.
 cat > /usr/lib/systemd/system/gpd.service <<'GPDSVCEOF'
 [Unit]
 Description=GlobalProtect VPN client daemon
+After=opt-paloaltonetworks-globalprotect.mount
+Requires=opt-paloaltonetworks-globalprotect.mount
 
 [Service]
 Type=simple
@@ -588,51 +602,66 @@ RestartSec=5
 WantedBy=multi-user.target
 GPDSVCEOF
 
-# Suppress the PanGPUI autostart. PanGPUI (proprietary, closed-source) crashes
-# with SIGABRT on button click after SAML flow — appears to be a heap-corruption
-# bug in the vendor binary. kyth-welcome handles the SAML connect flow directly,
-# so the tray GUI is not needed on login. Users who want it can still launch it
-# manually from the app launcher.
-# Hidden=true is the XDG-standard way to disable an autostart entry — it is
-# honored by every autostart implementation (Plasma, GNOME, XFCE, etc.) and
-# also overrides any user-level copy in ~/.config/autostart unless the user
-# explicitly re-enables it.
+# Overlayfs mount: presents /opt/paloaltonetworks/globalprotect/ as a unified
+# view of binaries (lower, read-only) and data (upper, writable). Processes
+# exec'd from here show /opt/... in /proc/PID/exe, satisfying PanGPS's check.
+# workdir must be on the same fs as upper and outside both upper and lower.
+cat > /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount <<'OVLEOF'
+[Unit]
+Description=GlobalProtect overlay (binaries + writable data at /opt/... path)
+Before=gpd.service
+
+[Mount]
+What=overlay
+Where=/opt/paloaltonetworks/globalprotect
+Type=overlay
+Options=lowerdir=/usr/lib/paloaltonetworks/globalprotect,upperdir=/var/lib/paloaltonetworks/globalprotect,workdir=/var/cache/paloaltonetworks/gpwork
+
+[Install]
+WantedBy=multi-user.target
+OVLEOF
+
+# Suppress the PanGPUI autostart — it crashes with SIGABRT on button click
+# after SAML flow (heap-corruption bug in the vendor binary). kyth-welcome
+# handles the SAML connect flow directly.
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
 [Desktop Entry]
 Name=PanGPUI
 Type=Application
-Exec=/usr/lib/paloaltonetworks/globalprotect/PanGPUI
+Exec=/opt/paloaltonetworks/globalprotect/PanGPUI
 Terminal=false
 Hidden=true
 PANGPUIEOF
 
-# Override any app-launcher .desktop files shipped by the RPM that still point
-# to /opt (the upstream install prefix) — rewrite them to use /usr/lib.
+# Desktop entries: keep /opt paths (correct now that /opt is real + overlay).
+# Revert any earlier /usr/lib rewrites if present.
 find /usr/share/applications -name '*.desktop' -exec \
-    sed -i 's|/opt/paloaltonetworks/globalprotect/|/usr/lib/paloaltonetworks/globalprotect/|g' {} +
+    sed -i 's|/usr/lib/paloaltonetworks/globalprotect/|/opt/paloaltonetworks/globalprotect/|g' {} +
 
-# Ensure the daemon has a writable working directory on every boot.
-# /var/lib/... is var_lib_t (writable by init_t). A compat symlink at
-# /var/opt/paloaltonetworks/globalprotect keeps any hardcoded GP paths
-# (strings show /opt/paloaltonetworks/globalprotect in the binaries) working.
+# tmpfiles.d: create writable data dir and overlay workdir on every boot.
 mkdir -p /usr/lib/tmpfiles.d
 cat > /usr/lib/tmpfiles.d/globalprotect.conf <<'TMPFILESEOF'
 d  /var/lib/paloaltonetworks                     0755 root root -
 d  /var/lib/paloaltonetworks/globalprotect       0755 root root -
-d  /var/opt/paloaltonetworks                     0755 root root -
-# L+ replaces any existing /var/opt/paloaltonetworks/globalprotect (empty dir
-# left over from previous image builds) with the compat symlink.
-L+ /var/opt/paloaltonetworks/globalprotect       - - - - /var/lib/paloaltonetworks/globalprotect
+d  /var/cache/paloaltonetworks                   0755 root root -
+d  /var/cache/paloaltonetworks/gpwork            0755 root root -
 TMPFILESEOF
 
-# Install globalprotect CLI directly into /usr/bin — no symlink, so it is
-# always present and executable regardless of /var state.
+# Install globalprotect CLI into /usr/bin so it is always on PATH.
 install -m 0755 /usr/lib/paloaltonetworks/globalprotect/globalprotect \
     /usr/bin/globalprotect
 
 ln -sf /usr/lib/systemd/system/gpd.service \
     /etc/systemd/system/multi-user.target.wants/gpd.service
+ln -sf /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount \
+    /etc/systemd/system/multi-user.target.wants/opt-paloaltonetworks-globalprotect.mount
+
+# PanGPS runs as init_t (no vendor SELinux module). The default targeted policy
+# silently blocks TUNSETIFF on /dev/net/tun via dontaudit rules, preventing the
+# daemon from starting its IPC listener. Make init_t permissive so the ioctl is
+# allowed — denials are logged but not enforced.
+semanage permissive -a init_t
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
