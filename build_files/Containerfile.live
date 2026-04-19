@@ -361,7 +361,9 @@ RUN mkdir -p /etc/NetworkManager/conf.d /etc/modprobe.d \
     && printf 'options iwlwifi power_save=0 bt_coex_active=0\n' \
         > /etc/modprobe.d/iwlwifi-kyth.conf \
     && printf 'options mt7921e disable_aspm=1\n' \
-        > /etc/modprobe.d/mt7921-kyth.conf
+        > /etc/modprobe.d/mt7921-kyth.conf \
+    && printf 'options cfg80211 ieee80211_regdom=US\n' \
+        > /etc/modprobe.d/cfg80211-kyth.conf
 
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.

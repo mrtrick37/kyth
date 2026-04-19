@@ -196,6 +196,15 @@ cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
 
+# cfg80211 regulatory domain: pin to US.
+# Without a hint, cfg80211 defaults to the "world" domain which caps txpower at
+# ~3 dBm on 5GHz — causing very slow throughput (~20 Mbps) even with a strong
+# signal. FCC/US allows up to 30 dBm on channel 149 where most home APs land.
+# TODO: make this locale-aware via kyth-welcome on first boot.
+cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFGEOF'
+options cfg80211 ieee80211_regdom=US
+CFGEOF
+
 # ── I/O schedulers ────────────────────────────────────────────────────────────
 # 'none' on NVMe — the drive's own internal queues are better than any kernel
 #   scheduler overhead; multi-queue hardware makes mq-deadline redundant.
@@ -391,15 +400,21 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
-# ── SELinux: relabel /var/home before login ───────────────────────────────────
+# ── SELinux: relabel /var/home after each new deployment ──────────────────────
 # bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
 # is writable state — it is never touched. On enforcing systems, /var/home
 # files with missing labels cause PAM and dbus-broker to be denied, making
-# login impossible. This service runs restorecon on /var/home before SDDM
-# starts so user home directories are always correctly labeled.
+# login impossible.
+#
+# Running restorecon -RF /var/home on every boot adds ~45s to startup. Instead,
+# gate it on a per-deployment sentinel: only relabel when the booted deployment
+# checksum (from /run/ostree-booted or `ostree admin status`) differs from the
+# last one we relabeled for. After first boot of a new deployment, subsequent
+# reboots skip it entirely. If a user needs to force a relabel, they can remove
+# /var/lib/kyth/selinux-relabel-home.stamp.
 cat > /usr/lib/systemd/system/kyth-selinux-relabel-home.service <<'RELABELEOF'
 [Unit]
-Description=SELinux relabel /var/home
+Description=SELinux relabel /var/home (once per deployment)
 DefaultDependencies=no
 After=local-fs.target
 Before=sddm.service
@@ -407,12 +422,53 @@ ConditionSecurity=selinux
 
 [Service]
 Type=oneshot
-ExecStart=/sbin/restorecon -RF /var/home
+ExecStart=/usr/libexec/kyth-selinux-relabel-home
 RemainAfterExit=yes
 
 [Install]
 WantedBy=multi-user.target
 RELABELEOF
+
+install -d -m 0755 /usr/libexec
+cat > /usr/libexec/kyth-selinux-relabel-home <<'SCRIPTEOF'
+#!/usr/bin/bash
+# Relabel /var/home only once per ostree/bootc deployment.
+# Keyed on the booted deployment checksum so a fresh deployment triggers one
+# relabel, then all subsequent reboots of the same deployment skip it.
+set -euo pipefail
+
+STAMP_DIR=/var/lib/kyth
+STAMP_FILE="${STAMP_DIR}/selinux-relabel-home.stamp"
+
+# Derive a stable deployment identifier. Prefer `ostree admin status --json`
+# if available; fall back to parsing the booted checksum from plain output;
+# finally fall back to the kernel cmdline ostree= argument.
+deployment_id=""
+if command -v ostree >/dev/null 2>&1; then
+    deployment_id="$(ostree admin status 2>/dev/null \
+        | awk '/^\* /{print $2" "$3; exit}')"
+fi
+if [ -z "$deployment_id" ] && [ -r /proc/cmdline ]; then
+    deployment_id="$(tr ' ' '\n' < /proc/cmdline | grep '^ostree=' || true)"
+fi
+# Last-resort fingerprint: mtime of the active deployment root.
+if [ -z "$deployment_id" ]; then
+    deployment_id="fallback-$(stat -c %Y /usr 2>/dev/null || echo 0)"
+fi
+
+if [ -r "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$deployment_id" ]; then
+    echo "kyth-selinux-relabel-home: already relabeled for this deployment, skipping"
+    exit 0
+fi
+
+echo "kyth-selinux-relabel-home: relabeling /var/home for deployment ${deployment_id}"
+/sbin/restorecon -RF /var/home
+
+mkdir -p "$STAMP_DIR"
+printf '%s' "$deployment_id" > "$STAMP_FILE"
+SCRIPTEOF
+chmod 0755 /usr/libexec/kyth-selinux-relabel-home
+
 systemctl enable kyth-selinux-relabel-home.service 2>/dev/null || true
 
 # ── First-boot Plymouth message ───────────────────────────────────────────────
