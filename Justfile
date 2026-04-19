@@ -279,15 +279,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     echo "Refreshing upstream base image {{ base_image }}..."
     docker pull {{ base_image }}
     CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
-        | python3 -c "
-import sys, json, datetime
-d = json.load(sys.stdin)
-sp = d['package']['builds']['latest_succeeded']['source_package']
-ver = sp.get('version', '')
-rel = sp.get('release', '')
-nvr = f'{ver}-{rel}'.strip('-') if (ver or rel) else ''
-print(nvr or datetime.date.today().isoformat())
-" \
+        | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
         2>/dev/null || date +%Y-%m-%d)
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
     docker build \
