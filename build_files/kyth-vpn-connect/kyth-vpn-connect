@@ -56,7 +56,7 @@ if _WEBENGINE_AVAILABLE:
             self.navigationRequested.connect(self._on_nav)
 
         def _on_nav(self, request):
-            url = request.requestUrl().toString()
+            url = request.url().toString()
             if url.startswith("globalprotectcallback:") or url.startswith("gc:"):
                 self.callback_received.emit(url)
                 request.reject()
@@ -88,15 +88,18 @@ if _WEBENGINE_AVAILABLE:
             self._view.load(QUrl(saml_url))
 
         def _on_callback(self, url: str) -> None:
-            _, _, rest = url.partition(":")
-            params = parse_qs(unquote(rest))
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            # Handle both globalprotectcallback:key=val and globalprotectcallback:/?key=val
+            qs = parsed.query if parsed.query else parsed.path.lstrip('/?')
+            params = parse_qs(unquote(qs))
             cookie_str = ""
-            for name in ("prelogin-cookie", "portal-userauthcookie", "cas"):
+            for name in ("preloginuserauthcookie", "portal-userauthcookie", "cas", "prelogin-cookie"):
                 if name in params:
                     cookie_str = f"{name}={params[name][0]}"
                     break
             if not cookie_str:
-                cookie_str = rest
+                cookie_str = qs
             self.cookie_ready.emit(cookie_str)
             self.accept()
 

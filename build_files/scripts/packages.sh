@@ -588,7 +588,15 @@ RestartSec=5
 WantedBy=multi-user.target
 GPDSVCEOF
 
-# Override the PanGPUI autostart so it references the new /usr/lib path.
+# Suppress the PanGPUI autostart. PanGPUI (proprietary, closed-source) crashes
+# with SIGABRT on button click after SAML flow — appears to be a heap-corruption
+# bug in the vendor binary. kyth-welcome handles the SAML connect flow directly,
+# so the tray GUI is not needed on login. Users who want it can still launch it
+# manually from the app launcher.
+# Hidden=true is the XDG-standard way to disable an autostart entry — it is
+# honored by every autostart implementation (Plasma, GNOME, XFCE, etc.) and
+# also overrides any user-level copy in ~/.config/autostart unless the user
+# explicitly re-enables it.
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
 [Desktop Entry]
@@ -596,6 +604,7 @@ Name=PanGPUI
 Type=Application
 Exec=/usr/lib/paloaltonetworks/globalprotect/PanGPUI
 Terminal=false
+Hidden=true
 PANGPUIEOF
 
 # Override any app-launcher .desktop files shipped by the RPM that still point
