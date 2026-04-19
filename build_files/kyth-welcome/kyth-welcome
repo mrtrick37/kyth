@@ -8095,7 +8095,7 @@ if _WEBENGINE_AVAILABLE:
             self.navigationRequested.connect(self._on_nav)
 
         def _on_nav(self, request):
-            url = request.requestUrl().toString()
+            url = request.url().toString()
             if url.startswith("globalprotectcallback:") or url.startswith("gc:"):
                 request.reject()
                 self.callback_received.emit(url)
