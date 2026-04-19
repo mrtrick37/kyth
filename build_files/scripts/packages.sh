@@ -567,8 +567,11 @@ fi
 PANMSINITEOF
 
 # Override the systemd service to reference the new /usr/lib paths.
-# WorkingDirectory stays in /var/opt (mutable) so PanGPS can write runtime
-# state there; the directory is created below via tmpfiles.d.
+# WorkingDirectory is /var/lib/paloaltonetworks/globalprotect (var_lib_t),
+# NOT /var/opt (usr_t) — init_t services can't write to usr_t under the
+# default SELinux policy, and /opt → var/opt in Kinoite means /var/opt
+# inherits the /opt → usr_t label. The dontaudit rule silences the AVC,
+# which is why PanGPS fails to write its registry with no visible denial.
 cat > /usr/lib/systemd/system/gpd.service <<'GPDSVCEOF'
 [Unit]
 Description=GlobalProtect VPN client daemon
@@ -577,7 +580,7 @@ Description=GlobalProtect VPN client daemon
 Type=simple
 ExecStartPre=/usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
 ExecStart=/usr/lib/paloaltonetworks/globalprotect/PanGPS
-WorkingDirectory=/var/opt/paloaltonetworks/globalprotect
+WorkingDirectory=/var/lib/paloaltonetworks/globalprotect
 Restart=on-failure
 RestartSec=5
 
@@ -601,9 +604,18 @@ find /usr/share/applications -name '*.desktop' -exec \
     sed -i 's|/opt/paloaltonetworks/globalprotect/|/usr/lib/paloaltonetworks/globalprotect/|g' {} +
 
 # Ensure the daemon has a writable working directory on every boot.
+# /var/lib/... is var_lib_t (writable by init_t). A compat symlink at
+# /var/opt/paloaltonetworks/globalprotect keeps any hardcoded GP paths
+# (strings show /opt/paloaltonetworks/globalprotect in the binaries) working.
 mkdir -p /usr/lib/tmpfiles.d
-echo 'd /var/opt/paloaltonetworks/globalprotect 0755 root root -' \
-    > /usr/lib/tmpfiles.d/globalprotect.conf
+cat > /usr/lib/tmpfiles.d/globalprotect.conf <<'TMPFILESEOF'
+d  /var/lib/paloaltonetworks                     0755 root root -
+d  /var/lib/paloaltonetworks/globalprotect       0755 root root -
+d  /var/opt/paloaltonetworks                     0755 root root -
+# L+ replaces any existing /var/opt/paloaltonetworks/globalprotect (empty dir
+# left over from previous image builds) with the compat symlink.
+L+ /var/opt/paloaltonetworks/globalprotect       - - - - /var/lib/paloaltonetworks/globalprotect
+TMPFILESEOF
 
 # Install globalprotect CLI directly into /usr/bin — no symlink, so it is
 # always present and executable regardless of /var state.
