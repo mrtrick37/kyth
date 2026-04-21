@@ -39,7 +39,18 @@ from PyQt6.QtWidgets import (
 
 try:
     from PyQt6.QtWebEngineWidgets import QWebEngineView
-    from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+    from PyQt6.QtWebEngineCore import (
+        QWebEnginePage,
+        QWebEngineProfile,
+        QWebEngineUrlScheme,
+        QWebEngineUrlSchemeHandler,
+        QWebEngineUrlRequestJob,
+    )
+    # Must be registered before QApplication is created.
+    for _gp_scheme in (b"globalprotectcallback", b"gc"):
+        _s = QWebEngineUrlScheme(_gp_scheme)
+        _s.setFlags(QWebEngineUrlScheme.Flag.LocalScheme)
+        QWebEngineUrlScheme.registerScheme(_s)
     _WEBENGINE_AVAILABLE = True
 except ImportError:
     _WEBENGINE_AVAILABLE = False
@@ -48,6 +59,14 @@ _CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
 _SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
 
 if _WEBENGINE_AVAILABLE:
+    class _GpCallbackHandler(QWebEngineUrlSchemeHandler):
+        """Catches globalprotectcallback:// and gc:// regardless of how they're triggered."""
+        url_received = pyqtSignal(str)
+
+        def requestStarted(self, request: QWebEngineUrlRequestJob) -> None:
+            self.url_received.emit(request.requestUrl().toString())
+            request.fail(QWebEngineUrlRequestJob.Error.RequestAborted)
+
     class _SamlWebPage(QWebEnginePage):
         callback_received = pyqtSignal(str)
 
@@ -61,14 +80,29 @@ if _WEBENGINE_AVAILABLE:
                 self.callback_received.emit(url)
                 request.reject()
 
+    _GP_AUTH_COOKIES = frozenset({
+        "preloginuserauthcookie",
+        "portal-userauthcookie",
+        "cas",
+        "prelogin-cookie",
+        # SESSID is NOT included: it is set by the GP portal's SAML ACS endpoint
+        # ("Login Successful!") but is not the GP auth token.  The portal then
+        # redirects to globalprotectcallback:// carrying the real prelogin-cookie;
+        # closing the dialog on SESSID would kill the window before that redirect
+        # fires and the scheme handler can catch it.
+    })
+
     class SamlBrowserDialog(QDialog):
         cookie_ready = pyqtSignal(str)
 
         def __init__(self, saml_url: str, parent=None):
+            print("[SAML DEBUG] SamlBrowserDialog __init__ called")
             super().__init__(parent)
             self.setWindowTitle("VPN — SAML Authentication")
             self.resize(900, 650)
             self.setModal(True)
+            self._done = False
+            self._all_cookies = []  # Collect all cookies seen
             layout = QVBoxLayout(self)
             info = QLabel(
                 "Sign in to complete VPN authentication. "
@@ -77,7 +111,17 @@ if _WEBENGINE_AVAILABLE:
             info.setWordWrap(True)
             layout.addWidget(info)
             self._profile = QWebEngineProfile(self)
-            self._page = _SamlWebPage(self._profile, self)
+            # Scheme handler: catches globalprotectcallback:// via any mechanism
+            # (JS redirect, form submit, window.location) — Qt drops unknown
+            # schemes before navigationRequested fires, so registration above
+            # is required for this to work.
+            self._cb_handler = _GpCallbackHandler(self)
+            self._cb_handler.url_received.connect(self._on_callback)
+            self._profile.installUrlSchemeHandler(b"globalprotectcallback", self._cb_handler)
+            self._profile.installUrlSchemeHandler(b"gc", self._cb_handler)
+            # Parent page to profile (not self) so Qt destroys page before
+            # profile, preventing "WebEnginePage still not deleted" warning.
+            self._page = _SamlWebPage(self._profile, self._profile)
             self._page.callback_received.connect(self._on_callback)
             self._view = QWebEngineView(self)
             self._view.setPage(self._page)
@@ -85,21 +129,159 @@ if _WEBENGINE_AVAILABLE:
             cancel = QPushButton("Cancel")
             cancel.clicked.connect(self.reject)
             layout.addWidget(cancel)
+            # Cookie watcher: catches portals that set auth cookies directly
+            # after server-side SAML rather than redirecting to globalprotectcallback://
+            cookie_store = self._profile.cookieStore()
+            cookie_store.loadAllCookies()
+            cookie_store.cookieAdded.connect(self._on_cookie_added)
+            self._cookie_store = cookie_store
+            self._view.loadFinished.connect(self._on_load_finished)
             self._view.load(QUrl(saml_url))
 
+        _GP_TOKEN_JS = """
+(function() {
+    var names = ['preloginuserauthcookie','portal-userauthcookie','cas','prelogin-cookie'];
+    // Hidden inputs
+    var inputs = document.querySelectorAll('input');
+    for (var i = 0; i < inputs.length; i++) {
+        var n = (inputs[i].name || '').toLowerCase();
+        if (names.indexOf(n) >= 0 && inputs[i].value)
+            return n + '=' + inputs[i].value;
+    }
+    // Form action pointing to globalprotectcallback://
+    var forms = document.forms;
+    for (var i = 0; i < forms.length; i++) {
+        var action = (forms[i].action || '').toLowerCase();
+        if (action.indexOf('globalprotectcallback:') === 0 || action.indexOf('gc:') === 0) {
+            var fd = new FormData(forms[i]);
+            for (var j = 0; j < names.length; j++) {
+                var v = fd.get(names[j]);
+                if (v) return names[j] + '=' + v;
+            }
+        }
+    }
+    return '';
+})()
+"""
+
+        _DEBUG_JS = """
+(function() {
+    return JSON.stringify({
+        url: window.location.href,
+        title: document.title,
+        inputs: Array.from(document.querySelectorAll('input')).map(function(i){
+            return {name: i.name, id: i.id, type: i.type, value: i.value.substring(0,80)};
+        }),
+        forms: Array.from(document.forms).map(function(f){
+            return {action: f.action, method: f.method};
+        }),
+        body_snippet: (document.body ? document.body.innerText : '').substring(0,200)
+    });
+})()
+"""
+
+        def _on_load_finished(self, ok: bool) -> None:
+            print(f"[SAML DEBUG] _on_load_finished called, ok={ok}, done={self._done}")
+            try:
+                if self._done:
+                    return
+                self._page.runJavaScript(self._DEBUG_JS, self._on_debug_dump)
+                if not ok:
+                    return
+                self._page.runJavaScript(self._GP_TOKEN_JS, self._on_js_token)
+                # After ACS page load, dump all collected cookies
+                cookie_lines = []
+                for c in self._all_cookies:
+                    name = c.name().data().decode("utf-8", errors="replace")
+                    value = c.value().data().decode("utf-8", errors="replace")
+                    domain = c.domain()
+                    path = c.path()
+                    secure = c.isSecure()
+                    httponly = c.isHttpOnly()
+                    line = f"[SAML ALL COOKIES] {name}={value} domain={domain} path={path} secure={secure} httponly={httponly}"
+                    print(line)
+                    cookie_lines.append(line)
+                import pathlib
+                pathlib.Path("/tmp/kyth-vpn-saml-cookies.txt").write_text("\n".join(cookie_lines))
+            except Exception as e:
+                print("[SAML load_finished error]", e)
+
+        def _on_all_cookies_loaded(self, cookies):
+            try:
+                cookie_lines = []
+                for cookie in cookies:
+                    name = cookie.name().data().decode("utf-8", errors="replace")
+                    value = cookie.value().data().decode("utf-8", errors="replace")
+                    domain = cookie.domain()
+                    path = cookie.path()
+                    secure = cookie.isSecure()
+                    httponly = cookie.isHttpOnly()
+                    line = f"[SAML ALL COOKIES] {name}={value} domain={domain} path={path} secure={secure} httponly={httponly}"
+                    print(line)
+                    cookie_lines.append(line)
+                # Write all cookies to a file for inspection
+                import pathlib
+                pathlib.Path("/tmp/kyth-vpn-saml-cookies.txt").write_text("\n".join(cookie_lines))
+            except Exception as e:
+                print("[SAML all_cookies_loaded error]", e)
+
+        def _on_debug_dump(self, result) -> None:
+            import json, pathlib
+            try:
+                data = json.loads(result) if result else {}
+                out = json.dumps(data, indent=2)
+                pathlib.Path("/tmp/kyth-vpn-saml-debug.json").write_text(out)
+                print("[SAML DEBUG]", out[:800])
+            except Exception as e:
+                print("[SAML DEBUG ERROR]", e)
+
+        def _on_js_token(self, result) -> None:
+            try:
+                if self._done or not result:
+                    return
+                self._emit_cookie(result)
+            except Exception as e:
+                print("[SAML js_token error]", e)
+
+        def _on_cookie_added(self, cookie) -> None:
+            try:
+                name = cookie.name().data().decode("utf-8", errors="replace")
+                value = cookie.value().data().decode("utf-8", errors="replace")
+                print(f"[SAML DEBUG] cookieAdded: {name}={value}")
+                self._all_cookies.append(cookie)
+                if self._done:
+                    return
+                if name in _GP_AUTH_COOKIES:
+                    self._emit_cookie(f"{name}={value}")
+            except Exception as e:
+                print("[SAML cookie_added error]", e)
+
+        def accept(self):
+            print("[SAML DEBUG] SamlBrowserDialog.accept() called")
+            super().accept()
+
+        def reject(self):
+            print("[SAML DEBUG] SamlBrowserDialog.reject() called")
+            super().reject()
+
         def _on_callback(self, url: str) -> None:
+            if self._done:
+                return
             from urllib.parse import urlparse
             parsed = urlparse(url)
-            # Handle both globalprotectcallback:key=val and globalprotectcallback:/?key=val
             qs = parsed.query if parsed.query else parsed.path.lstrip('/?')
             params = parse_qs(unquote(qs))
             cookie_str = ""
-            for name in ("preloginuserauthcookie", "portal-userauthcookie", "cas", "prelogin-cookie"):
+            for name in _GP_AUTH_COOKIES:
                 if name in params:
                     cookie_str = f"{name}={params[name][0]}"
                     break
-            if not cookie_str:
-                cookie_str = qs
+            self._emit_cookie(cookie_str or qs)
+
+        def _emit_cookie(self, cookie_str: str) -> None:
+            if self._done:
+                return
+            self._done = True
             self.cookie_ready.emit(cookie_str)
             self.accept()
 
@@ -122,8 +304,6 @@ def _save_config(gateway: str, protocol: str, os_emul: str, username: str) -> No
         "os": os_emul,
         "username": username,
     }
-    _CONFIG_PATH.write_text(cfg.write.__func__(cfg) or "")
-    # Use proper write
     with open(_CONFIG_PATH, "w") as f:
         cfg.write(f)
 

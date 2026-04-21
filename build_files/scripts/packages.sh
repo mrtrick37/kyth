@@ -566,18 +566,19 @@ chmod +x /usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
 # populate it at boot with binaries from /usr/lib/ and data from /var/lib/.
 mkdir -p /opt/paloaltonetworks/globalprotect
 
-# PanMSInit.sh — launch PanGPA from the /opt/ overlay so /proc/PID/exe shows
-# /opt/paloaltonetworks/globalprotect/PanGPA, satisfying PanGPS's path check.
-cat > /etc/profile.d/PanMSInit.sh <<'PANMSINITEOF'
-#!/bin/bash
-PANGPA=/opt/paloaltonetworks/globalprotect/PanGPA
-pgrep -u "$USER" PanGPA > /dev/null 2>&1
-if [ $? -ne 0 ]; then
-  if [ -f "$PANGPA" ]; then
-    "$PANGPA" start &
-  fi
-fi
-PANMSINITEOF
+# PanGPA autostart — launches the user-side GP agent when KDE/Plasma logs in.
+# Must use XDG autostart (not profile.d) because Wayland GUI sessions never
+# source /etc/profile.d scripts. The exec path must be under /opt/... so that
+# /proc/PID/exe satisfies PanGPS's literal prefix check.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/PanGPA.desktop <<'PANGPAEOF'
+[Desktop Entry]
+Name=GlobalProtect Agent
+Type=Application
+Exec=/opt/paloaltonetworks/globalprotect/PanGPA start
+Terminal=false
+X-KDE-autostart-condition=PanGPA
+PANGPAEOF
 
 # gpd.service: WorkingDirectory is /var/lib/paloaltonetworks/globalprotect so
 # PanGPS writes logs and registry there. PanGPS/PanGPA also find data files via
@@ -609,6 +610,7 @@ GPDSVCEOF
 cat > /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount <<'OVLEOF'
 [Unit]
 Description=GlobalProtect overlay (binaries + writable data at /opt/... path)
+After=systemd-tmpfiles-setup.service
 Before=gpd.service
 
 [Mount]
@@ -621,9 +623,8 @@ Options=lowerdir=/usr/lib/paloaltonetworks/globalprotect,upperdir=/var/lib/paloa
 WantedBy=multi-user.target
 OVLEOF
 
-# Suppress the PanGPUI autostart — it crashes with SIGABRT on button click
-# after SAML flow (heap-corruption bug in the vendor binary). kyth-welcome
-# handles the SAML connect flow directly.
+# Suppress PanGPUI from autostarting on login — it should only launch when the
+# user explicitly clicks the GlobalProtect icon in the launcher.
 mkdir -p /etc/xdg/autostart
 cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
 [Desktop Entry]

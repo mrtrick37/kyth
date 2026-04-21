@@ -84,7 +84,7 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 #   enabled by default. Transparent/no-op on AMD systems.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "threadirqs", "iommu=pt"]
+kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
