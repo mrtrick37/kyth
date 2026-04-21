@@ -288,6 +288,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     docker build \
         --build-arg BASE_IMAGE={{ base_image }} \
         --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
+        --build-arg HUGGINGFACE_TOKEN="$HUGGINGFACE_TOKEN" \
         --tag localhost/kyth-base:stable \
         build_base/
 
@@ -307,6 +308,7 @@ build: build-base
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
+        --build-arg HUGGINGFACE_TOKEN="$HUGGINGFACE_TOKEN" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \
         --load \

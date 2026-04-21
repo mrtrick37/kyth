@@ -1,12 +1,15 @@
-ARG BASE_IMAGE=localhost/kyth-base:stable
 
 # Allow build scripts to be referenced without being copied into the final image
+ARG BASE_IMAGE=localhost/kyth-base:stable
 FROM scratch AS ctx
 COPY build_files /
 
 # Base Image
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
+# Pass Hugging Face token into build context
+ARG HUGGINGFACE_TOKEN
+ENV HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
 
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
 LABEL org.opencontainers.image.title="KythOS"
