@@ -11,5 +11,7 @@ FROM ${BASE_IMAGE}
 ARG CACHYOS_KERNEL_VER=unset
 
 # Use a bind-mount so the script is never written into any image layer
+ARG HUGGINGFACE_TOKEN
+ENV HUGGINGFACE_TOKEN=$HUGGINGFACE_TOKEN
 RUN --mount=type=bind,source=build.sh,target=/run/build.sh \
     bash /run/build.sh
