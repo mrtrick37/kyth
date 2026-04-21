@@ -5,6 +5,7 @@ Shows once on first login (via /etc/skel autostart) and is always
 accessible from the application menu.
 """
 
+import configparser
 import glob
 import os
 import sys
@@ -16,6 +17,11 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import parse_qs, unquote
+
+# Must be set before any Qt WebEngine module is imported or initialized.
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
 
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -25,6 +31,13 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
+
+try:
+    from PyQt6.QtWebEngineWidgets import QWebEngineView
+    from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
+    _WEBENGINE_AVAILABLE = True
+except ImportError:
+    _WEBENGINE_AVAILABLE = False
 
 # ── Constants ──────────────────────────────────────────────────────────────────
 REGISTRY = "ghcr.io/mrtrick37/kyth"
@@ -8051,6 +8064,381 @@ class NetworkSharesPage(Page):
         self._op_progress.show()
 
 
+# ── VPN page ──────────────────────────────────────────────────────────────────
+_VPN_CONFIG = os.path.expanduser("~/.config/kyth-vpn-connect")
+_VPN_PROTOCOLS = ["gp", "anyconnect", "pulse", "nc", "f5", "fortinet", "array"]
+_VPN_OS_OPTIONS = ["win", "linux", "mac"]
+
+
+def _load_vpn_config() -> dict:
+    cfg = configparser.ConfigParser()
+    if os.path.exists(_VPN_CONFIG):
+        cfg.read(_VPN_CONFIG)
+    return dict(cfg["vpn"]) if "vpn" in cfg else {}
+
+
+def _save_vpn_config(gateway: str, protocol: str, os_emul: str, username: str) -> None:
+    cfg = configparser.ConfigParser()
+    cfg["vpn"] = {"gateway": gateway, "protocol": protocol, "os": os_emul, "username": username}
+    with open(_VPN_CONFIG, "w") as f:
+        cfg.write(f)
+
+
+_SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
+
+if _WEBENGINE_AVAILABLE:
+    class _SamlWebPage(QWebEnginePage):
+        callback_received = pyqtSignal(str)
+
+        def __init__(self, profile, parent=None):
+            super().__init__(profile, parent)
+            self.navigationRequested.connect(self._on_nav)
+
+        def _on_nav(self, request):
+            url = request.url().toString()
+            if url.startswith("globalprotectcallback:") or url.startswith("gc:"):
+                request.reject()
+                self.callback_received.emit(url)
+
+    class SamlBrowserDialog(QDialog):
+        """Embedded browser for GlobalProtect SAML authentication."""
+        cookie_ready = pyqtSignal(str)
+
+        def __init__(self, saml_url: str, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("VPN — SAML Authentication")
+            self.resize(900, 650)
+            self.setModal(True)
+
+            layout = QVBoxLayout(self)
+
+            info = QLabel(
+                "Sign in to complete VPN authentication. "
+                "The window will close automatically when done."
+            )
+            info.setWordWrap(True)
+            layout.addWidget(info)
+
+            self._profile = QWebEngineProfile(self)
+            self._page = _SamlWebPage(self._profile, self)
+            self._page.callback_received.connect(self._on_callback)
+
+            self._view = QWebEngineView(self)
+            self._view.setPage(self._page)
+            layout.addWidget(self._view)
+
+            cancel = QPushButton("Cancel")
+            cancel.setObjectName("btn-secondary")
+            cancel.clicked.connect(self.reject)
+            layout.addWidget(cancel)
+
+            self._view.load(QUrl(saml_url))
+
+        def _on_callback(self, url: str) -> None:
+            _, _, rest = url.partition(":")
+            params = parse_qs(unquote(rest))
+            cookie_str = ""
+            for name in ("prelogin-cookie", "portal-userauthcookie", "cas"):
+                if name in params:
+                    cookie_str = f"{name}={params[name][0]}"
+                    break
+            if not cookie_str:
+                cookie_str = rest
+            self.cookie_ready.emit(cookie_str)
+            self.accept()
+
+
+class _VpnConnectWorker(QThread):
+    line = pyqtSignal(str)
+    done = pyqtSignal(int)
+    saml_required = pyqtSignal(str)
+
+    def __init__(self, cmd: list[str], password: str = ""):
+        super().__init__()
+        self._cmd = cmd
+        self._password = password
+        self._proc: subprocess.Popen | None = None
+
+    def run(self) -> None:
+        env = os.environ.copy()
+        env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
+        stdin_pipe = subprocess.PIPE if self._password else subprocess.DEVNULL
+        try:
+            self._proc = subprocess.Popen(
+                self._cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                stdin=stdin_pipe,
+                text=True,
+                bufsize=1,
+                env=env,
+                cwd="/tmp",
+            )
+            if self._password and self._proc.stdin:
+                self._proc.stdin.write(self._password + "\n")
+                self._proc.stdin.close()
+            assert self._proc.stdout
+            for ln in self._proc.stdout:
+                clean = ln.rstrip()
+                self.line.emit(clean)
+                m = _SAML_URL_RE.search(clean)
+                if m:
+                    self.saml_required.emit(m.group(1))
+            self._proc.wait()
+            self.done.emit(self._proc.returncode)
+        except Exception as exc:
+            self.line.emit(f"Error: {exc}")
+            self.done.emit(1)
+
+    def stop(self) -> None:
+        if self._proc and self._proc.poll() is None:
+            self._proc.terminate()
+
+
+class VpnPage(Page):
+    """Connect to a VPN gateway using openconnect."""
+
+    def __init__(self):
+        super().__init__()
+        self._worker: _VpnConnectWorker | None = None
+        self._saml_pending = False
+        self._saml_gateway = ""
+        self._saml_protocol = "gp"
+        self._saml_os_emul = "win"
+        self._saml_username = ""
+
+        self._page_header(
+            "Network",
+            "VPN",
+            "Connect to a VPN gateway using openconnect. Settings are saved for next time.",
+        )
+
+        # ── Connection settings card ──────────────────────────────────────────
+        cfg_card, cfg_layout = _make_card()
+        cfg_title = QLabel("Connection Settings")
+        cfg_title.setObjectName("card-title")
+        cfg_layout.addWidget(cfg_title)
+
+        form_row = QHBoxLayout()
+        form_row.setSpacing(20)
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        right = QVBoxLayout()
+        right.setSpacing(8)
+
+        def _lbl(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setObjectName("card-copy")
+            return lbl
+
+        left.addWidget(_lbl("Gateway"))
+        self._gw = QLineEdit()
+        self._gw.setPlaceholderText("e.g. vpn.example.com")
+        left.addWidget(self._gw)
+
+        left.addWidget(_lbl("Protocol"))
+        self._proto = QComboBox()
+        self._proto.addItems(_VPN_PROTOCOLS)
+        left.addWidget(self._proto)
+
+        left.addWidget(_lbl("OS Emulation"))
+        self._os_emul = QComboBox()
+        self._os_emul.addItems(_VPN_OS_OPTIONS)
+        left.addWidget(self._os_emul)
+
+        right.addWidget(_lbl("Username"))
+        self._vpn_user = QLineEdit()
+        self._vpn_user.setPlaceholderText("optional")
+        right.addWidget(self._vpn_user)
+
+        right.addWidget(_lbl("Password"))
+        self._vpn_pass = QLineEdit()
+        self._vpn_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self._vpn_pass.setPlaceholderText("optional — leave blank for interactive / SSO auth")
+        right.addWidget(self._vpn_pass)
+
+        right.addStretch()
+
+        form_row.addLayout(left, 1)
+        form_row.addLayout(right, 1)
+        cfg_layout.addLayout(form_row)
+        self._add(cfg_card)
+
+        # ── Status + controls card ────────────────────────────────────────────
+        ctrl_card, ctrl_layout = _make_card()
+
+        self._vpn_status = QLabel("● Disconnected")
+        self._vpn_status.setObjectName("status-dim")
+        ctrl_layout.addWidget(self._vpn_status)
+
+        btn_row = QHBoxLayout()
+        self._connect_btn = QPushButton("Connect")
+        self._connect_btn.setMinimumHeight(34)
+        self._connect_btn.clicked.connect(self._on_connect)
+        self._disconnect_btn = QPushButton("Disconnect")
+        self._disconnect_btn.setMinimumHeight(34)
+        self._disconnect_btn.setEnabled(False)
+        self._disconnect_btn.clicked.connect(self._on_disconnect)
+        btn_row.addWidget(self._connect_btn)
+        btn_row.addWidget(self._disconnect_btn)
+        btn_row.addStretch()
+        ctrl_layout.addLayout(btn_row)
+
+        self._vpn_log_toggle = QPushButton("Show details")
+        self._vpn_log_toggle.setCheckable(True)
+        self._vpn_log_toggle.setChecked(False)
+        self._vpn_log_toggle.setObjectName("btn-secondary")
+        ctrl_layout.addWidget(self._vpn_log_toggle)
+
+        self._vpn_log = QTextEdit()
+        self._vpn_log.setReadOnly(True)
+        self._vpn_log.setStyleSheet(
+            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+        )
+        self._vpn_log.setVisible(False)
+        self._vpn_log.setMinimumHeight(160)
+        ctrl_layout.addWidget(self._vpn_log)
+
+        self._vpn_log_toggle.toggled.connect(
+            lambda checked: _set_log_panel(self._vpn_log_toggle, self._vpn_log, checked)
+        )
+
+        self._add(ctrl_card)
+        self._stretch()
+
+        self._load_vpn_saved()
+
+    def _load_vpn_saved(self) -> None:
+        v = _load_vpn_config()
+        self._gw.setText(v.get("gateway", ""))
+        idx = self._proto.findText(v.get("protocol", "gp"))
+        if idx >= 0:
+            self._proto.setCurrentIndex(idx)
+        idx = self._os_emul.findText(v.get("os", "win"))
+        if idx >= 0:
+            self._os_emul.setCurrentIndex(idx)
+        self._vpn_user.setText(v.get("username", ""))
+
+    def _vpn_config_widgets(self):
+        return (self._gw, self._proto, self._os_emul, self._vpn_user, self._vpn_pass)
+
+    def _on_connect(self) -> None:
+        gateway = self._gw.text().strip()
+        if not gateway:
+            _set_log_panel(self._vpn_log_toggle, self._vpn_log, True)
+            self._vpn_log.append("[Error: Gateway is required]")
+            return
+
+        protocol = self._proto.currentText()
+        os_emul = self._os_emul.currentText()
+        username = self._vpn_user.text().strip()
+        password = self._vpn_pass.text()
+
+        _save_vpn_config(gateway, protocol, os_emul, username)
+
+        self._saml_gateway = gateway
+        self._saml_protocol = protocol
+        self._saml_os_emul = os_emul
+        self._saml_username = username
+        self._saml_pending = False
+
+        self._vpn_log.clear()
+        self._set_vpn_status("connecting")
+        self._connect_btn.setEnabled(False)
+        self._disconnect_btn.setEnabled(True)
+        for w in self._vpn_config_widgets():
+            w.setEnabled(False)
+
+        cmd = ["sudo", "-E", "-A", "/usr/bin/openconnect", "--protocol", protocol, "--os", os_emul]
+        if username:
+            cmd += ["--user", username]
+        if password:
+            cmd += ["--passwd-on-stdin"]
+        cmd.append(gateway)
+
+        self._worker = _VpnConnectWorker(cmd, password)
+        self._worker.line.connect(self._on_vpn_line)
+        self._worker.done.connect(self._on_vpn_done)
+        self._worker.saml_required.connect(self._on_saml_required)
+        self._worker.start()
+
+    def _on_disconnect(self) -> None:
+        if self._worker:
+            self._worker.stop()
+
+    def _on_vpn_line(self, line: str) -> None:
+        _set_log_panel(self._vpn_log_toggle, self._vpn_log, True)
+        self._vpn_log.append(line)
+        sb = self._vpn_log.verticalScrollBar()
+        sb.setValue(sb.maximum())
+        lo = line.lower()
+        if "connected as" in lo or "established dtls" in lo or "established cstp" in lo:
+            self._set_vpn_status("connected")
+
+    def _on_vpn_done(self, code: int) -> None:
+        self._worker = None
+        if self._saml_pending:
+            return
+        self._set_vpn_status("disconnected")
+        self._connect_btn.setEnabled(True)
+        self._disconnect_btn.setEnabled(False)
+        for w in self._vpn_config_widgets():
+            w.setEnabled(True)
+        self._vpn_log.append(f"\n[openconnect exited: code {code}]")
+
+    def _on_saml_required(self, saml_url: str) -> None:
+        if not _WEBENGINE_AVAILABLE:
+            self._vpn_log.append(
+                "\n[SAML auth required but python3-pyqt6-webengine is not installed]"
+            )
+            return
+        self._saml_pending = True
+        dlg = SamlBrowserDialog(saml_url, self)
+        dlg.cookie_ready.connect(self._on_saml_cookie)
+        dlg.rejected.connect(self._on_saml_cancelled)
+        dlg.exec()
+
+    def _on_saml_cookie(self, cookie: str) -> None:
+        self._saml_pending = False
+        self._vpn_log.append("[SAML authentication complete — reconnecting…]")
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", self._saml_protocol,
+            "--os", self._saml_os_emul,
+            "--cookie", cookie,
+        ]
+        if self._saml_username:
+            cmd += ["--user", self._saml_username]
+        cmd.append(self._saml_gateway)
+
+        self._worker = _VpnConnectWorker(cmd, "")
+        self._worker.line.connect(self._on_vpn_line)
+        self._worker.done.connect(self._on_vpn_done)
+        self._worker.saml_required.connect(self._on_saml_required)
+        self._worker.start()
+
+    def _on_saml_cancelled(self) -> None:
+        self._saml_pending = False
+        self._set_vpn_status("disconnected")
+        self._connect_btn.setEnabled(True)
+        self._disconnect_btn.setEnabled(False)
+        for w in self._vpn_config_widgets():
+            w.setEnabled(True)
+        self._vpn_log.append("\n[SAML authentication cancelled]")
+
+    def _set_vpn_status(self, state: str) -> None:
+        if state == "connected":
+            self._vpn_status.setText("● Connected")
+            self._vpn_status.setObjectName("status-ok")
+        elif state == "connecting":
+            self._vpn_status.setText("● Connecting…")
+            self._vpn_status.setObjectName("status-warn")
+        else:
+            self._vpn_status.setText("● Disconnected")
+            self._vpn_status.setObjectName("status-dim")
+        _restyle(self._vpn_status)
+
+
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 def _nav_section_label(text: str) -> QLabel:
     """Create a sidebar section header label (e.g. 'SYSTEM', 'APPS')."""
@@ -8139,6 +8527,7 @@ class MainWindow(QMainWindow):
             ("Network", [
                 ("☁", "Cloud Storage",  "Cloud Storage",  CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
+                ("⬡", "VPN",            "VPN",            VpnPage),
             ]),
         ]
 
