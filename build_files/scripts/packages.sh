@@ -413,6 +413,8 @@ modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
 # transaction to cut down on repeated dependency solving.
 dnf5 install -y \
     python3-pyqt6 \
+    python3-pyqt6-webengine \
+    qt5-qtwebkit \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
@@ -429,7 +431,7 @@ dnf5 install -y \
 # Clean cached packages before this install: libxcrypt-compat has been showing
 # corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
 dnf5 clean packages
-dnf5 install -y gcc glibc-devel libxcrypt-compat patch ruby
+dnf5 install -y gcc glibc-devel kernel-headers libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no
@@ -442,28 +444,246 @@ ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
 
-# ── openconnect-sso ──────────────────────────────────────────────────────────
-# Palo Alto GlobalProtect VPNs that use SAML/Azure AD auth require a browser-
-# based flow that the NetworkManager openconnect plugin cannot handle.
-# openconnect-sso wraps openconnect with an embedded Qt WebEngine browser that
-# completes the SAML redirect loop and hands the resulting cookie to openconnect.
-# Usage: openconnect-sso --server <host>
+
+# ── plasma-nm-openconnect: GlobalProtect SAML callback fix ───────────────────
+# plasma-nm-openconnect uses QWebEngineView::urlChanged to detect when
+# openconnect has finished SAML auth.  urlChanged only fires for committed
+# navigations — Qt WebEngine silently aborts the globalprotectcallback://
+# redirect (unknown scheme) before the URL ever commits, so the cookie is
+# never passed to openconnect_webview_load_changed and getconfig.esp receives
+# an empty auth token → HTTP 512.
 #
-# openconnect-sso pins lxml<5.0 but lxml 4.x cannot compile against Python 3.14
-# (removed private CPython APIs). Work around by installing --no-deps and
-# supplying lxml 5.x (prebuilt manylinux wheel, Python 3.14 compatible) explicitly.
-# python3-pyqt6-webengine supplies system Qt6 WebEngine bindings so pip does not
-# download a bundled Qt6 that conflicts with the system Qt version at runtime.
-dnf5 install -y python3-pip qt6-qtwebengine python3-pyqt6-webengine
-pip3 install --break-system-packages --prefix=/usr \
-    'lxml>=5.0' \
-    attrs \
-    colorama \
-    'prompt-toolkit>=3.0.3,<4.0.0' \
-    'pyotp>=2.7.0,<3.0.0' \
-    structlog \
-    'toml>=0.10,<0.11'
-pip3 install --break-system-packages --prefix=/usr --no-deps openconnect-sso
+# Fix: intercept globalprotectcallback:// (and the older gc:// alias) via
+# QWebEnginePage::navigationRequested, which fires before Qt drops the
+# navigation, extract the URL, and pass it to handleWebEngineUrl as usual.
+#
+# Build deps are installed, used, then removed in this block so they don't
+# bloat the final image.  The resulting .so files replace the stock ones from
+# plasma-nm-openconnect.
+PLASMA_NM_BUILD_DEPS=(
+    cmake
+    extra-cmake-modules
+    kf6-kdbusaddons-devel
+    kf6-kcmutils-devel
+    kf6-kcoreaddons-devel
+    kf6-ki18n-devel
+    kf6-kio-devel
+    kf6-knotifications-devel
+    kf6-ksvg-devel
+    kf6-kwidgetsaddons-devel
+    kf6-kwallet-devel
+    kf6-modemmanager-qt-devel
+    kf6-networkmanager-qt-devel
+    libplasma-devel
+    openconnect-devel
+    qt6-qtbase-devel
+    qt6-qttools-devel
+    qt6-qtwebengine-devel
+)
+dnf5 install -y --skip-unavailable "${PLASMA_NM_BUILD_DEPS[@]}"
+dnf5 builddep -y --skip-unavailable plasma-nm
+
+PLASMA_NM_BUILD=/tmp/plasma-nm-build
+mkdir -p "${PLASMA_NM_BUILD}"
+cd "${PLASMA_NM_BUILD}"
+
+dnf5 download --source plasma-nm
+rpm2cpio plasma-nm-*.src.rpm | cpio -idm '*.tar.xz'
+tar xf plasma-nm-*.tar.xz
+PLASMA_NM_SRC="${PLASMA_NM_BUILD}/$(ls -d plasma-nm-*/)"
+
+patch -d "${PLASMA_NM_SRC}" -p1 \
+    < /ctx/patches/plasma-nm-globalprotect-callback.patch
+
+cmake -S "${PLASMA_NM_SRC}" -B "${PLASMA_NM_BUILD}/cmake-build" \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=/usr \
+    -DBUILD_OPENCONNECT=ON \
+    -DBUILD_TESTING=OFF \
+    -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
+
+PLUGIN_TARGETS=(
+    plasmanetworkmanagement_openconnect_anyconnect
+    plasmanetworkmanagement_openconnect_arrayui
+    plasmanetworkmanagement_openconnect_f5ui
+    plasmanetworkmanagement_openconnect_fortinetui
+    plasmanetworkmanagement_openconnect_globalprotectui
+    plasmanetworkmanagement_openconnect_juniperui
+    plasmanetworkmanagement_openconnect_pulseui
+)
+cmake --build "${PLASMA_NM_BUILD}/cmake-build" \
+    --parallel "$(nproc)" \
+    $(printf -- '--target %s ' "${PLUGIN_TARGETS[@]}")
+
+PLUGIN_DEST=/usr/lib64/qt6/plugins/plasma/network/vpn
+for target in "${PLUGIN_TARGETS[@]}"; do
+    find "${PLASMA_NM_BUILD}/cmake-build" -name "${target}.so" \
+        -exec install -m 0755 {} "${PLUGIN_DEST}/" \;
+done
+
+# Clean up build tree and build-only deps
+cd /
+rm -rf "${PLASMA_NM_BUILD}"
+dnf5 remove -y "${PLASMA_NM_BUILD_DEPS[@]}"
+dnf5 autoremove -y
+
+# ── GlobalProtect VPN agent + GUI ────────────────────────────────────────────
+# Bundled RPMs (proprietary — not available in public repos).
+# qt5-qtwebkit (above) satisfies PanGPUI's only non-standard dep.
+#
+# Root cause of the original /opt install failure: on Fedora Kinoite, /opt is a
+# symlink to var/opt, so /proc/PID/exe for any process always shows /var/opt/...
+# rather than /opt/... PanGPS does a literal string check that the connecting
+# PanGPA's /proc/PID/exe starts with "/opt/paloaltonetworks/globalprotect", which
+# always fails. Fix: make /opt a real directory in the image, then mount an
+# overlayfs at /opt/paloaltonetworks/globalprotect/ at boot (lower = immutable
+# binaries in /usr/lib/, upper = writable data in /var/lib/). Processes exec'd
+# through the overlay show /opt/... in /proc/PID/exe, satisfying the check.
+rm /opt
+mkdir -p /opt
+
+# Extract RPMs into a temp dir.
+GP_TMP=$(mktemp -d)
+for GP_RPM in \
+    /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm \
+    /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm; do
+    (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
+done
+
+# Install GP binaries to /usr/lib/ (overlay lower layer — immutable, always
+# present after upgrades). The overlay mount exposes them at /opt/... at runtime.
+mkdir -p /usr/lib/paloaltonetworks/globalprotect
+cp -a "$GP_TMP/opt/paloaltonetworks/globalprotect/." /usr/lib/paloaltonetworks/globalprotect/
+# UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
+[[ -d "$GP_TMP/usr" ]] && cp -a "$GP_TMP/usr/." /usr/
+[[ -d "$GP_TMP/etc" ]] && cp -a "$GP_TMP/etc/." /etc/
+rm -rf "$GP_TMP"
+
+chmod +x /usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
+
+# Create the overlay mount point — an empty real directory at the vendor path.
+# The overlayfs mount (see opt-paloaltonetworks-globalprotect.mount below) will
+# populate it at boot with binaries from /usr/lib/ and data from /var/lib/.
+mkdir -p /opt/paloaltonetworks/globalprotect
+
+# PanGPA autostart — launches the user-side GP agent when KDE/Plasma logs in.
+# Must use XDG autostart (not profile.d) because Wayland GUI sessions never
+# source /etc/profile.d scripts. The exec path must be under /opt/... so that
+# /proc/PID/exe satisfies PanGPS's literal prefix check.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/PanGPA.desktop <<'PANGPAEOF'
+[Desktop Entry]
+Name=GlobalProtect Agent
+Type=Application
+Exec=/opt/paloaltonetworks/globalprotect/PanGPA start
+Terminal=false
+X-KDE-autostart-condition=PanGPA
+PANGPAEOF
+
+# gpd.service: WorkingDirectory is /var/lib/paloaltonetworks/globalprotect so
+# PanGPS writes logs and registry there. PanGPS/PanGPA also find data files via
+# /opt/... (which the overlay routes to the upper = /var/lib/...).
+# init_t SELinux note: semanage permissive -a init_t (below) is required for
+# PanGPS to open /dev/net/tun; without it the IPC listener never starts.
+cat > /usr/lib/systemd/system/gpd.service <<'GPDSVCEOF'
+[Unit]
+Description=GlobalProtect VPN client daemon
+After=opt-paloaltonetworks-globalprotect.mount
+Requires=opt-paloaltonetworks-globalprotect.mount
+
+[Service]
+Type=simple
+ExecStartPre=/usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
+ExecStart=/usr/lib/paloaltonetworks/globalprotect/PanGPS
+WorkingDirectory=/var/lib/paloaltonetworks/globalprotect
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+GPDSVCEOF
+
+# Overlayfs mount: presents /opt/paloaltonetworks/globalprotect/ as a unified
+# view of binaries (lower, read-only) and data (upper, writable). Processes
+# exec'd from here show /opt/... in /proc/PID/exe, satisfying PanGPS's check.
+# workdir must be on the same fs as upper and outside both upper and lower.
+# Explicit dir-creation service — more reliable than After=systemd-tmpfiles-setup.service
+# because tmpfiles and the .mount unit race to completion at the same boot second.
+cat > /usr/lib/systemd/system/globalprotect-overlay-dirs.service <<'DIRSVCEOF'
+[Unit]
+Description=Create GlobalProtect overlay writable directories
+DefaultDependencies=no
+After=local-fs.target
+Before=opt-paloaltonetworks-globalprotect.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=mkdir -p /var/lib/paloaltonetworks/globalprotect /var/cache/paloaltonetworks/gpwork
+
+[Install]
+WantedBy=opt-paloaltonetworks-globalprotect.mount
+DIRSVCEOF
+
+cat > /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount <<'OVLEOF'
+[Unit]
+Description=GlobalProtect overlay (binaries + writable data at /opt/... path)
+After=globalprotect-overlay-dirs.service
+Requires=globalprotect-overlay-dirs.service
+Before=gpd.service
+
+[Mount]
+What=overlay
+Where=/opt/paloaltonetworks/globalprotect
+Type=overlay
+Options=lowerdir=/usr/lib/paloaltonetworks/globalprotect,upperdir=/var/lib/paloaltonetworks/globalprotect,workdir=/var/cache/paloaltonetworks/gpwork
+
+[Install]
+WantedBy=multi-user.target
+OVLEOF
+
+# Suppress PanGPUI from autostarting on login — it should only launch when the
+# user explicitly clicks the GlobalProtect icon in the launcher.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
+[Desktop Entry]
+Name=PanGPUI
+Type=Application
+Exec=/opt/paloaltonetworks/globalprotect/PanGPUI
+Terminal=false
+Hidden=true
+PANGPUIEOF
+
+# Desktop entries: keep /opt paths (correct now that /opt is real + overlay).
+# Revert any earlier /usr/lib rewrites if present.
+find /usr/share/applications -name '*.desktop' -exec \
+    sed -i 's|/usr/lib/paloaltonetworks/globalprotect/|/opt/paloaltonetworks/globalprotect/|g' {} +
+
+# tmpfiles.d: create writable data dir and overlay workdir on every boot.
+mkdir -p /usr/lib/tmpfiles.d
+cat > /usr/lib/tmpfiles.d/globalprotect.conf <<'TMPFILESEOF'
+d  /var/lib/paloaltonetworks                     0755 root root -
+d  /var/lib/paloaltonetworks/globalprotect       0755 root root -
+d  /var/cache/paloaltonetworks                   0755 root root -
+d  /var/cache/paloaltonetworks/gpwork            0755 root root -
+TMPFILESEOF
+
+# Install globalprotect CLI into /usr/bin so it is always on PATH.
+install -m 0755 /usr/lib/paloaltonetworks/globalprotect/globalprotect \
+    /usr/bin/globalprotect
+
+ln -sf /usr/lib/systemd/system/gpd.service \
+    /etc/systemd/system/multi-user.target.wants/gpd.service
+ln -sf /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount \
+    /etc/systemd/system/multi-user.target.wants/opt-paloaltonetworks-globalprotect.mount
+ln -sf /usr/lib/systemd/system/globalprotect-overlay-dirs.service \
+    /etc/systemd/system/opt-paloaltonetworks-globalprotect.mount.wants/globalprotect-overlay-dirs.service
+
+# PanGPS runs as init_t (no vendor SELinux module). The default targeted policy
+# silently blocks TUNSETIFF on /dev/net/tun via dontaudit rules, preventing the
+# daemon from starting its IPC listener. Make init_t permissive so the ioctl is
+# allowed — denials are logged but not enforced.
+semanage permissive -a init_t
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the

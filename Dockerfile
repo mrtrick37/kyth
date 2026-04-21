@@ -46,23 +46,30 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=secret,id=github_token \
     /ctx/scripts/ge-proton.sh
 
+# BUILD_DATE busts the cache for Layer 3 and all subsequent layers on every
+# daily build, ensuring dnf5 upgrade always runs even when the base image
+# digest and build_files/ contents haven't changed.
+# Pass as: --build-arg BUILD_DATE="$(date +%Y-%m-%d)"
+ARG BUILD_DATE=unset
+
 # Layer 3: Upstream RPM upgrades (~50-500 MB daily delta).
 # Isolated so daily package updates don't invalidate the package install layer
 # above.  Layers after this one are re-run on every daily build; layers before
 # it are cached until their scripts or the base image change.
 RUN --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
+    : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
     _drv_ver=$(rpm -q --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null || true); \
     _common_ver=$(dnf5 repoquery --available --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true); \
     if [ -n "${_drv_ver}" ] && [ -n "${_common_ver}" ] && [ "${_drv_ver}" = "${_common_ver}" ]; then \
         echo "NVIDIA packages consistent (${_drv_ver}); upgrading freely."; \
-        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+        dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
             --exclude='gstreamer1-plugins-bad' \
             --exclude='gstreamer1-plugins-bad.i686'; \
     else \
         echo "NVIDIA version mismatch (installed xorg-x11-drv-nvidia=${_drv_ver}, available nvidia-kmod-common=${_common_ver}); holding NVIDIA packages."; \
-        dnf5 upgrade -y --exclude='kernel*' --exclude='gamescope*' \
+        dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
             --exclude='gstreamer1-plugins-bad' \
             --exclude='gstreamer1-plugins-bad.i686' \
             --exclude='nvidia-kmod-common' \
