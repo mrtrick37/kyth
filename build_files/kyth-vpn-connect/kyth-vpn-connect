@@ -47,9 +47,16 @@ try:
         QWebEngineUrlRequestJob,
     )
     # Must be registered before QApplication is created.
+    # SecureScheme: allows HTTPS pages to redirect to this scheme without
+    # being blocked by Qt's mixed-content security policy.
+    # ContentSecurityPolicyIgnored: prevents CSP on the GP portal page from
+    # blocking the navigation to this scheme.
     for _gp_scheme in (b"globalprotectcallback", b"gc"):
         _s = QWebEngineUrlScheme(_gp_scheme)
-        _s.setFlags(QWebEngineUrlScheme.Flag.LocalScheme)
+        _s.setFlags(
+            QWebEngineUrlScheme.Flag.SecureScheme |
+            QWebEngineUrlScheme.Flag.ContentSecurityPolicyIgnored
+        )
         QWebEngineUrlScheme.registerScheme(_s)
     _WEBENGINE_AVAILABLE = True
 except ImportError:
@@ -64,7 +71,8 @@ if _WEBENGINE_AVAILABLE:
         url_received = pyqtSignal(str)
 
         def requestStarted(self, request: QWebEngineUrlRequestJob) -> None:
-            self.url_received.emit(request.requestUrl().toString())
+            url = request.requestUrl().toString()
+            self.url_received.emit(url)
             request.fail(QWebEngineUrlRequestJob.Error.RequestAborted)
 
     class _SamlWebPage(QWebEnginePage):
@@ -73,6 +81,13 @@ if _WEBENGINE_AVAILABLE:
         def __init__(self, profile, parent=None):
             super().__init__(profile, parent)
             self.navigationRequested.connect(self._on_nav)
+
+        def acceptNavigationRequest(self, url, nav_type, is_main_frame):
+            url_str = url.toString()
+            if url_str.startswith("globalprotectcallback:") or url_str.startswith("gc:"):
+                self.callback_received.emit(url_str)
+                return False
+            return True
 
         def _on_nav(self, request):
             url = request.url().toString()
@@ -96,13 +111,11 @@ if _WEBENGINE_AVAILABLE:
         cookie_ready = pyqtSignal(str)
 
         def __init__(self, saml_url: str, parent=None):
-            print("[SAML DEBUG] SamlBrowserDialog __init__ called")
             super().__init__(parent)
             self.setWindowTitle("VPN — SAML Authentication")
             self.resize(900, 650)
             self.setModal(True)
             self._done = False
-            self._all_cookies = []  # Collect all cookies seen
             layout = QVBoxLayout(self)
             info = QLabel(
                 "Sign in to complete VPN authentication. "
@@ -164,76 +177,15 @@ if _WEBENGINE_AVAILABLE:
 })()
 """
 
-        _DEBUG_JS = """
-(function() {
-    return JSON.stringify({
-        url: window.location.href,
-        title: document.title,
-        inputs: Array.from(document.querySelectorAll('input')).map(function(i){
-            return {name: i.name, id: i.id, type: i.type, value: i.value.substring(0,80)};
-        }),
-        forms: Array.from(document.forms).map(function(f){
-            return {action: f.action, method: f.method};
-        }),
-        body_snippet: (document.body ? document.body.innerText : '').substring(0,200)
-    });
-})()
-"""
-
         def _on_load_finished(self, ok: bool) -> None:
-            print(f"[SAML DEBUG] _on_load_finished called, ok={ok}, done={self._done}")
             try:
                 if self._done:
                     return
-                self._page.runJavaScript(self._DEBUG_JS, self._on_debug_dump)
                 if not ok:
                     return
                 self._page.runJavaScript(self._GP_TOKEN_JS, self._on_js_token)
-                # After ACS page load, dump all collected cookies
-                cookie_lines = []
-                for c in self._all_cookies:
-                    name = c.name().data().decode("utf-8", errors="replace")
-                    value = c.value().data().decode("utf-8", errors="replace")
-                    domain = c.domain()
-                    path = c.path()
-                    secure = c.isSecure()
-                    httponly = c.isHttpOnly()
-                    line = f"[SAML ALL COOKIES] {name}={value} domain={domain} path={path} secure={secure} httponly={httponly}"
-                    print(line)
-                    cookie_lines.append(line)
-                import pathlib
-                pathlib.Path("/tmp/kyth-vpn-saml-cookies.txt").write_text("\n".join(cookie_lines))
             except Exception as e:
                 print("[SAML load_finished error]", e)
-
-        def _on_all_cookies_loaded(self, cookies):
-            try:
-                cookie_lines = []
-                for cookie in cookies:
-                    name = cookie.name().data().decode("utf-8", errors="replace")
-                    value = cookie.value().data().decode("utf-8", errors="replace")
-                    domain = cookie.domain()
-                    path = cookie.path()
-                    secure = cookie.isSecure()
-                    httponly = cookie.isHttpOnly()
-                    line = f"[SAML ALL COOKIES] {name}={value} domain={domain} path={path} secure={secure} httponly={httponly}"
-                    print(line)
-                    cookie_lines.append(line)
-                # Write all cookies to a file for inspection
-                import pathlib
-                pathlib.Path("/tmp/kyth-vpn-saml-cookies.txt").write_text("\n".join(cookie_lines))
-            except Exception as e:
-                print("[SAML all_cookies_loaded error]", e)
-
-        def _on_debug_dump(self, result) -> None:
-            import json, pathlib
-            try:
-                data = json.loads(result) if result else {}
-                out = json.dumps(data, indent=2)
-                pathlib.Path("/tmp/kyth-vpn-saml-debug.json").write_text(out)
-                print("[SAML DEBUG]", out[:800])
-            except Exception as e:
-                print("[SAML DEBUG ERROR]", e)
 
         def _on_js_token(self, result) -> None:
             try:
@@ -247,22 +199,12 @@ if _WEBENGINE_AVAILABLE:
             try:
                 name = cookie.name().data().decode("utf-8", errors="replace")
                 value = cookie.value().data().decode("utf-8", errors="replace")
-                print(f"[SAML DEBUG] cookieAdded: {name}={value}")
-                self._all_cookies.append(cookie)
                 if self._done:
                     return
                 if name in _GP_AUTH_COOKIES:
                     self._emit_cookie(f"{name}={value}")
             except Exception as e:
                 print("[SAML cookie_added error]", e)
-
-        def accept(self):
-            print("[SAML DEBUG] SamlBrowserDialog.accept() called")
-            super().accept()
-
-        def reject(self):
-            print("[SAML DEBUG] SamlBrowserDialog.reject() called")
-            super().reject()
 
         def _on_callback(self, url: str) -> None:
             if self._done:
@@ -354,6 +296,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self._worker: _VpnWorker | None = None
+        self._saml_in_progress = False
         self.setWindowTitle("VPN Connect")
         self.setMinimumSize(560, 560)
         self._build_ui()
@@ -498,18 +441,47 @@ class MainWindow(QMainWindow):
                 self._on_saml_required(m.group(1))
 
     def _on_saml_required(self, saml_url: str) -> None:
-        if not _WEBENGINE_AVAILABLE:
-            self._log.append("[SAML auth required but python3-pyqt6-webengine is not installed]")
-            return
-        dlg = SamlBrowserDialog(saml_url, self)
-        dlg.cookie_ready.connect(self._on_saml_cookie)
-        dlg.exec()
+        if _WEBENGINE_AVAILABLE:
+            self._log.append("[SAML] Opening embedded authentication browser…")
+            self._saml_in_progress = True
+            dlg = SamlBrowserDialog(saml_url, self)
+            dlg.cookie_ready.connect(self._on_saml_cookie)
+            dlg.exec()
+            self._saml_in_progress = False
+            if dlg.result() != QDialog.DialogCode.Accepted:
+                self._log.append("[SAML] Authentication cancelled.")
+                self._set_status("disconnected")
+                self._connect_btn.setEnabled(True)
+                self._disconnect_btn.setEnabled(False)
+                for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
+                    w.setEnabled(True)
+        else:
+            import webbrowser
+            from PyQt6.QtWidgets import QInputDialog
+            self._log.append("[SAML] Opening authentication URL in your browser...")
+            webbrowser.open(saml_url)
+            self._log.append("[SAML] After login, open browser dev tools, find the correct cookie (e.g., prelogin-cookie, preloginuserauthcookie, portal-userauthcookie), and paste it below.")
+            cookie, ok = QInputDialog.getText(self, "Paste VPN Cookie", "Paste the cookie (name=value):")
+            if ok and cookie.strip():
+                self._on_saml_cookie(cookie.strip())
+            else:
+                self._log.append("[SAML] No cookie provided. Cannot continue.")
+                self._set_status("disconnected")
+                self._connect_btn.setEnabled(True)
+                self._disconnect_btn.setEnabled(False)
+                for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
+                    w.setEnabled(True)
 
     def _on_saml_cookie(self, cookie: str) -> None:
         self._log.append("[SAML authentication complete — reconnecting…]")
         if self._worker:
             self._worker.stop()
             self._worker.wait(2000)
+        self._set_status("connecting")
+        self._connect_btn.setEnabled(False)
+        self._disconnect_btn.setEnabled(True)
+        for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
+            w.setEnabled(False)
         protocol = self._protocol.currentText()
         os_emul = self._os_emul.currentText()
         username = self._username.text().strip()
@@ -529,13 +501,17 @@ class MainWindow(QMainWindow):
         self._worker.start()
 
     def _on_done(self, code: int) -> None:
+        self._log.append(f"\n[openconnect exited: code {code}]")
+        self._worker = None
+        if self._saml_in_progress:
+            # First openconnect probe exits naturally after outputting the SAML
+            # URL — the SAML dialog is still open, so don't reset the UI yet.
+            return
         self._set_status("disconnected")
         self._connect_btn.setEnabled(True)
         self._disconnect_btn.setEnabled(False)
         for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
             w.setEnabled(True)
-        self._log.append(f"\n[openconnect exited: code {code}]")
-        self._worker = None
 
     def _set_status(self, state: str) -> None:
         if state == "connected":

@@ -607,10 +607,29 @@ GPDSVCEOF
 # view of binaries (lower, read-only) and data (upper, writable). Processes
 # exec'd from here show /opt/... in /proc/PID/exe, satisfying PanGPS's check.
 # workdir must be on the same fs as upper and outside both upper and lower.
+# Explicit dir-creation service — more reliable than After=systemd-tmpfiles-setup.service
+# because tmpfiles and the .mount unit race to completion at the same boot second.
+cat > /usr/lib/systemd/system/globalprotect-overlay-dirs.service <<'DIRSVCEOF'
+[Unit]
+Description=Create GlobalProtect overlay writable directories
+DefaultDependencies=no
+After=local-fs.target
+Before=opt-paloaltonetworks-globalprotect.mount
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=mkdir -p /var/lib/paloaltonetworks/globalprotect /var/cache/paloaltonetworks/gpwork
+
+[Install]
+WantedBy=opt-paloaltonetworks-globalprotect.mount
+DIRSVCEOF
+
 cat > /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount <<'OVLEOF'
 [Unit]
 Description=GlobalProtect overlay (binaries + writable data at /opt/... path)
-After=systemd-tmpfiles-setup.service
+After=globalprotect-overlay-dirs.service
+Requires=globalprotect-overlay-dirs.service
 Before=gpd.service
 
 [Mount]
@@ -657,6 +676,8 @@ ln -sf /usr/lib/systemd/system/gpd.service \
     /etc/systemd/system/multi-user.target.wants/gpd.service
 ln -sf /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount \
     /etc/systemd/system/multi-user.target.wants/opt-paloaltonetworks-globalprotect.mount
+ln -sf /usr/lib/systemd/system/globalprotect-overlay-dirs.service \
+    /etc/systemd/system/opt-paloaltonetworks-globalprotect.mount.wants/globalprotect-overlay-dirs.service
 
 # PanGPS runs as init_t (no vendor SELinux module). The default targeted policy
 # silently blocks TUNSETIFF on /dev/net/tun via dontaudit rules, preventing the
