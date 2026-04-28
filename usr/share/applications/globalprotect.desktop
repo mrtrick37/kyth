@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=GlobalProtect
+Comment=GlobalProtect VPN
+Exec=/usr/bin/kyth-vpn-connect
+Icon=/usr/share/icons/hicolor/48x48/apps/globalprotect.png
+Terminal=false
+Type=Application
+StartupNotify=true
+StartupWMClass=kyth-vpn-connect
+Categories=Network;VPN;
+Keywords=network;vpn;globalprotect;
