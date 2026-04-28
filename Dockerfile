@@ -29,8 +29,8 @@ ARG ENABLE_SCX=1
 # Layer 1: All RPM package installs (~2-3 GB).
 # Stable — only re-run when packages.sh changes or the base image is updated.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
-    --mount=type=cache,dst=/var/log \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/log,target=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     /ctx/scripts/packages.sh
@@ -41,7 +41,7 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # upgrade run.  GE-Proton is a fully self-contained wine bundle with no
 # system library dependencies, so ordering before the upgrade is safe.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
     /ctx/scripts/ge-proton.sh
@@ -56,7 +56,7 @@ ARG BUILD_DATE=unset
 # Isolated so daily package updates don't invalidate the package install layer
 # above.  Layers after this one are re-run on every daily build; layers before
 # it are cached until their scripts or the base image change.
-RUN --mount=type=cache,dst=/var/cache \
+RUN --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
@@ -83,7 +83,7 @@ RUN --mount=type=cache,dst=/var/cache \
 # Re-run on every daily build (sits after the upgrade layer). GitHub API calls
 # use the mounted token to avoid unauthenticated rate limits.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
     ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
@@ -97,12 +97,12 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Layer 6: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
 
 # Layer 7: Mesa-git (~300-500 MB). Re-run on every daily build.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,dst=/var/cache \
+    --mount=type=cache,id=s/dd8fa65f-1dae-48e2-a532-d8893a94883a-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/mesa-git.sh
