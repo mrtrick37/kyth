@@ -238,11 +238,6 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
     && sed -i '/^VARIANT_ID=/d' /etc/os-release \
-    # --- Install latest Node.js (LTS) and Continue CLI ---
-    && dnf5 install -y curl \
-    && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
-    && dnf5 install -y nodejs \
-    && npm install -g @continueai/continue \
     && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \
     && printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \
     && mkdir -p /etc/X11/xorg.conf.d \

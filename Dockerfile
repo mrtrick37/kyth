@@ -7,10 +7,6 @@ COPY build_files /
 # Base Image
 ARG BASE_IMAGE
 FROM ${BASE_IMAGE}
-# Pass Hugging Face token into build context
-ARG HUGGINGFACE_TOKEN
-ENV HUGGINGFACE_TOKEN=${HUGGINGFACE_TOKEN}
-
 # Override upstream OCI labels so downstream tooling (lorax/bootc) sees KythOS product metadata
 LABEL org.opencontainers.image.title="KythOS"
 LABEL org.opencontainers.image.version="44"
