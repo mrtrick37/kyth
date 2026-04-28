@@ -84,7 +84,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Development
 
-- Visual Studio Code with the Claude Code extension pre-installed system-wide
+- Visual Studio Code
 - Brave browser
 - GitHub CLI (`gh`)
 - Homebrew — system-wide, wheel group owns `/home/linuxbrew`; persists across OS updates
@@ -308,11 +308,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-21 19:20:49 UTC
+- Last refreshed (UTC): 2026-04-28 00:59:50 UTC
 - Current branch: testing
-- HEAD commit: 0b5669c
-- Last commit title: integrating local ai code helper
-- Last commit date: 2026-04-21T14:58:12-04:00
+- HEAD commit: 8f910d4
+- Last commit title: Resolve merge conflict in Justfile: keep newest version
+- Last commit date: 2026-04-21T15:20:49-04:00
 - CI workflow files: 3
 - Build script files: 7
 
