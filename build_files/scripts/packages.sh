@@ -242,61 +242,20 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# ── NVIDIA driver ─────────────────────────────────────────────────────────────
-# The NVIDIA kernel module must be baked into /usr/lib/modules/ at image build
-# time — bootc/ostree roots are read-only at runtime so modules cannot be
-# compiled or installed post-boot.  kernel-cachyos-devel is installed in
-# build_base while the CachyOS COPR is active, so the headers are present here.
-# On AMD/Intel systems these packages are inert: the nvidia module exists in the
-# image but udev never loads it without NVIDIA hardware present.
-# If another repo pulled in a different NVIDIA family (for example negativo17),
-# remove its shared-common package to avoid file conflicts with RPM Fusion.
+# ── NVIDIA driver (userspace only) ────────────────────────────────────────────
+# Kernel module compilation (akmods) is intentionally omitted — it added
+# 5–15 min to every build. Only userspace NVIDIA libs are installed here.
 dnf5 remove -y nvidia-kmod-common || true
-# Keep this install constrained to Fedora + RPM Fusion repos so solver doesn't
-# mix incompatible NVIDIA package streams from third-party repos.
-# Install NVIDIA packages.  RPM Fusion sometimes ships nvidia-kmod-common at a
-# newer driver version than xorg-x11-drv-nvidia during a release wave; both
-# packages own /usr/bin/nvidia-bug-report.sh in different driver series, causing
-# a file conflict in the same transaction.  Check available versions first and
-# exclude nvidia-kmod-common when they would mismatch.
-_xorg_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null | sort -V | tail -1 || true)
-_common_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
-if [ -n "${_xorg_ver}" ] && [ -n "${_common_ver}" ] && [ "${_xorg_ver}" != "${_common_ver}" ]; then
-    echo "NVIDIA version mismatch (xorg-x11-drv-nvidia=${_xorg_ver}, nvidia-kmod-common=${_common_ver}); excluding nvidia-kmod-common from install."
-    _nvidia_excludes="--exclude=nvidia-kmod-common"
-else
-    echo "NVIDIA packages consistent (${_xorg_ver}); installing without exclusions."
-    _nvidia_excludes=""
-fi
-# shellcheck disable=SC2086
 dnf5 install -y --skip-unavailable --allowerasing \
     --disablerepo='*' \
     --enablerepo='fedora*' \
     --enablerepo='updates*' \
     --enablerepo='rpmfusion*' \
-    ${_nvidia_excludes} \
-    akmods \
-    akmod-nvidia \
     xorg-x11-drv-nvidia \
     xorg-x11-drv-nvidia-cuda \
     xorg-x11-drv-nvidia-libs \
     xorg-x11-drv-nvidia-libs.i686 \
     nvidia-vaapi-driver
-unset _xorg_ver _common_ver _nvidia_excludes
-
-# Compile the NVIDIA kernel module against the installed CachyOS kernel.
-# akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
-NVIDIA_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-echo "Building NVIDIA module for kernel ${NVIDIA_KVER}"
-akmods --force --kernels "${NVIDIA_KVER}"
-# Fail loudly if the module was not produced — a silent miss here means NVIDIA
-# users get a black screen with no obvious cause.
-modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
-    || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
@@ -314,14 +273,12 @@ dnf5 install -y \
     git \
     spice-vdagent \
     virt-viewer \
-    kscreen
+    kscreen \
+    neovim \
+    zsh \
+    jetbrains-mono-fonts \
+    cascadia-code-fonts
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
-
-# Homebrew RPM deps
-# Clean cached packages before this install: libxcrypt-compat has been showing
-# corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
-dnf5 clean packages
-dnf5 install -y gcc glibc-devel kernel-headers libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no
@@ -334,88 +291,6 @@ ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
 
-
-# ── plasma-nm-openconnect: GlobalProtect SAML callback fix ───────────────────
-# plasma-nm-openconnect uses QWebEngineView::urlChanged to detect when
-# openconnect has finished SAML auth.  urlChanged only fires for committed
-# navigations — Qt WebEngine silently aborts the globalprotectcallback://
-# redirect (unknown scheme) before the URL ever commits, so the cookie is
-# never passed to openconnect_webview_load_changed and getconfig.esp receives
-# an empty auth token → HTTP 512.
-#
-# Fix: intercept globalprotectcallback:// (and the older gc:// alias) via
-# QWebEnginePage::navigationRequested, which fires before Qt drops the
-# navigation, extract the URL, and pass it to handleWebEngineUrl as usual.
-#
-# Build deps are installed, used, then removed in this block so they don't
-# bloat the final image.  The resulting .so files replace the stock ones from
-# plasma-nm-openconnect.
-PLASMA_NM_BUILD_DEPS=(
-    cmake
-    extra-cmake-modules
-    kf6-kdbusaddons-devel
-    kf6-kcmutils-devel
-    kf6-kcoreaddons-devel
-    kf6-ki18n-devel
-    kf6-kio-devel
-    kf6-knotifications-devel
-    kf6-ksvg-devel
-    kf6-kwidgetsaddons-devel
-    kf6-kwallet-devel
-    kf6-modemmanager-qt-devel
-    kf6-networkmanager-qt-devel
-    libplasma-devel
-    openconnect-devel
-    qt6-qtbase-devel
-    qt6-qttools-devel
-    qt6-qtwebengine-devel
-)
-dnf5 install -y --skip-unavailable "${PLASMA_NM_BUILD_DEPS[@]}"
-dnf5 builddep -y --skip-unavailable plasma-nm
-
-PLASMA_NM_BUILD=/tmp/plasma-nm-build
-mkdir -p "${PLASMA_NM_BUILD}"
-cd "${PLASMA_NM_BUILD}"
-
-dnf5 download --source plasma-nm
-rpm2cpio plasma-nm-*.src.rpm | cpio -idm '*.tar.xz'
-tar xf plasma-nm-*.tar.xz
-PLASMA_NM_SRC="${PLASMA_NM_BUILD}/$(ls -d plasma-nm-*/)"
-
-patch -d "${PLASMA_NM_SRC}" -p1 \
-    < /ctx/patches/plasma-nm-globalprotect-callback.patch
-
-cmake -S "${PLASMA_NM_SRC}" -B "${PLASMA_NM_BUILD}/cmake-build" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    -DBUILD_OPENCONNECT=ON \
-    -DBUILD_TESTING=OFF \
-    -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
-
-PLUGIN_TARGETS=(
-    plasmanetworkmanagement_openconnect_anyconnect
-    plasmanetworkmanagement_openconnect_arrayui
-    plasmanetworkmanagement_openconnect_f5ui
-    plasmanetworkmanagement_openconnect_fortinetui
-    plasmanetworkmanagement_openconnect_globalprotectui
-    plasmanetworkmanagement_openconnect_juniperui
-    plasmanetworkmanagement_openconnect_pulseui
-)
-cmake --build "${PLASMA_NM_BUILD}/cmake-build" \
-    --parallel "$(nproc)" \
-    $(printf -- '--target %s ' "${PLUGIN_TARGETS[@]}")
-
-PLUGIN_DEST=/usr/lib64/qt6/plugins/plasma/network/vpn
-for target in "${PLUGIN_TARGETS[@]}"; do
-    find "${PLASMA_NM_BUILD}/cmake-build" -name "${target}.so" \
-        -exec install -m 0755 {} "${PLUGIN_DEST}/" \;
-done
-
-# Clean up build tree and build-only deps
-cd /
-rm -rf "${PLASMA_NM_BUILD}"
-dnf5 remove -y "${PLASMA_NM_BUILD_DEPS[@]}"
-dnf5 autoremove -y
 
 # ── GlobalProtect VPN agent + GUI ────────────────────────────────────────────
 # Bundled RPMs (proprietary — not available in public repos).
@@ -571,8 +446,12 @@ ln -sf /usr/lib/systemd/system/globalprotect-overlay-dirs.service \
 
 # PanGPS runs as init_t (no vendor SELinux module). The default targeted policy
 # silently blocks TUNSETIFF on /dev/net/tun via dontaudit rules, preventing the
-# daemon from starting its IPC listener. Make init_t permissive so the ioctl is
-# allowed — denials are logged but not enforced.
+# daemon from starting its IPC listener. Making init_t permissive allows the ioctl
+# — denials are logged but not enforced.
+#
+# Trade-off: init_t covers all systemd-spawned daemons, not just PanGPS. The
+# correct fix is a custom .te policy module (allow init_t self:tun_socket create)
+# but that requires offline policy compilation and testing. Accepted for now.
 semanage permissive -a init_t
 
 # Remove dnf transaction history and repo solver data from the image layer.

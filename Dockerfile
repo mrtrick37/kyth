@@ -56,26 +56,13 @@ RUN --mount=type=cache,dst=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
-    _drv_ver=$(rpm -q --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null || true); \
-    _common_ver=$(dnf5 repoquery --available --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true); \
-    if [ -n "${_drv_ver}" ] && [ -n "${_common_ver}" ] && [ "${_drv_ver}" = "${_common_ver}" ]; then \
-        echo "NVIDIA packages consistent (${_drv_ver}); upgrading freely."; \
-        dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
-            --exclude='gstreamer1-plugins-bad' \
-            --exclude='gstreamer1-plugins-bad.i686'; \
-    else \
-        echo "NVIDIA version mismatch (installed xorg-x11-drv-nvidia=${_drv_ver}, available nvidia-kmod-common=${_common_ver}); holding NVIDIA packages."; \
-        dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
-            --exclude='gstreamer1-plugins-bad' \
-            --exclude='gstreamer1-plugins-bad.i686' \
-            --exclude='nvidia-kmod-common' \
-            --exclude='akmod-nvidia*' \
-            --exclude='xorg-x11-drv-nvidia*'; \
-    fi && \
+    dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
+        --exclude='gstreamer1-plugins-bad' \
+        --exclude='gstreamer1-plugins-bad.i686' && \
     dnf5 upgrade -y libdrm && \
     dnf5 clean all
 
-# Layer 4: Third-party binaries — topgrade, winetricks, SCX schedulers, Homebrew (~400 MB).
+# Layer 4: Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
 # Re-run on every daily build (sits after the upgrade layer). GitHub API calls
 # use the mounted token to avoid unauthenticated rate limits.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \

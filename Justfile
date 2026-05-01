@@ -392,7 +392,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         # Provide sensible defaults so installer UI shows KythOS even when labels
         # are missing from the base image.
         PRODUCT_NAME="KythOS"
-        PRODUCT_VERSION="43"
+        PRODUCT_VERSION="44"
         set +e
         labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
         set -e
