@@ -33,8 +33,7 @@ depmod -a "${CACHYOS_KVER}"
 
 dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
     kernel-cachyos \
-    kernel-cachyos-core \
-    kernel-cachyos-devel
+    kernel-cachyos-core
 
 depmod -a "${CACHYOS_KVER}"
 
@@ -57,11 +56,27 @@ if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
     fi
 fi
 
-# Write dracut config — force the ostree module required for bootc deployments.
-# Without it the initramfs cannot find or mount the root filesystem.
+# ── Plymouth boot splash ─────────────────────────────────────────────────────
+# Install Plymouth here so the initramfs is built with the KythOS theme already
+# embedded — eliminating a second dracut run in the branding layer.
+# librsvg2-tools is installed temporarily to render the SVG logo to PNG.
+dnf5 install -y plymouth plymouth-plugin-script librsvg2-tools
+
+PLYMOUTH_DIR=/usr/share/plymouth/themes/kyth
+mkdir -p "${PLYMOUTH_DIR}"
+cp /run/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
+cp /run/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
+rsvg-convert -w 200 /run/plymouth/kyth-logo.svg -o "${PLYMOUTH_DIR}/kyth-logo.png"
+plymouth-set-default-theme kyth
+
+dnf5 remove -y librsvg2-tools || true
+
+# Write dracut config — force the ostree and plymouth modules.
+# Without ostree the initramfs cannot find or mount the root filesystem.
+# Without plymouth the boot splash is not shown.
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree "
+add_dracutmodules+=" ostree plymouth "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
@@ -69,6 +84,7 @@ DRACUTEOF
 
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
+    --compress "zstd -1" \
     --kver "${CACHYOS_KVER}" \
     --force \
     "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \

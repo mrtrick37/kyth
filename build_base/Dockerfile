@@ -12,5 +12,6 @@ ARG CACHYOS_KERNEL_VER=unset
 
 # Use a bind-mount so the script is never written into any image layer
 RUN --mount=type=bind,source=build.sh,target=/run/build.sh \
+    --mount=type=bind,source=plymouth,target=/run/plymouth \
     : "cache-bust=${CACHYOS_KERNEL_VER}" \
     && bash /run/build.sh

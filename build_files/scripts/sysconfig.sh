@@ -196,11 +196,12 @@ cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
 
-# cfg80211 regulatory domain: pin to US.
-# Without a hint, cfg80211 defaults to the "world" domain which caps txpower at
-# ~3 dBm on 5GHz — causing very slow throughput (~20 Mbps) even with a strong
+# cfg80211 regulatory domain: pinned to US.
+# Without a hint cfg80211 defaults to the "world" domain which caps txpower at
+# ~3 dBm on 5GHz, causing very slow throughput (~20 Mbps) even with a strong
 # signal. FCC/US allows up to 30 dBm on channel 149 where most home APs land.
-# TODO: make this locale-aware via kyth-welcome on first boot.
+# Non-US users should override this by creating
+# /etc/modprobe.d/cfg80211-regdom.conf with their own country code.
 cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFGEOF'
 options cfg80211 ieee80211_regdom=US
 CFGEOF
@@ -276,8 +277,6 @@ mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
 # run at native resolution get AMD FidelityFX Super Resolution upscaling.
 # Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
-WINE_FULLSCREEN_FSR=1
-WINE_FULLSCREEN_FSR_STRENGTH=2
 PROTONEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
