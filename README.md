@@ -151,6 +151,22 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 
 **Requirements:** 8 GB RAM minimum for the live session. Active network connection required (netinstall).
 
+### Install to an Existing Blank Partition
+
+If you already created a blank partition and want to leave the rest of the disk layout alone, use the manual blank-partition installer from the live ISO:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5
+```
+
+Pass the EFI System Partition explicitly if auto-detection picks the wrong one:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5 /dev/nvme0n1p1
+```
+
+This formats only the target partition as Btrfs, reuses the existing EFI partition when available, and installs KythOS with `bootc install to-filesystem`.
+
 ### Rebase from an existing Fedora atomic system
 
 ```bash
@@ -252,6 +268,7 @@ build_files/
   kyth-launch-installer           Desktop launcher for the installer
   kyth-install.sh                 CLI install script (bootc install to-disk)
   kyth-manual-install.sh          Manual/fallback install script
+  kyth-partition-install.sh       Manual install to an existing blank partition
   branding/
     kyth-logo.svg                 KythOS logo (with background and wordmark)
     kyth-logo-transparent.svg     KythOS K mark (transparent)
@@ -308,11 +325,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-28 00:59:50 UTC
+- Last refreshed (UTC): 2026-05-01 22:27:49 UTC
 - Current branch: testing
-- HEAD commit: 8f910d4
-- Last commit title: Resolve merge conflict in Justfile: keep newest version
-- Last commit date: 2026-04-21T15:20:49-04:00
+- HEAD commit: 3edfa83
+- Last commit title: Update image build
+- Last commit date: 2026-04-27T20:59:50-04:00
 - CI workflow files: 3
 - Build script files: 7
 

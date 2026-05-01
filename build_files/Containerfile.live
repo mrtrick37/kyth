@@ -216,12 +216,13 @@ COPY build_files/branding/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
 COPY build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
+COPY build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
 # ── Post-COPY setup: installer env, wallpaper metadata, icons, branding ──────
 # kyth-installer.env tells the installer which image to pull at install time.
-RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
+RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyth-partition-install \
     && printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
         "${SOURCE_TAG}" "${SOURCE_TAG}" \
         > /etc/kyth-installer.env \
