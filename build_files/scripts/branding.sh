@@ -363,10 +363,6 @@ elif [ "${smoke_exit}" -ne 0 ]; then
     exit 1
 fi
 
-install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
-install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
-    /usr/share/applications/kyth-vpn-connect.desktop
-
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/zink-run /usr/bin/zink-run

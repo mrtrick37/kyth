@@ -325,11 +325,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-05-01 23:40:53 UTC
+- Last refreshed (UTC): 2026-05-02 00:45:25 UTC
 - Current branch: testing
-- HEAD commit: 20fcf1b
-- Last commit title: f
-- Last commit date: 2026-05-01T18:27:49-04:00
+- HEAD commit: 974fe36
+- Last commit title: reworking installer and cleaning up the trash
+- Last commit date: 2026-05-01T19:40:53-04:00
 - CI workflow files: 3
 - Build script files: 7
 
