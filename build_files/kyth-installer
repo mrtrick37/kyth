@@ -6,8 +6,7 @@ Starts a local HTTP server, serves a polished single-page installer UI,
 and launches a browser in kiosk/app mode to display it.
 
 Install pipeline:
-  1. podman pull SOURCE_IMAGE
-  2. bootc install to-disk --source-imgref containers-storage:IMAGE DISK
+  1. bootc install to-disk --source-imgref docker://SOURCE_IMAGE DISK
   3. mount root partition, write hostname + timezone to ostree deploy/etc
 """
 
