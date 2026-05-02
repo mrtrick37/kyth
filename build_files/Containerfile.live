@@ -110,8 +110,12 @@ RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
 #     liveuser.  .bash_profile then execs startx so the user still reaches
 #     the desktop without any manual typing.
 RUN groupadd -r autologin 2>/dev/null || true \
-    && useradd -c "Live User" -G autologin liveuser \
+    && useradd -c "Live User" -G autologin,wheel liveuser \
     && passwd -d liveuser \
+    && mkdir -p /etc/sudoers.d \
+    && printf 'liveuser ALL=(root) NOPASSWD: ALL\n' \
+        > /etc/sudoers.d/liveuser-installer \
+    && chmod 0440 /etc/sudoers.d/liveuser-installer \
     && mkdir -p /etc/sddm.conf.d \
     && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=true\n' \
         > /etc/sddm.conf.d/autologin.conf \
