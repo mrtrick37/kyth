@@ -269,6 +269,8 @@ RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --add "dmsquash-live plymouth" \
+        --add-drivers "overlay squashfs iso9660 loop" \
+        --filesystems "squashfs iso9660" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \
