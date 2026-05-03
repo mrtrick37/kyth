@@ -2,7 +2,11 @@
 # Allow build scripts to be referenced without being copied into the final image
 ARG BASE_IMAGE=localhost/kyth-base:stable
 FROM scratch AS ctx
-COPY build_files /
+# --chmod=0755 ensures scripts are executable regardless of git core.fileMode
+# settings in CI (actions/checkout with core.fileMode=false strips the execute
+# bit, causing a Permission Denied when the bind-mounted ctx layer is rebuilt
+# after a cache miss).
+COPY --chmod=0755 build_files /
 
 # Base Image
 ARG BASE_IMAGE
