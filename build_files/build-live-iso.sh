@@ -235,6 +235,15 @@ echo "==> Container export complete."
 docker rm "${CONTAINER}" 2>/dev/null || true
 echo "==> Timing: export complete at ${SECONDS}s"
 
+# docker export strips xattrs; set the KDE Plasma 6 trust xattr here so the
+# installer desktop icon launches without the "Allow Launching" security dialog.
+_installer_desktop="${ROOTFS}/home/liveuser/Desktop/install-kyth.desktop"
+if [[ -f "${_installer_desktop}" ]]; then
+    sudo python3 -c "import os; os.setxattr('${_installer_desktop}', 'user.metadata::trusted', b'yes')" \
+        && echo "==> Marked installer desktop file as trusted (KDE Plasma 6)" \
+        || echo "WARNING: could not set trusted xattr on installer desktop"
+fi
+
 # ── 3. Kernel + live initramfs ───────────────────────────────────────────────
 echo "==> Locating kernel and live initramfs"
 KVER=$(
