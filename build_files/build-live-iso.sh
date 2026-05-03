@@ -265,7 +265,6 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -processors "$(nproc)" \
     -noappend \
     -no-progress \
-    -no-xattrs \
     -e proc -e sys -e dev -e run
 echo "==> Timing: squashfs complete at ${SECONDS}s"
 
