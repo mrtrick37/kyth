@@ -24,10 +24,16 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     libblockdev-lvm \
     libblockdev-dm \
     dracut-live \
+    e2fsprogs \
+    ntfs-3g \
+    ntfsprogs \
+    parted \
     && mkdir -p /var/lib/rpm-state \
     && dnf5 clean all \
     && echo "==> Verifying critical packages:" \
     && rpm -q chromium \
+    && (command -v bootc >/dev/null 2>&1 || { echo "ERROR: bootc not found in image"; exit 1; }) \
+    && (command -v btrfs >/dev/null 2>&1 || { echo "ERROR: btrfs not found"; exit 1; }) \
     && echo "==> All critical installer packages present"
 
 # ── Desktop, ISO tooling, and utilities (tolerate Fedora package churn) ──
@@ -408,7 +414,19 @@ RUN echo "uninitialized" > /etc/machine-id \
         atd.service \
         abrtd.service \
         iio-sensor-proxy.service \
-        power-profiles-daemon.service; do \
+        power-profiles-daemon.service \
+        NetworkManager-wait-online.service \
+        kdump.service \
+        fwupd.service \
+        fwupd-refresh.service \
+        fwupd-refresh.timer \
+        auditd.service \
+        bluetooth.service \
+        lvm2-monitor.service \
+        dm-event.service \
+        dm-event.socket \
+        sssd.service \
+        accounts-daemon.service; do \
         ln -sf /dev/null "/etc/systemd/system/${unit}"; \
     done \
     && printf '[zram0]\nzram-size = min(ram*2, 16384)\ncompression-algorithm = zstd\n' \
