@@ -82,7 +82,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Development
 
-- Visual Studio Code with the Claude Code extension pre-installed system-wide
+- Visual Studio Code
 - Brave browser
 - GitHub CLI (`gh`)
 - Homebrew — system-wide, wheel group owns `/home/linuxbrew`; persists across OS updates
@@ -148,6 +148,22 @@ sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 7. Reboot into the installed system
 
 **Requirements:** 8 GB RAM minimum for the live session. Active network connection required (netinstall).
+
+### Install to an Existing Blank Partition
+
+If you already created a blank partition and want to leave the rest of the disk layout alone, use the manual blank-partition installer from the live ISO:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5
+```
+
+Pass the EFI System Partition explicitly if auto-detection picks the wrong one:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5 /dev/nvme0n1p1
+```
+
+This formats only the target partition as Btrfs, reuses the existing EFI partition when available, and installs KythOS with `bootc install to-filesystem`.
 
 ### Rebase from an existing Fedora atomic system
 
@@ -250,6 +266,7 @@ build_files/
   kyth-launch-installer           Desktop launcher for the installer
   kyth-install.sh                 CLI install script (bootc install to-disk)
   kyth-manual-install.sh          Manual/fallback install script
+  kyth-partition-install.sh       Manual install to an existing blank partition
   branding/
     kyth-logo.svg                 KythOS logo (with background and wordmark)
     kyth-logo-transparent.svg     KythOS K mark (transparent)
@@ -306,11 +323,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-04-21 19:20:49 UTC
+- Last refreshed (UTC): 2026-05-02 18:29:10 UTC
 - Current branch: testing
-- HEAD commit: 0b5669c
-- Last commit title: integrating local ai code helper
-- Last commit date: 2026-04-21T14:58:12-04:00
+- HEAD commit: cce27af
+- Last commit title: f
+- Last commit date: 2026-05-02T09:27:16-04:00
 - CI workflow files: 3
 - Build script files: 7
 
