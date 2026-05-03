@@ -79,13 +79,20 @@ def list_timezones() -> list[str]:
 
 
 def find_deploy_etc(root_mount: str) -> Optional[str]:
-    candidates = sorted(glob.glob(
+    # Sort by mtime so we always pick the most-recently-written deployment.
+    # Alphabetic sort on the SHA256-based directory names is not reliable —
+    # on a retry after a partial install an older deployment may sort last.
+    candidates = glob.glob(
         f"{root_mount}/ostree/deploy/default/deploy/*/etc"
-    ))
-    return candidates[-1] if candidates else None
+    )
+    if not candidates:
+        return None
+    return max(candidates, key=lambda p: os.path.getmtime(p))
 
 
 def get_root_partition(disk: str) -> str:
+    # Primary: lsblk — pick the largest partition (bootc root is always the
+    # biggest slice after EFI + boot).
     try:
         out = subprocess.check_output(
             ["lsblk", "--json", "--bytes", "--output", "NAME,SIZE,TYPE", disk],
@@ -100,9 +107,24 @@ def get_root_partition(disk: str) -> str:
             return "/dev/" + sorted(parts, reverse=True)[0][1]
     except Exception:
         pass
-    base = disk.lstrip("/dev/")
-    sep = "p" if (base.startswith("nvme") or base.startswith("mmcblk")) else ""
-    return f"{disk}{sep}3"
+    # Fallback: ask blkid which partition on this disk carries a btrfs
+    # filesystem — bootc always uses btrfs, so this identifies the root
+    # even when lsblk fails or the partition numbering is non-standard.
+    try:
+        out = subprocess.check_output(
+            ["blkid", "--output", "device", "--match-types", "btrfs"],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        for dev in out.splitlines():
+            dev = dev.strip()
+            if dev and dev.startswith(disk):
+                return dev
+    except Exception:
+        pass
+    raise RuntimeError(
+        f"Cannot determine root partition on {disk}. "
+        "lsblk and blkid both failed — check that the disk completed writing."
+    )
 
 
 def check_network() -> bool:
@@ -635,12 +657,15 @@ def _run_alongside(log, progress, run_cmd) -> None:
                     _as_root(["btrfs", "filesystem", "show", "--raw", tmp_mnt]),
                     capture_output=True, text=True,
                 )
-                # "devid ... size NNNN ..." — extract current device size in bytes
+                # Extract current device size from "devid N size BYTES path ..."
+                # Use a regex anchored to the "devid ... size" field so we don't
+                # accidentally grab "bytes used" or other large numeric tokens
+                # (the old token-scan approach would break if the output format
+                # changed or if used-space happened to be the first large number).
                 current_size_mb = 0
-                for tok in df_r.stdout.split():
-                    if tok.isdigit() and int(tok) > 1024 * 1024 * 100:
-                        current_size_mb = int(tok) // (1024 * 1024)
-                        break
+                m = re.search(r'\bdevid\s+\d+\s+size\s+(\d+)', df_r.stdout)
+                if m:
+                    current_size_mb = int(m.group(1)) // (1024 * 1024)
 
                 if current_size_mb and current_size_mb <= resize_mb:
                     log(f"btrfs already at {current_size_mb} MiB (≤ target {resize_mb} MiB) — skipping resize")
