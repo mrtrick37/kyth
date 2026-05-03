@@ -2,7 +2,10 @@
 Description=Add Flathub remote for Flatpak
 Documentation=https://github.com/mrtrick37/kyth
 After=network-online.target
-Wants=network-online.target
+# Requires= (not just Wants=) so systemd does not start this service when
+# there is no network — Wants= is advisory and allows the unit to start even
+# if network-online never becomes active (e.g. offline boot).
+Requires=network-online.target
 # Flatpak remotes live in /var — only configurable at runtime, not build time.
 # This service is idempotent: --if-not-exists means it exits immediately if
 # Flathub is already configured (e.g. after the first successful run).

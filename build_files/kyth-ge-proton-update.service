@@ -2,7 +2,9 @@
 Description=Update GE-Proton compatibility layer
 Documentation=https://github.com/mrtrick37/kyth
 After=network-online.target
-Wants=network-online.target
+# Requires= so the update is skipped cleanly on offline boots rather than
+# starting, failing noisily, and potentially corrupting a partial download.
+Requires=network-online.target
 
 [Service]
 Type=oneshot
