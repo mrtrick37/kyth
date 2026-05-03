@@ -71,13 +71,13 @@ sync-readme:
     set -euo pipefail
     ./build_files/scripts/update-readme-snapshot.sh
 
-# Install tracked git hooks for automatic README snapshot updates.
+# Install tracked git hooks for automatic README snapshot and commit message helpers.
 [group('Utility')]
 install-git-hooks:
     #!/usr/bin/env bash
     set -euo pipefail
     git config core.hooksPath .githooks
-    chmod +x .githooks/pre-commit .githooks/pre-push build_files/scripts/update-readme-snapshot.sh
+    chmod +x .githooks/pre-commit .githooks/pre-push .githooks/prepare-commit-msg build_files/scripts/update-readme-snapshot.sh
     echo "Git hooks installed via core.hooksPath=.githooks"
 
 # Remove old output ISOs — keeps only the current live ISO and current BIB ISO.
@@ -285,7 +285,6 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
     docker build \
         --build-arg BASE_IMAGE={{ base_image }} \
         --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
-        --build-arg HUGGINGFACE_TOKEN="$HUGGINGFACE_TOKEN" \
         --tag localhost/kyth-base:stable \
         build_base/
 
@@ -393,7 +392,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         # Provide sensible defaults so installer UI shows KythOS even when labels
         # are missing from the base image.
         PRODUCT_NAME="KythOS"
-        PRODUCT_VERSION="43"
+        PRODUCT_VERSION="44"
         set +e
         labels_json=$(docker inspect "${target_image}:${tag}" 2>/dev/null | jq -c '.[0].Config.Labels // {}' 2>/dev/null || true)
         set -e

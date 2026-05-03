@@ -110,8 +110,12 @@ RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
 #     liveuser.  .bash_profile then execs startx so the user still reaches
 #     the desktop without any manual typing.
 RUN groupadd -r autologin 2>/dev/null || true \
-    && useradd -c "Live User" -G autologin liveuser \
+    && useradd -c "Live User" -G autologin,wheel liveuser \
     && passwd -d liveuser \
+    && mkdir -p /etc/sudoers.d \
+    && printf 'liveuser ALL=(root) NOPASSWD: ALL\n' \
+        > /etc/sudoers.d/liveuser-installer \
+    && chmod 0440 /etc/sudoers.d/liveuser-installer \
     && mkdir -p /etc/sddm.conf.d \
     && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=true\n' \
         > /etc/sddm.conf.d/autologin.conf \
@@ -216,12 +220,13 @@ COPY build_files/branding/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
 COPY build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
+COPY build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
 COPY build_files/plymouth/kyth.plymouth /usr/share/plymouth/themes/kyth/kyth.plymouth
 COPY build_files/plymouth/kyth.script   /usr/share/plymouth/themes/kyth/kyth.script
 
 # ── Post-COPY setup: installer env, wallpaper metadata, icons, branding ──────
 # kyth-installer.env tells the installer which image to pull at install time.
-RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
+RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyth-partition-install \
     && printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
         "${SOURCE_TAG}" "${SOURCE_TAG}" \
         > /etc/kyth-installer.env \
@@ -238,11 +243,6 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
     && sed -i '/^VARIANT_ID=/d' /etc/os-release \
-    # --- Install latest Node.js (LTS) and Continue CLI ---
-    && dnf5 install -y curl \
-    && curl -fsSL https://rpm.nodesource.com/setup_lts.x | bash - \
-    && dnf5 install -y nodejs \
-    && npm install -g @continueai/continue \
     && printf 'VARIANT_ID=kyth\n' >> /etc/os-release \
     && printf 'PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\n' >> /etc/environment \
     && mkdir -p /etc/X11/xorg.conf.d \
@@ -269,6 +269,8 @@ RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --add "dmsquash-live plymouth" \
+        --add-drivers "overlay squashfs iso9660 loop" \
+        --filesystems "squashfs iso9660" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \

@@ -87,10 +87,6 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
-    openconnect \
-    NetworkManager-openconnect \
-    NetworkManager-openconnect-gnome \
-    plasma-nm-openconnect \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -242,171 +238,20 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# Install Claude Code VS Code extension into /etc/skel so every new user gets
-# it pre-populated in ~/.vscode/extensions/ — the location VS Code checks by
-# default. Downloading the VSIX directly avoids running Electron headlessly in
-# the container build, which fails without a display even with --no-sandbox.
-# flags=531: IncludeVersions(0x1) | IncludeFiles(0x2) | IncludeVersionProperties(0x10) | IncludeLatestVersionOnly(0x200)
-# IncludeFiles is needed to get the per-asset SHA256 hash URL for integrity verification.
-# The version and hash URL are always fetched live from the marketplace API, so there
-# is nothing to pin or manually update — they reflect the current latest on every build.
-CLAUDE_CODE_API_JSON=$(curl -fsSL -X POST \
-    "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json;api-version=3.0-preview.1" \
-    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":531}')
-
-CLAUDE_CODE_VER=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
-if [[ -z "${CLAUDE_CODE_VER}" || ! "${CLAUDE_CODE_VER}" =~ ^[0-9]+(\.[0-9]+){1,3}([-.][0-9A-Za-z]+)?$ ]]; then
-    echo "ERROR: Could not resolve a valid Claude Code extension version. Got: '${CLAUDE_CODE_VER}'" >&2
-    exit 1
-fi
-
-# Extract the SHA256 hash URL for the VSIX from the marketplace API response.
-# The marketplace publishes a per-version hash under the
-# Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash assetType.
-CLAUDE_CODE_SHA256_URL=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-files = d['results'][0]['extensions'][0]['versions'][0].get('files', [])
-for f in files:
-    if f.get('assetType') == 'Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash':
-        print(f.get('source', ''))
-        break
-" 2>/dev/null || echo "")
-
-echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
-curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
-    -H "User-Agent: kyth-image-build/1.0" \
-    -H "Accept: application/octet-stream" \
-    "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
-    -o /tmp/claude-code.vsix
-
-# Verify the downloaded VSIX against the marketplace-published SHA256.
-# Hard failure on mismatch; warning-only if the API did not return a hash URL
-# (which would indicate an API change, not an attack).
-if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
-    EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
-    ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
-    if [[ -z "${EXPECTED_SHA256}" || ${#EXPECTED_SHA256} -ne 64 ]]; then
-        echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
-    elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
-        echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
-        echo "  Expected: ${EXPECTED_SHA256}" >&2
-        echo "  Got:      ${ACTUAL_SHA256}" >&2
-        exit 1
-    else
-        echo "Claude Code VSIX SHA256 verified (${ACTUAL_SHA256:0:16}...)"
-    fi
-else
-    echo "WARNING: No SHA256 hash URL in marketplace API response; skipping content verification" >&2
-fi
-python3 - <<'PY'
-import zipfile
-import pathlib
-import gzip
-import sys
-
-vsix = pathlib.Path('/tmp/claude-code.vsix')
-if not vsix.exists() or vsix.stat().st_size == 0:
-    print("ERROR: Claude Code VSIX download is missing or empty.", file=sys.stderr)
-    sys.exit(1)
-
-vsix_bytes = vsix.read_bytes()
-
-# Some CDN paths return the VSIX payload gzip-wrapped.
-if not zipfile.is_zipfile(vsix):
-    if vsix_bytes.startswith(b"\x1f\x8b"):
-        try:
-            decompressed = gzip.decompress(vsix_bytes)
-        except Exception as exc:
-            print(f"ERROR: Failed to gunzip Claude Code artifact: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if decompressed.startswith(b"PK\x03\x04"):
-            vsix.write_bytes(decompressed)
-        else:
-            sample = decompressed[:240].decode("utf-8", errors="replace").replace("\n", " ")
-            print("ERROR: Gzip payload is not a ZIP/VSIX.", file=sys.stderr)
-            print(f"First bytes after gunzip: {sample}", file=sys.stderr)
-            sys.exit(1)
-    else:
-        sample = vsix_bytes[:240].decode("utf-8", errors="replace").replace("\n", " ")
-        print("ERROR: Downloaded Claude Code artifact is not a ZIP/VSIX.", file=sys.stderr)
-        print(f"First bytes: {sample}", file=sys.stderr)
-        sys.exit(1)
-
-if not zipfile.is_zipfile(vsix):
-    print("ERROR: Claude Code artifact still is not a valid ZIP after normalization.", file=sys.stderr)
-    sys.exit(1)
-PY
-mkdir -p /etc/skel/.vscode/extensions
-python3 -c "
-import zipfile
-with zipfile.ZipFile('/tmp/claude-code.vsix', 'r') as z:
-    for member in z.namelist():
-        if member.startswith('extension/'):
-            z.extract(member, '/tmp/claude-code-ext/')
-"
-mv /tmp/claude-code-ext/extension \
-    "/etc/skel/.vscode/extensions/anthropic.claude-code-${CLAUDE_CODE_VER}"
-rm -rf /tmp/claude-code.vsix /tmp/claude-code-ext
-
-# ── NVIDIA driver ─────────────────────────────────────────────────────────────
-# The NVIDIA kernel module must be baked into /usr/lib/modules/ at image build
-# time — bootc/ostree roots are read-only at runtime so modules cannot be
-# compiled or installed post-boot.  kernel-cachyos-devel is installed in
-# build_base while the CachyOS COPR is active, so the headers are present here.
-# On AMD/Intel systems these packages are inert: the nvidia module exists in the
-# image but udev never loads it without NVIDIA hardware present.
-# If another repo pulled in a different NVIDIA family (for example negativo17),
-# remove its shared-common package to avoid file conflicts with RPM Fusion.
+# ── NVIDIA driver (userspace only) ────────────────────────────────────────────
+# Kernel module compilation (akmods) is intentionally omitted — it added
+# 5–15 min to every build. Only userspace NVIDIA libs are installed here.
 dnf5 remove -y nvidia-kmod-common || true
-# Keep this install constrained to Fedora + RPM Fusion repos so solver doesn't
-# mix incompatible NVIDIA package streams from third-party repos.
-# Install NVIDIA packages.  RPM Fusion sometimes ships nvidia-kmod-common at a
-# newer driver version than xorg-x11-drv-nvidia during a release wave; both
-# packages own /usr/bin/nvidia-bug-report.sh in different driver series, causing
-# a file conflict in the same transaction.  Check available versions first and
-# exclude nvidia-kmod-common when they would mismatch.
-_xorg_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null | sort -V | tail -1 || true)
-_common_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
-if [ -n "${_xorg_ver}" ] && [ -n "${_common_ver}" ] && [ "${_xorg_ver}" != "${_common_ver}" ]; then
-    echo "NVIDIA version mismatch (xorg-x11-drv-nvidia=${_xorg_ver}, nvidia-kmod-common=${_common_ver}); excluding nvidia-kmod-common from install."
-    _nvidia_excludes="--exclude=nvidia-kmod-common"
-else
-    echo "NVIDIA packages consistent (${_xorg_ver}); installing without exclusions."
-    _nvidia_excludes=""
-fi
-# shellcheck disable=SC2086
 dnf5 install -y --skip-unavailable --allowerasing \
     --disablerepo='*' \
     --enablerepo='fedora*' \
     --enablerepo='updates*' \
     --enablerepo='rpmfusion*' \
-    ${_nvidia_excludes} \
-    akmods \
-    akmod-nvidia \
     xorg-x11-drv-nvidia \
     xorg-x11-drv-nvidia-cuda \
     xorg-x11-drv-nvidia-libs \
     xorg-x11-drv-nvidia-libs.i686 \
     nvidia-vaapi-driver
-unset _xorg_ver _common_ver _nvidia_excludes
-
-# Compile the NVIDIA kernel module against the installed CachyOS kernel.
-# akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
-NVIDIA_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-echo "Building NVIDIA module for kernel ${NVIDIA_KVER}"
-akmods --force --kernels "${NVIDIA_KVER}"
-# Fail loudly if the module was not produced — a silent miss here means NVIDIA
-# users get a black screen with no obvious cause.
-modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
-    || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
@@ -414,24 +259,20 @@ modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
 dnf5 install -y \
     python3-pyqt6 \
     python3-pyqt6-webengine \
-    qt5-qtwebkit \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
     distrobox \
-    flatpak-builder \
     unzip \
     git \
     spice-vdagent \
     virt-viewer \
-    kscreen
+    kscreen \
+    neovim \
+    zsh \
+    jetbrains-mono-fonts \
+    cascadia-code-fonts
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
-
-# Homebrew RPM deps
-# Clean cached packages before this install: libxcrypt-compat has been showing
-# corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
-dnf5 clean packages
-dnf5 install -y gcc glibc-devel kernel-headers libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no
@@ -443,247 +284,6 @@ ln -sf /usr/lib/systemd/system/sddm.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
-
-
-# ── plasma-nm-openconnect: GlobalProtect SAML callback fix ───────────────────
-# plasma-nm-openconnect uses QWebEngineView::urlChanged to detect when
-# openconnect has finished SAML auth.  urlChanged only fires for committed
-# navigations — Qt WebEngine silently aborts the globalprotectcallback://
-# redirect (unknown scheme) before the URL ever commits, so the cookie is
-# never passed to openconnect_webview_load_changed and getconfig.esp receives
-# an empty auth token → HTTP 512.
-#
-# Fix: intercept globalprotectcallback:// (and the older gc:// alias) via
-# QWebEnginePage::navigationRequested, which fires before Qt drops the
-# navigation, extract the URL, and pass it to handleWebEngineUrl as usual.
-#
-# Build deps are installed, used, then removed in this block so they don't
-# bloat the final image.  The resulting .so files replace the stock ones from
-# plasma-nm-openconnect.
-PLASMA_NM_BUILD_DEPS=(
-    cmake
-    extra-cmake-modules
-    kf6-kdbusaddons-devel
-    kf6-kcmutils-devel
-    kf6-kcoreaddons-devel
-    kf6-ki18n-devel
-    kf6-kio-devel
-    kf6-knotifications-devel
-    kf6-ksvg-devel
-    kf6-kwidgetsaddons-devel
-    kf6-kwallet-devel
-    kf6-modemmanager-qt-devel
-    kf6-networkmanager-qt-devel
-    libplasma-devel
-    openconnect-devel
-    qt6-qtbase-devel
-    qt6-qttools-devel
-    qt6-qtwebengine-devel
-)
-dnf5 install -y --skip-unavailable "${PLASMA_NM_BUILD_DEPS[@]}"
-dnf5 builddep -y --skip-unavailable plasma-nm
-
-PLASMA_NM_BUILD=/tmp/plasma-nm-build
-mkdir -p "${PLASMA_NM_BUILD}"
-cd "${PLASMA_NM_BUILD}"
-
-dnf5 download --source plasma-nm
-rpm2cpio plasma-nm-*.src.rpm | cpio -idm '*.tar.xz'
-tar xf plasma-nm-*.tar.xz
-PLASMA_NM_SRC="${PLASMA_NM_BUILD}/$(ls -d plasma-nm-*/)"
-
-patch -d "${PLASMA_NM_SRC}" -p1 \
-    < /ctx/patches/plasma-nm-globalprotect-callback.patch
-
-cmake -S "${PLASMA_NM_SRC}" -B "${PLASMA_NM_BUILD}/cmake-build" \
-    -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_INSTALL_PREFIX=/usr \
-    -DBUILD_OPENCONNECT=ON \
-    -DBUILD_TESTING=OFF \
-    -DKDE_INSTALL_USE_QT_SYS_PATHS=ON
-
-PLUGIN_TARGETS=(
-    plasmanetworkmanagement_openconnect_anyconnect
-    plasmanetworkmanagement_openconnect_arrayui
-    plasmanetworkmanagement_openconnect_f5ui
-    plasmanetworkmanagement_openconnect_fortinetui
-    plasmanetworkmanagement_openconnect_globalprotectui
-    plasmanetworkmanagement_openconnect_juniperui
-    plasmanetworkmanagement_openconnect_pulseui
-)
-cmake --build "${PLASMA_NM_BUILD}/cmake-build" \
-    --parallel "$(nproc)" \
-    $(printf -- '--target %s ' "${PLUGIN_TARGETS[@]}")
-
-PLUGIN_DEST=/usr/lib64/qt6/plugins/plasma/network/vpn
-for target in "${PLUGIN_TARGETS[@]}"; do
-    find "${PLASMA_NM_BUILD}/cmake-build" -name "${target}.so" \
-        -exec install -m 0755 {} "${PLUGIN_DEST}/" \;
-done
-
-# Clean up build tree and build-only deps
-cd /
-rm -rf "${PLASMA_NM_BUILD}"
-dnf5 remove -y "${PLASMA_NM_BUILD_DEPS[@]}"
-dnf5 autoremove -y
-
-# ── GlobalProtect VPN agent + GUI ────────────────────────────────────────────
-# Bundled RPMs (proprietary — not available in public repos).
-# qt5-qtwebkit (above) satisfies PanGPUI's only non-standard dep.
-#
-# Root cause of the original /opt install failure: on Fedora Kinoite, /opt is a
-# symlink to var/opt, so /proc/PID/exe for any process always shows /var/opt/...
-# rather than /opt/... PanGPS does a literal string check that the connecting
-# PanGPA's /proc/PID/exe starts with "/opt/paloaltonetworks/globalprotect", which
-# always fails. Fix: make /opt a real directory in the image, then mount an
-# overlayfs at /opt/paloaltonetworks/globalprotect/ at boot (lower = immutable
-# binaries in /usr/lib/, upper = writable data in /var/lib/). Processes exec'd
-# through the overlay show /opt/... in /proc/PID/exe, satisfying the check.
-rm /opt
-mkdir -p /opt
-
-# Extract RPMs into a temp dir.
-GP_TMP=$(mktemp -d)
-for GP_RPM in \
-    /ctx/globalprotect/GlobalProtect_rpm-6.0.10.0-11.rpm \
-    /ctx/globalprotect/GlobalProtect_UI_rpm-6.0.10.0-11.rpm; do
-    (cd "$GP_TMP" && rpm2cpio "$GP_RPM" | cpio -idm 2>/dev/null)
-done
-
-# Install GP binaries to /usr/lib/ (overlay lower layer — immutable, always
-# present after upgrades). The overlay mount exposes them at /opt/... at runtime.
-mkdir -p /usr/lib/paloaltonetworks/globalprotect
-cp -a "$GP_TMP/opt/paloaltonetworks/globalprotect/." /usr/lib/paloaltonetworks/globalprotect/
-# UI RPM also ships usr/ (desktop files, icons, man page) and etc/ (autostart)
-[[ -d "$GP_TMP/usr" ]] && cp -a "$GP_TMP/usr/." /usr/
-[[ -d "$GP_TMP/etc" ]] && cp -a "$GP_TMP/etc/." /etc/
-rm -rf "$GP_TMP"
-
-chmod +x /usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
-
-# Create the overlay mount point — an empty real directory at the vendor path.
-# The overlayfs mount (see opt-paloaltonetworks-globalprotect.mount below) will
-# populate it at boot with binaries from /usr/lib/ and data from /var/lib/.
-mkdir -p /opt/paloaltonetworks/globalprotect
-
-# PanGPA autostart — launches the user-side GP agent when KDE/Plasma logs in.
-# Must use XDG autostart (not profile.d) because Wayland GUI sessions never
-# source /etc/profile.d scripts. The exec path must be under /opt/... so that
-# /proc/PID/exe satisfies PanGPS's literal prefix check.
-mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/PanGPA.desktop <<'PANGPAEOF'
-[Desktop Entry]
-Name=GlobalProtect Agent
-Type=Application
-Exec=/opt/paloaltonetworks/globalprotect/PanGPA start
-Terminal=false
-X-KDE-autostart-condition=PanGPA
-PANGPAEOF
-
-# gpd.service: WorkingDirectory is /var/lib/paloaltonetworks/globalprotect so
-# PanGPS writes logs and registry there. PanGPS/PanGPA also find data files via
-# /opt/... (which the overlay routes to the upper = /var/lib/...).
-# init_t SELinux note: semanage permissive -a init_t (below) is required for
-# PanGPS to open /dev/net/tun; without it the IPC listener never starts.
-cat > /usr/lib/systemd/system/gpd.service <<'GPDSVCEOF'
-[Unit]
-Description=GlobalProtect VPN client daemon
-After=opt-paloaltonetworks-globalprotect.mount
-Requires=opt-paloaltonetworks-globalprotect.mount
-
-[Service]
-Type=simple
-ExecStartPre=/usr/lib/paloaltonetworks/globalprotect/pre_exec_gps.sh
-ExecStart=/usr/lib/paloaltonetworks/globalprotect/PanGPS
-WorkingDirectory=/var/lib/paloaltonetworks/globalprotect
-Restart=on-failure
-RestartSec=5
-
-[Install]
-WantedBy=multi-user.target
-GPDSVCEOF
-
-# Overlayfs mount: presents /opt/paloaltonetworks/globalprotect/ as a unified
-# view of binaries (lower, read-only) and data (upper, writable). Processes
-# exec'd from here show /opt/... in /proc/PID/exe, satisfying PanGPS's check.
-# workdir must be on the same fs as upper and outside both upper and lower.
-# Explicit dir-creation service — more reliable than After=systemd-tmpfiles-setup.service
-# because tmpfiles and the .mount unit race to completion at the same boot second.
-cat > /usr/lib/systemd/system/globalprotect-overlay-dirs.service <<'DIRSVCEOF'
-[Unit]
-Description=Create GlobalProtect overlay writable directories
-DefaultDependencies=no
-After=local-fs.target
-Before=opt-paloaltonetworks-globalprotect.mount
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-ExecStart=mkdir -p /var/lib/paloaltonetworks/globalprotect /var/cache/paloaltonetworks/gpwork
-
-[Install]
-WantedBy=opt-paloaltonetworks-globalprotect.mount
-DIRSVCEOF
-
-cat > /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount <<'OVLEOF'
-[Unit]
-Description=GlobalProtect overlay (binaries + writable data at /opt/... path)
-After=globalprotect-overlay-dirs.service
-Requires=globalprotect-overlay-dirs.service
-Before=gpd.service
-
-[Mount]
-What=overlay
-Where=/opt/paloaltonetworks/globalprotect
-Type=overlay
-Options=lowerdir=/usr/lib/paloaltonetworks/globalprotect,upperdir=/var/lib/paloaltonetworks/globalprotect,workdir=/var/cache/paloaltonetworks/gpwork
-
-[Install]
-WantedBy=multi-user.target
-OVLEOF
-
-# Suppress PanGPUI from autostarting on login — it should only launch when the
-# user explicitly clicks the GlobalProtect icon in the launcher.
-mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/PanGPUI.desktop <<'PANGPUIEOF'
-[Desktop Entry]
-Name=PanGPUI
-Type=Application
-Exec=/opt/paloaltonetworks/globalprotect/PanGPUI
-Terminal=false
-Hidden=true
-PANGPUIEOF
-
-# Desktop entries: keep /opt paths (correct now that /opt is real + overlay).
-# Revert any earlier /usr/lib rewrites if present.
-find /usr/share/applications -name '*.desktop' -exec \
-    sed -i 's|/usr/lib/paloaltonetworks/globalprotect/|/opt/paloaltonetworks/globalprotect/|g' {} +
-
-# tmpfiles.d: create writable data dir and overlay workdir on every boot.
-mkdir -p /usr/lib/tmpfiles.d
-cat > /usr/lib/tmpfiles.d/globalprotect.conf <<'TMPFILESEOF'
-d  /var/lib/paloaltonetworks                     0755 root root -
-d  /var/lib/paloaltonetworks/globalprotect       0755 root root -
-d  /var/cache/paloaltonetworks                   0755 root root -
-d  /var/cache/paloaltonetworks/gpwork            0755 root root -
-TMPFILESEOF
-
-# Install globalprotect CLI into /usr/bin so it is always on PATH.
-install -m 0755 /usr/lib/paloaltonetworks/globalprotect/globalprotect \
-    /usr/bin/globalprotect
-
-ln -sf /usr/lib/systemd/system/gpd.service \
-    /etc/systemd/system/multi-user.target.wants/gpd.service
-ln -sf /usr/lib/systemd/system/opt-paloaltonetworks-globalprotect.mount \
-    /etc/systemd/system/multi-user.target.wants/opt-paloaltonetworks-globalprotect.mount
-ln -sf /usr/lib/systemd/system/globalprotect-overlay-dirs.service \
-    /etc/systemd/system/opt-paloaltonetworks-globalprotect.mount.wants/globalprotect-overlay-dirs.service
-
-# PanGPS runs as init_t (no vendor SELinux module). The default targeted policy
-# silently blocks TUNSETIFF on /dev/net/tun via dontaudit rules, preventing the
-# daemon from starting its IPC listener. Make init_t permissive so the ioctl is
-# allowed — denials are logged but not enforced.
-semanage permissive -a init_t
 
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
