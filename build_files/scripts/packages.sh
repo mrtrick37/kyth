@@ -87,10 +87,6 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
-    openconnect \
-    NetworkManager-openconnect \
-    NetworkManager-openconnect-gnome \
-    plasma-nm-openconnect \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
@@ -242,171 +238,20 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# Install Claude Code VS Code extension into /etc/skel so every new user gets
-# it pre-populated in ~/.vscode/extensions/ — the location VS Code checks by
-# default. Downloading the VSIX directly avoids running Electron headlessly in
-# the container build, which fails without a display even with --no-sandbox.
-# flags=531: IncludeVersions(0x1) | IncludeFiles(0x2) | IncludeVersionProperties(0x10) | IncludeLatestVersionOnly(0x200)
-# IncludeFiles is needed to get the per-asset SHA256 hash URL for integrity verification.
-# The version and hash URL are always fetched live from the marketplace API, so there
-# is nothing to pin or manually update — they reflect the current latest on every build.
-CLAUDE_CODE_API_JSON=$(curl -fsSL -X POST \
-    "https://marketplace.visualstudio.com/_apis/public/gallery/extensionquery" \
-    -H "Content-Type: application/json" \
-    -H "Accept: application/json;api-version=3.0-preview.1" \
-    -d '{"filters":[{"criteria":[{"filterType":7,"value":"anthropic.claude-code"}]}],"flags":531}')
-
-CLAUDE_CODE_VER=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c \
-    "import sys,json; d=json.load(sys.stdin); print(d['results'][0]['extensions'][0]['versions'][0]['version'])")
-if [[ -z "${CLAUDE_CODE_VER}" || ! "${CLAUDE_CODE_VER}" =~ ^[0-9]+(\.[0-9]+){1,3}([-.][0-9A-Za-z]+)?$ ]]; then
-    echo "ERROR: Could not resolve a valid Claude Code extension version. Got: '${CLAUDE_CODE_VER}'" >&2
-    exit 1
-fi
-
-# Extract the SHA256 hash URL for the VSIX from the marketplace API response.
-# The marketplace publishes a per-version hash under the
-# Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash assetType.
-CLAUDE_CODE_SHA256_URL=$(echo "${CLAUDE_CODE_API_JSON}" | python3 -c "
-import sys, json
-d = json.load(sys.stdin)
-files = d['results'][0]['extensions'][0]['versions'][0].get('files', [])
-for f in files:
-    if f.get('assetType') == 'Microsoft.VisualStudio.Services.VSIXPackage.Sha256Hash':
-        print(f.get('source', ''))
-        break
-" 2>/dev/null || echo "")
-
-echo "Installing Claude Code extension ${CLAUDE_CODE_VER}"
-curl -fL --retry 5 --retry-delay 2 --retry-all-errors \
-    -H "User-Agent: kyth-image-build/1.0" \
-    -H "Accept: application/octet-stream" \
-    "https://marketplace.visualstudio.com/_apis/public/gallery/publishers/anthropic/vsextensions/claude-code/${CLAUDE_CODE_VER}/vspackage" \
-    -o /tmp/claude-code.vsix
-
-# Verify the downloaded VSIX against the marketplace-published SHA256.
-# Hard failure on mismatch; warning-only if the API did not return a hash URL
-# (which would indicate an API change, not an attack).
-if [[ -n "${CLAUDE_CODE_SHA256_URL}" ]]; then
-    EXPECTED_SHA256=$(curl -fsSL "${CLAUDE_CODE_SHA256_URL}" | tr -dc '0-9a-fA-F' | head -c 64 || echo "")
-    ACTUAL_SHA256=$(sha256sum /tmp/claude-code.vsix | awk '{print $1}')
-    if [[ -z "${EXPECTED_SHA256}" || ${#EXPECTED_SHA256} -ne 64 ]]; then
-        echo "WARNING: Could not retrieve SHA256 from marketplace; skipping content verification" >&2
-    elif [[ "${ACTUAL_SHA256}" != "${EXPECTED_SHA256,,}" ]]; then
-        echo "ERROR: Claude Code VSIX SHA256 mismatch for ${CLAUDE_CODE_VER}!" >&2
-        echo "  Expected: ${EXPECTED_SHA256}" >&2
-        echo "  Got:      ${ACTUAL_SHA256}" >&2
-        exit 1
-    else
-        echo "Claude Code VSIX SHA256 verified (${ACTUAL_SHA256:0:16}...)"
-    fi
-else
-    echo "WARNING: No SHA256 hash URL in marketplace API response; skipping content verification" >&2
-fi
-python3 - <<'PY'
-import zipfile
-import pathlib
-import gzip
-import sys
-
-vsix = pathlib.Path('/tmp/claude-code.vsix')
-if not vsix.exists() or vsix.stat().st_size == 0:
-    print("ERROR: Claude Code VSIX download is missing or empty.", file=sys.stderr)
-    sys.exit(1)
-
-vsix_bytes = vsix.read_bytes()
-
-# Some CDN paths return the VSIX payload gzip-wrapped.
-if not zipfile.is_zipfile(vsix):
-    if vsix_bytes.startswith(b"\x1f\x8b"):
-        try:
-            decompressed = gzip.decompress(vsix_bytes)
-        except Exception as exc:
-            print(f"ERROR: Failed to gunzip Claude Code artifact: {exc}", file=sys.stderr)
-            sys.exit(1)
-        if decompressed.startswith(b"PK\x03\x04"):
-            vsix.write_bytes(decompressed)
-        else:
-            sample = decompressed[:240].decode("utf-8", errors="replace").replace("\n", " ")
-            print("ERROR: Gzip payload is not a ZIP/VSIX.", file=sys.stderr)
-            print(f"First bytes after gunzip: {sample}", file=sys.stderr)
-            sys.exit(1)
-    else:
-        sample = vsix_bytes[:240].decode("utf-8", errors="replace").replace("\n", " ")
-        print("ERROR: Downloaded Claude Code artifact is not a ZIP/VSIX.", file=sys.stderr)
-        print(f"First bytes: {sample}", file=sys.stderr)
-        sys.exit(1)
-
-if not zipfile.is_zipfile(vsix):
-    print("ERROR: Claude Code artifact still is not a valid ZIP after normalization.", file=sys.stderr)
-    sys.exit(1)
-PY
-mkdir -p /etc/skel/.vscode/extensions
-python3 -c "
-import zipfile
-with zipfile.ZipFile('/tmp/claude-code.vsix', 'r') as z:
-    for member in z.namelist():
-        if member.startswith('extension/'):
-            z.extract(member, '/tmp/claude-code-ext/')
-"
-mv /tmp/claude-code-ext/extension \
-    "/etc/skel/.vscode/extensions/anthropic.claude-code-${CLAUDE_CODE_VER}"
-rm -rf /tmp/claude-code.vsix /tmp/claude-code-ext
-
-# ── NVIDIA driver ─────────────────────────────────────────────────────────────
-# The NVIDIA kernel module must be baked into /usr/lib/modules/ at image build
-# time — bootc/ostree roots are read-only at runtime so modules cannot be
-# compiled or installed post-boot.  kernel-cachyos-devel is installed in
-# build_base while the CachyOS COPR is active, so the headers are present here.
-# On AMD/Intel systems these packages are inert: the nvidia module exists in the
-# image but udev never loads it without NVIDIA hardware present.
-# If another repo pulled in a different NVIDIA family (for example negativo17),
-# remove its shared-common package to avoid file conflicts with RPM Fusion.
+# ── NVIDIA driver (userspace only) ────────────────────────────────────────────
+# Kernel module compilation (akmods) is intentionally omitted — it added
+# 5–15 min to every build. Only userspace NVIDIA libs are installed here.
 dnf5 remove -y nvidia-kmod-common || true
-# Keep this install constrained to Fedora + RPM Fusion repos so solver doesn't
-# mix incompatible NVIDIA package streams from third-party repos.
-# Install NVIDIA packages.  RPM Fusion sometimes ships nvidia-kmod-common at a
-# newer driver version than xorg-x11-drv-nvidia during a release wave; both
-# packages own /usr/bin/nvidia-bug-report.sh in different driver series, causing
-# a file conflict in the same transaction.  Check available versions first and
-# exclude nvidia-kmod-common when they would mismatch.
-_xorg_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' xorg-x11-drv-nvidia 2>/dev/null | sort -V | tail -1 || true)
-_common_ver=$(dnf5 repoquery --available \
-    --disablerepo='*' --enablerepo='fedora*' --enablerepo='updates*' --enablerepo='rpmfusion*' \
-    --qf '%{version}' nvidia-kmod-common 2>/dev/null | sort -V | tail -1 || true)
-if [ -n "${_xorg_ver}" ] && [ -n "${_common_ver}" ] && [ "${_xorg_ver}" != "${_common_ver}" ]; then
-    echo "NVIDIA version mismatch (xorg-x11-drv-nvidia=${_xorg_ver}, nvidia-kmod-common=${_common_ver}); excluding nvidia-kmod-common from install."
-    _nvidia_excludes="--exclude=nvidia-kmod-common"
-else
-    echo "NVIDIA packages consistent (${_xorg_ver}); installing without exclusions."
-    _nvidia_excludes=""
-fi
-# shellcheck disable=SC2086
 dnf5 install -y --skip-unavailable --allowerasing \
     --disablerepo='*' \
     --enablerepo='fedora*' \
     --enablerepo='updates*' \
     --enablerepo='rpmfusion*' \
-    ${_nvidia_excludes} \
-    akmods \
-    akmod-nvidia \
     xorg-x11-drv-nvidia \
     xorg-x11-drv-nvidia-cuda \
     xorg-x11-drv-nvidia-libs \
     xorg-x11-drv-nvidia-libs.i686 \
     nvidia-vaapi-driver
-unset _xorg_ver _common_ver _nvidia_excludes
-
-# Compile the NVIDIA kernel module against the installed CachyOS kernel.
-# akmods writes the .ko files to /usr/lib/modules/<kver>/extra/.
-NVIDIA_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-echo "Building NVIDIA module for kernel ${NVIDIA_KVER}"
-akmods --force --kernels "${NVIDIA_KVER}"
-# Fail loudly if the module was not produced — a silent miss here means NVIDIA
-# users get a black screen with no obvious cause.
-modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
-    || { echo "ERROR: NVIDIA module failed to build for ${NVIDIA_KVER}"; exit 1; }
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
@@ -414,24 +259,20 @@ modinfo -k "${NVIDIA_KVER}" nvidia > /dev/null \
 dnf5 install -y \
     python3-pyqt6 \
     python3-pyqt6-webengine \
-    qt5-qtwebkit \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
     distrobox \
-    flatpak-builder \
     unzip \
     git \
     spice-vdagent \
     virt-viewer \
-    kscreen
+    kscreen \
+    neovim \
+    zsh \
+    jetbrains-mono-fonts \
+    cascadia-code-fonts
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
-
-# Homebrew RPM deps
-# Clean cached packages before this install: libxcrypt-compat has been showing
-# corrupt RPM files in the persistent DNF cache. Remove once mirror stabilises.
-dnf5 clean packages
-dnf5 install -y gcc glibc-devel kernel-headers libxcrypt-compat patch ruby
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no
