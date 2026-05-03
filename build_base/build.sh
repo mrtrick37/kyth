@@ -20,7 +20,7 @@ EOF
 
 echo "KythOS base customization applied"
 
-# ── CachyOS kernel ────────────────────────────────────────────────────────────
+# ── CachyOS kernel ─────────────────────────────────────────────────────────
 # Install with --noscripts to skip the %posttrans that calls rpm-ostree
 # kernel-install → dracut, which fails in container builds due to EXDEV errors
 # when dracut tries to rename tmp files across the overlay filesystem.
@@ -74,9 +74,10 @@ dnf5 remove -y librsvg2-tools || true
 # Write dracut config — force the ostree and plymouth modules.
 # Without ostree the initramfs cannot find or mount the root filesystem.
 # Without plymouth the boot splash is not shown.
+# DRM module ensures GPU drivers load before Plymouth starts rendering.
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree plymouth "
+add_dracutmodules+=" ostree plymouth drm "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
@@ -116,6 +117,13 @@ systemctl mask bootloader-update.service 2>/dev/null || true
 # already mounted correctly by the bootloader; the remount always fails with
 # exit code 32 producing a FAILED unit every boot.
 systemctl mask systemd-remount-fs.service 2>/dev/null || true
+
+# Force-mask plasmalogin.service at build time. KDE 6.6 ships with plasmalogin
+# enabled by default, but it crashes on first boot on systems without hardware GL
+# (VMs, some AMD systems). SDDM is the display manager in use. Using an explicit
+# symlink to /dev/null ensures it's masked before systemd first reads it on boot.
+rm -f /etc/systemd/system/plasmalogin.service
+ln -s /dev/null /etc/systemd/system/plasmalogin.service
 
 # ── SDDM display server: Wayland by default ───────────────────────────────────
 # Keep the on-disk config aligned with the documented product defaults so
