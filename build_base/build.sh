@@ -99,9 +99,18 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # iommu=pt: Intel VT-d passthrough mode — prevents strict IOMMU isolation from
 #   breaking DRM/KMS on Intel vPro and similar enterprise hardware where VT-d is
 #   enabled by default. Transparent/no-op on AMD systems.
+# amdgpu.sg_display=0: disables scatter-gather display on the amdgpu driver.
+#   Without this, AMD laptop panels (eDP) blink/flash repeatedly during the
+#   Plymouth → SDDM KMS handoff — reproducible on ASUS TUF A16 and other AMD
+#   Radeon laptop designs. sg_display uses IOMMU-mapped scatter lists for the
+#   display engine; on laptops where the panel is on the iGPU eDP output the
+#   IOMMU mapping stalls cause the display controller to blank and re-sync
+#   multiple times per second until the driver settles. Setting it to 0 forces
+#   the driver to use a contiguous-memory framebuffer for the display engine
+#   instead, which is slightly less memory-efficient but eliminates the blink.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off"]
+kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
