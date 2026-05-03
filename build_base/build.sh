@@ -176,15 +176,26 @@ cat > /etc/systemd/system/llama-cpp-server.service <<LLAMASVC
 [Unit]
 Description=llama.cpp server for Code Llama 7B (API for Continue)
 After=network.target
+# Do not start if the model file was not downloaded during image build
+# (network timeout, disk full, etc.). Without this guard the service
+# crashes immediately and restarts indefinitely, delaying graphical.target.
+ConditionPathExists=/var/lib/llm-models/codellama/codellama-7b-instruct.Q4_K_M.gguf
 
 [Service]
 Type=simple
 ExecStart=$INSTALL_BIN_DIR/llama-cpp-server --model /var/lib/llm-models/codellama/codellama-7b-instruct.Q4_K_M.gguf --host 127.0.0.1 --port 8080 --ctx-size 4096 --threads $(nproc)
 Restart=on-failure
+RestartSec=10
+# Cap retries: stop hammering after 3 failures in 60 s. Prevents a corrupt
+# model file or missing binary from filling the journal and stalling boot.
+StartLimitBurst=3
+StartLimitIntervalSec=60
 User=root
 
 [Install]
-WantedBy=multi-user.target
+# graphical.target, not multi-user.target — this is a developer tool that
+# should not block the text-mode boot path or delay sddm startup.
+WantedBy=graphical.target
 LLAMASVC
 systemctl enable llama-cpp-server.service
 

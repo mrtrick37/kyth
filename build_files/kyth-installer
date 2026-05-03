@@ -14,6 +14,7 @@ Install pipeline:
 import sys
 import os
 import re
+import select
 
 import glob
 import json
@@ -299,18 +300,37 @@ def _run_install() -> None:
         monitor_thread = threading.Thread(target=_net_monitor, daemon=True)
         monitor_thread.start()
 
-        for line in proc.stdout:
-            stripped = line.rstrip()
-            log(stripped)
-            # Parse "layers needed: N (X.X GB)" — kick off byte-based monitoring
-            if "layers needed:" in stripped:
-                try:
-                    m = stripped.split("layers needed:")[1]
-                    size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
-                    _total_bytes[0] = _parse_size_bytes(size_str)
-                    _rx_start[0]    = _get_rx_bytes()
-                except Exception:
-                    pass
+        # Read stdout with a stall detector: if no output arrives for
+        # STALL_TIMEOUT seconds we assume the process is hung (e.g. registry
+        # TCP connection kept alive but no data flowing) and kill it.
+        STALL_TIMEOUT = 600  # 10 minutes of silence = hung
+        last_output = time.monotonic()
+        while True:
+            ready, _, _ = select.select([proc.stdout], [], [], 30)
+            if ready:
+                line = proc.stdout.readline()
+                if not line:
+                    break  # EOF — process finished
+                last_output = time.monotonic()
+                stripped = line.rstrip()
+                log(stripped)
+                # Parse "layers needed: N (X.X GB)" — kick off byte-based monitoring
+                if "layers needed:" in stripped:
+                    try:
+                        m = stripped.split("layers needed:")[1]
+                        size_str = m.split("(")[1].rstrip(")") if "(" in m else ""
+                        _total_bytes[0] = _parse_size_bytes(size_str)
+                        _rx_start[0]    = _get_rx_bytes()
+                    except Exception:
+                        pass
+            else:
+                # 30-second poll expired with no output — check stall limit
+                if time.monotonic() - last_output > STALL_TIMEOUT:
+                    proc.kill()
+                    raise RuntimeError(
+                        f"Command timed out (no output for {STALL_TIMEOUT//60} min):\n"
+                        f"  {' '.join(full_cmd)}"
+                    )
 
         _monitor_stop[0] = True
         monitor_thread.join(timeout=2)
@@ -331,6 +351,24 @@ def _run_install() -> None:
         log(f"Target image : {TARGET_IMAGE}")
         log(f"Disk         : {disk}")
         log("")
+
+        # Safety check: refuse to wipe a disk that has mounted partitions.
+        # bootc --wipe would overwrite a live filesystem (e.g. if the user
+        # accidentally selected the live-ISO drive or their data partition).
+        try:
+            mounts_out = subprocess.check_output(
+                ["cat", "/proc/mounts"], text=True, stderr=subprocess.DEVNULL
+            )
+            for mline in mounts_out.splitlines():
+                dev = mline.split()[0]
+                # Match /dev/sdX*, /dev/nvmeXnXpX*, /dev/mmcblkXpX*, etc.
+                if dev.startswith(disk) or dev == disk:
+                    raise RuntimeError(
+                        f"Target disk {disk} has a mounted partition ({dev}). "
+                        "Unmount all partitions on the target disk before installing."
+                    )
+        except subprocess.CalledProcessError:
+            pass  # /proc/mounts unreadable — proceed and let bootc handle it
 
         log("── Phase 1: Pulling and writing OS image to disk ─────────────")
         log("    (bootc streams directly from registry to disk — no RAM copy)")
@@ -398,6 +436,7 @@ def _run_install() -> None:
                             ["openssl", "passwd", "-6", "-stdin"],
                             input=password, text=True,
                             capture_output=True, check=True,
+                            timeout=15,
                         )
                         pw_hash = hash_r.stdout.strip()
 
@@ -460,6 +499,15 @@ def _run_install() -> None:
                                 _as_root(["chown", "-R", f"{uid}:{gid}", str(var_home)]),
                                 check=True,
                             )
+
+                        # Apply SELinux labels to the new home directory so PAM
+                        # and dbus-broker are not denied on first login on an
+                        # enforcing system. restorecon is a no-op when SELinux is
+                        # disabled or the policy is not loaded.
+                        subprocess.run(
+                            _as_root(["restorecon", "-RF", str(var_home)]),
+                            check=False,
+                        )
 
                         log(f"User '{username}' created (uid={uid})")
                         progress(97)
@@ -687,7 +735,10 @@ def _run_alongside(log, progress, run_cmd) -> None:
 
         log("Informing kernel of partition table changes…")
         subprocess.run(_as_root(["partprobe", disk]), check=False)
-        time.sleep(2)
+        # udevadm settle waits until udev has processed all queued events
+        # (including partition device node creation) rather than using an
+        # arbitrary sleep that can be too short on slow or loaded storage.
+        subprocess.run(_as_root(["udevadm", "settle", "--timeout=15"]), check=False)
 
         new_parts = list_partitions(disk)
         new_part  = max(new_parts, key=lambda p: p["num"])
