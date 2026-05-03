@@ -200,6 +200,7 @@ RUN mkdir -p \
               /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
        fi \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
+    && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && mkdir -p /etc/xdg/autostart \
     && for svc in \
