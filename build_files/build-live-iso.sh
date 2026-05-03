@@ -14,7 +14,7 @@
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
-#   Missing packages are installed automatically via rpm-ostree --apply-live.
+#   Missing packages are installed automatically via rpm-ostree (Atomic) or dnf (classic).
 
 set -euo pipefail
 
@@ -65,7 +65,7 @@ fi
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
-OUTPUT_DIR="${REPO_ROOT}/output/live-iso"
+OUTPUT_DIR="${KYTH_ISO_OUTPUT:-${REPO_ROOT}/output/live-iso}"
 ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
 VOLID="KythOS-44-Live"
 
@@ -85,7 +85,31 @@ SOURCE_HASH="$(
     | awk '{print $1}'
 )"
 
-TMPDIR_BASE="${TMPDIR:-/var/tmp}"
+# Pick the scratch directory: honour $TMPDIR if set, otherwise prefer whichever
+# of /var/tmp or /var/tmp/kyth-root has more free space (kyth-root is the large
+# data partition on dev machines that keeps the root filesystem from filling up).
+if [[ -n "${TMPDIR:-}" ]]; then
+    TMPDIR_BASE="${TMPDIR}"
+else
+    _root_avail=$(df --output=avail /var/tmp 2>/dev/null | tail -1 || echo 0)
+    _data_avail=$(df --output=avail /var/tmp/kyth-root 2>/dev/null | tail -1 || echo 0)
+    if [[ "${_data_avail}" -gt "${_root_avail}" ]]; then
+        TMPDIR_BASE="/var/tmp/kyth-root"
+        echo "==> Using /var/tmp/kyth-root for build scratch (more free space than /var/tmp)"
+    else
+        TMPDIR_BASE="/var/tmp"
+    fi
+fi
+# If the default ISO output directory's filesystem is low on space (< 6 GB) and
+# the scratch partition has more room, redirect output there too.
+if [[ -z "${KYTH_ISO_OUTPUT:-}" ]]; then
+    _out_avail=$(df --output=avail "${REPO_ROOT}" 2>/dev/null | tail -1 || echo 0)
+    if [[ "${_out_avail}" -lt 6291456 && "${TMPDIR_BASE}" != "/var/tmp" ]]; then
+        OUTPUT_DIR="${TMPDIR_BASE}/kyth-iso-output/live-iso"
+        echo "==> Redirecting ISO output to ${OUTPUT_DIR} (repo filesystem low on space)"
+    fi
+fi
+
 WORK=$(mktemp -d -p "${TMPDIR_BASE}" kyth-live.XXXXXXXXXX)
 ROOTFS="${WORK}/rootfs"
 ISO_DIR="${WORK}/iso"
@@ -116,7 +140,11 @@ command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] |
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
     echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
-    sudo rpm-ostree install --apply-live --idempotent "${_missing_pkgs[@]}"
+    if command -v rpm-ostree &>/dev/null; then
+        sudo rpm-ostree install --apply-live --idempotent "${_missing_pkgs[@]}"
+    else
+        sudo dnf install -y "${_missing_pkgs[@]}"
+    fi
     hash -r
 fi
 
@@ -174,6 +202,7 @@ if [[ "${_need_rebuild}" == "1" ]]; then
     fi
 
     docker build \
+        --provenance=false \
         --build-arg BASE_IMAGE="${INSTALLER_BASE_IMAGE}" \
         --build-arg SOURCE_HASH="${SOURCE_HASH}" \
         --build-arg SOURCE_TAG="${SOURCE_TAG}" \
@@ -193,16 +222,14 @@ if command -v pv >/dev/null 2>&1; then
             --exclude='proc/*' \
             --exclude='sys/*' \
             --exclude='dev/*' \
-            --exclude='run/*' \
-            2>/dev/null
+            --exclude='run/*'
 else
     docker export "${CONTAINER}" | \
         sudo tar -xC "${ROOTFS}" \
             --exclude='proc/*' \
             --exclude='sys/*' \
             --exclude='dev/*' \
-            --exclude='run/*' \
-            2>/dev/null
+            --exclude='run/*'
 fi
 echo "==> Container export complete."
 docker rm "${CONTAINER}" 2>/dev/null || true
@@ -244,7 +271,7 @@ echo "==> Timing: squashfs complete at ${SECONDS}s"
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 systemd.crash_reboot=0 inst.nokill console=ttyS0,115200 console=tty0 amdgpu.sg_display=0"
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme

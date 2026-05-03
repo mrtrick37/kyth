@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+msg_file="${1:?missing commit message file}"
+source="${2:-}"
+
+# Keep manual paths manual:
+# - git commit -m/-F sets source=message
+# - merge/squash/amend/reuse/template commits bring their own message
+# - KYTH_AUTO_COMMIT_MSG=0 git commit disables this helper for one commit
+if [[ "${KYTH_AUTO_COMMIT_MSG:-1}" == "0" || -n "${source}" ]]; then
+    exit 0
+fi
+
+if git diff --cached --quiet --exit-code; then
+    exit 0
+fi
+
+mapfile -t changes < <(git diff --cached --name-status -M --diff-filter=ACDMRTUXB)
+if [[ ${#changes[@]} -eq 0 ]]; then
+    exit 0
+fi
+
+added=0
+modified=0
+deleted=0
+renamed=0
+docs=0
+build=0
+hooks=0
+ci=0
+installer=0
+scripts=0
+
+paths=()
+for line in "${changes[@]}"; do
+    status="${line%%$'\t'*}"
+    rest="${line#*$'\t'}"
+    path="${rest##*$'\t'}"
+    paths+=("${path}")
+
+    case "${status:0:1}" in
+        A) added=$((added + 1)) ;;
+        M) modified=$((modified + 1)) ;;
+        D) deleted=$((deleted + 1)) ;;
+        R) renamed=$((renamed + 1)) ;;
+    esac
+
+    case "${path}" in
+        README.md|LICENSE|*.md) docs=$((docs + 1)) ;;
+    esac
+    case "${path}" in
+        Dockerfile|Justfile|build_base/*|build_files/Containerfile.live|build_files/scripts/*)
+            build=$((build + 1))
+            ;;
+    esac
+    case "${path}" in
+        .githooks/*) hooks=$((hooks + 1)) ;;
+    esac
+    case "${path}" in
+        .github/workflows/*) ci=$((ci + 1)) ;;
+    esac
+    case "${path}" in
+        build_files/kyth-installer|build_files/kyth-install.sh|build_files/kyth-manual-install.sh|build_files/build-live-iso.sh)
+            installer=$((installer + 1))
+            ;;
+    esac
+    case "${path}" in
+        *.sh|build_files/kyth-*|build_files/game-performance|build_files/zink-run)
+            scripts=$((scripts + 1))
+            ;;
+    esac
+done
+
+total=${#changes[@]}
+scope="repo"
+if (( hooks > 0 && hooks == total )); then
+    scope="git hooks"
+elif (( ci > 0 && ci == total )); then
+    scope="CI"
+elif (( docs > 0 && docs == total )); then
+    scope="docs"
+elif (( installer > 0 )); then
+    scope="installer"
+elif (( build > 0 )); then
+    scope="image build"
+elif (( scripts > 0 )); then
+    scope="helper scripts"
+fi
+
+verb="Update"
+if (( deleted > 0 && deleted >= added + modified + renamed )); then
+    verb="Remove"
+elif (( added > 0 && added >= modified + deleted + renamed )); then
+    verb="Add"
+elif (( renamed > 0 && renamed >= added + modified + deleted )); then
+    verb="Rename"
+fi
+
+if (( total == 1 )); then
+    subject="${verb} ${paths[0]}"
+else
+    subject="${verb} ${scope}"
+fi
+
+{
+    printf '%s\n\n' "${subject}"
+    printf '# Auto-generated from staged changes. Edit freely before saving.\n'
+    printf '# To bypass next time: KYTH_AUTO_COMMIT_MSG=0 git commit\n'
+    printf '#\n'
+    printf '# Staged summary: %d added, %d modified, %d deleted, %d renamed\n' \
+        "${added}" "${modified}" "${deleted}" "${renamed}"
+    printf '# Files:\n'
+    for path in "${paths[@]}"; do
+        printf '# - %s\n' "${path}"
+    done
+} > "${msg_file}"

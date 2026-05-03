@@ -2,10 +2,6 @@
 
 set -euo pipefail
 
-# Kernel was installed in the build_base layer. Re-derive the version here
-# since it's needed for the Plymouth initramfs rebuild.
-CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-
 # ── Display / resolution auto-detection ──────────────────────────────────────
 # First-login autostart: run kscreen-doctor to set all outputs to their
 # preferred (auto) mode.  Works for both hardware and VMs.  Removes itself
@@ -367,10 +363,6 @@ elif [ "${smoke_exit}" -ne 0 ]; then
     exit 1
 fi
 
-install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
-install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
-    /usr/share/applications/kyth-vpn-connect.desktop
-
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
@@ -414,47 +406,6 @@ mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
 kargs = ["quiet", "splash"]
 KARGSEOF
-
-# ── Plymouth boot splash ───────────────────────────────────────────────────────
-# Install the KythOS Plymouth theme and rebuild the initramfs so the splash is
-# included.  librsvg2-tools provides rsvg-convert to render the logo SVG → PNG.
-# plymouth-plugin-script provides the script module used by kyth.plymouth.
-dnf5 install -y librsvg2-tools
-
-PLYMOUTH_DIR=/usr/share/plymouth/themes/kyth
-mkdir -p "${PLYMOUTH_DIR}"
-cp /ctx/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
-cp /ctx/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
-
-# Render logo SVG → PNG for Plymouth (Plymouth cannot read SVG natively)
-rsvg-convert -w 200 \
-    /ctx/branding/kyth-logo.svg \
-    -o "${PLYMOUTH_DIR}/kyth-logo.png"
-
-plymouth-set-default-theme kyth
-
-# librsvg2-tools was only needed for rsvg-convert above — remove it now
-# to keep the final image lean.
-dnf5 remove -y librsvg2-tools || true
-dnf5 autoremove -y || true
-
-# Rebuild the initramfs to include Plymouth + the KythOS theme.
-# TMPDIR=/var/tmp avoids EXDEV cross-device rename errors.
-# Background ticker prints a heartbeat every 20 s so CI logs don't look frozen.
-echo "dracut: rebuilding initramfs for ${CACHYOS_KVER} (no-hostonly + plymouth, zstd-1) — takes several minutes…"
-( i=0; while true; do sleep 20; i=$((i + 1)); echo "  dracut: still building… $((i * 20))s elapsed"; done ) &
-_DRACUT_TICKER=$!
-TMPDIR=/var/tmp dracut \
-    --no-hostonly \
-    --add "plymouth" \
-    --compress "zstd -1" \
-    --kver "${CACHYOS_KVER}" \
-    --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
-    2> >(grep -Ev 'xattr|fail to copy' >&2)
-kill "$_DRACUT_TICKER" 2>/dev/null || true
-wait "$_DRACUT_TICKER" 2>/dev/null || true
-echo "dracut: initramfs rebuilt with Plymouth (theme: kyth)"
 
 # ── Security Tools menu group ──────────────────────────────────────────────────
 # Define a custom "Security Tools" group in the XDG application menu so that
