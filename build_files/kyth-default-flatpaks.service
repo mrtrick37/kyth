@@ -2,8 +2,9 @@
 Description=Install default Flatpak applications
 Documentation=https://github.com/mrtrick37/kyth
 After=network-online.target kyth-flathub-setup.service
-Wants=network-online.target
-Requires=kyth-flathub-setup.service
+# Requires= (not just Wants=) so this service is skipped on offline boots
+# rather than starting, failing, and leaving the sentinel file unwritten.
+Requires=network-online.target kyth-flathub-setup.service
 # Only runs until the sentinel is written; retries on next boot if install failed.
 ConditionPathExists=!/var/lib/kyth/default-flatpaks-done
 
