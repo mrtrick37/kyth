@@ -87,7 +87,7 @@ SYSCTLEOF
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
 echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 
-# ── Locale defaults ──────────────────────────────────────────────────────────
+# ── Locale defaults ─────────────────────────────────────────────────────────
 # Force a 12-hour AM/PM clock by default on installed systems.
 # LANG keeps the desktop in US English; LC_TIME specifically controls date/time
 # formatting for Plasma, Qt, and libc-aware apps.
@@ -121,7 +121,7 @@ blacklist nouveau
 options nouveau modeset=0
 NVEOF
 
-# ── NTSYNC ────────────────────────────────────────────────────────────────────
+# ── NTSYNC ───────────────────────────────────────────────────────────
 # CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
 # access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
 # (faster and lower-latency than esync/fsync for Windows game compatibility).
@@ -179,7 +179,7 @@ cat > /etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 wifi.powersave = 2
 NMEOF
 
-# ── WiFi driver tweaks ────────────────────────────────────────────────────────
+# ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
 # MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
@@ -196,16 +196,17 @@ cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
 
-# cfg80211 regulatory domain: pin to US.
-# Without a hint, cfg80211 defaults to the "world" domain which caps txpower at
-# ~3 dBm on 5GHz — causing very slow throughput (~20 Mbps) even with a strong
+# cfg80211 regulatory domain: pinned to US.
+# Without a hint cfg80211 defaults to the "world" domain which caps txpower at
+# ~3 dBm on 5GHz, causing very slow throughput (~20 Mbps) even with a strong
 # signal. FCC/US allows up to 30 dBm on channel 149 where most home APs land.
-# TODO: make this locale-aware via kyth-welcome on first boot.
+# Non-US users should override this by creating
+# /etc/modprobe.d/cfg80211-regdom.conf with their own country code.
 cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFGEOF'
 options cfg80211 ieee80211_regdom=US
 CFGEOF
 
-# ── I/O schedulers ────────────────────────────────────────────────────────────
+# ── I/O schedulers ─────────────────────────────────────────────────────────
 # 'none' on NVMe — the drive's own internal queues are better than any kernel
 #   scheduler overhead; multi-queue hardware makes mq-deadline redundant.
 # 'mq-deadline' on SATA SSD — adds deadline fairness with minimal latency.
@@ -276,8 +277,6 @@ mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
 # run at native resolution get AMD FidelityFX Super Resolution upscaling.
 # Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
-WINE_FULLSCREEN_FSR=1
-WINE_FULLSCREEN_FSR_STRENGTH=2
 PROTONEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
@@ -317,7 +316,7 @@ cat > /etc/skel/.config/baloofilerc <<'BALOOEOF'
 Indexing-Enabled=false
 BALOOEOF
 
-# ── journald size cap ─────────────────────────────────────────────────────────
+# ── journald size cap ────────────────────────────────────────────────────────
 # On a gaming desktop the journal can silently grow to multi-GB over time from
 # verbose game/driver output. Cap persistent storage at 500 MB and the in-memory
 # runtime journal (current boot) at 128 MB.
@@ -386,12 +385,8 @@ VKBASALTEOF
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
-# plasmalogin is KDE 6.6's new login service (ships enabled in Kinoite 44).
-# It conflicts with SDDM and crashes on first boot in VMs (no hardware GL for
-# its login renderer). SDDM is the display manager in use — mask plasmalogin.
-systemctl mask plasmalogin.service
-# Re-enforce display-manager and default target symlinks here (layer 4).
-# The dnf5 upgrade in layer 2 can re-apply systemd presets and reset the
+# Re-enforce display-manager and default target symlinks here (layer 5).
+# The dnf5 upgrade in layer 3 can re-apply systemd presets and reset the
 # display-manager alias.  Use explicit symlinks — systemctl enable is a
 # no-op in a container build (no running systemd bus, silently swallowed
 # by 2>/dev/null || true).

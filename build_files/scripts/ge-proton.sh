@@ -1,7 +1,7 @@
 #!/bin/bash
 set -euo pipefail
 
-CURL_COMMON_ARGS=(--retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 300)
+CURL_COMMON_ARGS=(--retry 5 --retry-delay 2 --retry-all-errors --connect-timeout 15 --max-time 3600)
 
 # ── GE-Proton ────────────────────────────────────────────────────────────────
 # Installed system-wide so Steam picks it up for all users without manual setup.
