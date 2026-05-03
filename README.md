@@ -2,8 +2,6 @@
 
 A bleeding-edge atomic desktop OS built on Fedora Kinoite (KDE Plasma) with the CachyOS kernel. The entire OS ships as a container image — immutable base, atomic updates, one-command rollback. Installed from a live ISO via a custom graphical installer.
 
-> Work in progress. Don't install on anything you care about.
-
 ---
 
 ## What it is
