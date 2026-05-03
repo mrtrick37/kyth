@@ -1,0 +1,49 @@
+# KythOS Plymouth boot splash
+# Pure black background, K logo pulsating (breathing glow effect).
+
+# ── Background ────────────────────────────────────────────────────────────────
+Window.SetBackgroundTopColor    (0.0, 0.0, 0.0);
+Window.SetBackgroundBottomColor (0.0, 0.0, 0.0);
+
+# ── Logo ──────────────────────────────────────────────────────────────────────
+logo.image  = Image ("kyth-logo.png");
+logo.sprite = Sprite (logo.image);
+logo.sprite.SetX (Window.GetWidth ()  / 2 - logo.image.GetWidth ()  / 2);
+logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2);
+logo.sprite.SetOpacity (0.0);
+
+# ── Animation ─────────────────────────────────────────────────────────────────
+# Phase 1 (frames 0-39): fade in over ~0.8 s
+# Phase 2 (frame 40+):   pulse between 0.55 and 1.0, period ~2.5 s
+frame = 0;
+
+fun refresh_callback () {
+    frame++;
+
+    if (frame < 40) {
+        logo.sprite.SetOpacity (frame * 0.025);
+    } else {
+        pulse = 0.775 + 0.225 * Math.Sin ((frame - 40) * 0.05);
+        logo.sprite.SetOpacity (pulse);
+    }
+}
+
+Plymouth.SetRefreshFunction (refresh_callback);
+
+# ── Message overlay (first-boot notice, etc.) ─────────────────────────────────
+msg_sprite = Sprite ();
+msg_sprite.SetOpacity (0.0);
+
+fun message_callback (text) {
+    if (text != "") {
+        img = Image.Text (text, 0.75, 0.75, 0.75, 1);
+        msg_sprite.SetImage (img);
+        msg_sprite.SetX (Window.GetWidth ()  / 2 - img.GetWidth ()  / 2);
+        msg_sprite.SetY (Window.GetHeight () * 0.68);
+        msg_sprite.SetOpacity (1.0);
+    } else {
+        msg_sprite.SetOpacity (0.0);
+    }
+}
+
+Plymouth.SetMessageFunction (message_callback);
