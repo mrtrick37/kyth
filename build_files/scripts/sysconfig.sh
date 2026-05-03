@@ -481,6 +481,11 @@ ConditionPathExists=!/var/lib/kyth/.first-boot-complete
 
 [Service]
 Type=oneshot
+# Only send the message if the Plymouth daemon is actually listening.
+# On fast boots SDDM may already have started and stopped Plymouth before
+# this service runs; "plymouth message" would then exit non-zero and the
+# sentinel file would never be written, causing a retry on every boot.
+ExecCondition=/usr/bin/plymouth --ping
 ExecStart=/usr/bin/plymouth message --text="Running first boot setup, this may take a few moments..."
 ExecStart=/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/.first-boot-complete'
 RemainAfterExit=yes

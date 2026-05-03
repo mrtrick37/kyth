@@ -31,7 +31,15 @@ echo "kyth-nvidia-setup: this may take 5-15 minutes on first boot"
 # Blacklist nouveau and nova_core, enable DRM modesetting.
 # Matches the kernel args set by the kyth-welcome NVIDIA page.
 KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
-grubby --update-kernel=ALL --args="${KARGS}"
+# grubby works on both GRUB2 and systemd-boot BLS entries on Fedora, but it
+# can silently do nothing on some configurations (e.g. non-standard ESP layout
+# or bootc-managed deployments that haven't been rebooted yet). Make it
+# non-fatal: the kargs are already baked into the image via kargs.d, so the
+# driver will still load correctly after the next bootc-applied reboot even if
+# grubby fails to update the current boot entry.
+if ! grubby --update-kernel=ALL --args="${KARGS}"; then
+    echo "kyth-nvidia-setup: grubby could not update kernel args (non-fatal — kargs.d will apply on next deployment)"
+fi
 
 # Build the module for the running kernel.
 akmods --force --kernels "$(uname -r)"
