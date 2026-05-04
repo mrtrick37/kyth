@@ -101,16 +101,17 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 #   enabled by default. Transparent/no-op on AMD systems.
 # amdgpu.sg_display=0: disables scatter-gather display on the amdgpu driver.
 #   Without this, AMD laptop panels (eDP) blink/flash repeatedly during the
-#   Plymouth → SDDM KMS handoff — reproducible on ASUS TUF A16 and other AMD
-#   Radeon laptop designs. sg_display uses IOMMU-mapped scatter lists for the
-#   display engine; on laptops where the panel is on the iGPU eDP output the
-#   IOMMU mapping stalls cause the display controller to blank and re-sync
-#   multiple times per second until the driver settles. Setting it to 0 forces
-#   the driver to use a contiguous-memory framebuffer for the display engine
-#   instead, which is slightly less memory-efficient but eliminates the blink.
+#   Plymouth → SDDM KMS handoff on AMD Radeon laptop designs (confirmed ASUS
+#   TUF A16). Forces contiguous-memory framebuffer for the display engine.
+# video=efifb:off: disables the EFI/UEFI GOP framebuffer (efifb/simpledrm).
+#   Without this the kernel creates a simpledrm device over the UEFI framebuffer
+#   during early boot. When amdgpu then takes DRM master the two drivers fight
+#   over the display output, causing the "Plymouth logo → black → Plymouth →
+#   blink" loop seen on RDNA 2/3 AMD laptops. Disabling efifb lets amdgpu own
+#   the display from the start with no conflict.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0"]
+kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0", "video=efifb:off"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

@@ -508,6 +508,18 @@ cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF
 Environment="QT_QUICK_BACKEND=software"
 SDDMDROPINEOF
 
+# Default SDDM session to Plasma X11.
+# The installed OS has no SDDM session default, so SDDM falls back to Wayland.
+# On RDNA 2/3 AMD laptops the KWin Wayland compositor fails to take DRM master
+# cleanly from Plymouth on first boot, causing the "logo → black → blink" loop.
+# X11 has a simpler DRM handoff (Xorg takes master once, no compositor
+# involvement) and matches the live ISO session type, which boots reliably.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/10-kyth-session.conf <<'SDDMSESSIONEOF'
+[General]
+DefaultSession=plasmax11.desktop
+SDDMSESSIONEOF
+
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
 # On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
