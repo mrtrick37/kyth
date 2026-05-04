@@ -90,17 +90,24 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 #   enabled by default. Transparent/no-op on AMD systems.
 # amdgpu.sg_display=0: disables scatter-gather display on the amdgpu driver.
 #   Without this, AMD laptop panels (eDP) blink/flash repeatedly during the
-#   Plymouth → SDDM KMS handoff on AMD Radeon laptop designs (confirmed ASUS
-#   TUF A16). Forces contiguous-memory framebuffer for the display engine.
+#   SDDM KMS handoff on AMD Radeon laptop designs (confirmed ASUS TUF A16).
+#   Forces contiguous-memory framebuffer for the display engine.
+# amdgpu.runpm=0: disables GPU runtime power management on AMD.
+#   RDNA2/3 GPUs can enter low-power states during the initramfs→SDDM
+#   display handoff, resetting the display engine mid-transition and causing
+#   the persistent blink loop seen on AMD laptops. Keeping the GPU fully
+#   powered during boot eliminates the race.
 # video=efifb:off: disables the EFI/UEFI GOP framebuffer (efifb/simpledrm).
 #   Without this the kernel creates a simpledrm device over the UEFI framebuffer
 #   during early boot. When amdgpu then takes DRM master the two drivers fight
-#   over the display output, causing the "Plymouth logo → black → Plymouth →
-#   blink" loop seen on RDNA 2/3 AMD laptops. Disabling efifb lets amdgpu own
-#   the display from the start with no conflict.
+#   over the display output. Disabling efifb lets amdgpu own the display from
+#   the start with no conflict.
+# splash is intentionally absent: Plymouth holds the amdgpu DRM master and the
+#   Plymouth→Xorg handoff races on RDNA3, causing Xorg to fail and SDDM to
+#   restart it repeatedly (the blink loop). Boot goes directly to SDDM instead.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0", "video=efifb:off"]
+kargs = ["quiet", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0", "amdgpu.runpm=0", "video=efifb:off"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
