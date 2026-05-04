@@ -88,8 +88,3 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
 
-# Layer 7: Mesa-git (~300-500 MB). Re-run on every daily build.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
-    --mount=type=tmpfs,dst=/tmp \
-    /ctx/scripts/mesa-git.sh

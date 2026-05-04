@@ -215,6 +215,10 @@ dnf5 install -y --skip-unavailable \
     intel-media-driver \
     libva-intel-driver \
     xorg-x11-drv-intel \
+    xorg-x11-drv-amdgpu \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
     radeontop \
     libclc
 

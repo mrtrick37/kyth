@@ -7,17 +7,6 @@ set -euo pipefail
 # are correctly labeled before the system ever boots.
 
 # Apply KythOS branding to the base image
-cat > /etc/os-release <<'EOF' || true
-NAME="KythOS"
-PRETTY_NAME="KythOS 44"
-ID=fedora
-VERSION_ID="44"
-ANSI_COLOR="0;34"
-HOME_URL="https://github.com/mrtrick37/kyth"
-SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
-BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
-EOF
-
 echo "KythOS base customization applied"
 
 # ── CachyOS kernel ─────────────────────────────────────────────────────────
@@ -135,16 +124,4 @@ systemctl mask systemd-remount-fs.service 2>/dev/null || true
 rm -f /etc/systemd/system/plasmalogin.service
 ln -s /dev/null /etc/systemd/system/plasmalogin.service
 
-# ── SDDM display server: Wayland by default ───────────────────────────────────
-# Keep the on-disk config aligned with the documented product defaults so
-# image behavior is obvious during debugging and CI review.
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/10-display-server.conf <<'EOF'
-[General]
-DisplayServer=wayland
-
-[Wayland]
-SessionDir=/usr/share/wayland-sessions
-CompositorCommand=kwin_wayland --no-global-shortcuts --no-lockscreen --locale1
-EOF
 

@@ -192,6 +192,7 @@ mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 [General]
 DisplayServer=x11
+DefaultSession=plasmax11.desktop
 
 [X11]
 SessionDir=/usr/share/xsessions
