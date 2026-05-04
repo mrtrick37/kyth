@@ -405,7 +405,7 @@ WELCOMEEOF
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash"]
+kargs = ["quiet"]
 KARGSEOF
 
 # ── Security Tools menu group ──────────────────────────────────────────────────

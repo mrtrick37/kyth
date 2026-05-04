@@ -242,20 +242,6 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# ── NVIDIA driver (userspace only) ────────────────────────────────────────────
-# Kernel module compilation (akmods) is intentionally omitted — it added
-# 5–15 min to every build. Only userspace NVIDIA libs are installed here.
-dnf5 remove -y nvidia-kmod-common || true
-dnf5 install -y --skip-unavailable --allowerasing \
-    --disablerepo='*' \
-    --enablerepo='fedora*' \
-    --enablerepo='updates*' \
-    --enablerepo='rpmfusion*' \
-    xorg-x11-drv-nvidia \
-    xorg-x11-drv-nvidia-cuda \
-    xorg-x11-drv-nvidia-libs \
-    xorg-x11-drv-nvidia-libs.i686 \
-    nvidia-vaapi-driver
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
