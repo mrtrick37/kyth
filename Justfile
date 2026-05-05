@@ -605,7 +605,7 @@ run-live-iso-native source_tag="latest":
         -cdrom "${image_file}" \
         -boot order=c,once=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device virtio-vga \
+        -device qxl-vga \
         -display none \
         -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
@@ -682,7 +682,7 @@ run-live-iso-native-legacy source_tag="latest":
         -cdrom "${image_file}" \
         -boot order=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device virtio-vga \
+        -device qxl-vga \
         -display none \
         -spice port=5932,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \

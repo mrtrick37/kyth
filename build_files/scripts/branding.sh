@@ -184,8 +184,8 @@ XDGPLASMAEOF
 
 # ── SDDM session type + login screen background ───────────────────────────────
 # Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;
-# KWin Wayland requires a working DRM/GBM backend and crashes on virtio-vga (no
-# virgl) and similar VM GPUs without 3D acceleration, which drops the SPICE
+# KWin Wayland requires a working DRM/GBM backend and can crash on VM GPUs
+# without 3D acceleration, which drops the SPICE
 # connection and makes the VM appear to close. X11 is stable on all hardware
 # and VM GPU drivers; users can switch to Wayland from the session picker.
 mkdir -p /etc/sddm.conf.d
@@ -200,7 +200,7 @@ SDDMCONFEOF
 
 # QEMU/first-boot baseline: make Plasma's X11 session software-renderable for
 # new users. This mirrors the live ISO's stability path and keeps the desktop
-# reachable even when virtio-vga has no virgl/3D acceleration. Users can remove
+# reachable even when the VM display has no virgl/3D acceleration. Users can remove
 # this file or switch to Wayland/hardware GL once the baseline boot path is
 # proven on their hardware.
 mkdir -p /etc/skel/.config/plasma-workspace/env
