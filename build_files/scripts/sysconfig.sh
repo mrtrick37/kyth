@@ -105,6 +105,15 @@ w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
 w! /sys/kernel/mm/transparent_hugepage/defrag  - - - - defer+madvise
 THPEOF
 
+# D-Bus socket activation needs the parent runtime directory before
+# dbus.socket binds /run/dbus/system_bus_socket. The Fedora dbus tmpfiles entry
+# in the bootc base only creates /var/lib/dbus, and /run is empty at every boot.
+# Without this, dbus.socket fails, which then takes down logind, polkit,
+# NetworkManager, and the SDDM greeter.
+cat > /etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
+d /run/dbus 0755 root root -
+DBUSTMPFILEEOF
+
 # ── NVIDIA kernel module options ─────────────────────────────────────────────
 # nvidia-drm.modeset=1  — required for Wayland/SDDM to use the NVIDIA KMS driver
 #   instead of falling back to fbdev; without it KDE Plasma on Wayland will not
