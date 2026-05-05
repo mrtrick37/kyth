@@ -80,6 +80,10 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
+    plasma-workspace-x11 \
+    xorg-x11-server-Xorg \
+    xorg-x11-xinit \
+    xorg-x11-drv-libinput \
     irqbalance \
     p7zip \
     p7zip-plugins \
@@ -117,6 +121,12 @@ dnf5 copr enable -y ycollet/audinux
 # the kyth-welcome Gaming page so users can opt in without bloating the base image.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
+#
+# Keep native libatomic aligned before adding libatomic.i686. Fedora mirror/COPR
+# timing can expose a newer i686 build while the base image still carries the
+# previous x86_64 build; mismatched multilib RPMs conflict on shared doc files.
+dnf5 upgrade -y libatomic.x86_64 || true
+
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope \
     gamescope-shaders \
@@ -299,6 +309,9 @@ dnf5 install -y \
 # bootc-based distros do.
 ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 

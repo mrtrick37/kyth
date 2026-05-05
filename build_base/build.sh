@@ -66,7 +66,7 @@ dnf5 remove -y librsvg2-tools || true
 # drm module pulls in KMS drivers so the display is available after pivot_root.
 # plymouth is intentionally excluded: when plymouth is in the initramfs and
 # the drm module is also present, plymouth probes for any available DRM device
-# (virtio_gpu in QEMU; simpledrm on bare metal when video=efifb:off is absent)
+# (virtio_gpu in QEMU; simpledrm on bare metal before hardware KMS loads)
 # and acquires DRM master. The plymouth→SDDM/Xorg handoff is racy on RDNA3
 # and virtio-gpu and produces the persistent blink loop seen at boot.
 # Excluding plymouth from the initramfs means nothing holds DRM master before
@@ -100,41 +100,26 @@ TMPDIR=/var/tmp dracut \
 dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Set kernel args for the installed system via bootc kargs.d.
+# Keep the baseline deliberately QEMU-safe. Hardware-specific GPU workarounds
+# are applied later only on systems that need them; baking them into every
+# install made virtio/EFI framebuffer handoff failures very hard to diagnose.
 # quiet: suppress kernel log spam on the console.
-# splash: activate Plymouth so the boot splash is shown.
-# iommu=pt: Intel VT-d passthrough mode — prevents strict IOMMU isolation from
-#   breaking DRM/KMS on Intel vPro and similar enterprise hardware where VT-d is
-#   enabled by default. Transparent/no-op on AMD systems.
-# amdgpu.sg_display=0: disables scatter-gather display on the amdgpu driver.
-#   Without this, AMD laptop panels (eDP) blink/flash repeatedly during the
-#   SDDM KMS handoff on AMD Radeon laptop designs (confirmed ASUS TUF A16).
-#   Forces contiguous-memory framebuffer for the display engine.
-# amdgpu.runpm=0: disables GPU runtime power management on AMD.
-#   RDNA2/3 GPUs can enter low-power states during the initramfs→SDDM
-#   display handoff, resetting the display engine mid-transition and causing
-#   the persistent blink loop seen on AMD laptops. Keeping the GPU fully
-#   powered during boot eliminates the race.
-# video=efifb:off: disables the EFI/UEFI GOP framebuffer (efifb/simpledrm).
-#   Without this the kernel creates a simpledrm device over the UEFI framebuffer
-#   during early boot. Plymouth would attach to that device and hold DRM master.
-#   When amdgpu then loads in userspace it must wrest DRM master from Plymouth,
-#   and that handoff races on RDNA3 causing the persistent blink loop. Disabling
-#   efifb leaves Plymouth with no display device at all — it runs but never
-#   takes DRM master — so amdgpu starts up with a clean slate.
-#   On NVIDIA: nouveau (not blacklisted) loads via the drm dracut module and
-#   provides a DRM device. On Intel: i915 handles the handoff cleanly regardless.
-#   Both non-AMD paths get SDDM's QT_QUICK_BACKEND=software greeter as a fallback.
-# splash is intentionally absent: Plymouth holds the amdgpu DRM master and the
-#   Plymouth→Xorg handoff races on RDNA3, causing Xorg to fail and SDDM to
-#   restart it repeatedly (the blink loop). Boot goes directly to SDDM instead.
+# threadirqs: keep the low-latency desktop tuning without affecting display.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0", "amdgpu.runpm=0", "video=efifb:off"]
+kargs = ["quiet", "threadirqs"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
 systemctl enable sddm 2>/dev/null || true
 systemctl set-default graphical.target 2>/dev/null || true
+ln -sf /usr/lib/systemd/system/sddm.service \
+    /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
+ln -sf /usr/lib/systemd/system/graphical.target \
+    /etc/systemd/system/default.target
 
 # Mask bootloader-update.service: this ostree/rpm-ostree service tries to
 # update the bootloader on every boot but always fails in our bootc image,
@@ -152,5 +137,3 @@ systemctl mask systemd-remount-fs.service 2>/dev/null || true
 # symlink to /dev/null ensures it's masked before systemd first reads it on boot.
 rm -f /etc/systemd/system/plasmalogin.service
 ln -s /dev/null /etc/systemd/system/plasmalogin.service
-
-
