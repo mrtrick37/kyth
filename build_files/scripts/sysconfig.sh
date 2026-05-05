@@ -111,14 +111,13 @@ THPEOF
 #   start on NVIDIA hardware.
 # NVreg_PreserveVideoMemoryAllocations=1 — keeps VRAM contents across suspend/
 #   resume cycles, preventing a black screen after wake on NVIDIA systems.
-# nouveau is blacklisted: it conflicts with the proprietary driver and must not
-#   load.  On AMD/Intel systems nouveau is never triggered anyway (no NVIDIA
-#   hardware), so the blacklist is harmless.
+# nouveau is NOT blacklisted: the proprietary NVIDIA driver is not installed in
+#   this image, so nouveau must remain loadable to provide KMS/display output on
+#   NVIDIA hardware. If a user layers the proprietary driver via rpm-ostree they
+#   should add their own blacklist via /etc/modprobe.d/blacklist-nouveau.conf.
 cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVEOF'
 options nvidia-drm modeset=1
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
-blacklist nouveau
-options nouveau modeset=0
 NVEOF
 
 # ── NTSYNC ───────────────────────────────────────────────────────────
@@ -196,15 +195,6 @@ cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
 
-# cfg80211 regulatory domain: pinned to US.
-# Without a hint cfg80211 defaults to the "world" domain which caps txpower at
-# ~3 dBm on 5GHz, causing very slow throughput (~20 Mbps) even with a strong
-# signal. FCC/US allows up to 30 dBm on channel 149 where most home APs land.
-# Non-US users should override this by creating
-# /etc/modprobe.d/cfg80211-regdom.conf with their own country code.
-cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFGEOF'
-options cfg80211 ieee80211_regdom=US
-CFGEOF
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
 # 'none' on NVMe — the drive's own internal queues are better than any kernel

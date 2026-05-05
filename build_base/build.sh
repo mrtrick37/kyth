@@ -60,16 +60,28 @@ plymouth-set-default-theme kyth
 
 dnf5 remove -y librsvg2-tools || true
 
-# Write dracut config — force the ostree and plymouth modules.
-# Without ostree the initramfs cannot find or mount the root filesystem.
-# Without plymouth the boot splash is not shown.
-# DRM module ensures GPU drivers load before Plymouth starts rendering.
+# Write dracut config.
+# ostree module is required — without it the initramfs cannot find or mount
+# the ostree deployment root.
+# drm module pulls in KMS drivers so the display is available after pivot_root.
+# plymouth is intentionally excluded: when plymouth is in the initramfs and
+# the drm module is also present, plymouth probes for any available DRM device
+# (virtio_gpu in QEMU; simpledrm on bare metal when video=efifb:off is absent)
+# and acquires DRM master. The plymouth→SDDM/Xorg handoff is racy on RDNA3
+# and virtio-gpu and produces the persistent blink loop seen at boot.
+# Excluding plymouth from the initramfs means nothing holds DRM master before
+# SDDM starts — SDDM acquires it cleanly on first try. Plymouth still runs
+# as a systemd userspace service after pivot_root; without the splash karg
+# it uses the text renderer and never touches DRM.
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree plymouth drm "
+add_dracutmodules+=" ostree drm "
 # virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
 # so add_drivers has no effect for them. Kept for documentation.
-add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
+# virtio_gpu: required for QEMU/KVM guests with virtio-vga or virtio-gpu-pci.
+# Without it, the kernel has no DRM/KMS driver in the initramfs; harmless on
+# bare metal where the module simply goes unused.
+add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu "
 DRACUTEOF
 
 TMPDIR=/var/tmp dracut \
@@ -99,9 +111,14 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 #   powered during boot eliminates the race.
 # video=efifb:off: disables the EFI/UEFI GOP framebuffer (efifb/simpledrm).
 #   Without this the kernel creates a simpledrm device over the UEFI framebuffer
-#   during early boot. When amdgpu then takes DRM master the two drivers fight
-#   over the display output. Disabling efifb lets amdgpu own the display from
-#   the start with no conflict.
+#   during early boot. Plymouth would attach to that device and hold DRM master.
+#   When amdgpu then loads in userspace it must wrest DRM master from Plymouth,
+#   and that handoff races on RDNA3 causing the persistent blink loop. Disabling
+#   efifb leaves Plymouth with no display device at all — it runs but never
+#   takes DRM master — so amdgpu starts up with a clean slate.
+#   On NVIDIA: nouveau (not blacklisted) loads via the drm dracut module and
+#   provides a DRM device. On Intel: i915 handles the handoff cleanly regardless.
+#   Both non-AMD paths get SDDM's QT_QUICK_BACKEND=software greeter as a fallback.
 # splash is intentionally absent: Plymouth holds the amdgpu DRM master and the
 #   Plymouth→Xorg handoff races on RDNA3, causing Xorg to fail and SDDM to
 #   restart it repeatedly (the blink loop). Boot goes directly to SDDM instead.
