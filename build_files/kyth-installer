@@ -11,6 +11,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import select
 import subprocess
 import threading
@@ -98,6 +99,112 @@ def find_deploy_etc(root_mount: str) -> Optional[str]:
     if not candidates:
         return None
     return max(candidates, key=lambda p: os.path.getmtime(p))
+
+
+SYSTEM_GROUP_FALLBACKS = {
+    "sddm": "sddm:x:959:",
+}
+
+SYSTEM_PASSWD_FALLBACKS = {
+    "sddm": "sddm:x:959:959:SDDM Greeter Account:/var/lib/sddm:/usr/sbin/nologin",
+}
+
+
+def _read_lines(path: Path) -> list[str]:
+    try:
+        return path.read_text(errors="ignore").splitlines()
+    except FileNotFoundError:
+        return []
+
+
+def _write_lines(path: Path, lines: list[str], mode: int) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text("\n".join(lines) + "\n")
+    os.chmod(path, mode)
+
+
+def _append_missing_records(dest: Path, sources: list[Path], fallbacks: dict[str, str]) -> bool:
+    lines = _read_lines(dest)
+    names = {line.split(":", 1)[0] for line in lines if line and ":" in line}
+    changed = False
+
+    for source in sources:
+        for line in _read_lines(source):
+            if not line or ":" not in line:
+                continue
+            name = line.split(":", 1)[0]
+            if name and name not in names:
+                lines.append(line)
+                names.add(name)
+                changed = True
+
+    for name, line in fallbacks.items():
+        if name not in names:
+            lines.append(line)
+            names.add(name)
+            changed = True
+
+    if changed:
+        _write_lines(dest, lines, 0o644)
+    return changed
+
+
+def ensure_system_accounts(deploy_root: str, log) -> None:
+    root = Path(deploy_root)
+    etc = root / "etc"
+
+    group_changed = _append_missing_records(
+        etc / "group",
+        [root / "usr/lib/group"],
+        SYSTEM_GROUP_FALLBACKS,
+    )
+    passwd_changed = _append_missing_records(
+        etc / "passwd",
+        [root / "usr/lib/passwd"],
+        SYSTEM_PASSWD_FALLBACKS,
+    )
+
+    passwd_names = {
+        line.split(":", 1)[0]
+        for line in _read_lines(etc / "passwd")
+        if line and ":" in line
+    }
+    shadow = etc / "shadow"
+    shadow_lines = _read_lines(shadow)
+    shadow_names = {
+        line.split(":", 1)[0]
+        for line in shadow_lines
+        if line and ":" in line
+    }
+    shadow_changed = False
+    for name in sorted(passwd_names - shadow_names):
+        if name == "root" or not name:
+            continue
+        shadow_lines.append(f"{name}:!*:19700:0:99999:7:::")
+        shadow_changed = True
+    if shadow_changed:
+        _write_lines(shadow, shadow_lines, 0o000)
+    elif shadow.exists():
+        os.chmod(shadow, 0o000)
+
+    sddm_home = root / "var/lib/sddm"
+    subprocess.run(_as_root(["mkdir", "-p", str(sddm_home)]), check=True)
+    subprocess.run(_as_root(["chown", "sddm:sddm", str(sddm_home)]), check=False)
+    restorecon = shutil.which("restorecon")
+    if restorecon:
+        subprocess.run(
+            _as_root([
+                restorecon,
+                str(etc / "passwd"),
+                str(etc / "group"),
+                str(etc / "shadow"),
+                str(sddm_home),
+            ]),
+            check=False,
+        )
+
+    if group_changed or passwd_changed or shadow_changed:
+        log("Repaired installed system account databases for SDDM/D-Bus")
 
 
 def get_root_partition(disk: str) -> str:
@@ -343,10 +450,12 @@ def _run_install() -> None:
                 log(f"Timezone : {_state['timezone']}")
                 progress(95)
 
+                deploy_root = str(Path(etc).parent)
+                ensure_system_accounts(deploy_root, log)
+
                 username = _state.get("username", "").strip()
                 password = _state.get("password", "")
                 if username and password:
-                    deploy_root = str(Path(etc).parent)
                     log(f"Creating user: {username}")
                     try:
                         subprocess.run(
@@ -424,6 +533,7 @@ def _run_install() -> None:
                             check=False,
                         )
                         log(f"User '{username}' created (uid={uid})")
+                        ensure_system_accounts(deploy_root, log)
                         progress(97)
                     except Exception as ue:
                         log(f"Warning: user creation failed: {ue}")
