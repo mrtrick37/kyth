@@ -105,9 +105,11 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # install made virtio/EFI framebuffer handoff failures very hard to diagnose.
 # quiet: suppress kernel log spam on the console.
 # threadirqs: keep the low-latency desktop tuning without affecting display.
+# rd.plymouth=0/plymouth.enable=0: keep the QEMU baseline free of splash/DRM
+# handoff races until the installed desktop path is proven stable.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "threadirqs"]
+kargs = ["quiet", "threadirqs", "rd.plymouth=0", "plymouth.enable=0", "console=tty0", "console=ttyS0,115200"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

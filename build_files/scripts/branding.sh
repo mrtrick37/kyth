@@ -198,6 +198,23 @@ DefaultSession=plasmax11.desktop
 SessionDir=/usr/share/xsessions
 SDDMCONFEOF
 
+# QEMU/first-boot baseline: make Plasma's X11 session software-renderable for
+# new users. This mirrors the live ISO's stability path and keeps the desktop
+# reachable even when virtio-vga has no virgl/3D acceleration. Users can remove
+# this file or switch to Wayland/hardware GL once the baseline boot path is
+# proven on their hardware.
+mkdir -p /etc/skel/.config/plasma-workspace/env
+cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
+#!/bin/sh
+if ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GALLIUM_DRIVER=llvmpipe
+    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+    export QT_QUICK_BACKEND=software
+fi
+QEMUSAFEEOF
+chmod +x /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh
+
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
 mkdir -p /usr/share/sddm/themes/breeze
@@ -401,12 +418,13 @@ NoDisplay=true
 WELCOMEEOF
 
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
-# Ship quiet only. Plymouth is intentionally not activated with a splash karg on
-# installed systems while we stabilize the QEMU/SDDM handoff.
+# Ship a no-splash installed boot baseline while we stabilize the QEMU/SDDM
+# handoff. The base layer owns the full list; this lower-priority file keeps
+# compatibility with bootc versions that only read one kargs.d entry.
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet"]
+kargs = ["quiet", "rd.plymouth=0", "plymouth.enable=0"]
 KARGSEOF
 
 # ── Security Tools menu group ──────────────────────────────────────────────────

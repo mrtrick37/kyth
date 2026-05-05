@@ -15,7 +15,7 @@
 set -euo pipefail
 
 TARGET="${1:-/dev/nvme0n1}"
-BUNDLED_IMGREF="oci:/usr/share/kyth/image"
+BUNDLED_IMGREF="oci:/usr/share/kyth/image:latest"
 TARGET_IMGREF="ghcr.io/mrtrick37/kyth:latest"
 
 # ── Sanity checks ─────────────────────────────────────────────────────────────
