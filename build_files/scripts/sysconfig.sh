@@ -382,6 +382,9 @@ systemctl mask systemd-remount-fs.service
 # by 2>/dev/null || true).
 ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 

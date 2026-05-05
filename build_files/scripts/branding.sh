@@ -401,7 +401,8 @@ NoDisplay=true
 WELCOMEEOF
 
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
-# Ship quiet + splash so Plymouth shows on the installed system.
+# Ship quiet only. Plymouth is intentionally not activated with a splash karg on
+# installed systems while we stabilize the QEMU/SDDM handoff.
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
