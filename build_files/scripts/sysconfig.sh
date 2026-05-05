@@ -501,6 +501,59 @@ cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF
 Environment="QT_QUICK_BACKEND=software"
 SDDMDROPINEOF
 
+# QEMU boot diagnostic: emit display-manager, Xorg, and DRM state to both
+# /var/log and the active console shortly after SDDM starts. This gives the
+# serial log enough context to distinguish "kernel/display inactive" from
+# "SDDM/Xorg restart loop" on local VM boots.
+cat > /usr/lib/systemd/system/kyth-display-debug.service <<'DISPLAYDEBUGEOF'
+[Unit]
+Description=KythOS display boot diagnostics
+After=sddm.service
+Wants=sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-display-debug
+
+[Install]
+WantedBy=graphical.target
+DISPLAYDEBUGEOF
+
+cat > /usr/libexec/kyth-display-debug <<'DISPLAYDEBUGSCRIPTEOF'
+#!/usr/bin/bash
+set +e
+LOG=/var/log/kyth-display-debug.log
+{
+    echo "=== kyth-display-debug $(date -Is) ==="
+    echo "--- cmdline"
+    cat /proc/cmdline
+    echo "--- default target"
+    systemctl get-default
+    echo "--- sddm status"
+    systemctl --no-pager --full status sddm.service
+    echo "--- recent sddm journal"
+    journalctl -b --no-pager -u sddm.service -n 120
+    echo "--- drm connectors"
+    for status in /sys/class/drm/card*-*/status; do
+        [ -e "$status" ] || continue
+        printf '%s: ' "$status"
+        cat "$status"
+    done
+    echo "--- drm devices"
+    ls -la /sys/class/drm
+    echo "--- display modules"
+    lsmod | grep -E 'qxl|virtio_gpu|bochs|drm' || true
+    echo "--- Xorg logs"
+    find /var/log /var/lib/sddm/.local/share/sddm -maxdepth 3 -type f \
+        \( -name 'Xorg*.log' -o -name '*xorg*.log' \) -print -exec tail -n 120 {} \; 2>/dev/null
+    echo "--- processes"
+    ps -ef | grep -E 'sddm|Xorg|kwin|plasmashell' | grep -v grep || true
+} > "$LOG" 2>&1
+cat "$LOG" > /dev/console 2>/dev/null || true
+DISPLAYDEBUGSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-display-debug
+systemctl enable kyth-display-debug.service 2>/dev/null || true
+
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.

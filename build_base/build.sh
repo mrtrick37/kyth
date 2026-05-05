@@ -83,10 +83,10 @@ add_dracutmodules+=" ostree drm "
 # install. Omitting it here means Plymouth only runs as a userspace service
 # after pivot_root, in text mode (no splash karg), never touching DRM.
 omit_dracutmodules+=" plymouth "
-# virtio_gpu: required for QEMU/KVM. Without it the DRM device doesn't exist
-# in the initramfs and the kernel can't set up the display before SDDM starts.
-# Harmless on bare metal where the module simply goes unused.
-add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu "
+# virtio_gpu/qxl/bochs: QEMU/KVM display paths. Keep all three available early
+# so local tests can switch between virtio, SPICE/QXL, and firmware fallback
+# without rebuilding the kernel/initramfs layer.
+add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs "
 DRACUTEOF
 
 TMPDIR=/var/tmp dracut \
