@@ -26,6 +26,9 @@ TARGET_IMAGE = os.environ.get("KYTH_TARGET_IMAGE", SOURCE_IMAGE)
 LOG_FILE     = Path(os.environ.get("KYTH_INSTALLER_LOG", "/tmp/kyth-installer.log"))
 PORT         = 7777
 SESSION_TOKEN = secrets.token_urlsafe(32)
+SKIP_FETCH_CHECK = os.environ.get("KYTH_INSTALL_SKIP_FETCH_CHECK", "0").lower() in (
+    "1", "true", "yes", "on"
+)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -131,6 +134,15 @@ def get_root_partition(disk: str) -> str:
 
 def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
+
+
+def _source_imgref(image: str) -> str:
+    # Allow installer env to pass an explicit containers/image transport, e.g.
+    # oci:/usr/share/kyth/image:latest for local QEMU test ISOs. Plain image
+    # names still default to docker:// for registry installs.
+    if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", image):
+        return image
+    return f"docker://{image}"
 
 
 # ── Install state ─────────────────────────────────────────────────────────────
@@ -273,6 +285,7 @@ def _run_install() -> None:
     try:
         disk = _state["disk"]
         log(f"Source image : {SOURCE_IMAGE}")
+        log(f"Target image : {TARGET_IMAGE}")
         log(f"Disk         : {disk}")
         log("")
 
@@ -290,16 +303,18 @@ def _run_install() -> None:
             pass
 
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
-        run_cmd([
+        install_cmd = [
             "bootc", "install", "to-disk",
-            "--source-imgref", f"docker://{SOURCE_IMAGE}",
+            "--source-imgref", _source_imgref(SOURCE_IMAGE),
             "--target-imgref", TARGET_IMAGE,
             "--filesystem", "btrfs",
             "--generic-image",
-            "--skip-fetch-check",
             "--wipe",
             disk,
-        ], 5, 90)
+        ]
+        if SKIP_FETCH_CHECK:
+            install_cmd.insert(-2, "--skip-fetch-check")
+        run_cmd(install_cmd, 5, 90)
 
         log("── Phase 2: Configuring installed system ─────────────────────────")
         progress(91)

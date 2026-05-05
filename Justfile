@@ -498,6 +498,24 @@ rebuild-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
+# Build a live ISO that embeds localhost/kyth:latest and installs that exact
+# local image. This is the QEMU development path for validating boot fixes
+# before pushing anything to GHCR.
+[group('Build Virtual Machine Image')]
+rebuild-live-iso-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build
+    SOURCE_TAG=local REBUILD_IMAGE=1 EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+
+# Build the local embedded ISO and boot it in native QEMU with a fresh disk.
+[group('Run Virtual Machine')]
+run-live-iso-native-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just rebuild-live-iso-local
+    LIVE_ISO_VM_RESET=1 just run-live-iso-native local
+
 # Boot the live ISO in a VM (BIOS, web UI at http://localhost:PORT).
 # Uses the dedicated artifact name from build-live-iso.sh:
 #   output/live-iso/kyth-live-<tag>.iso
