@@ -114,12 +114,96 @@ cat > /etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
 d /run/dbus 0755 root root -
 DBUSTMPFILEEOF
 
+# bootc/ostree images keep several package-owned system accounts in
+# /usr/lib/passwd and /usr/lib/group, while booted installations and useradd
+# operate against the mutable /etc databases. If the installed /etc lacks those
+# accounts, dbus-broker cannot build its NSS cache and SDDM cannot resolve the
+# sddm greeter user, leaving QEMU at a black cursor after X starts.
+cat > /usr/lib/systemd/system/kyth-system-accounts.service <<'SYSACCOUNTUNITEOF'
+[Unit]
+Description=Ensure KythOS system accounts are visible in /etc
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-sysusers.service dbus.socket dbus-broker.service sockets.target sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-fix-system-accounts
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+SYSACCOUNTUNITEOF
+
+install -d -m 0755 /usr/libexec
+cat > /usr/libexec/kyth-fix-system-accounts <<'SYSACCOUNTSCRIPTEOF'
+#!/usr/bin/bash
+set -euo pipefail
+
+append_missing_name() {
+    local src="$1"
+    local dest="$2"
+    local name
+
+    [ -r "$src" ] || return 0
+    touch "$dest"
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        name="${line%%:*}"
+        [ -n "$name" ] || continue
+        if ! grep -q "^${name}:" "$dest"; then
+            printf '%s\n' "$line" >> "$dest"
+        fi
+    done < "$src"
+}
+
+ensure_group_line() {
+    local name="$1"
+    local line="$2"
+    if ! grep -q "^${name}:" /etc/group; then
+        printf '%s\n' "$line" >> /etc/group
+    fi
+}
+
+ensure_passwd_line() {
+    local name="$1"
+    local line="$2"
+    if ! grep -q "^${name}:" /etc/passwd; then
+        printf '%s\n' "$line" >> /etc/passwd
+    fi
+    if [ -e /etc/shadow ] && ! grep -q "^${name}:" /etc/shadow; then
+        printf '%s:!*:19700:0:99999:7:::\n' "$name" >> /etc/shadow
+    fi
+}
+
+append_missing_name /usr/lib/group /etc/group
+append_missing_name /usr/lib/passwd /etc/passwd
+
+# SDDM is commonly created by package scriptlets into /etc rather than shipped
+# in /usr/lib/passwd, so keep an explicit fallback for installed deployments.
+ensure_group_line sddm "sddm:x:959:"
+ensure_passwd_line sddm "sddm:x:959:959:SDDM Greeter Account:/var/lib/sddm:/usr/sbin/nologin"
+
+chmod 0644 /etc/passwd /etc/group
+if [ -e /etc/shadow ]; then
+    chmod 0000 /etc/shadow 2>/dev/null || chmod 0600 /etc/shadow
+fi
+mkdir -p /var/lib/sddm
+chown sddm:sddm /var/lib/sddm 2>/dev/null || true
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon /etc/passwd /etc/group /etc/shadow /var/lib/sddm 2>/dev/null || true
+fi
+SYSACCOUNTSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-fix-system-accounts
+systemctl enable kyth-system-accounts.service 2>/dev/null || true
+
 cat > /usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
 [Unit]
 Description=Create D-Bus runtime directory
 DefaultDependencies=no
 Before=sockets.target dbus.socket
-After=local-fs.target
+After=kyth-system-accounts.service local-fs.target
+Requires=kyth-system-accounts.service
 
 [Service]
 Type=oneshot
@@ -674,9 +758,13 @@ systemctl enable fwupd 2>/dev/null || true
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
 
+# Apply the same account repair in the image now so the deployed /etc starts
+# correct, then keep the enabled service as a boot-time guardrail.
+/usr/libexec/kyth-fix-system-accounts || true
+
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev; do
+for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev dbus sddm polkitd; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
