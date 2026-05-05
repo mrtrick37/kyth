@@ -204,12 +204,35 @@ dnf5 copr disable -y ycollet/audinux
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
 # without them the driver falls back to basic/non-accelerated mode.
-# libva-mesa-driver/mesa-vdpau-drivers provide AMD decode backends.
-# intel-media-driver/libva-intel-driver cover newer + older Intel iGPUs.
-# nvidia-vaapi-driver enables VA-API translation on supported NVIDIA systems.
+#
+# mesa-vulkan-drivers: RADV — the Mesa AMD Vulkan driver. Required for Vulkan
+#   on AMD hardware (RDNA/GCN). This is the modern path; without it AMD GPUs
+#   fall back to llvmpipe for all Vulkan workloads.
+# vulkan-loader: the Vulkan ICD loader that dispatches calls to RADV/others.
+#   Must be present or all Vulkan-dependent apps (gamescope, games, etc.) fail.
+# mesa-libgbm: Generic Buffer Management — the buffer allocation interface used
+#   by the DRM/KMS stack, Wayland compositors, and EGL. Pulled in transitively
+#   but listed explicitly to prevent it being dropped in future solver runs.
+# libdrm: Direct Rendering Manager userspace library. Explicit for the same
+#   reason — it is load-bearing for every GPU code path on Linux.
+# libva-mesa-driver/mesa-vdpau-drivers: AMD video decode backends.
+# intel-media-driver/libva-intel-driver: newer + older Intel iGPU VA-API.
+# xorg-x11-drv-amdgpu: the X11 DDX driver for AMD (DDX = Device Dependent X).
+#   Required for X11 sessions (SDDM, Xwayland fallback, gamescope).
+#   Relies on the in-kernel amdgpu KMS driver; provides DRI3/Present support.
+#
+# ── QEMU/KVM guest ────────────────────────────────────────────────────────────
+# qemu-guest-agent: allows the hypervisor to issue graceful shutdown, freeze
+#   filesystems for snapshots, and query guest state.  Needed for `just` VM
+#   recipes that rely on virt-manager or libvirt lifecycle management.
+#   spice-vdagent below handles clipboard and display resize in SPICE sessions.
 dnf5 install -y --skip-unavailable \
     linux-firmware \
     libva-utils \
+    mesa-vulkan-drivers \
+    vulkan-loader \
+    mesa-libgbm \
+    libdrm \
     mesa-va-drivers \
     mesa-vdpau-drivers \
     intel-media-driver \
@@ -220,7 +243,12 @@ dnf5 install -y --skip-unavailable \
     xorg-x11-drv-vmware \
     xorg-x11-drv-qxl \
     radeontop \
-    libclc
+    libclc \
+    qemu-guest-agent
+# qemu-guest-agent is socket-activated on Fedora but the socket is only
+# created when running inside a VM. Enable it unconditionally — systemd
+# no-ops it on bare metal when the virtio-serial device is absent.
+systemctl enable qemu-guest-agent.service 2>/dev/null || true
 
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
