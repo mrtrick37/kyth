@@ -76,11 +76,16 @@ dnf5 remove -y librsvg2-tools || true
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm "
-# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
-# so add_drivers has no effect for them. Kept for documentation.
-# virtio_gpu: required for QEMU/KVM guests with virtio-vga or virtio-gpu-pci.
-# Without it, the kernel has no DRM/KMS driver in the initramfs; harmless on
-# bare metal where the module simply goes unused.
+# Plymouth is installed as an RPM, so dracut auto-includes it via its check()
+# function unless explicitly omitted. Plymouth in the initramfs acquires DRM
+# master on the first available device (virtio_gpu in QEMU, amdgpu on hardware)
+# and the Plymouth→SDDM handoff races, causing the persistent blink loop after
+# install. Omitting it here means Plymouth only runs as a userspace service
+# after pivot_root, in text mode (no splash karg), never touching DRM.
+omit_dracutmodules+=" plymouth "
+# virtio_gpu: required for QEMU/KVM. Without it the DRM device doesn't exist
+# in the initramfs and the kernel can't set up the display before SDDM starts.
+# Harmless on bare metal where the module simply goes unused.
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu "
 DRACUTEOF
 
