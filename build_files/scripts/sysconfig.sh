@@ -114,6 +114,34 @@ cat > /etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
 d /run/dbus 0755 root root -
 DBUSTMPFILEEOF
 
+cat > /usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
+[Unit]
+Description=Create D-Bus runtime directory
+DefaultDependencies=no
+Before=sockets.target dbus.socket
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mkdir -p /run/dbus
+ExecStart=/usr/bin/chmod 0755 /run/dbus
+
+[Install]
+WantedBy=sysinit.target
+DBUSRUNDIREOF
+systemctl enable kyth-dbus-runtime-dir.service 2>/dev/null || true
+
+# The system bus is foundational for logind, polkit, NetworkManager, and SDDM.
+# On local QEMU boots dbus-broker repeatedly failed before the greeter started;
+# remove audit integration from broker launch so lack of usable audit plumbing
+# cannot take down the desktop.
+mkdir -p /etc/systemd/system/dbus-broker.service.d
+cat > /etc/systemd/system/dbus-broker.service.d/10-kyth-no-audit.conf <<'DBUSBROKEREOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dbus-broker-launch --scope system
+DBUSBROKEREOF
+
 # ── NVIDIA kernel module options ─────────────────────────────────────────────
 # nvidia-drm.modeset=1  — required for Wayland/SDDM to use the NVIDIA KMS driver
 #   instead of falling back to fbdev; without it KDE Plasma on Wayland will not
@@ -522,6 +550,7 @@ Wants=sddm.service
 
 [Service]
 Type=oneshot
+ExecStartPre=/usr/bin/sleep 8
 ExecStart=/usr/libexec/kyth-display-debug
 
 [Install]
@@ -540,6 +569,16 @@ LOG=/var/log/kyth-display-debug.log
     systemctl get-default
     echo "--- sddm status"
     systemctl --no-pager --full status sddm.service
+    echo "--- dbus socket status"
+    systemctl --no-pager --full status dbus.socket
+    echo "--- dbus broker status"
+    systemctl --no-pager --full status dbus-broker.service
+    echo "--- logind status"
+    systemctl --no-pager --full status systemd-logind.service
+    echo "--- recent dbus journal"
+    journalctl -b --no-pager -u dbus.socket -u dbus-broker.service -n 160
+    echo "--- run dbus"
+    ls -ld /run /run/dbus
     echo "--- recent sddm journal"
     journalctl -b --no-pager -u sddm.service -n 120
     echo "--- drm connectors"
