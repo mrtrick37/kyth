@@ -51,6 +51,11 @@ fi
 if command sudo -n true 2>/dev/null; then
     _ASKPASS=""
 else
+    if [[ ! -t 0 ]]; then
+        echo "ERROR: sudo credentials are required, but stdin is not interactive." >&2
+        echo "       Run 'sudo -v' first or run this ISO build from a terminal." >&2
+        exit 1
+    fi
     IFS= read -rsp "Enter sudo password (needed for export, squashfs, and ISO assembly): " _build_pw
     echo
     printf '%s\n' "$_build_pw" | command sudo -S true 2>/dev/null \
@@ -273,7 +278,6 @@ if [[ "${EMBED_LOCAL_IMAGE}" == "1" ]]; then
     sudo chown -R "$(id -u):$(id -g)" "${ROOTFS}/usr/share/kyth"
     rm -rf "${ROOTFS}/usr/share/kyth/image"/*
     skopeo copy \
-        --dest-compress \
         "docker-daemon:${LOCAL_INSTALL_IMAGE}" \
         "oci:${ROOTFS}/usr/share/kyth/image:latest"
     sudo chown -R 0:0 "${ROOTFS}/usr/share/kyth"
@@ -285,7 +289,7 @@ KYTH_INSTALL_SKIP_FETCH_CHECK=1
 INSTALLEOF
 fi
 
-# ── 3. Kernel + live initramfs ───────────────────────────────────────────────
+# Step 3: Kernel and live initramfs
 echo "==> Locating kernel and live initramfs"
 KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
