@@ -622,6 +622,26 @@ cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF
 Environment="QT_QUICK_BACKEND=software"
 SDDMDROPINEOF
 
+# SDDM display server: force X11 so the greeter works reliably in QEMU (QXL
+# DRM + Wayland greeter races on the first mode-set — the same DRM master
+# conflict as Plymouth in the initramfs, but now in userspace KWin-Wayland)
+# and on bare AMD hardware (amdgpu + kwin-wayland SDDM greeter has DRM master
+# handoff failures on some RDNA2/3 boards at the SDDM → KWin transition).
+# X11 via modesetting is stable on all hardware including QEMU/QXL and AMDGPU.
+# Users can still select "KDE Plasma (Wayland)" from the session chooser after
+# login — DisplayServer only affects the SDDM greeter itself, not the session.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/20-display.conf <<'SDDMCONFIGEOF'
+[General]
+DisplayServer=x11
+
+[Theme]
+Current=breeze
+
+[X11]
+SessionDir=/usr/share/xsessions
+SDDMCONFIGEOF
+
 # QEMU boot diagnostic: emit display-manager, Xorg, and DRM state to both
 # /var/log and the active console shortly after SDDM starts. This gives the
 # serial log enough context to distinguish "kernel/display inactive" from

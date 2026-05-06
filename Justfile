@@ -564,10 +564,11 @@ run-live-iso-native source_tag="latest":
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
     disk_img="${disk_dir}/kyth-live-test.qcow2"
+    ovmf_vars="${disk_dir}/ovmf_vars.fd"
 
     # Optional one-shot reset for a clean VM install target.
     if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
-        rm -f "${disk_img}"
+        rm -f "${disk_img}" "${ovmf_vars}"
     fi
 
     # Fail fast before booting when host free space is too low for install writes.
@@ -583,6 +584,34 @@ run-live-iso-native source_tag="latest":
     if [[ ! -f "${disk_img}" ]]; then
         qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
+
+    # UEFI firmware: bootc install to-disk writes an EFI System Partition and
+    # calls efibootmgr to add a boot entry — OVMF gives QEMU a real UEFI
+    # environment identical to bare AMD hardware.  The NVRAM file (ovmf_vars)
+    # persists across QEMU sessions so after the first install the installed
+    # disk boots directly without re-booting the live ISO.  LIVE_ISO_VM_RESET=1
+    # wipes both disk and NVRAM for a clean reinstall.
+    # Install OVMF with: sudo dnf install edk2-ovmf
+    _ovmf_args=()
+    for _ovmf_code in \
+        /usr/share/edk2/ovmf/OVMF_CODE.fd \
+        /usr/share/OVMF/OVMF_CODE.fd; do
+        if [[ -f "${_ovmf_code}" ]]; then
+            if [[ ! -f "${ovmf_vars}" ]]; then
+                _ovmf_tmpl="${_ovmf_code/CODE/VARS}"
+                [[ -f "${_ovmf_tmpl}" ]] && cp "${_ovmf_tmpl}" "${ovmf_vars}"
+            fi
+            if [[ -f "${ovmf_vars}" ]]; then
+                _ovmf_args=(
+                    -drive "if=pflash,format=raw,unit=0,readonly=on,file=${_ovmf_code}"
+                    -drive "if=pflash,format=raw,unit=1,file=${ovmf_vars}"
+                )
+                echo "==> UEFI boot: ${_ovmf_code}  NVRAM: ${ovmf_vars}"
+            fi
+            break
+        fi
+    done
+    [[ ${#_ovmf_args[@]} -eq 0 ]] && echo "==> BIOS boot (install edk2-ovmf for UEFI)"
 
     # Host/guest shared folder for collecting logs from the VM.
     # Use /var/tmp consistently to avoid tmpfs quota issues seen under /tmp.
@@ -602,6 +631,7 @@ run-live-iso-native source_tag="latest":
         -smp 4 \
         -m 8G \
         -machine q35 \
+        "${_ovmf_args[@]}" \
         -cdrom "${image_file}" \
         -boot order=c,once=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
@@ -643,9 +673,10 @@ run-live-iso-native-legacy source_tag="latest":
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
     disk_img="${disk_dir}/kyth-live-test.qcow2"
+    ovmf_vars="${disk_dir}/ovmf_vars.fd"
 
     if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
-        rm -f "${disk_img}"
+        rm -f "${disk_img}" "${ovmf_vars}"
     fi
 
     avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
@@ -660,6 +691,27 @@ run-live-iso-native-legacy source_tag="latest":
     if [[ ! -f "${disk_img}" ]]; then
         qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
+
+    _ovmf_args=()
+    for _ovmf_code in \
+        /usr/share/edk2/ovmf/OVMF_CODE.fd \
+        /usr/share/OVMF/OVMF_CODE.fd; do
+        if [[ -f "${_ovmf_code}" ]]; then
+            if [[ ! -f "${ovmf_vars}" ]]; then
+                _ovmf_tmpl="${_ovmf_code/CODE/VARS}"
+                [[ -f "${_ovmf_tmpl}" ]] && cp "${_ovmf_tmpl}" "${ovmf_vars}"
+            fi
+            if [[ -f "${ovmf_vars}" ]]; then
+                _ovmf_args=(
+                    -drive "if=pflash,format=raw,unit=0,readonly=on,file=${_ovmf_code}"
+                    -drive "if=pflash,format=raw,unit=1,file=${ovmf_vars}"
+                )
+                echo "==> UEFI boot: ${_ovmf_code}  NVRAM: ${ovmf_vars}"
+            fi
+            break
+        fi
+    done
+    [[ ${#_ovmf_args[@]} -eq 0 ]] && echo "==> BIOS boot (install edk2-ovmf for UEFI)"
 
     share_dir="/var/tmp/kyth-vm-share-${USER}"
     mkdir -p "${share_dir}"
@@ -677,6 +729,7 @@ run-live-iso-native-legacy source_tag="latest":
         -smp 4 \
         -m 8G \
         -machine q35 \
+        "${_ovmf_args[@]}" \
         -no-reboot \
         -no-shutdown \
         -cdrom "${image_file}" \

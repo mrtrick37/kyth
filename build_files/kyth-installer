@@ -1219,7 +1219,6 @@ def main() -> None:
     chromium_cmd = [
         "chromium-browser",
         f"--app=http://127.0.0.1:{PORT}",
-        "--no-sandbox",
         "--disable-dev-shm-usage",
         "--disable-extensions",
         "--disable-translate",
@@ -1234,7 +1233,9 @@ def main() -> None:
     if sudo_user:
         proc = subprocess.Popen(["sudo", "-u", sudo_user, *chromium_cmd])
     else:
-        proc = subprocess.Popen(chromium_cmd)
+        # Running Chromium directly as root — the Linux user-namespace sandbox
+        # requires a non-root UID to work, so disable it only in this path.
+        proc = subprocess.Popen([chromium_cmd[0], "--no-sandbox", *chromium_cmd[1:]])
 
     # Wait for Chromium to exit so the process and port are released cleanly.
     # This means re-launching the installer from the desktop always gets a fresh server.
