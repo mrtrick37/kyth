@@ -498,6 +498,24 @@ rebuild-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
 
+# Build a live ISO that embeds localhost/kyth:latest and installs that exact
+# local image. This is the QEMU development path for validating boot fixes
+# before pushing anything to GHCR.
+[group('Build Virtual Machine Image')]
+rebuild-live-iso-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just build
+    SOURCE_TAG=local REBUILD_IMAGE=1 EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+
+# Build the local embedded ISO and boot it in native QEMU with a fresh disk.
+[group('Run Virtual Machine')]
+run-live-iso-native-local:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    just rebuild-live-iso-local
+    LIVE_ISO_VM_RESET=1 just run-live-iso-native local
+
 # Boot the live ISO in a VM (BIOS, web UI at http://localhost:PORT).
 # Uses the dedicated artifact name from build-live-iso.sh:
 #   output/live-iso/kyth-live-<tag>.iso
@@ -546,10 +564,11 @@ run-live-iso-native source_tag="latest":
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
     disk_img="${disk_dir}/kyth-live-test.qcow2"
+    ovmf_vars="${disk_dir}/ovmf_vars.fd"
 
     # Optional one-shot reset for a clean VM install target.
     if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
-        rm -f "${disk_img}"
+        rm -f "${disk_img}" "${ovmf_vars}"
     fi
 
     # Fail fast before booting when host free space is too low for install writes.
@@ -565,6 +584,35 @@ run-live-iso-native source_tag="latest":
     if [[ ! -f "${disk_img}" ]]; then
         qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
+
+    # UEFI firmware: bootc install to-disk writes an EFI System Partition and
+    # calls efibootmgr to add a boot entry — OVMF gives QEMU a real UEFI
+    # environment identical to bare AMD hardware.  The NVRAM file (ovmf_vars)
+    # persists across QEMU sessions.  The QEMU devices below also give the
+    # installed disk bootindex=1 and the live ISO bootindex=2, so a blank disk
+    # falls through to the installer but an installed disk wins after reboot.
+    # LIVE_ISO_VM_RESET=1 wipes both disk and NVRAM for a clean reinstall.
+    # Install OVMF with: sudo dnf install edk2-ovmf
+    _ovmf_args=()
+    for _ovmf_code in \
+        /usr/share/edk2/ovmf/OVMF_CODE.fd \
+        /usr/share/OVMF/OVMF_CODE.fd; do
+        if [[ -f "${_ovmf_code}" ]]; then
+            if [[ ! -f "${ovmf_vars}" ]]; then
+                _ovmf_tmpl="${_ovmf_code/CODE/VARS}"
+                [[ -f "${_ovmf_tmpl}" ]] && cp "${_ovmf_tmpl}" "${ovmf_vars}"
+            fi
+            if [[ -f "${ovmf_vars}" ]]; then
+                _ovmf_args=(
+                    -drive "if=pflash,format=raw,unit=0,readonly=on,file=${_ovmf_code}"
+                    -drive "if=pflash,format=raw,unit=1,file=${ovmf_vars}"
+                )
+                echo "==> UEFI boot: ${_ovmf_code}  NVRAM: ${ovmf_vars}"
+            fi
+            break
+        fi
+    done
+    [[ ${#_ovmf_args[@]} -eq 0 ]] && echo "==> BIOS boot (install edk2-ovmf for UEFI)"
 
     # Host/guest shared folder for collecting logs from the VM.
     # Use /var/tmp consistently to avoid tmpfs quota issues seen under /tmp.
@@ -584,10 +632,13 @@ run-live-iso-native source_tag="latest":
         -smp 4 \
         -m 8G \
         -machine q35 \
-        -cdrom "${image_file}" \
-        -boot order=c,once=d \
-        -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device virtio-vga \
+        "${_ovmf_args[@]}" \
+        -device ich9-ahci,id=ahci \
+        -drive "if=none,id=liveiso,format=raw,media=cdrom,readonly=on,file=${image_file}" \
+        -device ide-cd,bus=ahci.0,drive=liveiso,bootindex=2 \
+        -drive "if=none,id=systemdisk,file=${disk_img},format=qcow2" \
+        -device virtio-blk-pci,drive=systemdisk,bootindex=1 \
+        -device qxl-vga \
         -display none \
         -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
@@ -625,9 +676,10 @@ run-live-iso-native-legacy source_tag="latest":
     disk_dir="/var/tmp/kyth-vm-disks-${USER}"
     mkdir -p "${disk_dir}"
     disk_img="${disk_dir}/kyth-live-test.qcow2"
+    ovmf_vars="${disk_dir}/ovmf_vars.fd"
 
     if [[ "${LIVE_ISO_VM_RESET:-0}" == "1" ]]; then
-        rm -f "${disk_img}"
+        rm -f "${disk_img}" "${ovmf_vars}"
     fi
 
     avail_bytes=$(df --output=avail -B1 "${disk_dir}" | tail -n 1 | tr -d '[:space:]')
@@ -642,6 +694,27 @@ run-live-iso-native-legacy source_tag="latest":
     if [[ ! -f "${disk_img}" ]]; then
         qemu-img create -f qcow2 -o preallocation=metadata,lazy_refcounts=on "${disk_img}" 64G
     fi
+
+    _ovmf_args=()
+    for _ovmf_code in \
+        /usr/share/edk2/ovmf/OVMF_CODE.fd \
+        /usr/share/OVMF/OVMF_CODE.fd; do
+        if [[ -f "${_ovmf_code}" ]]; then
+            if [[ ! -f "${ovmf_vars}" ]]; then
+                _ovmf_tmpl="${_ovmf_code/CODE/VARS}"
+                [[ -f "${_ovmf_tmpl}" ]] && cp "${_ovmf_tmpl}" "${ovmf_vars}"
+            fi
+            if [[ -f "${ovmf_vars}" ]]; then
+                _ovmf_args=(
+                    -drive "if=pflash,format=raw,unit=0,readonly=on,file=${_ovmf_code}"
+                    -drive "if=pflash,format=raw,unit=1,file=${ovmf_vars}"
+                )
+                echo "==> UEFI boot: ${_ovmf_code}  NVRAM: ${ovmf_vars}"
+            fi
+            break
+        fi
+    done
+    [[ ${#_ovmf_args[@]} -eq 0 ]] && echo "==> BIOS boot (install edk2-ovmf for UEFI)"
 
     share_dir="/var/tmp/kyth-vm-share-${USER}"
     mkdir -p "${share_dir}"
@@ -659,12 +732,13 @@ run-live-iso-native-legacy source_tag="latest":
         -smp 4 \
         -m 8G \
         -machine q35 \
+        "${_ovmf_args[@]}" \
         -no-reboot \
         -no-shutdown \
         -cdrom "${image_file}" \
         -boot order=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device virtio-vga \
+        -device qxl-vga \
         -display none \
         -spice port=5932,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \

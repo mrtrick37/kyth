@@ -21,6 +21,7 @@ LAUNCH_LOG="/tmp/kyth-installer-launch.log"
 
 export KYTH_SOURCE_IMAGE="${KYTH_SOURCE_IMAGE:-ghcr.io/mrtrick37/kyth:latest}"
 export KYTH_TARGET_IMAGE="${KYTH_TARGET_IMAGE:-${KYTH_SOURCE_IMAGE}}"
+export KYTH_INSTALL_SKIP_FETCH_CHECK="${KYTH_INSTALL_SKIP_FETCH_CHECK:-0}"
 
 INSTALLER_CMD=(sudo -n env)
 for key in \
@@ -29,7 +30,10 @@ for key in \
 	XAUTHORITY \
 	XDG_RUNTIME_DIR \
 	DBUS_SESSION_BUS_ADDRESS \
-	XDG_SESSION_TYPE
+	XDG_SESSION_TYPE \
+	KYTH_SOURCE_IMAGE \
+	KYTH_TARGET_IMAGE \
+	KYTH_INSTALL_SKIP_FETCH_CHECK
 do
 	val=${!key-}
 	if [ -n "${val}" ]; then

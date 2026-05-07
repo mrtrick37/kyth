@@ -9,8 +9,11 @@
 #   4. mksquashfs the rootfs → LiveOS/squashfs.img
 #   5. Assemble bootable ISO: UEFI (GRUB2) + BIOS (syslinux) via xorriso
 #
-# No OCI bundle is embedded — the OS is pulled from the registry at install
-# time by kyth-installer via bootc install to-disk.
+# By default the OS is pulled from the registry at install time by
+# kyth-installer via bootc install to-disk. For local QEMU development,
+# EMBED_LOCAL_IMAGE=1 embeds localhost/kyth:latest into the ISO and points the
+# installer at that exact image so install tests cannot accidentally use stale
+# GHCR builds.
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
@@ -36,6 +39,8 @@ fi
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
 INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:44}"
+EMBED_LOCAL_IMAGE="${EMBED_LOCAL_IMAGE:-0}"
+LOCAL_INSTALL_IMAGE="${LOCAL_INSTALL_IMAGE:-localhost/kyth:latest}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
     LIVE_BUILD_TAG="kyth-live:build"
 else
@@ -46,6 +51,11 @@ fi
 if command sudo -n true 2>/dev/null; then
     _ASKPASS=""
 else
+    if [[ ! -t 0 ]]; then
+        echo "ERROR: sudo credentials are required, but stdin is not interactive." >&2
+        echo "       Run 'sudo -v' first or run this ISO build from a terminal." >&2
+        exit 1
+    fi
     IFS= read -rsp "Enter sudo password (needed for export, squashfs, and ISO assembly): " _build_pw
     echo
     printf '%s\n' "$_build_pw" | command sudo -S true 2>/dev/null \
@@ -120,6 +130,9 @@ if ! command -v docker &>/dev/null; then
 fi
 echo "==> Using container engine: docker"
 echo "==> Installer runtime base image: ${INSTALLER_BASE_IMAGE}"
+if [[ "${EMBED_LOCAL_IMAGE}" == "1" ]]; then
+    echo "==> Local install image: ${LOCAL_INSTALL_IMAGE} (will be embedded)"
+fi
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
@@ -235,7 +248,48 @@ echo "==> Container export complete."
 docker rm "${CONTAINER}" 2>/dev/null || true
 echo "==> Timing: export complete at ${SECONDS}s"
 
-# ── 3. Kernel + live initramfs ───────────────────────────────────────────────
+# docker export strips xattrs; set the KDE Plasma 6 trust xattr here so the
+# installer desktop icon launches without the "Allow Launching" security dialog.
+_installer_desktop="${ROOTFS}/home/liveuser/Desktop/install-kyth.desktop"
+if [[ -f "${_installer_desktop}" ]]; then
+    sudo python3 -c "import os; os.setxattr('${_installer_desktop}', 'user.metadata::trusted', b'yes')" \
+        && echo "==> Marked installer desktop file as trusted (KDE Plasma 6)" \
+        || echo "WARNING: could not set trusted xattr on installer desktop"
+fi
+
+# ── Optional local OS image bundle ───────────────────────────────────────────
+# This is the path used for QEMU development. It turns the live ISO into a true
+# local installer for the image that was just built on this workstation instead
+# of pulling ghcr.io/mrtrick37/kyth:<tag>. The target ref remains the public
+# registry ref so the installed system can upgrade normally after first boot.
+if [[ "${EMBED_LOCAL_IMAGE}" == "1" ]]; then
+    command -v skopeo >/dev/null 2>&1 || {
+        echo "ERROR: EMBED_LOCAL_IMAGE=1 requires skopeo on the host." >&2
+        exit 1
+    }
+    docker image inspect "${LOCAL_INSTALL_IMAGE}" >/dev/null 2>&1 || {
+        echo "ERROR: local install image not found: ${LOCAL_INSTALL_IMAGE}" >&2
+        echo "       Build it first with: just build" >&2
+        exit 1
+    }
+
+    echo "==> Embedding ${LOCAL_INSTALL_IMAGE} into live ISO rootfs"
+    sudo mkdir -p "${ROOTFS}/usr/share/kyth/image"
+    sudo chown -R "$(id -u):$(id -g)" "${ROOTFS}/usr/share/kyth"
+    rm -rf "${ROOTFS}/usr/share/kyth/image"/*
+    skopeo copy \
+        "docker-daemon:${LOCAL_INSTALL_IMAGE}" \
+        "oci:${ROOTFS}/usr/share/kyth/image:latest"
+    sudo chown -R 0:0 "${ROOTFS}/usr/share/kyth"
+
+    sudo tee "${ROOTFS}/etc/kyth-installer.env" >/dev/null <<'INSTALLEOF'
+KYTH_SOURCE_IMAGE=oci:/usr/share/kyth/image:latest
+KYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:latest
+KYTH_INSTALL_SKIP_FETCH_CHECK=1
+INSTALLEOF
+fi
+
+# Step 3: Kernel and live initramfs
 echo "==> Locating kernel and live initramfs"
 KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
@@ -265,13 +319,15 @@ sudo mksquashfs "${ROOTFS}" "${ISO_DIR}/LiveOS/squashfs.img" \
     -processors "$(nproc)" \
     -noappend \
     -no-progress \
-    -no-xattrs \
     -e proc -e sys -e dev -e run
 echo "==> Timing: squashfs complete at ${SECONDS}s"
 
 # ── 5a. GRUB config + dark theme ─────────────────────────────────────────────
 echo "==> Writing GRUB config and theme"
-LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay=tmpfs rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on console=ttyS0,115200 console=tty0"
+# Use a temporary OverlayFS upperdir for the live session. Do not set
+# rd.live.overlay=tmpfs: dracut treats rd.live.overlay as a persistent overlay
+# location, then prints an interactive warning when it cannot find one.
+LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on console=ttyS0,115200 console=tty0"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme

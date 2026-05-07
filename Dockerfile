@@ -2,7 +2,11 @@
 # Allow build scripts to be referenced without being copied into the final image
 ARG BASE_IMAGE=localhost/kyth-base:stable
 FROM scratch AS ctx
-COPY build_files /
+# --chmod=0755 ensures scripts are executable regardless of git core.fileMode
+# settings in CI (actions/checkout with core.fileMode=false strips the execute
+# bit, causing a Permission Denied when the bind-mounted ctx layer is rebuilt
+# after a cache miss).
+COPY --chmod=0755 build_files /
 
 # Base Image
 ARG BASE_IMAGE
@@ -84,8 +88,3 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
 
-# Layer 7: Mesa-git (~300-500 MB). Re-run on every daily build.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
-    --mount=type=tmpfs,dst=/tmp \
-    /ctx/scripts/mesa-git.sh

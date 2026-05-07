@@ -80,6 +80,10 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
+    plasma-workspace-x11 \
+    xorg-x11-server-Xorg \
+    xorg-x11-xinit \
+    xorg-x11-drv-libinput \
     irqbalance \
     p7zip \
     p7zip-plugins \
@@ -117,6 +121,12 @@ dnf5 copr enable -y ycollet/audinux
 # the kyth-welcome Gaming page so users can opt in without bloating the base image.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
+#
+# Keep native libatomic aligned before adding libatomic.i686. Fedora mirror/COPR
+# timing can expose a newer i686 build while the base image still carries the
+# previous x86_64 build; mismatched multilib RPMs conflict on shared doc files.
+dnf5 upgrade -y libatomic.x86_64 || true
+
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope \
     gamescope-shaders \
@@ -202,21 +212,59 @@ dnf5 copr disable -y ycollet/audinux
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
-# linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
-# without them the driver falls back to basic/non-accelerated mode.
-# libva-mesa-driver/mesa-vdpau-drivers provide AMD decode backends.
-# intel-media-driver/libva-intel-driver cover newer + older Intel iGPUs.
-# nvidia-vaapi-driver enables VA-API translation on supported NVIDIA systems.
+# linux-firmware provides the baseline firmware set.  The AMD subpackages are
+# listed explicitly so future Fedora packaging splits cannot accidentally drop
+# GPU firmware or CPU microcode from AMD bare-metal installs.
+#
+# mesa-vulkan-drivers: RADV — the Mesa AMD Vulkan driver. Required for Vulkan
+#   on AMD hardware (RDNA/GCN). This is the modern path; without it AMD GPUs
+#   fall back to llvmpipe for all Vulkan workloads.
+# vulkan-loader: the Vulkan ICD loader that dispatches calls to RADV/others.
+#   Must be present or all Vulkan-dependent apps (gamescope, games, etc.) fail.
+# mesa-libgbm: Generic Buffer Management — the buffer allocation interface used
+#   by the DRM/KMS stack, Wayland compositors, and EGL. Pulled in transitively
+#   but listed explicitly to prevent it being dropped in future solver runs.
+# libdrm: Direct Rendering Manager userspace library. Explicit for the same
+#   reason — it is load-bearing for every GPU code path on Linux.
+# libva-mesa-driver/mesa-vdpau-drivers: AMD video decode backends.
+# intel-media-driver/libva-intel-driver: newer + older Intel iGPU VA-API.
+# xorg-x11-drv-amdgpu: the X11 DDX driver for AMD (DDX = Device Dependent X).
+#   Required for X11 sessions (SDDM, Xwayland fallback, gamescope).
+#   Relies on the in-kernel amdgpu KMS driver; provides DRI3/Present support.
+# xorg-x11-drv-ati: compatibility DDX for older Radeon-family GPUs and a useful
+#   fallback on edge cases where Xorg driver probing does not select amdgpu.
+#
+# ── QEMU/KVM guest ────────────────────────────────────────────────────────────
+# qemu-guest-agent: allows the hypervisor to issue graceful shutdown, freeze
+#   filesystems for snapshots, and query guest state.  Needed for `just` VM
+#   recipes that rely on virt-manager or libvirt lifecycle management.
+#   spice-vdagent below handles clipboard and display resize in SPICE sessions.
 dnf5 install -y --skip-unavailable \
     linux-firmware \
+    amd-gpu-firmware \
+    amd-ucode-firmware \
     libva-utils \
+    mesa-vulkan-drivers \
+    vulkan-loader \
+    mesa-libgbm \
+    libdrm \
     mesa-va-drivers \
     mesa-vdpau-drivers \
     intel-media-driver \
     libva-intel-driver \
     xorg-x11-drv-intel \
+    xorg-x11-drv-amdgpu \
+    xorg-x11-drv-ati \
+    xorg-x11-drv-nouveau \
+    xorg-x11-drv-vmware \
+    xorg-x11-drv-qxl \
     radeontop \
-    libclc
+    libclc \
+    qemu-guest-agent
+# qemu-guest-agent is socket-activated on Fedora but the socket is only
+# created when running inside a VM. Enable it unconditionally — systemd
+# no-ops it on bare metal when the virtio-serial device is absent.
+systemctl enable qemu-guest-agent.service 2>/dev/null || true
 
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
@@ -238,20 +286,6 @@ REPOEOF
 sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
 dnf5 -y install --enablerepo=code code
 
-# ── NVIDIA driver (userspace only) ────────────────────────────────────────────
-# Kernel module compilation (akmods) is intentionally omitted — it added
-# 5–15 min to every build. Only userspace NVIDIA libs are installed here.
-dnf5 remove -y nvidia-kmod-common || true
-dnf5 install -y --skip-unavailable --allowerasing \
-    --disablerepo='*' \
-    --enablerepo='fedora*' \
-    --enablerepo='updates*' \
-    --enablerepo='rpmfusion*' \
-    xorg-x11-drv-nvidia \
-    xorg-x11-drv-nvidia-cuda \
-    xorg-x11-drv-nvidia-libs \
-    xorg-x11-drv-nvidia-libs.i686 \
-    nvidia-vaapi-driver
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
@@ -281,6 +315,9 @@ dnf5 install -y \
 # bootc-based distros do.
 ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 

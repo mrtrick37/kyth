@@ -184,18 +184,36 @@ XDGPLASMAEOF
 
 # ── SDDM session type + login screen background ───────────────────────────────
 # Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;
-# KWin Wayland requires a working DRM/GBM backend and crashes on virtio-vga (no
-# virgl) and similar VM GPUs without 3D acceleration, which drops the SPICE
+# KWin Wayland requires a working DRM/GBM backend and can crash on VM GPUs
+# without 3D acceleration, which drops the SPICE
 # connection and makes the VM appear to close. X11 is stable on all hardware
 # and VM GPU drivers; users can switch to Wayland from the session picker.
 mkdir -p /etc/sddm.conf.d
 cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 [General]
 DisplayServer=x11
+DefaultSession=plasmax11.desktop
 
 [X11]
 SessionDir=/usr/share/xsessions
 SDDMCONFEOF
+
+# QEMU/first-boot baseline: make Plasma's X11 session software-renderable for
+# new users. This mirrors the live ISO's stability path and keeps the desktop
+# reachable even when the VM display has no virgl/3D acceleration. Users can remove
+# this file or switch to Wayland/hardware GL once the baseline boot path is
+# proven on their hardware.
+mkdir -p /etc/skel/.config/plasma-workspace/env
+cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
+#!/bin/sh
+if ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
+    export LIBGL_ALWAYS_SOFTWARE=1
+    export GALLIUM_DRIVER=llvmpipe
+    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
+    export QT_QUICK_BACKEND=software
+fi
+QEMUSAFEEOF
+chmod +x /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh
 
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
@@ -332,6 +350,7 @@ fi
 
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
+install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
@@ -354,6 +373,8 @@ loader.exec_module(module)
 app = module.QApplication([])
 win = module.MainWindow()
 win.close()
+wizard = module.WizardWindow()
+wizard.close()
 os._exit(0)
 ' || smoke_exit=$?
 if [ "${smoke_exit}" -eq 124 ]; then
@@ -393,18 +414,20 @@ cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Helper
-Exec=/usr/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome-launch
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 WELCOMEEOF
 
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
-# Ship quiet + splash so Plymouth shows on the installed system.
+# Ship a no-splash installed boot baseline while we stabilize the QEMU/SDDM
+# handoff. The base layer owns the full list; this lower-priority file keeps
+# compatibility with bootc versions that only read one kargs.d entry.
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash"]
+kargs = ["quiet", "rd.plymouth=0", "plymouth.enable=0"]
 KARGSEOF
 
 # ── Security Tools menu group ──────────────────────────────────────────────────

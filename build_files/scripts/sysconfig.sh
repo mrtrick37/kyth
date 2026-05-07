@@ -105,20 +105,140 @@ w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
 w! /sys/kernel/mm/transparent_hugepage/defrag  - - - - defer+madvise
 THPEOF
 
+# D-Bus socket activation needs the parent runtime directory before
+# dbus.socket binds /run/dbus/system_bus_socket. The Fedora dbus tmpfiles entry
+# in the bootc base only creates /var/lib/dbus, and /run is empty at every boot.
+# Without this, dbus.socket fails, which then takes down logind, polkit,
+# NetworkManager, and the SDDM greeter.
+cat > /etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
+d /run/dbus 0755 root root -
+DBUSTMPFILEEOF
+
+# bootc/ostree images keep several package-owned system accounts in
+# /usr/lib/passwd and /usr/lib/group, while booted installations and useradd
+# operate against the mutable /etc databases. If the installed /etc lacks those
+# accounts, dbus-broker cannot build its NSS cache and SDDM cannot resolve the
+# sddm greeter user, leaving QEMU at a black cursor after X starts.
+cat > /usr/lib/systemd/system/kyth-system-accounts.service <<'SYSACCOUNTUNITEOF'
+[Unit]
+Description=Ensure KythOS system accounts are visible in /etc
+DefaultDependencies=no
+After=local-fs.target
+Before=systemd-sysusers.service dbus.socket dbus-broker.service sockets.target sddm.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-fix-system-accounts
+RemainAfterExit=yes
+
+[Install]
+WantedBy=sysinit.target
+SYSACCOUNTUNITEOF
+
+install -d -m 0755 /usr/libexec
+cat > /usr/libexec/kyth-fix-system-accounts <<'SYSACCOUNTSCRIPTEOF'
+#!/usr/bin/bash
+set -euo pipefail
+
+append_missing_name() {
+    local src="$1"
+    local dest="$2"
+    local name
+
+    [ -r "$src" ] || return 0
+    touch "$dest"
+    while IFS= read -r line || [ -n "$line" ]; do
+        [ -n "$line" ] || continue
+        name="${line%%:*}"
+        [ -n "$name" ] || continue
+        if ! grep -q "^${name}:" "$dest"; then
+            printf '%s\n' "$line" >> "$dest"
+        fi
+    done < "$src"
+}
+
+ensure_group_line() {
+    local name="$1"
+    local line="$2"
+    if ! grep -q "^${name}:" /etc/group; then
+        printf '%s\n' "$line" >> /etc/group
+    fi
+}
+
+ensure_passwd_line() {
+    local name="$1"
+    local line="$2"
+    if ! grep -q "^${name}:" /etc/passwd; then
+        printf '%s\n' "$line" >> /etc/passwd
+    fi
+    if [ -e /etc/shadow ] && ! grep -q "^${name}:" /etc/shadow; then
+        printf '%s:!*:19700:0:99999:7:::\n' "$name" >> /etc/shadow
+    fi
+}
+
+append_missing_name /usr/lib/group /etc/group
+append_missing_name /usr/lib/passwd /etc/passwd
+
+# SDDM is commonly created by package scriptlets into /etc rather than shipped
+# in /usr/lib/passwd, so keep an explicit fallback for installed deployments.
+ensure_group_line sddm "sddm:x:959:"
+ensure_passwd_line sddm "sddm:x:959:959:SDDM Greeter Account:/var/lib/sddm:/usr/sbin/nologin"
+
+chmod 0644 /etc/passwd /etc/group
+if [ -e /etc/shadow ]; then
+    chmod 0000 /etc/shadow 2>/dev/null || chmod 0600 /etc/shadow
+fi
+mkdir -p /var/lib/sddm
+chown sddm:sddm /var/lib/sddm 2>/dev/null || true
+if command -v restorecon >/dev/null 2>&1; then
+    restorecon /etc/passwd /etc/group /etc/shadow /var/lib/sddm 2>/dev/null || true
+fi
+SYSACCOUNTSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-fix-system-accounts
+systemctl enable kyth-system-accounts.service 2>/dev/null || true
+
+cat > /usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
+[Unit]
+Description=Create D-Bus runtime directory
+DefaultDependencies=no
+Before=sockets.target dbus.socket
+After=kyth-system-accounts.service local-fs.target
+Requires=kyth-system-accounts.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/mkdir -p /run/dbus
+ExecStart=/usr/bin/chmod 0755 /run/dbus
+
+[Install]
+WantedBy=sysinit.target
+DBUSRUNDIREOF
+systemctl enable kyth-dbus-runtime-dir.service 2>/dev/null || true
+
+# The system bus is foundational for logind, polkit, NetworkManager, and SDDM.
+# On local QEMU boots dbus-broker repeatedly failed before the greeter started;
+# remove audit integration from broker launch so lack of usable audit plumbing
+# cannot take down the desktop.
+mkdir -p /etc/systemd/system/dbus-broker.service.d
+cat > /etc/systemd/system/dbus-broker.service.d/10-kyth-no-audit.conf <<'DBUSBROKEREOF'
+[Service]
+ExecStart=
+ExecStart=/usr/bin/dbus-broker-launch --scope system
+DBUSBROKEREOF
+
 # ── NVIDIA kernel module options ─────────────────────────────────────────────
 # nvidia-drm.modeset=1  — required for Wayland/SDDM to use the NVIDIA KMS driver
 #   instead of falling back to fbdev; without it KDE Plasma on Wayland will not
 #   start on NVIDIA hardware.
 # NVreg_PreserveVideoMemoryAllocations=1 — keeps VRAM contents across suspend/
 #   resume cycles, preventing a black screen after wake on NVIDIA systems.
-# nouveau is blacklisted: it conflicts with the proprietary driver and must not
-#   load.  On AMD/Intel systems nouveau is never triggered anyway (no NVIDIA
-#   hardware), so the blacklist is harmless.
+# nouveau is NOT blacklisted: the proprietary NVIDIA driver is not installed in
+#   this image, so nouveau must remain loadable to provide KMS/display output on
+#   NVIDIA hardware. If a user layers the proprietary driver via rpm-ostree they
+#   should add their own blacklist via /etc/modprobe.d/blacklist-nouveau.conf.
 cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVEOF'
 options nvidia-drm modeset=1
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
-blacklist nouveau
-options nouveau modeset=0
 NVEOF
 
 # ── NTSYNC ───────────────────────────────────────────────────────────
@@ -196,15 +316,6 @@ cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 bt_coex_active=0
 IWLEOF
 
-# cfg80211 regulatory domain: pinned to US.
-# Without a hint cfg80211 defaults to the "world" domain which caps txpower at
-# ~3 dBm on 5GHz, causing very slow throughput (~20 Mbps) even with a strong
-# signal. FCC/US allows up to 30 dBm on channel 149 where most home APs land.
-# Non-US users should override this by creating
-# /etc/modprobe.d/cfg80211-regdom.conf with their own country code.
-cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFGEOF'
-options cfg80211 ieee80211_regdom=US
-CFGEOF
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
 # 'none' on NVMe — the drive's own internal queues are better than any kernel
@@ -392,6 +503,9 @@ systemctl mask systemd-remount-fs.service
 # by 2>/dev/null || true).
 ln -sf /usr/lib/systemd/system/sddm.service \
     /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
@@ -481,6 +595,11 @@ ConditionPathExists=!/var/lib/kyth/.first-boot-complete
 
 [Service]
 Type=oneshot
+# Only send the message if the Plymouth daemon is actually listening.
+# On fast boots SDDM may already have started and stopped Plymouth before
+# this service runs; "plymouth message" would then exit non-zero and the
+# sentinel file would never be written, causing a retry on every boot.
+ExecCondition=/usr/bin/plymouth --ping
 ExecStart=/usr/bin/plymouth message --text="Running first boot setup, this may take a few moments..."
 ExecStart=/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/.first-boot-complete'
 RemainAfterExit=yes
@@ -502,6 +621,95 @@ cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF
 [Service]
 Environment="QT_QUICK_BACKEND=software"
 SDDMDROPINEOF
+
+# SDDM display server: force X11 so the greeter works reliably in QEMU (QXL
+# DRM + Wayland greeter races on the first mode-set — the same DRM master
+# conflict as Plymouth in the initramfs, but now in userspace KWin-Wayland)
+# and on bare AMD hardware (amdgpu + kwin-wayland SDDM greeter has DRM master
+# handoff failures on some RDNA2/3 boards at the SDDM → KWin transition).
+# X11 via modesetting is stable on all hardware including QEMU/QXL and AMDGPU.
+# Users can still select "KDE Plasma (Wayland)" from the session chooser after
+# login — DisplayServer only affects the SDDM greeter itself, not the session.
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/20-display.conf <<'SDDMCONFIGEOF'
+[General]
+DisplayServer=x11
+
+[Theme]
+Current=breeze
+
+[X11]
+SessionDir=/usr/share/xsessions
+SDDMCONFIGEOF
+
+# QEMU boot diagnostic: emit display-manager, Xorg, and DRM state to both
+# /var/log and the active console shortly after SDDM starts. This gives the
+# serial log enough context to distinguish "kernel/display inactive" from
+# "SDDM/Xorg restart loop" on local VM boots.
+cat > /usr/lib/systemd/system/kyth-display-debug.service <<'DISPLAYDEBUGEOF'
+[Unit]
+Description=KythOS display boot diagnostics
+After=sddm.service
+Wants=sddm.service
+
+[Service]
+Type=oneshot
+ExecStartPre=/usr/bin/sleep 8
+ExecStart=/usr/libexec/kyth-display-debug
+
+[Install]
+WantedBy=graphical.target
+DISPLAYDEBUGEOF
+
+cat > /usr/libexec/kyth-display-debug <<'DISPLAYDEBUGSCRIPTEOF'
+#!/usr/bin/bash
+set +e
+LOG=/var/log/kyth-display-debug.log
+{
+    echo "=== kyth-display-debug $(date -Is) ==="
+    echo "--- cmdline"
+    cat /proc/cmdline
+    echo "--- default target"
+    systemctl get-default
+    echo "--- sddm status"
+    systemctl --no-pager --full status sddm.service
+    echo "--- dbus socket status"
+    systemctl --no-pager --full status dbus.socket
+    echo "--- dbus broker status"
+    systemctl --no-pager --full status dbus-broker.service
+    echo "--- logind status"
+    systemctl --no-pager --full status systemd-logind.service
+    echo "--- recent dbus journal"
+    journalctl -b --no-pager -u dbus.socket -u dbus-broker.service -n 160
+    echo "--- run dbus"
+    ls -ld /run /run/dbus
+    echo "--- recent sddm journal"
+    journalctl -b --no-pager -u sddm.service -n 120
+    echo "--- drm connectors"
+    for status in /sys/class/drm/card*-*/status; do
+        [ -e "$status" ] || continue
+        printf '%s: ' "$status"
+        cat "$status"
+    done
+    echo "--- drm devices"
+    ls -la /sys/class/drm
+    echo "--- display and AMD platform modules"
+    lsmod | grep -E 'amdgpu|amd_pstate|k10temp|qxl|virtio_gpu|bochs|drm' || true
+    echo "--- AMD GPU firmware requests"
+    dmesg | grep -Ei 'amdgpu.*(firmware|ucode|microcode)' | tail -n 80 || true
+    echo "--- AMD pstate"
+    cat /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
+    echo "--- Xorg logs"
+    find /var/log /var/lib/sddm/.local/share/sddm -maxdepth 3 -type f \
+        \( -name 'Xorg*.log' -o -name '*xorg*.log' \) -print -exec tail -n 120 {} \; 2>/dev/null
+    echo "--- processes"
+    ps -ef | grep -E 'sddm|Xorg|kwin|plasmashell' | grep -v grep || true
+} > "$LOG" 2>&1
+cat "$LOG" > /dev/console 2>/dev/null || true
+DISPLAYDEBUGSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-display-debug
+systemctl enable kyth-display-debug.service 2>/dev/null || true
+
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
@@ -574,9 +782,13 @@ systemctl enable fwupd 2>/dev/null || true
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
 
+# Apply the same account repair in the image now so the deployed /etc starts
+# correct, then keep the enabled service as a boot-time guardrail.
+/usr/libexec/kyth-fix-system-accounts || true
+
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev; do
+for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev dbus sddm polkitd; do
     if ! grep -q "^${grp}:" /etc/group; then
         if getent group "$grp" > /dev/null 2>&1; then
             getent group "$grp" >> /etc/group
