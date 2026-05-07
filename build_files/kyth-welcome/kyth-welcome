@@ -1815,19 +1815,27 @@ def _mesa_vaapi_failure_context() -> tuple[str, str]:
         "--queryformat",
         "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n%{VENDOR}\n%{PACKAGER}\n",
         "mesa-dri-drivers",
+        "mesa-vulkan-drivers",
+        "libva",
     ], timeout=5)
     if rpm is None or rpm.returncode != 0:
         return "", ""
 
     details = rpm.stdout.strip()
     lowered = details.lower()
-    if "xxmitsu" not in lowered and "copr" not in lowered:
-        return details, ""
+    if "negativo17" in lowered or "fedora-multimedia" in lowered:
+        return (
+            details,
+            "Mesa/libva is installed from negativo17's fedora-multimedia repo; distro-sync the Mesa stack back to Fedora/RPM Fusion packages, then reboot.",
+        )
 
-    return (
-        details,
-        "Mesa is installed from the mesa-git COPR; switch back to stable Fedora Mesa or wait for a fixed mesa-git snapshot.",
-    )
+    if "xxmitsu" in lowered or "copr" in lowered:
+        return (
+            details,
+            "Mesa is installed from the mesa-git COPR; switch back to stable Fedora Mesa or wait for a fixed mesa-git snapshot.",
+        )
+
+    return details, ""
 
 
 def _compact_vaapi_failure_details(primary_output: str, direct_probe_details: list[str]) -> str:
