@@ -19,7 +19,7 @@ on:
       - '**/*.sh'
       - '.github/workflows/lint.yml'
   schedule:
-    - cron: '30 10 * * *'
+    - cron: '30 10 * * 1'  # Weekly on Monday — push/PR already handles incremental checks
   workflow_dispatch:
 
 jobs:

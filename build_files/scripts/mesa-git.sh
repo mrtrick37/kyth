@@ -2,38 +2,75 @@
 set -euo pipefail
 
 # ── Mesa-git ───────────────────────────────────────────────────────────
-# xxmitsu/mesa-git COPR rebuilds from upstream Mesa every few hours.
-# DISABLED for AMD RDNA3 systems: bleeding-edge Mesa-git can have GPU initialization
-# issues causing boot hangs / display flicker. AMD users should test with stable Mesa
-# from Fedora repos. Re-enable if needed for specific use cases, but verify on target
-# hardware first: https://github.com/mrtrick37/kyth/issues/new
-#
-# To re-enable this layer, uncomment the section below and rebuild the image.
-# Note: If you have a working GPU configuration with mesa-git, please file an issue
-# with your hardware details so we can add proper hardware-specific detection.
+# xxmitsu/mesa-git rebuilds Mesa from upstream snapshots every few hours.
+# Keep it opt-in: these snapshots are useful for testing bleeding-edge RADV and
+# RADEONSI, but they can regress VA-API video decode while the rest of Mesa
+# still appears healthy. Fedora 44 folds the AMD VA-API backend into
+# mesa-dri-drivers, so this layer verifies the radeonsi video driver by
+# provider/file instead of looking for an independently installed
+# mesa-va-drivers RPM.
 
-# COPR enable block (DISABLED):
-# dnf5 copr enable -y xxmitsu/mesa-git
-# if ! dnf5 repoquery --available 'mesa-libGL' --repo='copr:*xxmitsu*' 2>/dev/null | grep -q .; then
-#     echo "WARNING: xxmitsu/mesa-git COPR has no mesa-libGL for this distro — skipping mesa-git upgrade"
-#     dnf5 copr disable -y xxmitsu/mesa-git
-# else
-#     dnf5 upgrade -y --skip-unavailable \
-#         mesa* \
-#         mesa-dri-drivers \
-#         mesa-vulkan-drivers \
-#         mesa-libGL \
-#         mesa-libGLU \
-#         mesa-libEGL \
-#         mesa-libgbm \
-#         mesa-libOpenCL \
-#         || true
-#     mesa_ver=$(rpm -q --queryformat '%{VERSION}' mesa-libGL 2>/dev/null || echo "not-installed")
-#     echo "mesa-libGL version after upgrade: ${mesa_ver}"
-#     dnf5 copr disable -y xxmitsu/mesa-git
-# fi
+if [[ "${ENABLE_MESA_GIT:-0}" == "0" ]]; then
+    echo "Mesa-git COPR layer disabled by ENABLE_MESA_GIT=0"
 
-echo "Mesa-git COPR layer disabled (see mesa-git.sh comments for details)"
+    # Keep the default image on the stable Fedora/RPM Fusion Mesa stack. Some
+    # base images expose negativo17's fedora-multimedia repo, whose Mesa builds
+    # can outrank Fedora's EVRs and leave AMD VA-API present but unable to
+    # initialize. Layer 3's daily upgrade can reintroduce those packages, so
+    # normalize the GPU userspace stack here on every build.
+    dnf5 distro-sync -y --refresh --allowerasing \
+        --disablerepo='fedora-multimedia' \
+        mesa\* \
+        libdrm \
+        libva\* \
+        vulkan\*
+
+    rpm -q mesa-dri-drivers mesa-vulkan-drivers mesa-libgbm libva libva-utils
+    rpm -q --whatprovides mesa-va-drivers
+    rpm -q --whatprovides /usr/lib64/dri/radeonsi_drv_video.so
+    test -e /usr/lib64/dri/radeonsi_drv_video.so
+
+    mesa_origin=$(rpm -q --queryformat '%{VENDOR} %{PACKAGER}\n' mesa-dri-drivers 2>/dev/null || true)
+    if grep -Eiq 'negativo17|fedora-multimedia' <<<"${mesa_origin}"; then
+        echo "ERROR: stable Mesa sync left negativo17 Mesa installed: ${mesa_origin:-unknown}"
+        exit 1
+    fi
+else
+    dnf5 copr enable -y xxmitsu/mesa-git
+    trap 'dnf5 copr disable -y xxmitsu/mesa-git >/dev/null 2>&1 || true' EXIT
+
+    mesa_git_repo="copr:copr.fedorainfracloud.org:xxmitsu:mesa-git"
+
+    if ! dnf5 repoquery --available 'mesa-dri-drivers' --repo="${mesa_git_repo}" 2>/dev/null | grep -q .; then
+        echo "ERROR: xxmitsu/mesa-git COPR has no mesa-dri-drivers for this distro"
+        exit 1
+    fi
+
+    # Some base images carry negativo17 Mesa packages with newer or equal EVRs
+    # than Fedora, which can make a normal upgrade leave the intended mesa-git
+    # layer unused. Sync the Mesa stack with negativo17 disabled so xxmitsu's
+    # COPR wins when this layer is enabled.
+    dnf5 distro-sync -y --refresh --allowerasing \
+        --disablerepo='fedora-multimedia' \
+        mesa\* \
+        libdrm \
+        libva\* \
+        vulkan\*
+
+    rpm -q mesa-dri-drivers mesa-vulkan-drivers mesa-libgbm libva libva-utils
+    rpm -q --whatprovides mesa-va-drivers
+    rpm -q --whatprovides /usr/lib64/dri/radeonsi_drv_video.so
+    test -e /usr/lib64/dri/radeonsi_drv_video.so
+
+    mesa_origin=$(rpm -q --queryformat '%{VENDOR} %{PACKAGER}\n' mesa-dri-drivers 2>/dev/null || true)
+    if ! grep -Eiq 'xxmitsu|copr' <<<"${mesa_origin}"; then
+        echo "ERROR: mesa-git layer did not install COPR Mesa; installed origin: ${mesa_origin:-unknown}"
+        exit 1
+    fi
+
+    mesa_ver=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' mesa-dri-drivers 2>/dev/null || echo "not-installed")
+    echo "mesa-dri-drivers version after mesa-git upgrade: ${mesa_ver}"
+fi
 
 # Upgrade GPU drivers from stable Fedora repos (amdgpu, nouveau, intel, etc.)
 dnf5 upgrade -y --skip-unavailable \

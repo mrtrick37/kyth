@@ -30,12 +30,18 @@ dnf5 install -y \
 # Fedora 44 transitions can leave debug/source repo metalinks unpublished or
 # intermittently unavailable. We never install from those repos in image builds,
 # so disable them up front to avoid noisy 404s and brittle solver behavior.
+#
+# Also disable negativo17's fedora-multimedia repo when it is inherited from an
+# upstream base image. RPM Fusion supplies the codec stack we need, while
+# negativo17's Mesa builds have caused AMD VA-API to fail initialization.
 python3 - <<'PY'
 from pathlib import Path
 import configparser
 
 repo_dir = Path("/etc/yum.repos.d")
 patterns = ("debug", "source")
+disabled_repo_ids = {"fedora-multimedia"}
+disabled_repo_tokens = ("negativo17",)
 
 for repo_file in repo_dir.glob("*.repo"):
     parser = configparser.RawConfigParser(strict=False)
@@ -48,7 +54,18 @@ for repo_file in repo_dir.glob("*.repo"):
 
     changed = False
     for section in parser.sections():
-        if any(token in section.lower() for token in patterns):
+        section_lower = section.lower()
+        repo_name = parser.get(section, "name", fallback="").lower()
+        repo_baseurl = parser.get(section, "baseurl", fallback="").lower()
+        repo_metalink = parser.get(section, "metalink", fallback="").lower()
+        repo_mirrorlist = parser.get(section, "mirrorlist", fallback="").lower()
+        repo_text = "\n".join((section_lower, repo_name, repo_baseurl, repo_metalink, repo_mirrorlist))
+        should_disable = (
+            any(token in section_lower for token in patterns)
+            or section_lower in disabled_repo_ids
+            or any(token in repo_text for token in disabled_repo_tokens)
+        )
+        if should_disable:
             if parser.get(section, "enabled", fallback="1").strip() != "0":
                 parser.set(section, "enabled", "0")
                 changed = True
@@ -100,11 +117,7 @@ dnf5 install -y --skip-unavailable \
     util-linux-script \
     tmux \
     gh \
-    fwupd \
-    libburn \
-    libisoburn \
-    libisofs \
-    xorriso
+    fwupd
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -210,35 +223,26 @@ dnf5 copr disable -y ycollet/audinux
 ### GPU drivers
 
 
-# ── AMD ───────────────────────────────────────────────────────────────────────
+# ── AMD GPU ───────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the baseline firmware set.  The AMD subpackages are
 # listed explicitly so future Fedora packaging splits cannot accidentally drop
 # GPU firmware or CPU microcode from AMD bare-metal installs.
 #
 # mesa-vulkan-drivers: RADV — the Mesa AMD Vulkan driver. Required for Vulkan
-#   on AMD hardware (RDNA/GCN). This is the modern path; without it AMD GPUs
-#   fall back to llvmpipe for all Vulkan workloads.
+#   on AMD hardware (RDNA/GCN).
 # vulkan-loader: the Vulkan ICD loader that dispatches calls to RADV/others.
-#   Must be present or all Vulkan-dependent apps (gamescope, games, etc.) fail.
-# mesa-libgbm: Generic Buffer Management — the buffer allocation interface used
-#   by the DRM/KMS stack, Wayland compositors, and EGL. Pulled in transitively
-#   but listed explicitly to prevent it being dropped in future solver runs.
-# libdrm: Direct Rendering Manager userspace library. Explicit for the same
-#   reason — it is load-bearing for every GPU code path on Linux.
-# libva-mesa-driver/mesa-vdpau-drivers: AMD video decode backends.
-# intel-media-driver/libva-intel-driver: newer + older Intel iGPU VA-API.
-# xorg-x11-drv-amdgpu: the X11 DDX driver for AMD (DDX = Device Dependent X).
-#   Required for X11 sessions (SDDM, Xwayland fallback, gamescope).
-#   Relies on the in-kernel amdgpu KMS driver; provides DRI3/Present support.
-# xorg-x11-drv-ati: compatibility DDX for older Radeon-family GPUs and a useful
-#   fallback on edge cases where Xorg driver probing does not select amdgpu.
+# mesa-libgbm: Generic Buffer Management — used by DRM/KMS, Wayland, EGL.
+# libdrm: Direct Rendering Manager userspace library.
+# mesa-dri-drivers: OpenGL/DRI Gallium drivers, also provides radeonsi_drv_video.so
+#   (AMD VA-API decode backend used by libva).
+# xorg-x11-drv-amdgpu: X11 DDX driver for AMD. Required for SDDM X11 greeter
+#   and Xwayland; relies on the in-kernel amdgpu KMS driver.
+# xorg-x11-drv-ati: fallback DDX for older Radeon GPUs.
 #
 # ── QEMU/KVM guest ────────────────────────────────────────────────────────────
-# qemu-guest-agent: allows the hypervisor to issue graceful shutdown, freeze
-#   filesystems for snapshots, and query guest state.  Needed for `just` VM
-#   recipes that rely on virt-manager or libvirt lifecycle management.
-#   spice-vdagent below handles clipboard and display resize in SPICE sessions.
+# qemu-guest-agent: graceful shutdown, snapshot freeze, guest state queries.
+#   spice-vdagent handles clipboard and display resize in SPICE sessions.
 dnf5 install -y --skip-unavailable \
     linux-firmware \
     amd-gpu-firmware \
@@ -246,21 +250,21 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-vulkan-drivers \
     vulkan-loader \
+    mesa-dri-drivers \
     mesa-libgbm \
     libdrm \
-    mesa-va-drivers \
-    mesa-vdpau-drivers \
-    intel-media-driver \
-    libva-intel-driver \
-    xorg-x11-drv-intel \
     xorg-x11-drv-amdgpu \
     xorg-x11-drv-ati \
-    xorg-x11-drv-nouveau \
-    xorg-x11-drv-vmware \
-    xorg-x11-drv-qxl \
     radeontop \
     libclc \
     qemu-guest-agent
+
+# Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
+# the VA-API driver is installed. Verify the capability and file ownership
+# directly so build logs catch a genuinely broken AMD video decode stack.
+rpm -q --whatprovides mesa-va-drivers
+rpm -q --whatprovides /usr/lib64/dri/radeonsi_drv_video.so
+test -e /usr/lib64/dri/radeonsi_drv_video.so
 # qemu-guest-agent is socket-activated on Fedora but the socket is only
 # created when running inside a VM. Enable it unconditionally — systemd
 # no-ops it on bare metal when the virtio-serial device is absent.
