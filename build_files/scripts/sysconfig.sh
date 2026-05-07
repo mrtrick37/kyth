@@ -87,6 +87,34 @@ SYSCTLEOF
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
 echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 
+# ── systemd-oomd hardening ────────────────────────────────────────────────────
+# By default systemd-oomd runs but monitors nothing — cgroups must explicitly
+# opt in with ManagedOOMSwap/ManagedOOMMemoryPressure. Without these, oomd sits
+# idle while the kernel OOM killer fires, which kills whatever happened to
+# trigger the allocation (often dbus-broker, Xwayland, or plasmashell) rather
+# than the actual memory hog — causing instant black screens.
+#
+# Tighten the thresholds so oomd fires at 75% swap (not the default 90%) and
+# kills the biggest user-space offender well before the kernel OOM killer runs.
+mkdir -p /etc/systemd/oomd.conf.d
+cat > /etc/systemd/oomd.conf.d/99-kyth.conf <<'OOMDEOF'
+[OOM]
+SwapUsedLimit=75%
+DefaultMemoryPressureLimit=50%
+DefaultMemoryPressureDurationSec=15s
+OOMDEOF
+
+# Opt the user session slice into oomd monitoring. oomd will select and kill
+# the highest-OOM-score process inside user.slice when thresholds are breached,
+# sparing session-critical processes like dbus-broker and plasmashell.
+mkdir -p /etc/systemd/system/user.slice.d
+cat > /etc/systemd/system/user.slice.d/10-oomd-user.conf <<'OOMDSLICEEOF'
+[Slice]
+ManagedOOMSwap=kill
+ManagedOOMMemoryPressure=kill
+ManagedOOMMemoryPressureLimit=50%
+OOMDSLICEEOF
+
 # ── Locale defaults ─────────────────────────────────────────────────────────
 # Force a 12-hour AM/PM clock by default on installed systems.
 # LANG keeps the desktop in US English; LC_TIME specifically controls date/time
@@ -124,7 +152,7 @@ cat > /usr/lib/systemd/system/kyth-system-accounts.service <<'SYSACCOUNTUNITEOF'
 Description=Ensure KythOS system accounts are visible in /etc
 DefaultDependencies=no
 After=local-fs.target
-Before=systemd-sysusers.service dbus.socket dbus-broker.service sockets.target sddm.service
+Before=dbus.socket dbus-broker.service sockets.target sddm.service
 
 [Service]
 Type=oneshot
@@ -609,106 +637,7 @@ WantedBy=multi-user.target
 FIRSTBOOTEOF
 systemctl enable kyth-first-boot-message.service 2>/dev/null || true
 
-# SDDM greeter software-rendering fallback — mirrors the live ISO's drop-in.
-# SDDM renders its own QML greeter with Mesa; on certain hardware (Intel vPro
-# with VT-d, VMs without virgl) the GL context creation fails and SDDM crashes
-# before showing the login screen.  QT_QUICK_BACKEND=software makes SDDM itself
-# render via llvmpipe, which works on all hardware.  This does NOT affect KWin
-# or the KDE session — those inherit neither this service env var nor software
-# rendering, so gaming performance is completely unaffected.
-mkdir -p /etc/systemd/system/sddm.service.d
-cat > /etc/systemd/system/sddm.service.d/greeter-rendering.conf <<'SDDMDROPINEOF'
-[Service]
-Environment="QT_QUICK_BACKEND=software"
-SDDMDROPINEOF
 
-# SDDM display server: force X11 so the greeter works reliably in QEMU (QXL
-# DRM + Wayland greeter races on the first mode-set — the same DRM master
-# conflict as Plymouth in the initramfs, but now in userspace KWin-Wayland)
-# and on bare AMD hardware (amdgpu + kwin-wayland SDDM greeter has DRM master
-# handoff failures on some RDNA2/3 boards at the SDDM → KWin transition).
-# X11 via modesetting is stable on all hardware including QEMU/QXL and AMDGPU.
-# Users can still select "KDE Plasma (Wayland)" from the session chooser after
-# login — DisplayServer only affects the SDDM greeter itself, not the session.
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/20-display.conf <<'SDDMCONFIGEOF'
-[General]
-DisplayServer=x11
-
-[Theme]
-Current=breeze
-
-[X11]
-SessionDir=/usr/share/xsessions
-SDDMCONFIGEOF
-
-# QEMU boot diagnostic: emit display-manager, Xorg, and DRM state to both
-# /var/log and the active console shortly after SDDM starts. This gives the
-# serial log enough context to distinguish "kernel/display inactive" from
-# "SDDM/Xorg restart loop" on local VM boots.
-cat > /usr/lib/systemd/system/kyth-display-debug.service <<'DISPLAYDEBUGEOF'
-[Unit]
-Description=KythOS display boot diagnostics
-After=sddm.service
-Wants=sddm.service
-
-[Service]
-Type=oneshot
-ExecStartPre=/usr/bin/sleep 8
-ExecStart=/usr/libexec/kyth-display-debug
-
-[Install]
-WantedBy=graphical.target
-DISPLAYDEBUGEOF
-
-cat > /usr/libexec/kyth-display-debug <<'DISPLAYDEBUGSCRIPTEOF'
-#!/usr/bin/bash
-set +e
-LOG=/var/log/kyth-display-debug.log
-{
-    echo "=== kyth-display-debug $(date -Is) ==="
-    echo "--- cmdline"
-    cat /proc/cmdline
-    echo "--- default target"
-    systemctl get-default
-    echo "--- sddm status"
-    systemctl --no-pager --full status sddm.service
-    echo "--- dbus socket status"
-    systemctl --no-pager --full status dbus.socket
-    echo "--- dbus broker status"
-    systemctl --no-pager --full status dbus-broker.service
-    echo "--- logind status"
-    systemctl --no-pager --full status systemd-logind.service
-    echo "--- recent dbus journal"
-    journalctl -b --no-pager -u dbus.socket -u dbus-broker.service -n 160
-    echo "--- run dbus"
-    ls -ld /run /run/dbus
-    echo "--- recent sddm journal"
-    journalctl -b --no-pager -u sddm.service -n 120
-    echo "--- drm connectors"
-    for status in /sys/class/drm/card*-*/status; do
-        [ -e "$status" ] || continue
-        printf '%s: ' "$status"
-        cat "$status"
-    done
-    echo "--- drm devices"
-    ls -la /sys/class/drm
-    echo "--- display and AMD platform modules"
-    lsmod | grep -E 'amdgpu|amd_pstate|k10temp|qxl|virtio_gpu|bochs|drm' || true
-    echo "--- AMD GPU firmware requests"
-    dmesg | grep -Ei 'amdgpu.*(firmware|ucode|microcode)' | tail -n 80 || true
-    echo "--- AMD pstate"
-    cat /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
-    echo "--- Xorg logs"
-    find /var/log /var/lib/sddm/.local/share/sddm -maxdepth 3 -type f \
-        \( -name 'Xorg*.log' -o -name '*xorg*.log' \) -print -exec tail -n 120 {} \; 2>/dev/null
-    echo "--- processes"
-    ps -ef | grep -E 'sddm|Xorg|kwin|plasmashell' | grep -v grep || true
-} > "$LOG" 2>&1
-cat "$LOG" > /dev/console 2>/dev/null || true
-DISPLAYDEBUGSCRIPTEOF
-chmod 0755 /usr/libexec/kyth-display-debug
-systemctl enable kyth-display-debug.service 2>/dev/null || true
 
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
@@ -781,6 +710,25 @@ systemctl enable fwupd 2>/dev/null || true
 # Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
+
+# ── Boot-time noise reduction ─────────────────────────────────────────────────
+# NetworkManager-wait-online blocks network-online.target (and thus multi-user
+# and graphical targets) until the network is fully up — adds ~5s on every
+# boot. Desktop systems don't need the network ready before the login screen;
+# services that genuinely need network declare their own After=network-online.
+systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+
+# flatpak-system-update runs on every boot and takes 20+ seconds fetching
+# Flatpak metadata. Flatpaks are updated explicitly via topgrade or ujust.
+systemctl disable flatpak-system-update.service flatpak-system-update.timer 2>/dev/null || true
+
+# fedora-atomic-desktop-appstream-cache-refresh regenerates the AppStream cache
+# on every boot (~4s). Runs on-demand when the software center needs it.
+systemctl disable fedora-atomic-desktop-appstream-cache-refresh.service 2>/dev/null || true
+
+# serial-getty@ttyS0 waits 45s for a serial device that doesn't exist on this
+# hardware before timing out. Mask it so the timeout doesn't hold up boot.
+systemctl mask serial-getty@ttyS0.service 2>/dev/null || true
 
 # Apply the same account repair in the image now so the deployed /etc starts
 # correct, then keep the enabled service as a boot-time guardrail.
