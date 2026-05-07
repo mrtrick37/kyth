@@ -18,7 +18,7 @@ from urllib.parse import parse_qs, unquote
 os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
 
-from PyQt6.QtCore import Qt, QThread, QUrl, pyqtSignal
+from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
 from PyQt6.QtGui import QFont
 from PyQt6.QtWidgets import (
     QApplication,
@@ -116,13 +116,16 @@ if _WEBENGINE_AVAILABLE:
             self.resize(900, 650)
             self.setModal(True)
             self._done = False
+            # Accumulate every cookie seen during the session so the fallback
+            # can find the GP token even if the cookieAdded name check misses it.
+            self._all_cookies: dict[str, str] = {}
             layout = QVBoxLayout(self)
-            info = QLabel(
+            self._info = QLabel(
                 "Sign in to complete VPN authentication. "
                 "The window will close automatically when done."
             )
-            info.setWordWrap(True)
-            layout.addWidget(info)
+            self._info.setWordWrap(True)
+            layout.addWidget(self._info)
             self._profile = QWebEngineProfile(self)
             # Scheme handler: catches globalprotectcallback:// via any mechanism
             # (JS redirect, form submit, window.location) — Qt drops unknown
@@ -149,11 +152,24 @@ if _WEBENGINE_AVAILABLE:
             cookie_store.cookieAdded.connect(self._on_cookie_added)
             self._cookie_store = cookie_store
             self._view.loadFinished.connect(self._on_load_finished)
+            # urlChanged catches navigations that may not reach acceptNavigationRequest
+            # (e.g. server-side redirects that Qt routes to the scheme handler
+            # before the page layer sees them).
+            self._view.urlChanged.connect(self._on_url_changed)
             self._view.load(QUrl(saml_url))
 
         _GP_TOKEN_JS = """
 (function() {
     var names = ['preloginuserauthcookie','portal-userauthcookie','cas','prelogin-cookie'];
+    // document.cookie (non-HttpOnly cookies only)
+    var cookies = document.cookie.split(';');
+    for (var i = 0; i < cookies.length; i++) {
+        var c = cookies[i].trim();
+        var sep = c.indexOf('=');
+        if (sep < 0) continue;
+        var n = c.substring(0, sep).trim().toLowerCase();
+        if (names.indexOf(n) >= 0) return n + '=' + c.substring(sep + 1);
+    }
     // Hidden inputs
     var inputs = document.querySelectorAll('input');
     for (var i = 0; i < inputs.length; i++) {
@@ -177,20 +193,62 @@ if _WEBENGINE_AVAILABLE:
 })()
 """
 
+        def _on_url_changed(self, url: QUrl) -> None:
+            url_str = url.toString()
+            print(f"[SAML dbg] urlChanged: {url_str[:120]}")
+            if url_str.startswith("globalprotectcallback:") or url_str.startswith("gc:"):
+                self._on_callback(url_str)
+
         def _on_load_finished(self, ok: bool) -> None:
             try:
                 if self._done:
                     return
+                current_url = self._page.url().toString()
+                print(f"[SAML dbg] loadFinished ok={ok} url={current_url[:120]}")
                 if not ok:
                     return
+                # Run JS token extraction (catches non-HttpOnly cookies + hidden inputs)
                 self._page.runJavaScript(self._GP_TOKEN_JS, self._on_js_token)
+                # Check if Qt landed on the callback URL without firing the scheme handler
+                if current_url.startswith("globalprotectcallback:") or current_url.startswith("gc:"):
+                    self._on_callback(current_url)
+                    return
+                # Detect success page by title; start a short timer to check
+                # collected cookies in case the cookieAdded signal fired but the
+                # name didn't match _GP_AUTH_COOKIES (e.g. non-standard portal).
+                self._page.runJavaScript("document.title", self._on_page_title)
             except Exception as e:
                 print("[SAML load_finished error]", e)
+
+        def _on_page_title(self, title) -> None:
+            title_str = str(title or "")
+            print(f"[SAML dbg] page title: {title_str!r}")
+            if self._done:
+                return
+            if any(kw in title_str.lower() for kw in ("successful", "success", "complete", "logged in")):
+                print("[SAML dbg] success page detected — checking collected cookies in 1.5s")
+                QTimer.singleShot(1500, self._fallback_cookie_check)
+
+        def _fallback_cookie_check(self) -> None:
+            if self._done:
+                return
+            print(f"[SAML dbg] fallback cookie check — collected: {list(self._all_cookies.keys())}")
+            for name in _GP_AUTH_COOKIES:
+                if name in self._all_cookies:
+                    print(f"[SAML dbg] fallback found cookie: {name}")
+                    self._emit_cookie(f"{name}={self._all_cookies[name]}")
+                    return
+            # Nothing matched — warn user so they know the dialog needs manual attention
+            self._info.setText(
+                "Authentication appeared successful but the VPN token was not received. "
+                "Check the log for '[SAML dbg]' lines and report the cookie names seen."
+            )
 
         def _on_js_token(self, result) -> None:
             try:
                 if self._done or not result:
                     return
+                print(f"[SAML dbg] JS token found: {str(result)[:60]}")
                 self._emit_cookie(result)
             except Exception as e:
                 print("[SAML js_token error]", e)
@@ -199,9 +257,12 @@ if _WEBENGINE_AVAILABLE:
             try:
                 name = cookie.name().data().decode("utf-8", errors="replace")
                 value = cookie.value().data().decode("utf-8", errors="replace")
+                print(f"[SAML dbg] cookie: {name}={value[:30]}…")
+                self._all_cookies[name] = value
                 if self._done:
                     return
                 if name in _GP_AUTH_COOKIES:
+                    print(f"[SAML dbg] GP auth cookie matched: {name}")
                     self._emit_cookie(f"{name}={value}")
             except Exception as e:
                 print("[SAML cookie_added error]", e)
@@ -209,10 +270,12 @@ if _WEBENGINE_AVAILABLE:
         def _on_callback(self, url: str) -> None:
             if self._done:
                 return
+            print(f"[SAML dbg] callback URL: {url[:120]}")
             from urllib.parse import urlparse
             parsed = urlparse(url)
             qs = parsed.query if parsed.query else parsed.path.lstrip('/?')
             params = parse_qs(unquote(qs))
+            print(f"[SAML dbg] callback params: {list(params.keys())}")
             cookie_str = ""
             for name in _GP_AUTH_COOKIES:
                 if name in params:

@@ -1040,6 +1040,8 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
         return "Unpacking image layers…"
     if "checking out" in lo or "checkout" in lo or "importing" in lo:
         return "Importing image into system storage…"
+    if "writing manifest" in lo or "manifest to image destination" in lo:
+        return "Storing image manifest…"
     if "writing" in lo or "composing" in lo or "committing" in lo:
         return "Writing new OS image to disk…"
     if "rpmdb" in lo:
@@ -3041,6 +3043,8 @@ class UpdatePage(Page):
         self._dl_downloaded = 0
         self._dl_speed = 0
         self._dl_eta = 0
+        self._dl_final_bytes = 0
+        self._dl_low_speed_ticks = 0
         self._mode = mode
         self._last_output_ts = time.monotonic()
         self._op_start_ts = time.monotonic()
@@ -3142,16 +3146,35 @@ class UpdatePage(Page):
         self._dl_eta = eta_sec
         if total > 0:
             self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
-        if total > 0 and downloaded / total >= 0.995:
+
+        def _finish_download(phase: str):
+            self._dl_final_bytes = downloaded
             self._progress.setRange(0, 0)
-            self._set_phase("Download complete — preparing new OS image…")
+            self._set_phase(phase)
             self._update_activity()
             self._stop_dl_monitor()
+
+        # Download is ≥99.5% complete by byte count
+        if total > 0 and downloaded / total >= 0.995:
+            _finish_download("Download complete — preparing new OS image…")
             return
-        # While actively transferring, update the phase label to reflect the download
+
+        # Track consecutive near-zero-speed ticks. The 99.5% threshold can miss
+        # when /proc/net/dev accumulates unrelated traffic or the total is an
+        # estimate. After 5 consecutive seconds of silence with data in flight,
+        # declare the download done and let ostree take over.
+        if speed_bps <= 100_000:
+            self._dl_low_speed_ticks += 1
+        else:
+            self._dl_low_speed_ticks = 0
+
+        if self._dl_low_speed_ticks >= 5 and downloaded > 0:
+            _finish_download("Download complete — processing image layers…")
+            return
+
+        # While actively transferring: update phase label and show live stats
         if speed_bps > 100_000 and downloaded < total:
             self._set_phase("Downloading image layers…")
-        # Only show download stats while actively transferring (>100 KB/s)
         if speed_bps > 100_000:
             dl_dl, dl_total = _human_bytes_pair(downloaded, total)
             dl_str = f"{dl_dl} / {dl_total}"
@@ -3173,11 +3196,17 @@ class UpdatePage(Page):
         if not _active_bootc_operation() and self._worker is None:
             self._activity_lbl.hide()
             return
-        phase = self._current_phase or _default_phase(self._mode)
+        # Don't clobber live download stats the dl monitor just wrote
+        if self._dl_monitor is not None and self._dl_speed > 100_000:
+            return
         elapsed = int(time.monotonic() - self._op_start_ts) if self._op_start_ts else 0
         mins, secs = divmod(elapsed, 60)
         elapsed_str = f"{mins}m {secs:02d}s" if mins else f"{secs}s"
-        self._activity_lbl.setText(f"{phase}  ·  {elapsed_str} elapsed")
+        parts: list[str] = []
+        if self._dl_final_bytes > 0:
+            parts.append(f"{_human_bytes(self._dl_final_bytes)} downloaded")
+        parts.append(f"{elapsed_str} elapsed")
+        self._activity_lbl.setText("  ·  ".join(parts))
         self._activity_lbl.show()
 
     def _heartbeat_tick(self):
@@ -3185,6 +3214,14 @@ class UpdatePage(Page):
             self._heartbeat.stop()
             self._update_activity()
             return
+        # Fallback: if output has been silent for 10+ seconds and we're still
+        # showing the download phase, the download finished without triggering
+        # the dl monitor's low-speed transition (e.g. no "layers needed:" line).
+        if (self._current_phase == "Downloading image layers…"
+                and self._dl_monitor is None
+                and self._last_output_ts
+                and time.monotonic() - self._last_output_ts > 10):
+            self._set_phase("Processing image layers…")
         self._update_activity()
 
     def _on_done(self, code: int):
