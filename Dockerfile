@@ -62,9 +62,10 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
     dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
+        --disablerepo='fedora-multimedia' \
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
-    dnf5 upgrade -y libdrm && \
+    dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
     dnf5 clean all
 
 # Layer 4: Optional Mesa-git GPU drivers.
