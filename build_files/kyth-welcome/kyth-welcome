@@ -1808,6 +1808,52 @@ def _vaapi_failure_summary(output: str) -> tuple[str, str]:
     )
 
 
+def _compact_vaapi_failure_details(primary_output: str, direct_probe_details: list[str]) -> str:
+    attempts = [("$ vainfo", primary_output.strip())]
+    for detail in direct_probe_details:
+        command, _, probe_output = detail.partition("\n")
+        attempts.append((command.strip(), probe_output.strip()))
+
+    attempt_lines = []
+    drivers = []
+    errors = []
+    for command, probe_output in attempts:
+        if not probe_output:
+            continue
+        display_match = re.search(r"Trying display:\s*([^\n]+)", probe_output)
+        display = display_match.group(1).strip() if display_match else "default display"
+        attempt_lines.append(f"{command}: {display}")
+
+        for driver in re.findall(r"Trying to open\s+([^\s]+)", probe_output):
+            if driver not in drivers:
+                drivers.append(driver)
+
+        for line in probe_output.splitlines():
+            normalized = line.strip()
+            lowered = normalized.lower()
+            if (
+                "error:" in lowered
+                or "failed with error code" in lowered
+                or "va_opendriver()" in lowered
+            ) and normalized not in errors:
+                errors.append(normalized)
+
+    lines = []
+    if attempt_lines:
+        lines.append("Probe attempts:")
+        lines.extend(f"- {attempt}" for attempt in attempt_lines)
+    if drivers:
+        lines.extend(["", "VA-API driver:"])
+        lines.extend(f"- {driver}" for driver in drivers)
+    if errors:
+        lines.extend(["", "Failure reported:"])
+        lines.extend(f"- {error}" for error in errors[:5])
+
+    if not lines:
+        return primary_output.strip()
+    return "\n".join(lines)
+
+
 def _vaapi_profiles(output: str) -> list[str]:
     lowered = output.lower()
     profiles = []
@@ -1881,9 +1927,7 @@ def _codec_probe() -> HardwareProbe:
     output = (vainfo.stdout + vainfo.stderr)
     if vainfo.returncode != 0 and "failed" in output.lower():
         summary, recommendation = _vaapi_failure_summary(output)
-        details = output.strip()
-        if direct_probe_details:
-            details = "\n\n".join([details, *direct_probe_details])
+        details = _compact_vaapi_failure_details(output, direct_probe_details)
         return HardwareProbe(
             "Video Decode", "warn",
             summary,
