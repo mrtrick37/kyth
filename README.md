@@ -35,6 +35,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 | **Security** | Kali Linux distrobox — headless, default, or full toolset tier |
 | **Software** | Flatpak, Homebrew, and Distrobox explained with install shortcuts |
 | **Cloud Storage** | rclone setup (`kyth-rclone-update` installs/updates rclone to `/usr/local/bin`) |
+| **VPN** | OpenConnect-based VPN launcher with GlobalProtect SAML support, standalone app, and tray status helper |
 | **Network Shares** | CIFS/SMB mount configuration (backed by `cifs-utils`) |
 | **NVIDIA Drivers** | NVIDIA driver setup (shown only when NVIDIA GPU is detected) |
 | **Repair** | SELinux relabel, Flatpak repair, diagnostics |
@@ -93,6 +94,16 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - NVIDIA kernel module support (akmod-nvidia pre-installed for on-demand build)
 - KDE Connect
 
+### Network and VPN
+
+- Standalone **VPN Connect** app (`kyth-vpn-connect`) installed in the Internet/Network section of the application launcher
+- OpenConnect wrapper for GlobalProtect, AnyConnect, Pulse, F5, Fortinet, Array, and Network Connect protocols
+- Embedded GlobalProtect SAML browser flow for Azure/Microsoft SSO portals
+- GlobalProtect ACS handoff support: captures `prelogin-cookie` and `saml-username`, reconnects through the portal, then proceeds to the gateway
+- System tray **VPN Status** helper (`kyth-vpn-status`) autostarts in KDE and shows connected / connecting / disconnected state near the wireless, volume, and Bluetooth indicators
+- VPN logs redact GlobalProtect auth cookies before displaying them
+- Built as a workaround for KDE/plasma-nm OpenConnect crashes while keeping the actual tunnel handled by upstream `openconnect`
+
 ### Observability
 
 - trace-cmd, tiptop, sysprof, radeontop
@@ -112,6 +123,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - spice-vdagent for automatic display resize in QEMU/KVM VMs
 - Automatic updates disabled — no surprise reboots; update manually via `sudo bootc upgrade` (passwordless for `wheel` group)
 - First boot: Plymouth shows "Running first boot setup…" while SELinux relabeling and one-shot services complete
+- VPN status tray helper starts with KDE sessions; click it to open the standalone VPN Connect app
 
 ---
 
@@ -246,6 +258,7 @@ newgrp docker
 |----------|---------|--------|
 | Build container image | Push to `main`/`testing`, daily at 10:05 UTC, PR | `ghcr.io/mrtrick37/kyth:latest` and `:testing` |
 | Build Live ISO | Automatic after successful container-image pushes, or manual dispatch | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
+| Lint | PR / push | Shell and desktop-file validation |
 
 ---
 
@@ -282,6 +295,8 @@ build_files/
   zink-run                        Run OpenGL apps via Zink (Vulkan-backed GL)
   just/kyth.just                  ujust recipes shipped in the installed OS
   kyth-welcome/                   KythOS System Hub (PyQt6) — first-run wizard + management app
+  kyth-vpn-connect/               Standalone OpenConnect VPN launcher with GlobalProtect SAML support
+  kyth-vpn-status/                KDE system tray VPN status helper
   MangoHud.conf                   System-wide MangoHud defaults
   vkBasalt.conf                   System-wide vkBasalt defaults
   plymouth/                       Boot splash theme (pulsating KythOS logo)
@@ -306,6 +321,7 @@ disk_config/
 .github/workflows/
   build.yml                       CI: builds and publishes OS image
   build-live-iso.yml              CI: builds and publishes live ISO
+  lint.yml                        CI: shell and desktop-file validation
 ```
 
 ---
@@ -323,11 +339,11 @@ disk_config/
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-05-02 18:29:10 UTC
+- Last refreshed (UTC): 2026-05-07 18:53:09 UTC
 - Current branch: testing
-- HEAD commit: cce27af
-- Last commit title: f
-- Last commit date: 2026-05-02T09:27:16-04:00
+- HEAD commit: bafbf10
+- Last commit title: vpn client is fixed. also added qol for helper tray and application launcher
+- Last commit date: 2026-05-07T14:51:13-04:00
 - CI workflow files: 3
 - Build script files: 7
 
