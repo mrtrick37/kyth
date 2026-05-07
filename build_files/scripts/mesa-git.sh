@@ -13,12 +13,19 @@ else
     dnf5 copr enable -y xxmitsu/mesa-git
     trap 'dnf5 copr disable -y xxmitsu/mesa-git >/dev/null 2>&1 || true' EXIT
 
-    if ! dnf5 repoquery --available 'mesa-dri-drivers' --repo='copr:*xxmitsu*' 2>/dev/null | grep -q .; then
+    mesa_git_repo="copr:copr.fedorainfracloud.org:xxmitsu:mesa-git"
+
+    if ! dnf5 repoquery --available 'mesa-dri-drivers' --repo="${mesa_git_repo}" 2>/dev/null | grep -q .; then
         echo "ERROR: xxmitsu/mesa-git COPR has no mesa-dri-drivers for this distro"
         exit 1
     fi
 
-    dnf5 upgrade -y --refresh --allowerasing \
+    # Some base images carry negativo17 Mesa packages with newer or equal EVRs
+    # than Fedora, which can make a normal upgrade leave the intended mesa-git
+    # layer unused. Sync the Mesa stack with negativo17 disabled so xxmitsu's
+    # COPR wins when this layer is enabled.
+    dnf5 distro-sync -y --refresh --allowerasing \
+        --disablerepo='fedora-multimedia' \
         mesa\* \
         libdrm \
         libva\* \
@@ -28,6 +35,12 @@ else
     rpm -q --whatprovides mesa-va-drivers
     rpm -q --whatprovides /usr/lib64/dri/radeonsi_drv_video.so
     test -e /usr/lib64/dri/radeonsi_drv_video.so
+
+    mesa_origin=$(rpm -q --queryformat '%{VENDOR} %{PACKAGER}\n' mesa-dri-drivers 2>/dev/null || true)
+    if ! grep -Eiq 'xxmitsu|copr' <<<"${mesa_origin}"; then
+        echo "ERROR: mesa-git layer did not install COPR Mesa; installed origin: ${mesa_origin:-unknown}"
+        exit 1
+    fi
 
     mesa_ver=$(rpm -q --queryformat '%{VERSION}-%{RELEASE}' mesa-dri-drivers 2>/dev/null || echo "not-installed")
     echo "mesa-dri-drivers version after mesa-git upgrade: ${mesa_ver}"
