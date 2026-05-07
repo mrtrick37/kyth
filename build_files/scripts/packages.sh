@@ -226,7 +226,9 @@ dnf5 copr disable -y ycollet/audinux
 #   but listed explicitly to prevent it being dropped in future solver runs.
 # libdrm: Direct Rendering Manager userspace library. Explicit for the same
 #   reason — it is load-bearing for every GPU code path on Linux.
-# libva-mesa-driver/mesa-vdpau-drivers: AMD video decode backends.
+# mesa-dri-drivers: OpenGL/DRI Gallium drivers. On Fedora 44 it also provides
+#   mesa-va-drivers and owns radeonsi_drv_video.so, which is the AMD VA-API
+#   decode backend used by libva.
 # intel-media-driver/libva-intel-driver: newer + older Intel iGPU VA-API.
 # xorg-x11-drv-amdgpu: the X11 DDX driver for AMD (DDX = Device Dependent X).
 #   Required for X11 sessions (SDDM, Xwayland fallback, gamescope).
@@ -246,10 +248,9 @@ dnf5 install -y --skip-unavailable \
     libva-utils \
     mesa-vulkan-drivers \
     vulkan-loader \
+    mesa-dri-drivers \
     mesa-libgbm \
     libdrm \
-    mesa-va-drivers \
-    mesa-vdpau-drivers \
     intel-media-driver \
     libva-intel-driver \
     xorg-x11-drv-intel \
@@ -261,6 +262,13 @@ dnf5 install -y --skip-unavailable \
     radeontop \
     libclc \
     qemu-guest-agent
+
+# Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
+# the VA-API driver is installed. Verify the capability and file ownership
+# directly so build logs catch a genuinely broken AMD video decode stack.
+rpm -q --whatprovides mesa-va-drivers
+rpm -q --whatprovides /usr/lib64/dri/radeonsi_drv_video.so
+test -e /usr/lib64/dri/radeonsi_drv_video.so
 # qemu-guest-agent is socket-activated on Fedora but the socket is only
 # created when running inside a VM. Enable it unconditionally — systemd
 # no-ops it on bare metal when the virtio-serial device is absent.
