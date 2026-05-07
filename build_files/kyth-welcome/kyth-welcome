@@ -6296,7 +6296,7 @@ class ContentCreationPage(Page):
             "Apps",
             "Content Creation",
             "Recording, streaming, video editing, and audio tools. "
-            "AMD GPU + Mesa-git gives excellent hardware acceleration in DaVinci Resolve.",
+            "AMD GPU + Mesa RADV gives excellent hardware acceleration in DaVinci Resolve.",
         )
 
         # ── Flatpak tools grid ────────────────────────────────────────────────
@@ -8834,7 +8834,7 @@ class WizardWindow(QMainWindow):
         hero_layout.addSpacing(8)
 
         desc = QLabel(
-            "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa-git Vulkan drivers, "
+            "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa RADV Vulkan drivers, "
             "and a complete gaming stack pre-installed. Updates ship as atomic container images — "
             "every change is instant to roll back with a single command."
         )

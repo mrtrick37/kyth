@@ -693,8 +693,12 @@ LOG=/var/log/kyth-display-debug.log
     done
     echo "--- drm devices"
     ls -la /sys/class/drm
-    echo "--- display modules"
-    lsmod | grep -E 'qxl|virtio_gpu|bochs|drm' || true
+    echo "--- display and AMD platform modules"
+    lsmod | grep -E 'amdgpu|amd_pstate|k10temp|qxl|virtio_gpu|bochs|drm' || true
+    echo "--- AMD GPU firmware requests"
+    dmesg | grep -Ei 'amdgpu.*(firmware|ucode|microcode)' | tail -n 80 || true
+    echo "--- AMD pstate"
+    cat /sys/devices/system/cpu/amd_pstate/status 2>/dev/null || true
     echo "--- Xorg logs"
     find /var/log /var/lib/sddm/.local/share/sddm -maxdepth 3 -type f \
         \( -name 'Xorg*.log' -o -name '*xorg*.log' \) -print -exec tail -n 120 {} \; 2>/dev/null

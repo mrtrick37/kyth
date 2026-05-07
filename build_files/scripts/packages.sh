@@ -212,8 +212,9 @@ dnf5 copr disable -y ycollet/audinux
 
 # ── AMD ───────────────────────────────────────────────────────────────────────
 # amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
-# linux-firmware provides the GPU firmware blobs that amdgpu loads at runtime —
-# without them the driver falls back to basic/non-accelerated mode.
+# linux-firmware provides the baseline firmware set.  The AMD subpackages are
+# listed explicitly so future Fedora packaging splits cannot accidentally drop
+# GPU firmware or CPU microcode from AMD bare-metal installs.
 #
 # mesa-vulkan-drivers: RADV — the Mesa AMD Vulkan driver. Required for Vulkan
 #   on AMD hardware (RDNA/GCN). This is the modern path; without it AMD GPUs
@@ -230,6 +231,8 @@ dnf5 copr disable -y ycollet/audinux
 # xorg-x11-drv-amdgpu: the X11 DDX driver for AMD (DDX = Device Dependent X).
 #   Required for X11 sessions (SDDM, Xwayland fallback, gamescope).
 #   Relies on the in-kernel amdgpu KMS driver; provides DRI3/Present support.
+# xorg-x11-drv-ati: compatibility DDX for older Radeon-family GPUs and a useful
+#   fallback on edge cases where Xorg driver probing does not select amdgpu.
 #
 # ── QEMU/KVM guest ────────────────────────────────────────────────────────────
 # qemu-guest-agent: allows the hypervisor to issue graceful shutdown, freeze
@@ -238,6 +241,8 @@ dnf5 copr disable -y ycollet/audinux
 #   spice-vdagent below handles clipboard and display resize in SPICE sessions.
 dnf5 install -y --skip-unavailable \
     linux-firmware \
+    amd-gpu-firmware \
+    amd-ucode-firmware \
     libva-utils \
     mesa-vulkan-drivers \
     vulkan-loader \
@@ -249,6 +254,7 @@ dnf5 install -y --skip-unavailable \
     libva-intel-driver \
     xorg-x11-drv-intel \
     xorg-x11-drv-amdgpu \
+    xorg-x11-drv-ati \
     xorg-x11-drv-nouveau \
     xorg-x11-drv-vmware \
     xorg-x11-drv-qxl \

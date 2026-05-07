@@ -588,9 +588,10 @@ run-live-iso-native source_tag="latest":
     # UEFI firmware: bootc install to-disk writes an EFI System Partition and
     # calls efibootmgr to add a boot entry — OVMF gives QEMU a real UEFI
     # environment identical to bare AMD hardware.  The NVRAM file (ovmf_vars)
-    # persists across QEMU sessions so after the first install the installed
-    # disk boots directly without re-booting the live ISO.  LIVE_ISO_VM_RESET=1
-    # wipes both disk and NVRAM for a clean reinstall.
+    # persists across QEMU sessions.  The QEMU devices below also give the
+    # installed disk bootindex=1 and the live ISO bootindex=2, so a blank disk
+    # falls through to the installer but an installed disk wins after reboot.
+    # LIVE_ISO_VM_RESET=1 wipes both disk and NVRAM for a clean reinstall.
     # Install OVMF with: sudo dnf install edk2-ovmf
     _ovmf_args=()
     for _ovmf_code in \
@@ -632,9 +633,11 @@ run-live-iso-native source_tag="latest":
         -m 8G \
         -machine q35 \
         "${_ovmf_args[@]}" \
-        -cdrom "${image_file}" \
-        -boot order=c,once=d \
-        -drive file="${disk_img}",if=virtio,format=qcow2 \
+        -device ich9-ahci,id=ahci \
+        -drive "if=none,id=liveiso,format=raw,media=cdrom,readonly=on,file=${image_file}" \
+        -device ide-cd,bus=ahci.0,drive=liveiso,bootindex=2 \
+        -drive "if=none,id=systemdisk,file=${disk_img},format=qcow2" \
+        -device virtio-blk-pci,drive=systemdisk,bootindex=1 \
         -device qxl-vga \
         -display none \
         -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
