@@ -194,19 +194,21 @@ cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 DisplayServer=x11
 DefaultSession=plasmax11.desktop
 
+[Theme]
+Current=breeze
+
 [X11]
 SessionDir=/usr/share/xsessions
 SDDMCONFEOF
 
-# QEMU/first-boot baseline: make Plasma's X11 session software-renderable for
-# new users. This mirrors the live ISO's stability path and keeps the desktop
-# reachable even when the VM display has no virgl/3D acceleration. Users can remove
-# this file or switch to Wayland/hardware GL once the baseline boot path is
-# proven on their hardware.
+# Software-rendering fallback for virtual machines: makes Plasma's X11 session
+# usable when the VM display has no virgl/3D acceleration. Skipped on bare metal
+# (systemd-detect-virt returns non-zero when not in a VM/container) and when
+# kyth.hwgl=1 is in the cmdline to force hardware GL inside a VM.
 mkdir -p /etc/skel/.config/plasma-workspace/env
 cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
 #!/bin/sh
-if ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
+if systemd-detect-virt -q 2>/dev/null && ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
     export LIBGL_ALWAYS_SOFTWARE=1
     export GALLIUM_DRIVER=llvmpipe
     export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
@@ -311,26 +313,6 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 # Users can override with ~/.config/vkBasalt/vkBasalt.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
-# ── Outlook PWA ───────────────────────────────────────────────────────────────
-# Adds Microsoft Outlook to the Internet section of the app launcher via a
-# .desktop file that opens it as a Brave PWA (no browser chrome).
-mkdir -p /usr/share/applications
-cat > /usr/share/applications/outlook-pwa.desktop <<'OUTLOOKEOF'
-[Desktop Entry]
-Version=1.0
-Name=Outlook
-Comment=Microsoft Outlook — email and calendar
-Exec=brave-browser --app=https://outlook.live.com/mail/ %U
-Icon=outlook-pwa
-Terminal=false
-Type=Application
-Categories=Network;Email;
-StartupWMClass=outlook.live.com__mail_
-StartupNotify=true
-OUTLOOKEOF
-mkdir -p /usr/share/icons/hicolor/192x192/apps
-cp /ctx/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
-gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
 
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in KythOS)
@@ -398,6 +380,13 @@ install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemo
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
+install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
+install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
+    /usr/share/applications/kyth-vpn-connect.desktop
+install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
+mkdir -p /etc/xdg/autostart
+install -m 0644 /ctx/kyth-vpn-status/kyth-vpn-status.desktop \
+    /etc/xdg/autostart/kyth-vpn-status.desktop
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
