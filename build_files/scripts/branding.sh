@@ -194,6 +194,9 @@ cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 DisplayServer=x11
 DefaultSession=plasmax11.desktop
 
+[Theme]
+Current=breeze
+
 [X11]
 SessionDir=/usr/share/xsessions
 SDDMCONFEOF
@@ -310,26 +313,6 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 # Users can override with ~/.config/vkBasalt/vkBasalt.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
-# ── Outlook PWA ───────────────────────────────────────────────────────────────
-# Adds Microsoft Outlook to the Internet section of the app launcher via a
-# .desktop file that opens it as a Brave PWA (no browser chrome).
-mkdir -p /usr/share/applications
-cat > /usr/share/applications/outlook-pwa.desktop <<'OUTLOOKEOF'
-[Desktop Entry]
-Version=1.0
-Name=Outlook
-Comment=Microsoft Outlook — email and calendar
-Exec=brave-browser --app=https://outlook.live.com/mail/ %U
-Icon=outlook-pwa
-Terminal=false
-Type=Application
-Categories=Network;Email;
-StartupWMClass=outlook.live.com__mail_
-StartupNotify=true
-OUTLOOKEOF
-mkdir -p /usr/share/icons/hicolor/192x192/apps
-cp /ctx/icons/outlook-pwa.png /usr/share/icons/hicolor/192x192/apps/outlook-pwa.png
-gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
 
 # Remove Waydroid desktop/menu entries and related files if present
 # (some base images include a Waydroid helper that we don't ship in KythOS)
