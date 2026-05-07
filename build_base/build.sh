@@ -7,17 +7,6 @@ set -euo pipefail
 # are correctly labeled before the system ever boots.
 
 # Apply KythOS branding to the base image
-cat > /etc/os-release <<'EOF' || true
-NAME="KythOS"
-PRETTY_NAME="KythOS 44"
-ID=fedora
-VERSION_ID="44"
-ANSI_COLOR="0;34"
-HOME_URL="https://github.com/mrtrick37/kyth"
-SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
-BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
-EOF
-
 echo "KythOS base customization applied"
 
 # ── CachyOS kernel ─────────────────────────────────────────────────────────
@@ -71,16 +60,33 @@ plymouth-set-default-theme kyth
 
 dnf5 remove -y librsvg2-tools || true
 
-# Write dracut config — force the ostree and plymouth modules.
-# Without ostree the initramfs cannot find or mount the root filesystem.
-# Without plymouth the boot splash is not shown.
-# DRM module ensures GPU drivers load before Plymouth starts rendering.
+# Write dracut config.
+# ostree module is required — without it the initramfs cannot find or mount
+# the ostree deployment root.
+# drm module pulls in KMS drivers so the display is available after pivot_root.
+# plymouth is intentionally excluded: when plymouth is in the initramfs and
+# the drm module is also present, plymouth probes for any available DRM device
+# (virtio_gpu in QEMU; simpledrm on bare metal before hardware KMS loads)
+# and acquires DRM master. The plymouth→SDDM/Xorg handoff is racy on RDNA3
+# and virtio-gpu and produces the persistent blink loop seen at boot.
+# Excluding plymouth from the initramfs means nothing holds DRM master before
+# SDDM starts — SDDM acquires it cleanly on first try. Plymouth still runs
+# as a systemd userspace service after pivot_root; without the splash karg
+# it uses the text renderer and never touches DRM.
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree plymouth drm "
-# virtio_blk/virtio_scsi/ahci are built into the CachyOS kernel (=y),
-# so add_drivers has no effect for them. Kept for documentation.
-add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci "
+add_dracutmodules+=" ostree drm "
+# Plymouth is installed as an RPM, so dracut auto-includes it via its check()
+# function unless explicitly omitted. Plymouth in the initramfs acquires DRM
+# master on the first available device (virtio_gpu in QEMU, amdgpu on hardware)
+# and the Plymouth→SDDM handoff races, causing the persistent blink loop after
+# install. Omitting it here means Plymouth only runs as a userspace service
+# after pivot_root, in text mode (no splash karg), never touching DRM.
+omit_dracutmodules+=" plymouth "
+# virtio_gpu/qxl/bochs: QEMU/KVM display paths. Keep all three available early
+# so local tests can switch between virtio, SPICE/QXL, and firmware fallback
+# without rebuilding the kernel/initramfs layer.
+add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs "
 DRACUTEOF
 
 TMPDIR=/var/tmp dracut \
@@ -94,28 +100,28 @@ TMPDIR=/var/tmp dracut \
 dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Set kernel args for the installed system via bootc kargs.d.
+# Keep the baseline deliberately QEMU-safe. Hardware-specific GPU workarounds
+# are applied later only on systems that need them; baking them into every
+# install made virtio/EFI framebuffer handoff failures very hard to diagnose.
 # quiet: suppress kernel log spam on the console.
-# splash: activate Plymouth so the boot splash is shown.
-# iommu=pt: Intel VT-d passthrough mode — prevents strict IOMMU isolation from
-#   breaking DRM/KMS on Intel vPro and similar enterprise hardware where VT-d is
-#   enabled by default. Transparent/no-op on AMD systems.
-# amdgpu.sg_display=0: disables scatter-gather display on the amdgpu driver.
-#   Without this, AMD laptop panels (eDP) blink/flash repeatedly during the
-#   Plymouth → SDDM KMS handoff — reproducible on ASUS TUF A16 and other AMD
-#   Radeon laptop designs. sg_display uses IOMMU-mapped scatter lists for the
-#   display engine; on laptops where the panel is on the iGPU eDP output the
-#   IOMMU mapping stalls cause the display controller to blank and re-sync
-#   multiple times per second until the driver settles. Setting it to 0 forces
-#   the driver to use a contiguous-memory framebuffer for the display engine
-#   instead, which is slightly less memory-efficient but eliminates the blink.
+# threadirqs: keep the low-latency desktop tuning without affecting display.
+# rd.plymouth=0/plymouth.enable=0: keep the QEMU baseline free of splash/DRM
+# handoff races until the installed desktop path is proven stable.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash", "threadirqs", "iommu=pt", "pcie_aspm=off", "amdgpu.sg_display=0"]
+kargs = ["quiet", "threadirqs", "rd.plymouth=0", "plymouth.enable=0", "console=tty0", "console=ttyS0,115200"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────
 systemctl enable sddm 2>/dev/null || true
 systemctl set-default graphical.target 2>/dev/null || true
+ln -sf /usr/lib/systemd/system/sddm.service \
+    /etc/systemd/system/display-manager.service
+mkdir -p /etc/systemd/system/graphical.target.wants
+ln -sf /etc/systemd/system/display-manager.service \
+    /etc/systemd/system/graphical.target.wants/display-manager.service
+ln -sf /usr/lib/systemd/system/graphical.target \
+    /etc/systemd/system/default.target
 
 # Mask bootloader-update.service: this ostree/rpm-ostree service tries to
 # update the bootloader on every boot but always fails in our bootc image,
@@ -133,17 +139,3 @@ systemctl mask systemd-remount-fs.service 2>/dev/null || true
 # symlink to /dev/null ensures it's masked before systemd first reads it on boot.
 rm -f /etc/systemd/system/plasmalogin.service
 ln -s /dev/null /etc/systemd/system/plasmalogin.service
-
-# ── SDDM display server: Wayland by default ───────────────────────────────────
-# Keep the on-disk config aligned with the documented product defaults so
-# image behavior is obvious during debugging and CI review.
-mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/10-display-server.conf <<'EOF'
-[General]
-DisplayServer=wayland
-
-[Wayland]
-SessionDir=/usr/share/wayland-sessions
-CompositorCommand=kwin_wayland --no-global-shortcuts --no-lockscreen --locale1
-EOF
-

@@ -1696,6 +1696,106 @@ def _platform_probe() -> HardwareProbe:
     )
 
 
+def _tail_file(path: str, max_lines: int = 80) -> str:
+    try:
+        with open(path, "r", encoding="utf-8", errors="replace") as fh:
+            lines = fh.readlines()
+    except OSError:
+        return ""
+    return "".join(lines[-max_lines:]).strip()
+
+
+def _system_hub_probe() -> HardwareProbe:
+    app_path = "/usr/bin/kyth-welcome"
+    launcher_path = "/usr/bin/kyth-welcome-launch"
+    desktop_path = "/usr/share/applications/kyth-welcome.desktop"
+    autostart_path = os.path.expanduser("~/.config/autostart/kyth-welcome.desktop")
+    cache_home = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    log_path = os.path.join(cache_home, "kyth", "kyth-welcome.log")
+
+    app_ok = os.path.isfile(app_path) and os.access(app_path, os.X_OK)
+    launcher_ok = os.path.isfile(launcher_path) and os.access(launcher_path, os.X_OK)
+    desktop_text = _tail_file(desktop_path, max_lines=40)
+    desktop_uses_launcher = "Exec=/usr/bin/kyth-welcome-launch" in desktop_text
+    autostart_text = _tail_file(autostart_path, max_lines=40)
+    autostart_uses_launcher = (
+        not os.path.exists(autostart_path)
+        or "Exec=/usr/bin/kyth-welcome-launch" in autostart_text
+    )
+    log_tail = _tail_file(log_path)
+
+    details = [
+        f"{app_path}: {'executable' if app_ok else 'missing or not executable'}",
+        f"{launcher_path}: {'executable' if launcher_ok else 'missing or not executable'}",
+        f"{desktop_path}: {'uses launcher' if desktop_uses_launcher else 'missing or points directly at app'}",
+        f"{autostart_path}: {'absent/complete' if not os.path.exists(autostart_path) else ('uses launcher' if autostart_uses_launcher else 'points directly at app')}",
+        f"{log_path}: {'present' if log_tail else 'not present or empty'}",
+    ]
+    if log_tail:
+        details.extend(["", "Recent launch log:", log_tail])
+
+    if not app_ok:
+        return HardwareProbe(
+            "System Hub", "err",
+            "System Hub executable is missing or not runnable.",
+            "\n".join(details),
+            "Reinstall /usr/bin/kyth-welcome from the current image or repository checkout.",
+        )
+
+    if not launcher_ok or not desktop_uses_launcher or not autostart_uses_launcher:
+        return HardwareProbe(
+            "System Hub", "warn",
+            "System Hub is installed, but the launcher diagnostics wrapper is not fully active.",
+            "\n".join(details),
+            "Install kyth-welcome-launch and refresh the desktop entry so launch failures are logged.",
+        )
+
+    if log_tail and re.search(r"(traceback|error|failed|aborted|core dumped)", log_tail, re.IGNORECASE):
+        return HardwareProbe(
+            "System Hub", "warn",
+            "Recent System Hub launch log contains an error.",
+            "\n".join(details),
+            "Review the recent launch log included above.",
+        )
+
+    return HardwareProbe(
+        "System Hub", "ok",
+        "System Hub launcher and diagnostics wrapper are installed.",
+        "\n".join(details),
+    )
+
+
+def _vaapi_failure_summary(output: str) -> tuple[str, str]:
+    lowered = output.lower()
+
+    if "permission denied" in lowered or "failed to open render node" in lowered:
+        return (
+            "VA-API cannot access the GPU render device.",
+            "Confirm your user has render/video device access, then sign out and back in.",
+        )
+
+    if "radeonsi_drv_video.so" in lowered and (
+        "resource allocation failed" in lowered
+        or "init failed" in lowered
+        or "va_openDriver() returns 2" in output
+    ):
+        return (
+            "AMD VA-API driver was found but could not initialize.",
+            "Reboot after Mesa/GPU driver updates; if it persists, verify mesa-va-drivers matches Mesa and check Graphics for amdgpu status.",
+        )
+
+    if "failed to open" in lowered or "driver_name" in lowered or "va_openDriver" in output:
+        return (
+            "VA-API driver could not be opened.",
+            "Verify the matching VA-API driver package is installed for this GPU and no stale LIBVA_DRIVER_NAME override is set.",
+        )
+
+    return (
+        "VA-API initialisation failed.",
+        "Confirm your GPU driver is loaded (see Graphics).",
+    )
+
+
 def _codec_probe() -> HardwareProbe:
     vainfo = _run_command(["vainfo"], timeout=10)
     if vainfo is None:
@@ -1706,11 +1806,12 @@ def _codec_probe() -> HardwareProbe:
         )
     output = (vainfo.stdout + vainfo.stderr).lower()
     if vainfo.returncode != 0 and "failed" in output:
+        summary, recommendation = _vaapi_failure_summary(vainfo.stdout + vainfo.stderr)
         return HardwareProbe(
             "Video Decode", "warn",
-            "VA-API initialisation failed.",
+            summary,
             (vainfo.stdout + vainfo.stderr).strip(),
-            "Confirm your GPU driver is loaded (see Graphics).",
+            recommendation,
         )
 
     profiles = []
@@ -1751,6 +1852,7 @@ def _collect_hardware_probes() -> list[HardwareProbe]:
         _audio_probe(),
         _storage_probe(),
         _platform_probe(),
+        _system_hub_probe(),
     ]
 
 
@@ -6296,7 +6398,7 @@ class ContentCreationPage(Page):
             "Apps",
             "Content Creation",
             "Recording, streaming, video editing, and audio tools. "
-            "AMD GPU + Mesa-git gives excellent hardware acceleration in DaVinci Resolve.",
+            "AMD GPU + Mesa RADV gives excellent hardware acceleration in DaVinci Resolve.",
         )
 
         # ── Flatpak tools grid ────────────────────────────────────────────────
@@ -8834,7 +8936,7 @@ class WizardWindow(QMainWindow):
         hero_layout.addSpacing(8)
 
         desc = QLabel(
-            "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa-git Vulkan drivers, "
+            "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa RADV Vulkan drivers, "
             "and a complete gaming stack pre-installed. Updates ship as atomic container images — "
             "every change is instant to roll back with a single command."
         )
@@ -8983,7 +9085,6 @@ class WizardWindow(QMainWindow):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
-    _remove_autostart()
     _wait_for_display_setup()
     _prefer_xwayland_if_wayland_plugin_missing()
 
@@ -8996,6 +9097,7 @@ def main():
     win = WizardWindow() if _is_first_run() else MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
+    _remove_autostart()
     sys.exit(app.exec())
 
 

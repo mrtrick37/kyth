@@ -2,7 +2,7 @@
 Version=1.0
 Name=KythOS System Hub
 Comment=Helper and settings for KythOS
-Exec=/usr/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome-launch
 Icon=kyth
 Terminal=false
 Type=Application

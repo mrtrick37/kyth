@@ -1,0 +1,19 @@
+#!/usr/bin/env bash
+set -u
+
+log_dir="${XDG_CACHE_HOME:-${HOME}/.cache}/kyth"
+if ! mkdir -p "${log_dir}" 2>/dev/null; then
+    exec /usr/bin/kyth-welcome "$@"
+fi
+
+log_file="${log_dir}/kyth-welcome.log"
+
+{
+    echo "==== $(date -Is) kyth-welcome launch ===="
+    echo "user=$(id -un 2>/dev/null || true) uid=$(id -u 2>/dev/null || true)"
+    echo "DISPLAY=${DISPLAY-}"
+    echo "WAYLAND_DISPLAY=${WAYLAND_DISPLAY-}"
+    echo "XDG_SESSION_TYPE=${XDG_SESSION_TYPE-}"
+    echo "QT_QPA_PLATFORM=${QT_QPA_PLATFORM-}"
+    exec /usr/bin/kyth-welcome "$@"
+} >>"${log_file}" 2>&1
