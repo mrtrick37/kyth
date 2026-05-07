@@ -198,15 +198,14 @@ DefaultSession=plasmax11.desktop
 SessionDir=/usr/share/xsessions
 SDDMCONFEOF
 
-# QEMU/first-boot baseline: make Plasma's X11 session software-renderable for
-# new users. This mirrors the live ISO's stability path and keeps the desktop
-# reachable even when the VM display has no virgl/3D acceleration. Users can remove
-# this file or switch to Wayland/hardware GL once the baseline boot path is
-# proven on their hardware.
+# Software-rendering fallback for virtual machines: makes Plasma's X11 session
+# usable when the VM display has no virgl/3D acceleration. Skipped on bare metal
+# (systemd-detect-virt returns non-zero when not in a VM/container) and when
+# kyth.hwgl=1 is in the cmdline to force hardware GL inside a VM.
 mkdir -p /etc/skel/.config/plasma-workspace/env
 cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
 #!/bin/sh
-if ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
+if systemd-detect-virt -q 2>/dev/null && ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
     export LIBGL_ALWAYS_SOFTWARE=1
     export GALLIUM_DRIVER=llvmpipe
     export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe
