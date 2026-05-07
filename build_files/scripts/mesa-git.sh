@@ -3,11 +3,14 @@ set -euo pipefail
 
 # ── Mesa-git ───────────────────────────────────────────────────────────
 # xxmitsu/mesa-git rebuilds Mesa from upstream snapshots every few hours.
-# Fedora 44 folds the AMD VA-API backend into mesa-dri-drivers, so this layer
-# verifies the radeonsi video driver by provider/file instead of looking for an
-# independently installed mesa-va-drivers RPM.
+# Keep it opt-in: these snapshots are useful for testing bleeding-edge RADV and
+# RADEONSI, but they can regress VA-API video decode while the rest of Mesa
+# still appears healthy. Fedora 44 folds the AMD VA-API backend into
+# mesa-dri-drivers, so this layer verifies the radeonsi video driver by
+# provider/file instead of looking for an independently installed
+# mesa-va-drivers RPM.
 
-if [[ "${ENABLE_MESA_GIT:-1}" == "0" ]]; then
+if [[ "${ENABLE_MESA_GIT:-0}" == "0" ]]; then
     echo "Mesa-git COPR layer disabled by ENABLE_MESA_GIT=0"
 else
     dnf5 copr enable -y xxmitsu/mesa-git

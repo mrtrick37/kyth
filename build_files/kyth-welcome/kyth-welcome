@@ -1808,6 +1808,28 @@ def _vaapi_failure_summary(output: str) -> tuple[str, str]:
     )
 
 
+def _mesa_vaapi_failure_context() -> tuple[str, str]:
+    rpm = _run_command([
+        "rpm",
+        "-q",
+        "--queryformat",
+        "%{NAME} %{VERSION}-%{RELEASE}.%{ARCH}\n%{VENDOR}\n%{PACKAGER}\n",
+        "mesa-dri-drivers",
+    ], timeout=5)
+    if rpm is None or rpm.returncode != 0:
+        return "", ""
+
+    details = rpm.stdout.strip()
+    lowered = details.lower()
+    if "xxmitsu" not in lowered and "copr" not in lowered:
+        return details, ""
+
+    return (
+        details,
+        "Mesa is installed from the mesa-git COPR; switch back to stable Fedora Mesa or wait for a fixed mesa-git snapshot.",
+    )
+
+
 def _compact_vaapi_failure_details(primary_output: str, direct_probe_details: list[str]) -> str:
     attempts = [("$ vainfo", primary_output.strip())]
     for detail in direct_probe_details:
@@ -1928,6 +1950,11 @@ def _codec_probe() -> HardwareProbe:
     if vainfo.returncode != 0 and "failed" in output.lower():
         summary, recommendation = _vaapi_failure_summary(output)
         details = _compact_vaapi_failure_details(output, direct_probe_details)
+        mesa_details, mesa_recommendation = _mesa_vaapi_failure_context()
+        if mesa_details:
+            details = f"{details}\n\nMesa package:\n{mesa_details}"
+        if mesa_recommendation:
+            recommendation = mesa_recommendation
         return HardwareProbe(
             "Video Decode", "warn",
             summary,

@@ -12,7 +12,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 |---|---|
 | **Base** | Fedora 44 KDE Plasma (`ublue-os/kinoite-main:44`) |
 | **Kernel** | CachyOS — BORE scheduler, sched-ext, BBRv3, NTSYNC, latency-tuned |
-| **GPU drivers** | Mesa-git (bleeding-edge RADV/RADEONSI from `xxmitsu/mesa-git` COPR) |
+| **GPU drivers** | Fedora Mesa RADV/RADEONSI by default; optional Mesa-git via `ENABLE_MESA_GIT=1` |
 | **Display** | KDE Plasma 6 on Wayland |
 | **Installer** | Custom PySide6 + Chromium kiosk — pulls the OS image from the registry at install time via `bootc install to-disk`; supports full-disk wipe or dual-boot alongside an existing OS |
 | **Theme** | Breeze Dark with KythOS branding, custom Plymouth boot splash |
@@ -274,7 +274,7 @@ build_files/
   scripts/
     packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
     ge-proton.sh                  GE-Proton installer (Layer 2)
-    mesa-git.sh                   Mesa-git GPU drivers (Layer 4)
+    mesa-git.sh                   Optional Mesa-git GPU drivers (Layer 4)
     thirdparty.sh                 topgrade, winetricks, LatencyFleX, scx schedulers, Homebrew (Layer 5)
     sysconfig.sh                  sysctl, audio, gaming tuning, env vars (Layer 6)
     branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app (Layer 7)

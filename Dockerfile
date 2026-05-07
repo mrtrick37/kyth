@@ -25,7 +25,7 @@ LABEL org.osbuild.branding.release="KythOS 44"
 ### MODIFICATIONS
 ARG ENABLE_ANANICY=1
 ARG ENABLE_SCX=1
-ARG ENABLE_MESA_GIT=1
+ARG ENABLE_MESA_GIT=0
 
 # Layer 1: All RPM package installs (~2-3 GB).
 # Stable — only re-run when packages.sh changes or the base image is updated.
@@ -67,9 +67,10 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     dnf5 upgrade -y libdrm && \
     dnf5 clean all
 
-# Layer 4: Mesa-git GPU drivers.
-# This sits after the daily Fedora upgrade so stable Mesa cannot overwrite the
-# bleeding-edge RADV/RADEONSI stack in the final image.
+# Layer 4: Optional Mesa-git GPU drivers.
+# Disabled by default: the COPR tracks development snapshots and can regress
+# VA-API video decode even when Vulkan/OpenGL remain healthy. Set
+# ENABLE_MESA_GIT=1 for testing bleeding-edge RADV/RADEONSI.
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
