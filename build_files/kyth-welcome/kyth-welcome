@@ -1913,6 +1913,25 @@ def _successful_vaapi_probe(vainfo: subprocess.CompletedProcess[str] | None) -> 
 
 
 def _codec_probe() -> HardwareProbe:
+    sw_driver = (
+        os.environ.get("MESA_LOADER_DRIVER_OVERRIDE", "")
+        or os.environ.get("GALLIUM_DRIVER", "")
+    )
+    if "llvmpipe" in sw_driver.lower():
+        env_lines = "\n".join(
+            f"{k}={os.environ[k]}"
+            for k in ("MESA_LOADER_DRIVER_OVERRIDE", "GALLIUM_DRIVER", "LIBGL_ALWAYS_SOFTWARE")
+            if k in os.environ
+        )
+        skel_file = os.path.expanduser("~/.config/plasma-workspace/env/10-kyth-qemu-safe.sh")
+        source = skel_file if os.path.exists(skel_file) else "~/.config/plasma-workspace/env/"
+        return HardwareProbe(
+            "Video Decode", "warn",
+            "Software rendering is active in this session — VA-API requires hardware GPU access.",
+            f"{env_lines}\n\nSet by {source} (QEMU compatibility fallback active on bare metal).",
+            f"Delete {skel_file} and log out/in to restore hardware rendering.",
+        )
+
     vainfo = _run_command(["vainfo"], timeout=10)
     if vainfo is None:
         return HardwareProbe(
