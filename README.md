@@ -273,11 +273,11 @@ build_files/
     cockpit-branding.css          Themed CSS for the installer UI
   scripts/
     packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
-    thirdparty.sh                 topgrade, winetricks, LatencyFleX, scx schedulers, Homebrew (Layer 2)
-    sysconfig.sh                  sysctl, audio, gaming tuning, env vars (Layer 3)
-    branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app (Layer 4)
-    ge-proton.sh                  GE-Proton installer (Layer 5)
-    mesa-git.sh                   Mesa-git GPU drivers (Layer 6)
+    ge-proton.sh                  GE-Proton installer (Layer 2)
+    mesa-git.sh                   Mesa-git GPU drivers (Layer 4)
+    thirdparty.sh                 topgrade, winetricks, LatencyFleX, scx schedulers, Homebrew (Layer 5)
+    sysconfig.sh                  sysctl, audio, gaming tuning, env vars (Layer 6)
+    branding.sh                   Icons, themes, Plymouth, wallpaper, welcome app (Layer 7)
   game-performance                CPU/GPU performance helper script
   zink-run                        Run OpenGL apps via Zink (Vulkan-backed GL)
   just/kyth.just                  ujust recipes shipped in the installed OS

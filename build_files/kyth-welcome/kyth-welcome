@@ -1028,16 +1028,28 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
     # bootc / skopeo / ostree
     if "layers already present" in lo or "layers needed" in lo:
         return "Checking for new image layers…"
+    if "resolved" in lo and ("image" in lo or REGISTRY in lo):
+        return "Resolving OS image version…"
     if "fetching" in lo and ("manifest" in lo or "sha256" in lo):
         return "Fetching image manifest…"
     if any(k in lo for k in ("pulling", "copying", "fetching")) and any(
         k in lo for k in ("sha256", "blob", "layer", "ghcr.io", "registry")
     ):
         return "Downloading image layers…"
-    if "writing" in lo or "composing" in lo or "unpacking" in lo:
+    if "unpacking" in lo or "extracting" in lo:
+        return "Unpacking image layers…"
+    if "checking out" in lo or "checkout" in lo or "importing" in lo:
+        return "Importing image into system storage…"
+    if "writing" in lo or "composing" in lo or "committing" in lo:
         return "Writing new OS image to disk…"
+    if "rpmdb" in lo:
+        return "Updating package database in the new image…"
+    if "initramfs" in lo or "kernel" in lo:
+        return "Preparing boot files for the new image…"
     if "deploying" in lo:
         return "Deploying new OS image…"
+    if "staging" in lo or "staged" in lo or "transaction complete" in lo:
+        return "Staging new image for next reboot…"
     if "no update available" in lo or "already booted" in lo:
         return "Already on the latest image — nothing to download."
     if "queued" in lo and "boot" in lo:
@@ -1781,7 +1793,7 @@ def _vaapi_failure_summary(output: str) -> tuple[str, str]:
     ):
         return (
             "AMD VA-API driver was found but could not initialize.",
-            "Reboot after Mesa/GPU driver updates; if it persists, verify mesa-va-drivers matches Mesa and check Graphics for amdgpu status.",
+            "Reboot after Mesa/GPU driver updates; if it persists, verify mesa-dri-drivers provides mesa-va-drivers and check Graphics for amdgpu status.",
         )
 
     if "failed to open" in lowered or "driver_name" in lowered or "va_openDriver" in output:
@@ -1796,6 +1808,34 @@ def _vaapi_failure_summary(output: str) -> tuple[str, str]:
     )
 
 
+def _vaapi_profiles(output: str) -> list[str]:
+    lowered = output.lower()
+    profiles = []
+    if "h264" in lowered or "avc" in lowered:
+        profiles.append("H.264")
+    if "h265" in lowered or "hevc" in lowered:
+        profiles.append("H.265")
+    if "av1" in lowered:
+        profiles.append("AV1")
+    if "vp9" in lowered:
+        profiles.append("VP9")
+    if "vp8" in lowered:
+        profiles.append("VP8")
+    return profiles
+
+
+def _successful_vaapi_probe(vainfo: subprocess.CompletedProcess[str] | None) -> tuple[list[str], str] | None:
+    if vainfo is None:
+        return None
+    output = (vainfo.stdout + vainfo.stderr).strip()
+    if vainfo.returncode != 0:
+        return None
+    profiles = _vaapi_profiles(output)
+    if not profiles:
+        return None
+    return profiles, output
+
+
 def _codec_probe() -> HardwareProbe:
     vainfo = _run_command(["vainfo"], timeout=10)
     if vainfo is None:
@@ -1804,28 +1844,54 @@ def _codec_probe() -> HardwareProbe:
             "vainfo not available — cannot check VA-API support.",
             "Install libva-utils to inspect hardware video decode capabilities.",
         )
-    output = (vainfo.stdout + vainfo.stderr).lower()
-    if vainfo.returncode != 0 and "failed" in output:
-        summary, recommendation = _vaapi_failure_summary(vainfo.stdout + vainfo.stderr)
+
+    direct_probe_details = []
+    successful = _successful_vaapi_probe(vainfo)
+    if successful is None:
+        render_nodes = sorted(glob.glob("/dev/dri/renderD*"))
+        for node in render_nodes:
+            drm_vainfo = _run_command(["vainfo", "--display", "drm", "--device", node], timeout=10)
+            if drm_vainfo is not None:
+                direct_probe_details.append(
+                    f"$ vainfo --display drm --device {node}\n"
+                    f"{(drm_vainfo.stdout + drm_vainfo.stderr).strip()}"
+                )
+            successful = _successful_vaapi_probe(drm_vainfo)
+            if successful is not None:
+                profiles, drm_output = successful
+                details = [
+                    "$ vainfo",
+                    (vainfo.stdout + vainfo.stderr).strip(),
+                    f"$ vainfo --display drm --device {node}",
+                    drm_output,
+                ]
+                return HardwareProbe(
+                    "Video Decode", "ok",
+                    f"VA-API hardware decode: {', '.join(profiles)}.",
+                    "\n\n".join(part for part in details if part),
+                )
+    else:
+        profiles, output = successful
+        return HardwareProbe(
+            "Video Decode", "ok",
+            f"VA-API hardware decode: {', '.join(profiles)}.",
+            output,
+        )
+
+    output = (vainfo.stdout + vainfo.stderr)
+    if vainfo.returncode != 0 and "failed" in output.lower():
+        summary, recommendation = _vaapi_failure_summary(output)
+        details = output.strip()
+        if direct_probe_details:
+            details = "\n\n".join([details, *direct_probe_details])
         return HardwareProbe(
             "Video Decode", "warn",
             summary,
-            (vainfo.stdout + vainfo.stderr).strip(),
+            details,
             recommendation,
         )
 
-    profiles = []
-    if "h264" in output or "avc" in output:
-        profiles.append("H.264")
-    if "h265" in output or "hevc" in output:
-        profiles.append("H.265")
-    if "av1" in output:
-        profiles.append("AV1")
-    if "vp9" in output:
-        profiles.append("VP9")
-    if "vp8" in output:
-        profiles.append("VP8")
-
+    profiles = _vaapi_profiles(output)
     if not profiles:
         return HardwareProbe(
             "Video Decode", "warn",
@@ -2866,6 +2932,11 @@ class UpdatePage(Page):
     def _set_log_expanded(self, expanded: bool):
         _set_log_panel(self._log_toggle, self._log, expanded)
 
+    def _set_phase(self, phase: str):
+        self._current_phase = phase
+        self._status_lbl.setText(phase)
+        _restyle(self._status_lbl)
+
     def _start_operation(self, mode: str, label: str, cmd: list[str], inhibit_reason: str):
         self._stop_dl_monitor()
         self._dl_total = 0
@@ -2934,9 +3005,9 @@ class UpdatePage(Page):
         self._last_output_ts = time.monotonic()
         phase = _parse_update_phase(text.strip(), self._mode)
         if phase:
-            self._current_phase = phase
-            self._status_lbl.setText(phase)
-            _restyle(self._status_lbl)
+            self._set_phase(phase)
+            if phase != "Downloading image layers…" and self._dl_downloaded >= self._dl_total > 0:
+                self._progress.setRange(0, 0)
         # Start or update network monitor when bootc tells us how much to download
         if "layers needed:" in text:
             try:
@@ -2973,12 +3044,15 @@ class UpdatePage(Page):
         self._dl_eta = eta_sec
         if total > 0:
             self._progress.setValue(int(min(downloaded / total, 1.0) * 1000))
+        if total > 0 and downloaded / total >= 0.995:
+            self._progress.setRange(0, 0)
+            self._set_phase("Download complete — preparing new OS image…")
+            self._update_activity()
+            self._stop_dl_monitor()
+            return
         # While actively transferring, update the phase label to reflect the download
         if speed_bps > 100_000 and downloaded < total:
-            dl_phase = "Downloading image layers…"
-            self._current_phase = dl_phase
-            self._status_lbl.setText(dl_phase)
-            _restyle(self._status_lbl)
+            self._set_phase("Downloading image layers…")
         # Only show download stats while actively transferring (>100 KB/s)
         if speed_bps > 100_000:
             dl_dl, dl_total = _human_bytes_pair(downloaded, total)
