@@ -350,6 +350,7 @@ fi
 
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
+install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
@@ -372,6 +373,8 @@ loader.exec_module(module)
 app = module.QApplication([])
 win = module.MainWindow()
 win.close()
+wizard = module.WizardWindow()
+wizard.close()
 os._exit(0)
 ' || smoke_exit=$?
 if [ "${smoke_exit}" -eq 124 ]; then
@@ -411,7 +414,7 @@ cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Helper
-Exec=/usr/bin/kyth-welcome
+Exec=/usr/bin/kyth-welcome-launch
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true

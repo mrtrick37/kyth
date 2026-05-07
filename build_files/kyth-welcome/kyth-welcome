@@ -8983,7 +8983,6 @@ class WizardWindow(QMainWindow):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
-    _remove_autostart()
     _wait_for_display_setup()
     _prefer_xwayland_if_wayland_plugin_missing()
 
@@ -8996,6 +8995,7 @@ def main():
     win = WizardWindow() if _is_first_run() else MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
+    _remove_autostart()
     sys.exit(app.exec())
 
 
