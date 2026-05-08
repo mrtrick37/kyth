@@ -20,7 +20,7 @@ os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
 
 from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QFont
+from PyQt6.QtGui import QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -65,6 +65,7 @@ except ImportError:
     _WEBENGINE_AVAILABLE = False
 
 _CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
+_APP_ICON_NAME = "network-vpn"
 _SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
 _GP_SAML_FIELDS = frozenset({
     "preloginuserauthcookie",
@@ -184,6 +185,7 @@ if _WEBENGINE_AVAILABLE:
         def __init__(self, saml_url: str, parent=None):
             super().__init__(parent)
             self.setWindowTitle("VPN — SAML Authentication")
+            self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
             self.resize(960, 720)
             self.setMinimumSize(720, 560)
             self.setModal(True)
@@ -730,6 +732,7 @@ class MainWindow(QMainWindow):
         self._worker: _VpnWorker | None = None
         self._saml_in_progress = False
         self.setWindowTitle("VPN Connect")
+        self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
         self.setMinimumSize(560, 560)
         self._build_ui()
         self._load_saved_config()
@@ -980,6 +983,8 @@ class MainWindow(QMainWindow):
 def main() -> None:
     app = QApplication(sys.argv)
     app.setApplicationName("kyth-vpn-connect")
+    app.setDesktopFileName("kyth-vpn-connect")
+    app.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
     win = MainWindow()
     win.show()
     sys.exit(app.exec())
