@@ -3425,10 +3425,12 @@ class UpdatePage(Page):
                 self._status_lbl.setText("Update complete — everything is up to date.")
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nDone. All managed tools and apps are up to date.")
+                self._check_for_update()
             else:
                 self._status_lbl.setText("Already on the latest deployment — no image update was staged.")
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nNo OS image update was staged. System is current.")
+                self._check_for_update()
         else:
             label = {
                 "topgrade": "topgrade", "update": "bootc upgrade",
