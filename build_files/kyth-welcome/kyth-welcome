@@ -7,6 +7,7 @@ accessible from the application menu.
 
 import configparser
 import glob
+import hashlib
 import os
 import sys
 import json
@@ -888,8 +889,8 @@ class UpdateCheckWorker(QThread):
 
         try:
             r = subprocess.run(
-                ["skopeo", "inspect", "--no-creds", f"docker://{ref}"],
-                capture_output=True, text=True, timeout=45,
+                ["skopeo", "inspect", "--raw", "--no-creds", f"docker://{ref}"],
+                capture_output=True, timeout=45,
             )
         except FileNotFoundError:
             self.result.emit("error", "")
@@ -905,26 +906,20 @@ class UpdateCheckWorker(QThread):
             self.result.emit("error", "")
             return
 
-        try:
-            data = json.loads(r.stdout)
-        except json.JSONDecodeError:
-            self.result.emit("error", "")
-            return
+        # Hash the raw manifest bytes to get the canonical index digest — this matches
+        # what bootc stores in imageDigest (the OCI image index digest), unlike
+        # `skopeo inspect` (non-raw) which returns the amd64 manifest digest instead.
+        remote_digest = "sha256:" + hashlib.sha256(r.stdout).hexdigest()
 
-        remote_digest = data.get("Digest", "")
-        if not remote_digest:
-            self.result.emit("error", "")
-            return
-
-        labels = data.get("Labels") or {}
-        raw_ts = labels.get("org.opencontainers.image.created", "")
         remote_ts = ""
-        if raw_ts:
-            try:
+        try:
+            annotations = (json.loads(r.stdout).get("annotations") or {})
+            raw_ts = annotations.get("org.opencontainers.image.created", "")
+            if raw_ts:
                 dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).astimezone()
                 remote_ts = dt.strftime("%Y-%m-%d %H:%M %Z")
-            except Exception:
-                remote_ts = raw_ts
+        except Exception:
+            pass
 
         if local_digest and remote_digest == local_digest:
             self.result.emit("uptodate", remote_ts)
