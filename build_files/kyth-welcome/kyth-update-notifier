@@ -7,6 +7,7 @@ desktop notification once per distinct update digest. Left-click opens kyth-welc
 on the Update page. Single-instance guarded via a PID lock file.
 """
 
+import hashlib
 import json
 import os
 import subprocess
@@ -87,8 +88,8 @@ class UpdateCheckWorker(QThread):
 
         try:
             r = subprocess.run(
-                ["skopeo", "inspect", "--no-creds", f"docker://{ref}"],
-                capture_output=True, text=True, timeout=45,
+                ["skopeo", "inspect", "--raw", "--no-creds", f"docker://{ref}"],
+                capture_output=True, timeout=45,
             )
         except Exception:
             self.result.emit("error", "")
@@ -98,16 +99,8 @@ class UpdateCheckWorker(QThread):
             self.result.emit("error", "")
             return
 
-        try:
-            data = json.loads(r.stdout)
-        except json.JSONDecodeError:
-            self.result.emit("error", "")
-            return
-
-        remote_digest = data.get("Digest", "")
-        if not remote_digest:
-            self.result.emit("error", "")
-            return
+        # Hash the raw manifest bytes for the canonical index digest (matches bootc imageDigest).
+        remote_digest = "sha256:" + hashlib.sha256(r.stdout).hexdigest()
 
         if local_digest and remote_digest == local_digest:
             self.result.emit("uptodate", remote_digest)
