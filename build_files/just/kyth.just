@@ -175,9 +175,7 @@ game-performance-profile profile +args:
 gamescope +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec gamescope \
-        --adaptive-sync \
-        {{ args }}
+    exec /usr/bin/kyth-gamescope quality {{ args }}
 
 # Run a game or app inside gamescope with HDR enabled.
 # Requires an HDR-capable display and a Wayland session.
@@ -191,10 +189,30 @@ gamescope +args:
 game-hdr +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec gamescope \
-        --hdr-enabled \
-        --adaptive-sync \
-        {{ args }}
+    exec /usr/bin/kyth-gamescope hdr {{ args }}
+
+# Run a game or app with KythOS Gamescope presets.
+# Usage:
+#   ujust game-scope quality -- %command%
+#   ujust game-scope hdr --fps 120 -- %command%
+#   ujust game-scope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%
+[group('KythOS')]
+game-scope preset="quality" +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec /usr/bin/kyth-gamescope "{{ preset }}" {{ args }}
+
+# Show or change the active sched-ext scheduler.
+# Usage: ujust scx status | ujust scx list | ujust scx set lavd
+[group('KythOS')]
+scx action="status" scheduler="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "{{ scheduler }}" ]]; then
+        /usr/bin/kyth-scx "{{ action }}" "{{ scheduler }}"
+    else
+        /usr/bin/kyth-scx "{{ action }}"
+    fi
 
 # Run an OpenGL app through Zink.
 [group('KythOS')]
@@ -232,6 +250,38 @@ install-lact:
     echo "LACT installed."
     echo "Launch it from the app launcher."
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
+
+# Install GOverlay from Flathub for MangoHud, vkBasalt, and OptiScaler tuning.
+[group('KythOS')]
+install-goverlay:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.github.benjamimgois.goverlay
+    echo
+    echo "GOverlay installed. Launch it from the app menu."
+
+# Install MangoJuice from Flathub for lightweight MangoHud configuration.
+[group('KythOS')]
+install-mangojuice:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.github.radiolamp.mangojuice
+    echo
+    echo "MangoJuice installed. Launch it from the app menu."
+
+# Launch CoreCtrl if the image includes it.
+[group('KythOS')]
+corectrl:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v corectrl >/dev/null 2>&1; then
+        echo "CoreCtrl is not installed in this image." >&2
+        echo "If Fedora packaging skipped it during build, use LACT instead: ujust install-lact" >&2
+        exit 1
+    fi
+    exec corectrl
 
 # Install BoxBuddy (distrobox GUI) from Flathub.
 [group('KythOS')]
@@ -740,9 +790,10 @@ install-obs:
     set -euo pipefail
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     flatpak install -y flathub com.obsproject.Studio
+    flatpak override --user --env=OBS_VKCAPTURE=1 com.obsproject.Studio || true
     echo
     echo "OBS Studio installed. Launch it from the app menu."
-    echo "Tip: run OBS under Wayland with: OBS_USE_EGL=1 obs"
+    echo "obs-vkcapture is enabled for Vulkan/OpenGL game capture."
 
 # Install the Itch.io desktop app — indie game store and library manager.
 [group('KythOS')]

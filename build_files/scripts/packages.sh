@@ -174,7 +174,19 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     steam-devices \
     kdeplasma-addons \
     rom-properties-kf6 \
-    input-remapper
+    input-remapper \
+    game-devices-udev \
+    xpadneo \
+    xone \
+    jstest-gtk \
+    libcec \
+    cec-utils \
+    openrazer-daemon \
+    openrazer-meta \
+    opentabletdriver \
+    corectrl \
+    akmod-v4l2loopback \
+    v4l2loopback
 
 is_enabled() {
     case "${1,,}" in

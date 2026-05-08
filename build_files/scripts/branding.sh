@@ -375,7 +375,9 @@ elif [ "${smoke_exit}" -ne 0 ]; then
 fi
 
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
+install -m 0755 /ctx/kyth-gamescope /usr/bin/kyth-gamescope
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
+install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info

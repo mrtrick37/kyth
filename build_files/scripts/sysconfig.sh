@@ -448,6 +448,13 @@ mesa_glthread=true
 # Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
 PROTONEOF
 
+# obs-vkcapture: make game capture available by default for OBS users. The layer
+# is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
+# a Nobara-like "works without launch-option archaeology" setup.
+cat > /etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
+OBS_VKCAPTURE=1
+OBSVKCAPTUREEOF
+
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
 # PROTON_ENABLE_NVAPI tells Proton to emulate NVIDIA's API layer.  It is only
 # meaningful on systems with NVIDIA hardware; setting it on AMD/Intel causes
@@ -728,6 +735,9 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 %wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-rclone-update
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx set *
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx restart
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx stop
 SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
