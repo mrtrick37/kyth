@@ -1,0 +1,261 @@
+#!/usr/bin/env python3
+"""KythOS update notifier — system tray app that checks for OS updates in the background.
+
+Autostarted at login via /etc/skel/.config/autostart/. Checks every 4 hours by
+comparing the running image digest against the registry manifest via skopeo. Sends a
+desktop notification once per distinct update digest. Left-click opens kyth-welcome
+on the Update page. Single-instance guarded via a PID lock file.
+"""
+
+import json
+import os
+import subprocess
+import sys
+from datetime import datetime
+from pathlib import Path
+
+from PyQt6.QtCore import QThread, QTimer, pyqtSignal
+from PyQt6.QtGui import QIcon
+from PyQt6.QtWidgets import QApplication, QMenu, QSystemTrayIcon
+
+REGISTRY = "ghcr.io/mrtrick37/kyth"
+CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000   # 4 hours
+_LOCK_FILE = Path.home() / ".cache" / "kyth" / "kyth-update-notifier.lock"
+_NOTIFIED_DIGEST_FILE = Path.home() / ".config" / "kyth-update-notified-digest"
+
+
+# ── Helpers (duplicated from kyth-welcome to keep notifier self-contained) ────
+
+def _bootc_status_data() -> dict | None:
+    try:
+        r = subprocess.run(
+            ["bootc", "status", "--json"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0:
+            return json.loads(r.stdout)
+    except Exception:
+        pass
+    return None
+
+
+def _nested_get(data, keys: tuple):
+    for k in keys:
+        if not isinstance(data, dict):
+            return None
+        data = data.get(k)
+    return data
+
+
+def _current_branch() -> str:
+    data = _bootc_status_data() or {}
+    booted = _nested_get(data, ("status", "booted")) or {}
+    for path in (
+        ("image", "image", "image"),
+        ("image", "transport",),
+    ):
+        ref = _nested_get(booted, path) or ""
+        if ":" in ref:
+            tag = ref.rsplit(":", 1)[-1]
+            if tag in ("latest", "testing"):
+                return tag
+    return "latest"
+
+
+# ── Update check worker ───────────────────────────────────────────────────────
+
+class UpdateCheckWorker(QThread):
+    result = pyqtSignal(str, str)  # (state, remote_digest): state = available|uptodate|error
+
+    def run(self):
+        local_data = _bootc_status_data() or {}
+        booted = _nested_get(local_data, ("status", "booted")) or {}
+        local_digest = None
+        for path in (
+            ("image", "imageDigest"),
+            ("image", "digest"),
+            ("imageDigest",),
+            ("digest",),
+        ):
+            v = _nested_get(booted, path)
+            if isinstance(v, str) and v.startswith("sha256:"):
+                local_digest = v
+                break
+
+        tag = _current_branch()
+        ref = f"{REGISTRY}:{tag}"
+
+        try:
+            r = subprocess.run(
+                ["skopeo", "inspect", "--no-creds", f"docker://{ref}"],
+                capture_output=True, text=True, timeout=45,
+            )
+        except Exception:
+            self.result.emit("error", "")
+            return
+
+        if r.returncode != 0:
+            self.result.emit("error", "")
+            return
+
+        try:
+            data = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            self.result.emit("error", "")
+            return
+
+        remote_digest = data.get("Digest", "")
+        if not remote_digest:
+            self.result.emit("error", "")
+            return
+
+        if local_digest and remote_digest == local_digest:
+            self.result.emit("uptodate", remote_digest)
+        else:
+            self.result.emit("available", remote_digest)
+
+
+# ── Tray icon ─────────────────────────────────────────────────────────────────
+
+class UpdateNotifier(QSystemTrayIcon):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+        self._update_available = False
+
+        self._set_icon_normal()
+        self.setToolTip("KythOS: Checking for updates…")
+
+        menu = QMenu()
+        self._status_action = menu.addAction("Checking for updates…")
+        self._status_action.setEnabled(False)
+        menu.addSeparator()
+        menu.addAction("Check Now", self._check_now)
+        menu.addAction("Open KythOS Hub", self._open_hub)
+        menu.addSeparator()
+        menu.addAction("Quit", QApplication.instance().quit)
+        self.setContextMenu(menu)
+
+        self.activated.connect(self._on_activated)
+
+        self._timer = QTimer(self)
+        self._timer.timeout.connect(self._check_now)
+        self._timer.start(CHECK_INTERVAL_MS)
+
+        # Delay initial check so the session has time to fully settle
+        QTimer.singleShot(15_000, self._check_now)
+
+        self.show()
+
+    def _set_icon_normal(self):
+        for name in ("system-software-update", "software-update-available", "view-refresh"):
+            icon = QIcon.fromTheme(name)
+            if not icon.isNull():
+                self.setIcon(icon)
+                return
+
+    def _set_icon_update(self):
+        for name in ("software-update-available", "system-software-update-urgent", "emblem-important"):
+            icon = QIcon.fromTheme(name)
+            if not icon.isNull():
+                self.setIcon(icon)
+                return
+
+    def _check_now(self):
+        if self._worker and self._worker.isRunning():
+            return
+        self._worker = UpdateCheckWorker()
+        self._worker.result.connect(self._on_result)
+        self._worker.start()
+
+    def _on_result(self, state: str, remote_digest: str):
+        if state == "available":
+            self._update_available = True
+            self._set_icon_update()
+            self.setToolTip("KythOS: Update available — click to open hub")
+            self._status_action.setText("Update available — click to open hub")
+
+            # Notify once per distinct remote digest to avoid spam
+            last_notified = ""
+            if _NOTIFIED_DIGEST_FILE.exists():
+                try:
+                    last_notified = _NOTIFIED_DIGEST_FILE.read_text().strip()
+                except Exception:
+                    pass
+            if remote_digest and remote_digest != last_notified:
+                try:
+                    _NOTIFIED_DIGEST_FILE.write_text(remote_digest)
+                except Exception:
+                    pass
+                subprocess.Popen([
+                    "notify-send",
+                    "--icon=software-update-available",
+                    "--app-name=KythOS",
+                    "--urgency=normal",
+                    "KythOS Update Available",
+                    "A new system image is ready to download. Open KythOS Hub to update.",
+                ])
+
+        elif state == "uptodate":
+            self._update_available = False
+            self._set_icon_normal()
+            checked = datetime.now().strftime("%H:%M")
+            self.setToolTip(f"KythOS: Up to date (last checked {checked})")
+            self._status_action.setText(f"Up to date  ·  checked {checked}")
+
+        # On error: preserve previous state — transient network failures are common
+
+    def _open_hub(self):
+        subprocess.Popen(["kyth-welcome-launch", "--page", "Update"])
+
+    def _on_activated(self, reason):
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            self._open_hub()
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+def _acquire_lock() -> bool:
+    """Returns True if this process is now the sole instance, False if another is running."""
+    _LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if _LOCK_FILE.exists():
+            pid_text = _LOCK_FILE.read_text().strip()
+            if pid_text.isdigit():
+                pid = int(pid_text)
+                try:
+                    os.kill(pid, 0)
+                    return False  # still alive
+                except (ProcessLookupError, PermissionError):
+                    pass  # stale lock
+        _LOCK_FILE.write_text(str(os.getpid()))
+        return True
+    except Exception:
+        return True  # can't check — proceed anyway
+
+
+def main():
+    if not _acquire_lock():
+        sys.exit(0)
+
+    try:
+        app = QApplication(sys.argv)
+        app.setApplicationName("kyth-update-notifier")
+        app.setQuitOnLastWindowClosed(False)
+
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            sys.exit(0)
+
+        notifier = UpdateNotifier()  # must stay in scope for the duration
+        exit_code = app.exec()
+    finally:
+        try:
+            _LOCK_FILE.unlink(missing_ok=True)
+        except Exception:
+            pass
+
+    sys.exit(exit_code)
+
+
+if __name__ == "__main__":
+    main()

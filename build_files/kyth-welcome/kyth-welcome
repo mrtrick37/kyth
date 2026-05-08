@@ -861,6 +861,76 @@ class DownloadMonitor(QThread):
             self.stats.emit(downloaded, self._total, avg_speed, eta_sec)
 
 
+class UpdateCheckWorker(QThread):
+    """Checks if a newer image is available in the registry without downloading anything.
+    Compares the local booted digest against the remote manifest via skopeo inspect.
+    Emits result(state, remote_ts) where state is 'available', 'uptodate', or 'error'."""
+    result = pyqtSignal(str, str)
+
+    def run(self):
+        local_data = _bootc_status_data() or {}
+        booted = _nested_get(local_data, ("status", "booted")) or {}
+        local_digest = None
+        for path in (
+            ("image", "imageDigest"),
+            ("image", "digest"),
+            ("imageDigest",),
+            ("digest",),
+        ):
+            v = _nested_get(booted, path)
+            if isinstance(v, str) and v.startswith("sha256:"):
+                local_digest = v
+                break
+
+        tag = _current_branch() or "latest"
+        ref = f"{REGISTRY}:{tag}"
+
+        try:
+            r = subprocess.run(
+                ["skopeo", "inspect", "--no-creds", f"docker://{ref}"],
+                capture_output=True, text=True, timeout=45,
+            )
+        except FileNotFoundError:
+            self.result.emit("error", "")
+            return
+        except subprocess.TimeoutExpired:
+            self.result.emit("error", "")
+            return
+        except Exception:
+            self.result.emit("error", "")
+            return
+
+        if r.returncode != 0:
+            self.result.emit("error", "")
+            return
+
+        try:
+            data = json.loads(r.stdout)
+        except json.JSONDecodeError:
+            self.result.emit("error", "")
+            return
+
+        remote_digest = data.get("Digest", "")
+        if not remote_digest:
+            self.result.emit("error", "")
+            return
+
+        labels = data.get("Labels") or {}
+        raw_ts = labels.get("org.opencontainers.image.created", "")
+        remote_ts = ""
+        if raw_ts:
+            try:
+                dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).astimezone()
+                remote_ts = dt.strftime("%Y-%m-%d %H:%M %Z")
+            except Exception:
+                remote_ts = raw_ts
+
+        if local_digest and remote_digest == local_digest:
+            self.result.emit("uptodate", remote_ts)
+        else:
+            self.result.emit("available", remote_ts)
+
+
 # ── Hardware probe dataclass + worker ─────────────────────────────────────────
 @dataclass
 class HardwareProbe:
@@ -2883,6 +2953,9 @@ class UpdatePage(Page):
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
+        self._check_worker = None
+        self._check_state = "idle"   # idle | checking | available | uptodate | error
+        self._check_ts = ""
 
         self._page_header(
             "System",
@@ -2920,6 +2993,37 @@ class UpdatePage(Page):
             summary_layout.addLayout(row)
 
         self._add(self._summary_card)
+
+        # ── Update availability ───────────────────────────────────────────────
+        avail_card, avail_layout = _make_card()
+        avail_layout.setSpacing(6)
+
+        avail_top = QHBoxLayout()
+        avail_top.setSpacing(10)
+        self._avail_dot = QLabel("●")
+        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+        avail_top.addWidget(self._avail_dot)
+        self._avail_title = QLabel("Checking for updates…")
+        self._avail_title.setObjectName("card-title")
+        avail_top.addWidget(self._avail_title)
+        avail_top.addStretch()
+        self._check_btn = QPushButton("Check Now")
+        self._check_btn.setEnabled(False)
+        self._check_btn.clicked.connect(self._check_for_update)
+        avail_top.addWidget(self._check_btn)
+        self._update_now_btn = QPushButton("Update Now")
+        self._update_now_btn.setObjectName("primary")
+        self._update_now_btn.hide()
+        self._update_now_btn.clicked.connect(self._run_topgrade)
+        avail_top.addWidget(self._update_now_btn)
+        avail_layout.addLayout(avail_top)
+
+        self._avail_lbl = QLabel()
+        self._avail_lbl.setObjectName("card-copy")
+        self._avail_lbl.setWordWrap(True)
+        avail_layout.addWidget(self._avail_lbl)
+        self._avail_card = avail_card
+        self._add(self._avail_card)
 
         # Action buttons
         btn_row = QHBoxLayout()
@@ -3414,6 +3518,53 @@ class UpdatePage(Page):
             self._testing_build_lbl.hide()
         _restyle(self._stable_btn)
         _restyle(self._testing_btn)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._check_state == "idle":
+            self._check_for_update()
+
+    def _check_for_update(self):
+        if self._check_worker and self._check_worker.isRunning():
+            return
+        self._check_state = "checking"
+        self._check_btn.setEnabled(False)
+        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+        self._avail_title.setText("Checking for updates…")
+        self._avail_lbl.setText("")
+        self._update_now_btn.hide()
+        self._check_worker = UpdateCheckWorker()
+        self._check_worker.result.connect(self._on_check_result)
+        self._check_worker.start()
+
+    def _on_check_result(self, state: str, remote_ts: str):
+        self._check_state = state
+        self._check_ts = datetime.now().strftime("%H:%M")
+        self._check_btn.setEnabled(True)
+        ts_hint = f"  ·  Checked at {self._check_ts}"
+
+        if state == "available":
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #e8a838;")
+            self._avail_title.setText("Update available")
+            built = f"  ·  built {remote_ts}" if remote_ts else ""
+            self._avail_lbl.setText(
+                f"A new KythOS image is available{built}. "
+                f"Run Full Update to download and stage it for your next reboot.{ts_hint}"
+            )
+            self._update_now_btn.show()
+        elif state == "uptodate":
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #57cbde;")
+            self._avail_title.setText("Up to date")
+            built = f"  ·  built {remote_ts}" if remote_ts else ""
+            self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
+            self._update_now_btn.hide()
+        else:
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+            self._avail_title.setText("Check unavailable")
+            self._avail_lbl.setText(
+                f"Could not reach the registry — check your network connection.{ts_hint}"
+            )
+            self._update_now_btn.hide()
 
 
 # ── Page: Branches ────────────────────────────────────────────────────────────
@@ -10356,6 +10507,13 @@ class WizardWindow(QMainWindow):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
+    # Parse --page PAGEKEY before QApplication (which may strip unrecognised args)
+    start_page = None
+    raw_args = sys.argv[1:]
+    for i, a in enumerate(raw_args):
+        if a == "--page" and i + 1 < len(raw_args):
+            start_page = raw_args[i + 1]
+
     _wait_for_display_setup()
     _prefer_xwayland_if_wayland_plugin_missing()
 
@@ -10368,6 +10526,8 @@ def main():
     win = WizardWindow() if _is_first_run() else MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
+    if start_page and isinstance(win, MainWindow):
+        win._navigate_to(start_page)
     _remove_autostart()
     sys.exit(app.exec())
 

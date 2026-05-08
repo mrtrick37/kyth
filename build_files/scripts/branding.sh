@@ -336,6 +336,14 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-laun
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
+install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
+install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
+    /usr/share/applications/kyth-update-notifier.desktop
+# Autostart the notifier for new user accounts
+mkdir -p /etc/skel/.config/autostart
+install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
+    /etc/skel/.config/autostart/kyth-update-notifier.desktop
+
 # Smoke-test the helper during the build so startup regressions fail the image
 # instead of surfacing only after first login.
 # timeout 30: pages run synchronous subprocess calls (bootc status, flatpak info)
