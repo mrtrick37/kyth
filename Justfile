@@ -301,9 +301,14 @@ build: build-base
     REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
     BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
     CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
+    GE_PROTON_VER=$(curl -fsSL "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
+        | python3 -c 'import sys, json; print(json.load(sys).get("tag_name", ""))' \
+        2>/dev/null || true)
+    echo "GE-Proton: ${GE_PROTON_VER:-latest}"
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
+        --build-arg GE_PROTON_VER="${GE_PROTON_VER}" \
         --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \

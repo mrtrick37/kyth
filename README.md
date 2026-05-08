@@ -46,7 +46,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Gaming
 
-- Steam, Lutris, Heroic Games Launcher, Bottles — via Flatpak (optional installs)
+- Steam, Lutris, Heroic Games Launcher, Bottles — via Flatpak
 - Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB
 - GameMode, gamescope, MangoHud, vkBasalt, umu-launcher, winetricks, libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
@@ -65,7 +65,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
-- First-boot Flatpaks (auto-installed on first login): Heroic, protontricks, ProtonUp-Qt, Discord, Flatseal, Gearlever, OBS Studio, MediaWriter
+- First-boot Flatpaks (auto-installed once networking is available): Steam, Lutris, Heroic, protontricks, ProtonUp-Qt, Discord, Flatseal, Gearlever, OBS Studio
 
 ### Content Creation
 
@@ -77,13 +77,15 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Security
 
-- **Kali Linux Toolbox** — one-click distrobox setup; choose headless (~150 CLI tools: nmap, metasploit, hashcat, john, hydra), default (adds GUI tools: Zenmap, Autopsy, Faraday, legion), or everything (full Kali catalog)
+- **Kali Linux Toolbox** — optional one-click distrobox setup from the helper app or `ujust`; choose headless (~150 CLI tools: nmap, metasploit, hashcat, john, hydra), default (adds GUI tools: Zenmap, Autopsy, Faraday, legion), or everything (full Kali catalog)
 - Shared home directory — Kali tools see your files, keys, and configs natively
-- No impact on the base OS — remove the container without touching anything else
+- No security tooling is baked into the immutable base OS — remove the container or Flatpaks without touching anything else
+- Wireshark and Burp Suite Community are optional Flatpaks from the helper app
 
 ### Development
 
-- Visual Studio Code
+- Visual Studio Code — optional Flatpak from the helper app or `ujust install-vscode`
+- KythOS development box — optional Fedora distrobox from the helper app or `ujust setup-kyth-dev-box`
 - Brave browser
 - GitHub CLI (`gh`)
 - Homebrew — system-wide, wheel group owns `/home/linuxbrew`; persists across OS updates
@@ -110,7 +112,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### System tuning
 
-- **Memory:** vm.swappiness=180 (correct for zram), THP=madvise, vm.max_map_count=2147483642 (Star Citizen etc.), fast OOM recovery, 5 s dirty-page flush, 256 MB dirty cap
+- **Memory:** vm.swappiness=180 (correct for zram), THP=madvise, vm.max_map_count=16777216 (Star Citizen etc.), fast OOM recovery, 5 s dirty-page flush, 256 MB dirty cap
 - **Network:** TCP BBRv3, 64 MB socket buffers, TCP Fast Open, MTU probing, raised inotify limits
 - **Audio:** PipeWire at 48 kHz / 128-sample quantum (~2.7 ms), allowed-rates=[44100 48000]
 - **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD; weekly `fstrim.timer`

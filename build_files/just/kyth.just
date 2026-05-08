@@ -440,6 +440,48 @@ update-ge-proton:
     set -euo pipefail
     sudo /usr/bin/kyth-ge-proton-update
 
+# Create a Fedora development container for KythOS work.
+#
+# This keeps compilers, language servers, and repo-specific tools out of the
+# immutable base image while still giving KythOS developers a ready workspace
+# that shares ~/git and the rest of $HOME.
+[group('KythOS')]
+setup-kyth-dev-box:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    box="kyth-dev"
+    image="${KYTH_DEV_IMAGE:-registry.fedoraproject.org/fedora-toolbox:44}"
+    packages=(
+        git gh just jq yq skopeo podman buildah
+        python3 python3-pip python3-virtualenv
+        ShellCheck shfmt ripgrep fd-find
+        vim-enhanced neovim
+    )
+
+    if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
+        echo "${box} already exists. Enter it with: distrobox enter ${box}"
+        exit 0
+    fi
+
+    echo "━━━ Setting up KythOS development box ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  Image: ${image}"
+    echo
+    distrobox create --image "${image}" --name "${box}" --yes
+    distrobox enter "${box}" -- sudo dnf install -y "${packages[@]}"
+    echo
+    echo "Done. Enter it with: distrobox enter ${box}"
+
+# Install VS Code as a Flatpak instead of baking the Microsoft RPM into KythOS.
+[group('KythOS')]
+install-vscode:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.visualstudio.code
+    echo
+    echo "VS Code installed. Launch it from the app menu."
+
 # Set up Waydroid (Android in a container) on KythOS.
 #
 # First run:  installs the waydroid package via rpm-ostree, then prompts for a reboot.

@@ -7884,6 +7884,7 @@ class SecurityPage(Page):
 class SoftwarePage(Page):
     def __init__(self):
         super().__init__()
+        self._dev_worker: Worker | None = None
 
         self._page_header(
             "Apps",
@@ -7906,6 +7907,70 @@ class SoftwarePage(Page):
         why_body.setWordWrap(True)
         why_layout.addWidget(why_body)
         self._add(why_card)
+
+        # KythOS development
+        dev_card, dev_layout = _make_card()
+        dev_title = QLabel("KythOS Development")
+        dev_title.setObjectName("card-title")
+        dev_layout.addWidget(dev_title)
+        dev_body = QLabel(
+            "Set up the tools used to work on KythOS without baking the whole "
+            "development stack into the base image. VS Code installs as a Flatpak; "
+            "build and repo tools live in a Fedora distrobox named kyth-dev."
+        )
+        dev_body.setObjectName("card-copy")
+        dev_body.setWordWrap(True)
+        dev_layout.addWidget(dev_body)
+        dev_layout.addWidget(_launch_opt_value(
+            "ujust install-vscode\n"
+            "ujust setup-kyth-dev-box"
+        ))
+        dev_btn_row = QHBoxLayout()
+        dev_btn_row.setSpacing(10)
+        dev_code_btn = QPushButton("Install VS Code")
+        dev_code_btn.clicked.connect(
+            lambda: self._run_dev_command(["ujust", "install-vscode"], "Installing VS Code…")
+        )
+        dev_btn_row.addWidget(dev_code_btn)
+        dev_box_btn = QPushButton("Create Dev Box")
+        dev_box_btn.setObjectName("primary")
+        dev_box_btn.clicked.connect(
+            lambda: self._run_dev_command(
+                ["ujust", "setup-kyth-dev-box"],
+                "Creating KythOS development box…",
+            )
+        )
+        dev_btn_row.addWidget(dev_box_btn)
+        dev_enter_btn = QPushButton("Enter Dev Box")
+        dev_enter_btn.clicked.connect(self._enter_dev_box)
+        dev_btn_row.addWidget(dev_enter_btn)
+        dev_btn_row.addStretch()
+        dev_layout.addLayout(dev_btn_row)
+
+        self._dev_status = QLabel()
+        self._dev_status.setObjectName("subheading")
+        self._dev_status.hide()
+        dev_layout.addWidget(self._dev_status)
+
+        self._dev_progress = QProgressBar()
+        self._dev_progress.setRange(0, 0)
+        self._dev_progress.hide()
+        dev_layout.addWidget(self._dev_progress)
+
+        self._dev_log_toggle = QPushButton("Show details")
+        self._dev_log_toggle.setCheckable(True)
+        self._dev_log_toggle.hide()
+        dev_layout.addWidget(self._dev_log_toggle)
+
+        self._dev_log = QTextEdit()
+        self._dev_log.setReadOnly(True)
+        self._dev_log.setMaximumHeight(130)
+        self._dev_log.hide()
+        dev_layout.addWidget(self._dev_log)
+        self._dev_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._dev_log_toggle, self._dev_log, checked)
+        )
+        self._add(dev_card)
 
         # Flatpak
         fp_card, fp_layout = _make_card()
@@ -7992,6 +8057,62 @@ class SoftwarePage(Page):
                     return
                 except OSError:
                     pass
+
+    def _run_dev_command(self, cmd: list[str], status: str):
+        if self._dev_worker and self._dev_worker.isRunning():
+            return
+        self._dev_log.clear()
+        self._dev_log.append("→ " + " ".join(cmd) + "\n")
+        self._dev_log_toggle.show()
+        _set_log_panel(self._dev_log_toggle, self._dev_log, False)
+        self._dev_progress.show()
+        self._dev_status.setText(status)
+        self._dev_status.setObjectName("subheading")
+        self._dev_status.show()
+        _restyle(self._dev_status)
+        self._dev_worker = Worker(cmd)
+        self._dev_worker.line.connect(self._on_dev_line)
+        self._dev_worker.done.connect(self._on_dev_done)
+        self._dev_worker.start()
+
+    def _on_dev_line(self, ln: str):
+        self._dev_log.append(ln)
+        self._dev_log.ensureCursorVisible()
+
+    def _on_dev_done(self, code: int):
+        self._dev_progress.hide()
+        _finish_worker(self, attr="_dev_worker")
+        if code == 0:
+            self._dev_status.setText("Development setup complete.")
+            self._dev_status.setObjectName("status-ok")
+            self._dev_log.append("\nDone.")
+        else:
+            self._dev_status.setText(f"Development setup failed (exit {code}).")
+            self._dev_status.setObjectName("status-err")
+            _set_log_panel(self._dev_log_toggle, self._dev_log, True)
+        _restyle(self._dev_status)
+
+    def _enter_dev_box(self):
+        if not _is_distrobox_container("kyth-dev"):
+            QMessageBox.information(
+                self,
+                "Dev Box Not Found",
+                "Create the KythOS development box first.",
+            )
+            return
+        terminal = None
+        for cmd in (["konsole"], ["xdg-terminal-exec"], ["xterm"]):
+            if shutil.which(cmd[0]):
+                terminal = cmd[0]
+                break
+        if terminal is None:
+            QMessageBox.warning(self, "Terminal not found",
+                                "Could not find a terminal emulator to open.")
+            return
+        if terminal == "konsole":
+            subprocess.Popen(["konsole", "-e", "distrobox", "enter", "kyth-dev"])
+        else:
+            subprocess.Popen([terminal, "--", "distrobox", "enter", "kyth-dev"])
 
 
 # ── Page: Network Shares ──────────────────────────────────────────────────────
