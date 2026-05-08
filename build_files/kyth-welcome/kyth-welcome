@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
     QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
+    QDialogButtonBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -8174,6 +8175,10 @@ class DevEnvironmentPage(Page):
         self._enter_btn.clicked.connect(self._enter_dev_box)
         btn_row.addWidget(self._enter_btn)
         btn_row.addStretch()
+        self._delete_btn = QPushButton("Delete Dev Environment")
+        self._delete_btn.setObjectName("danger")
+        self._delete_btn.clicked.connect(self._confirm_delete)
+        btn_row.addWidget(self._delete_btn)
         layout.addLayout(btn_row)
         self._add(card)
 
@@ -8236,6 +8241,109 @@ class DevEnvironmentPage(Page):
             self._log.append("\nDone. Launch VS Code from the app menu, or click 'Enter Dev Box'.")
         else:
             self._status_lbl.setText(f"Setup failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            _set_log_panel(self._log_toggle, self._log, True)
+        _restyle(self._status_lbl)
+
+    def _confirm_delete(self):
+        if self._worker and self._worker.isRunning():
+            return
+        if not _is_distrobox_container("kyth-dev"):
+            QMessageBox.information(
+                self, "Nothing to Delete",
+                "The kyth-dev container does not exist.",
+            )
+            return
+
+        # First warning: explain what will be lost
+        first = QMessageBox.warning(
+            self,
+            "Delete Dev Environment?",
+            "This will permanently delete the kyth-dev distrobox container.\n\n"
+            "Everything inside the container will be lost:\n"
+            "  •  All installed packages (git, just, podman, ripgrep, etc.)\n"
+            "  •  Any tools you installed manually inside the container\n"
+            "  •  Container-level configuration and state\n\n"
+            "Your home directory is NOT affected — source code, dotfiles,\n"
+            "and projects remain untouched.\n\n"
+            "You can recreate it at any time with 'Set Up Dev Environment'.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        if first != QMessageBox.StandardButton.Ok:
+            return
+
+        # Second confirmation: type to confirm
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Confirm Permanent Deletion")
+        dlg_layout = QVBoxLayout(dlg)
+        dlg_layout.setSpacing(12)
+        dlg_layout.setContentsMargins(20, 20, 20, 20)
+
+        warn_lbl = QLabel("Are you absolutely sure?")
+        warn_lbl.setStyleSheet("color: #f7768e; font-size: 14px; font-weight: 700;")
+        dlg_layout.addWidget(warn_lbl)
+
+        detail = QLabel(
+            "The kyth-dev container and every package inside it will be\n"
+            "permanently removed. This cannot be undone.\n\n"
+            "Type  DELETE  below to confirm:"
+        )
+        detail.setWordWrap(True)
+        dlg_layout.addWidget(detail)
+
+        confirm_edit = QLineEdit()
+        confirm_edit.setPlaceholderText("DELETE")
+        dlg_layout.addWidget(confirm_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok_btn.setText("Delete Forever")
+        ok_btn.setObjectName("danger")
+        ok_btn.setEnabled(False)
+        _restyle(ok_btn)
+        confirm_edit.textChanged.connect(
+            lambda t: ok_btn.setEnabled(t.strip() == "DELETE")
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        dlg_layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._run_delete()
+
+    def _run_delete(self):
+        self._setup_btn.setEnabled(False)
+        self._enter_btn.setEnabled(False)
+        self._delete_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ distrobox rm --force kyth-dev\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Deleting dev environment…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._worker = Worker(["distrobox", "rm", "--force", "kyth-dev"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_delete_done)
+        self._worker.start()
+
+    def _on_delete_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        self._setup_btn.setEnabled(True)
+        self._enter_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
+        if code == 0:
+            self._status_lbl.setText("Dev environment deleted.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Click 'Set Up Dev Environment' to recreate it.")
+        else:
+            self._status_lbl.setText(f"Deletion failed (exit {code}).")
             self._status_lbl.setObjectName("status-err")
             _set_log_panel(self._log_toggle, self._log, True)
         _restyle(self._status_lbl)
