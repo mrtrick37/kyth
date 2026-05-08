@@ -134,6 +134,15 @@ jobs:
           echo "version=${KVER}" >> $GITHUB_OUTPUT
           echo "Resolved CachyOS kernel: ${KVER}"
 
+      - name: Resolve latest GE-Proton version
+        id: ge_proton
+        run: |
+          GE_VER=$(curl -fsSL "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
+            | python3 -c "import sys,json; print(json.load(sys).get('tag_name', ''))" \
+            2>/dev/null || true)
+          echo "version=${GE_VER}" >> $GITHUB_OUTPUT
+          echo "Resolved GE-Proton: ${GE_VER:-latest}"
+
       - name: Build base image
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
@@ -163,6 +172,7 @@ jobs:
           docker buildx build \
             --secret id=github_token,env=GITHUB_TOKEN \
             --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
+            --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
             --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
             --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
