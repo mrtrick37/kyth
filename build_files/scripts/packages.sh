@@ -130,8 +130,9 @@ dnf5 copr enable -y ycollet/audinux
 # Gaming packages
 # libde265.i686 is excluded: it's an HEVC decoder pulled in transitively by
 # some gaming libs, but it's frequently unavailable on Fedora mirrors and is not needed.
-# steam and lutris are intentionally absent — both are installed as Flatpaks via
-# the kyth-welcome Gaming page so users can opt in without bloating the base image.
+# steam and lutris are intentionally absent as RPMs — both are installed as
+# Flatpaks by kyth-default-flatpaks.service so the immutable base stays lean
+# while the first-boot gaming experience is ready out of the box.
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
 #
@@ -277,19 +278,6 @@ dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null 
 # via kyth-default-flatpaks.service (avoids baking external repo keys into
 # the build and eliminates DNS-dependent rpm --import calls in CI).
 dnf5 remove -y firefox || true
-
-# Visual Studio Code (repo added but disabled by default)
-tee /etc/yum.repos.d/vscode.repo <<'REPOEOF'
-[code]
-name=Visual Studio Code
-baseurl=https://packages.microsoft.com/yumrepos/vscode
-enabled=1
-gpgcheck=1
-gpgkey=https://packages.microsoft.com/keys/microsoft.asc
-REPOEOF
-sed -i "s/enabled=.*/enabled=0/g" /etc/yum.repos.d/vscode.repo
-dnf5 -y install --enablerepo=code code
-
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one

@@ -38,14 +38,15 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
-# ge-proton.sh changes or a new release is detected — not on every daily dnf
-# upgrade run.  GE-Proton is a fully self-contained wine bundle with no
-# system library dependencies, so ordering before the upgrade is safe.
+# ge-proton.sh changes or GE_PROTON_VER changes — not on every daily dnf
+# upgrade run.  GE-Proton is a fully self-contained wine bundle with no system
+# library dependencies, so ordering before the upgrade is safe.
+ARG GE_PROTON_VER=
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
-    /ctx/scripts/ge-proton.sh
+    GE_PROTON_VER=${GE_PROTON_VER} /ctx/scripts/ge-proton.sh
 
 # BUILD_DATE busts the cache for Layer 3 and all subsequent layers on every
 # daily build, ensuring dnf5 upgrade always runs even when the base image
