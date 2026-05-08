@@ -46,11 +46,11 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Gaming
 
-- Steam, Lutris, Heroic Games Launcher, Bottles — via Flatpak
-- Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB
+- Steam, Lutris, Heroic Games Launcher, protontricks, ProtonUp-Qt — first-boot Flatpaks once networking is available
+- Bottles, Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB — optional Flatpaks from the helper app
 - GameMode, gamescope, MangoHud, vkBasalt, umu-launcher, winetricks, libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
-- OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
+- obs-vkcapture runtime support; OBS Studio is an optional Flatpak from the helper app
 - scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
 - system76-scheduler — dynamically adjusts process priorities based on focused window
 - ananicy-cpp — static per-process CPU/IO priority rules
@@ -65,11 +65,11 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
-- First-boot Flatpaks (auto-installed once networking is available): Steam, Lutris, Heroic, protontricks, ProtonUp-Qt, Discord, Flatseal, Gearlever, OBS Studio
+- Welcome wizard offers optional extras on first login: Brave, Discord, OBS Studio, Gear Lever, and Flatseal
 
 ### Content Creation
 
-- OBS Studio + obs-vkcapture, Kdenlive, Audacity, GIMP, OpenDeck (Stream Deck for Linux)
+- OBS Studio, Kdenlive, Audacity, GIMP, OpenDeck (Stream Deck for Linux) — optional Flatpaks from the helper app
 - DaVinci Resolve — installer helper packages the Blackmagic ZIP as a local Flatpak; AMD GPU + Mesa-git gives excellent hardware acceleration
 - Full codec stack: ffmpeg, GStreamer (OpenH264, libav, ugly, bad-freeworld), mpv
 - ffmpegthumbnailer for video thumbnail previews
