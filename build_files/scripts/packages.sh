@@ -174,19 +174,37 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     steam-devices \
     kdeplasma-addons \
     rom-properties-kf6 \
-    input-remapper \
-    game-devices-udev \
-    xpadneo \
-    xone \
-    jstest-gtk \
-    libcec \
-    cec-utils \
-    openrazer-daemon \
-    openrazer-meta \
-    opentabletdriver \
-    corectrl \
-    akmod-v4l2loopback \
+    input-remapper
+
+# ── Optional PC gaming peripheral stack ──────────────────────────────────────
+# Keep these out of the core gaming transaction. They come from a mix of Fedora,
+# RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
+# dependency conflict, the image should still ship the core Steam/Gamescope/
+# MangoHud/GameMode stack. Each package is attempted independently so one flaky
+# package does not prevent the rest from landing.
+optional_gaming_packages=(
+    game-devices-udev
+    xpadneo
+    xone
+    jstest-gtk
+    libcec
+    cec-utils
+    openrazer-daemon
+    openrazer-meta
+    opentabletdriver
+    corectrl
+    akmod-v4l2loopback
     v4l2loopback
+)
+
+for pkg in "${optional_gaming_packages[@]}"; do
+    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable "${pkg}" || \
+            echo "WARNING: optional gaming package '${pkg}' failed to install; continuing." >&2
+    else
+        echo "optional gaming package '${pkg}' is unavailable in configured repos; skipping."
+    fi
+done
 
 is_enabled() {
     case "${1,,}" in
