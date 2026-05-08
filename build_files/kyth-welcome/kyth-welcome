@@ -2418,11 +2418,12 @@ class WelcomePage(Page):
         self._add(section_lbl)
 
         steps = [
-            ("↻", "Run a system update",      "Start with the latest packages and OS image.",       "Update"),
-            ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.", "Hardware"),
-            ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",    "Firmware"),
-            ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",    "Gaming"),
-            ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",        "Software"),
+            ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
+            ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
+            ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
+            ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
+            ("⌨", "Set up dev environment",    "Install VS Code and the KythOS build toolchain.",       "Developer"),
+            ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",            "Software"),
         ]
         for num, (icon, title, desc, page_key) in enumerate(steps, 1):
             self._add(self._make_step(num, icon, title, desc, page_key))
@@ -7093,6 +7094,58 @@ def _is_distrobox_container(name: str) -> bool:
         return False
 
 
+_INSTALL_VSCODE_CMD = [
+    "bash", "-c",
+    "set -euo pipefail\n"
+    "flatpak remote-add --if-not-exists flathub "
+    "https://dl.flathub.org/repo/flathub.flatpakrepo\n"
+    "flatpak install --noninteractive -y flathub com.visualstudio.code\n"
+    "echo 'VS Code installed. Launch it from the application menu.'",
+]
+
+_SETUP_DEV_BOX_CMD = [
+    "bash", "-c",
+    r"""set -euo pipefail
+box="kyth-dev"
+image="${KYTH_DEV_IMAGE:-registry.fedoraproject.org/fedora-toolbox:44}"
+packages=(
+    git gh just jq yq skopeo podman buildah
+    python3 python3-pip python3-virtualenv
+    ShellCheck shfmt ripgrep fd-find
+    vim-enhanced neovim
+)
+
+if ! command -v distrobox >/dev/null 2>&1; then
+    echo "ERROR: distrobox is not installed on this system." >&2
+    exit 1
+fi
+
+if ! flatpak info com.visualstudio.code >/dev/null 2>&1; then
+    echo "VS Code not found — installing from Flathub..."
+    flatpak remote-add --if-not-exists flathub \
+        https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install --noninteractive -y flathub com.visualstudio.code
+    echo "VS Code installed."
+else
+    echo "VS Code already installed."
+fi
+
+if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
+    echo "${box} dev box already exists."
+    echo "Use 'Enter Dev Box' to open it."
+    exit 0
+fi
+
+echo "Creating KythOS development box..."
+echo "  Image: ${image}"
+distrobox create --image "${image}" --name "${box}" --yes
+distrobox enter "${box}" -- sudo dnf install -y "${packages[@]}"
+echo ""
+echo "Done. Use 'Enter Dev Box' to start developing."
+""",
+]
+
+
 class SecurityPage(Page):
     """Kali Linux security toolbox via distrobox."""
 
@@ -7880,10 +7933,168 @@ class SecurityPage(Page):
         self._refresh_status()
 
 
+# ── Page: Developer ───────────────────────────────────────────────────────────
+class DevEnvironmentPage(Page):
+    """One-click dev environment setup: VS Code Flatpak + kyth-dev distrobox."""
+
+    def __init__(self):
+        super().__init__()
+        self._worker: Worker | None = None
+
+        self._page_header(
+            "Apps",
+            "Developer",
+            "Set up VS Code and a Fedora development container for KythOS work.",
+        )
+
+        # VS Code card
+        vsc_card, vsc_layout = _make_card()
+        vsc_title = QLabel("VS Code")
+        vsc_title.setObjectName("card-title")
+        vsc_layout.addWidget(vsc_title)
+        vsc_body = QLabel(
+            "Installs Visual Studio Code as a Flatpak from Flathub. "
+            "It will appear in the application launcher once installed."
+        )
+        vsc_body.setObjectName("card-copy")
+        vsc_body.setWordWrap(True)
+        vsc_layout.addWidget(vsc_body)
+        vsc_btn_row = QHBoxLayout()
+        vsc_btn_row.setSpacing(10)
+        self._vsc_btn = QPushButton("Install VS Code")
+        self._vsc_btn.setObjectName("primary")
+        self._vsc_btn.clicked.connect(self._run_install_vscode)
+        vsc_btn_row.addWidget(self._vsc_btn)
+        vsc_btn_row.addStretch()
+        vsc_layout.addLayout(vsc_btn_row)
+        self._add(vsc_card)
+
+        # Dev box card
+        box_card, box_layout = _make_card()
+        box_title = QLabel("KythOS Dev Box")
+        box_title.setObjectName("card-title")
+        box_layout.addWidget(box_title)
+        box_body = QLabel(
+            "Creates a Fedora 44 distrobox named kyth-dev and installs the full "
+            "KythOS build toolchain inside it (git, just, podman, ShellCheck, etc.). "
+            "Also installs VS Code if it isn't already. "
+            "The container shares your home directory — no files are moved."
+        )
+        box_body.setObjectName("card-copy")
+        box_body.setWordWrap(True)
+        box_layout.addWidget(box_body)
+        box_btn_row = QHBoxLayout()
+        box_btn_row.setSpacing(10)
+        self._box_btn = QPushButton("Create Dev Box")
+        self._box_btn.setObjectName("primary")
+        self._box_btn.clicked.connect(self._run_setup_dev_box)
+        box_btn_row.addWidget(self._box_btn)
+        self._enter_btn = QPushButton("Enter Dev Box")
+        self._enter_btn.clicked.connect(self._enter_dev_box)
+        box_btn_row.addWidget(self._enter_btn)
+        box_btn_row.addStretch()
+        box_layout.addLayout(box_btn_row)
+        self._add(box_card)
+
+        # Shared status / progress / log
+        self._status_lbl = QLabel()
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.hide()
+        self._add(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        self._add(self._progress)
+
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._log_toggle, self._log, checked)
+        )
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(160)
+        self._log.hide()
+        self._add(self._log)
+
+        self._stretch()
+
+    def _run_install_vscode(self):
+        self._run(_INSTALL_VSCODE_CMD, "Installing VS Code…", self._vsc_btn)
+
+    def _run_setup_dev_box(self):
+        self._run(_SETUP_DEV_BOX_CMD, "Creating KythOS dev box…", self._box_btn)
+
+    def _run(self, cmd: list[str], status: str, trigger_btn: QPushButton):
+        if self._worker and self._worker.isRunning():
+            return
+        self._vsc_btn.setEnabled(False)
+        self._box_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ " + " ".join(cmd[:2]) + " …\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText(status)
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._worker = Worker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, ln: str):
+        self._log.append(ln)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        self._vsc_btn.setEnabled(True)
+        self._box_btn.setEnabled(True)
+        if code == 0:
+            self._status_lbl.setText("Done.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nCompleted successfully.")
+        else:
+            self._status_lbl.setText(f"Failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            _set_log_panel(self._log_toggle, self._log, True)
+        _restyle(self._status_lbl)
+
+    def _enter_dev_box(self):
+        if not _is_distrobox_container("kyth-dev"):
+            QMessageBox.information(
+                self,
+                "Dev Box Not Found",
+                "Create the KythOS development box first.",
+            )
+            return
+        terminal = None
+        for cmd in (["konsole"], ["xdg-terminal-exec"], ["xterm"]):
+            if shutil.which(cmd[0]):
+                terminal = cmd[0]
+                break
+        if terminal is None:
+            QMessageBox.warning(self, "Terminal not found",
+                                "Could not find a terminal emulator to open.")
+            return
+        if terminal == "konsole":
+            subprocess.Popen(["konsole", "-e", "distrobox", "enter", "kyth-dev"])
+        else:
+            subprocess.Popen([terminal, "--", "distrobox", "enter", "kyth-dev"])
+
+
 # ── Page: Software ────────────────────────────────────────────────────────────
 class SoftwarePage(Page):
     def __init__(self):
         super().__init__()
+        self._dev_worker: Worker | None = None
 
         self._page_header(
             "Apps",
@@ -7906,6 +8117,67 @@ class SoftwarePage(Page):
         why_body.setWordWrap(True)
         why_layout.addWidget(why_body)
         self._add(why_card)
+
+        # KythOS development
+        dev_card, dev_layout = _make_card()
+        dev_title = QLabel("KythOS Development")
+        dev_title.setObjectName("card-title")
+        dev_layout.addWidget(dev_title)
+        dev_body = QLabel(
+            "Set up the tools used to work on KythOS without baking the whole "
+            "development stack into the base image. VS Code installs as a Flatpak; "
+            "build and repo tools live in a Fedora distrobox named kyth-dev."
+        )
+        dev_body.setObjectName("card-copy")
+        dev_body.setWordWrap(True)
+        dev_layout.addWidget(dev_body)
+        dev_layout.addWidget(_launch_opt_value(
+            "ujust install-vscode\n"
+            "ujust setup-kyth-dev-box"
+        ))
+        dev_btn_row = QHBoxLayout()
+        dev_btn_row.setSpacing(10)
+        dev_code_btn = QPushButton("Install VS Code")
+        dev_code_btn.clicked.connect(
+            lambda: self._run_dev_command(_INSTALL_VSCODE_CMD, "Installing VS Code…")
+        )
+        dev_btn_row.addWidget(dev_code_btn)
+        dev_box_btn = QPushButton("Create Dev Box")
+        dev_box_btn.setObjectName("primary")
+        dev_box_btn.clicked.connect(
+            lambda: self._run_dev_command(_SETUP_DEV_BOX_CMD, "Creating KythOS development box…")
+        )
+        dev_btn_row.addWidget(dev_box_btn)
+        dev_enter_btn = QPushButton("Enter Dev Box")
+        dev_enter_btn.clicked.connect(self._enter_dev_box)
+        dev_btn_row.addWidget(dev_enter_btn)
+        dev_btn_row.addStretch()
+        dev_layout.addLayout(dev_btn_row)
+
+        self._dev_status = QLabel()
+        self._dev_status.setObjectName("subheading")
+        self._dev_status.hide()
+        dev_layout.addWidget(self._dev_status)
+
+        self._dev_progress = QProgressBar()
+        self._dev_progress.setRange(0, 0)
+        self._dev_progress.hide()
+        dev_layout.addWidget(self._dev_progress)
+
+        self._dev_log_toggle = QPushButton("Show details")
+        self._dev_log_toggle.setCheckable(True)
+        self._dev_log_toggle.hide()
+        dev_layout.addWidget(self._dev_log_toggle)
+
+        self._dev_log = QTextEdit()
+        self._dev_log.setReadOnly(True)
+        self._dev_log.setMaximumHeight(130)
+        self._dev_log.hide()
+        dev_layout.addWidget(self._dev_log)
+        self._dev_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._dev_log_toggle, self._dev_log, checked)
+        )
+        self._add(dev_card)
 
         # Flatpak
         fp_card, fp_layout = _make_card()
@@ -7992,6 +8264,62 @@ class SoftwarePage(Page):
                     return
                 except OSError:
                     pass
+
+    def _run_dev_command(self, cmd: list[str], status: str):
+        if self._dev_worker and self._dev_worker.isRunning():
+            return
+        self._dev_log.clear()
+        self._dev_log.append("→ " + " ".join(cmd) + "\n")
+        self._dev_log_toggle.show()
+        _set_log_panel(self._dev_log_toggle, self._dev_log, False)
+        self._dev_progress.show()
+        self._dev_status.setText(status)
+        self._dev_status.setObjectName("subheading")
+        self._dev_status.show()
+        _restyle(self._dev_status)
+        self._dev_worker = Worker(cmd)
+        self._dev_worker.line.connect(self._on_dev_line)
+        self._dev_worker.done.connect(self._on_dev_done)
+        self._dev_worker.start()
+
+    def _on_dev_line(self, ln: str):
+        self._dev_log.append(ln)
+        self._dev_log.ensureCursorVisible()
+
+    def _on_dev_done(self, code: int):
+        self._dev_progress.hide()
+        _finish_worker(self, attr="_dev_worker")
+        if code == 0:
+            self._dev_status.setText("Development setup complete.")
+            self._dev_status.setObjectName("status-ok")
+            self._dev_log.append("\nDone.")
+        else:
+            self._dev_status.setText(f"Development setup failed (exit {code}).")
+            self._dev_status.setObjectName("status-err")
+            _set_log_panel(self._dev_log_toggle, self._dev_log, True)
+        _restyle(self._dev_status)
+
+    def _enter_dev_box(self):
+        if not _is_distrobox_container("kyth-dev"):
+            QMessageBox.information(
+                self,
+                "Dev Box Not Found",
+                "Create the KythOS development box first.",
+            )
+            return
+        terminal = None
+        for cmd in (["konsole"], ["xdg-terminal-exec"], ["xterm"]):
+            if shutil.which(cmd[0]):
+                terminal = cmd[0]
+                break
+        if terminal is None:
+            QMessageBox.warning(self, "Terminal not found",
+                                "Could not find a terminal emulator to open.")
+            return
+        if terminal == "konsole":
+            subprocess.Popen(["konsole", "-e", "distrobox", "enter", "kyth-dev"])
+        else:
+            subprocess.Popen([terminal, "--", "distrobox", "enter", "kyth-dev"])
 
 
 # ── Page: Network Shares ──────────────────────────────────────────────────────
@@ -9347,6 +9675,7 @@ class MainWindow(QMainWindow):
             ("Apps", [
                 ("✦", "Content Creation", "Content Creation", ContentCreationPage),
                 ("◉", "Gaming",           "Gaming",           GamingPage),
+                ("⌨", "Developer",        "Developer",        DevEnvironmentPage),
                 ("⚔", "Security",         "Security",         SecurityPage),
                 ("⬡", "Software",         "Software",         SoftwarePage),
             ]),

@@ -70,7 +70,10 @@ jobs:
         # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
+          # The live ISO is only an installer environment. Keep it based on
+          # Kinoite instead of the full target image so GE-Proton, gaming apps,
+          # creator tools, and target-only tuning are not duplicated into the ISO.
+          BASE_IMAGE="ghcr.io/ublue-os/kinoite-main:44"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
           docker buildx build \
