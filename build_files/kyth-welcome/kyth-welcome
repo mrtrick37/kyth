@@ -4080,7 +4080,7 @@ class GamingPage(Page):
             "Apps",
             "Gaming",
             "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
-            "Install Steam and Lutris below, then add the right launch options to your games.",
+            "Steam, Heroic, Lutris, and Proton tools are installed on first boot.",
         )
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
@@ -4089,10 +4089,9 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Steam and Lutris are optional installs — click Install below to add them. "
-            "Heroic is installed by default for Epic, GOG, and Amazon libraries. "
+            "Steam, Heroic, Lutris, ProtonUp-Qt, and protontricks are part of the game-ready setup. "
             "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
-            "All tools are also available via the corresponding ujust recipe."
+            "Additional launchers and device tools are available here or via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
@@ -4102,14 +4101,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.valvesoftware.Steam",
                 "name": "Steam",
-                "desc": "Valve's gaming platform — thousands of native Linux games plus Windows games via Proton.",
+                "desc": "Installed on first boot — Valve's gaming platform plus Windows games via Proton.",
                 "ujust": "install-steam",
                 "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
             },
             {
                 "flatpak": "net.lutris.Lutris",
                 "name": "Lutris",
-                "desc": "Open gaming platform for Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "desc": "Installed on first boot — Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
                 "ujust": "install-lutris",
                 "launch": ["flatpak", "run", "net.lutris.Lutris"],
             },
@@ -9743,7 +9742,7 @@ class WizardWindow(QMainWindow):
     """Linear first-run wizard. On close writes a sentinel so future launches
     open the hub (MainWindow) instead."""
 
-    _STEP_LABELS = ["Welcome", "Update", "Hardware", "Gaming", "All Done"]
+    _STEP_LABELS = ["Welcome", "Update", "Hardware", "Pick Apps", "Gaming", "All Done"]
 
     def __init__(self):
         super().__init__()
@@ -9825,6 +9824,7 @@ class WizardWindow(QMainWindow):
         self._update_page = UpdatePage()
         self._hw_page = HardwarePage()
         self._gaming_page = GamingPage()
+        self._first_run_apps_step = self._make_first_run_apps_step()
 
         self._steps = [
             self._make_welcome_step(),
@@ -9838,9 +9838,10 @@ class WizardWindow(QMainWindow):
                 "Confirming your graphics, audio, and wireless are working correctly.",
                 self._hw_page,
             ),
+            self._first_run_apps_step,
             self._wrap_step(
                 "Your Gaming Stack",
-                "Everything is pre-installed and pre-configured. Here's how to use it.",
+                "Steam, Heroic, Lutris, and Proton tools are ready. Here's how to use them.",
                 self._gaming_page,
             ),
             self._make_finish_step(),
@@ -9888,7 +9889,7 @@ class WizardWindow(QMainWindow):
         self._setup_banner_bar.setFixedHeight(4)
         self._setup_banner_bar.setTextVisible(False)
         banner_layout.addWidget(self._setup_banner_bar)
-        banner_lbl = QLabel("Setting up your system in the background — this takes a few minutes on first boot.")
+        banner_lbl = QLabel("Installing Steam, Heroic, Lutris, and Proton tools in the background — this takes a few minutes on first boot.")
         banner_lbl.setObjectName("setup-banner-label")
         banner_layout.addWidget(banner_lbl)
         banner_layout.addStretch()
@@ -9961,7 +9962,8 @@ class WizardWindow(QMainWindow):
 
         desc = QLabel(
             "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa RADV Vulkan drivers, "
-            "and a complete gaming stack pre-installed. Updates ship as atomic container images — "
+            "and the gaming runtime already tuned. Steam, Heroic, Lutris, and Proton tools are set up on first boot. "
+            "Updates ship as atomic container images — "
             "every change is instant to roll back with a single command."
         )
         desc.setObjectName("wizard-desc")
@@ -10010,6 +10012,182 @@ class WizardWindow(QMainWindow):
         outer.addWidget(stats_bar)
         return page
 
+    def _make_first_run_apps_step(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("content-area")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(56, 38, 56, 32)
+        layout.setSpacing(18)
+
+        title = QLabel("Choose Your Extras")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Your core gaming setup is already handled. Pick anything else you want now; "
+            "you can install or remove these later from the System Hub."
+        )
+        subtitle.setObjectName("subheading")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        core_card, core_layout = _make_card("card-accent-ok")
+        core_title = QLabel("Game-ready defaults")
+        core_title.setObjectName("card-title")
+        core_layout.addWidget(core_title)
+        core_copy = QLabel(
+            "Steam, Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
+            "as soon as networking is available."
+        )
+        core_copy.setObjectName("card-copy")
+        core_copy.setWordWrap(True)
+        core_layout.addWidget(core_copy)
+        layout.addWidget(core_card)
+
+        self._wizard_extra_apps = [
+            ("com.brave.Browser", "Brave Browser", "Fast web browser with good media support."),
+            ("com.discordapp.Discord", "Discord", "Voice and community chat for games."),
+            ("com.obsproject.Studio", "OBS Studio", "Recording and streaming."),
+            ("it.mijorus.gearlever", "Gear Lever", "Manage AppImage apps."),
+            ("com.github.tchx84.Flatseal", "Flatseal", "Review and adjust Flatpak permissions."),
+        ]
+
+        extras_card, extras_layout = _make_card()
+        extras_title = QLabel("Optional apps")
+        extras_title.setObjectName("card-title")
+        extras_layout.addWidget(extras_title)
+
+        self._wizard_extra_checks = []
+        for app_id, name, desc in self._wizard_extra_apps:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(12)
+
+            check = QCheckBox()
+            check.setChecked(False)
+            check.setEnabled(not _is_flatpak_installed(app_id))
+            self._wizard_extra_checks.append((check, app_id, name))
+            row_layout.addWidget(check, 0, Qt.AlignmentFlag.AlignTop)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            name_lbl = QLabel(name)
+            name_lbl.setObjectName("card-title")
+            name_lbl.setStyleSheet("font-size: 14px;")
+            desc_lbl = QLabel("Already installed." if not check.isEnabled() else desc)
+            desc_lbl.setObjectName("card-copy")
+            desc_lbl.setWordWrap(True)
+            text_col.addWidget(name_lbl)
+            text_col.addWidget(desc_lbl)
+            row_layout.addLayout(text_col, 1)
+            extras_layout.addWidget(row)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._wizard_install_btn = QPushButton("Install Selected")
+        self._wizard_install_btn.setObjectName("primary")
+        self._wizard_install_btn.clicked.connect(self._install_selected_wizard_apps)
+        btn_row.addWidget(self._wizard_install_btn)
+        select_none_btn = QPushButton("Clear")
+        select_none_btn.clicked.connect(lambda: [check.setChecked(False) for check, _, _ in self._wizard_extra_checks])
+        btn_row.addWidget(select_none_btn)
+        btn_row.addStretch()
+        extras_layout.addLayout(btn_row)
+
+        self._wizard_install_status = QLabel("Select apps above, or continue if you only want the gaming defaults.")
+        self._wizard_install_status.setObjectName("subheading")
+        extras_layout.addWidget(self._wizard_install_status)
+
+        self._wizard_install_progress = QProgressBar()
+        self._wizard_install_progress.setRange(0, 0)
+        self._wizard_install_progress.hide()
+        extras_layout.addWidget(self._wizard_install_progress)
+
+        self._wizard_install_log_toggle = QPushButton("Show details")
+        self._wizard_install_log_toggle.setCheckable(True)
+        self._wizard_install_log_toggle.hide()
+        extras_layout.addWidget(self._wizard_install_log_toggle)
+
+        self._wizard_install_log = QTextEdit()
+        self._wizard_install_log.setReadOnly(True)
+        self._wizard_install_log.setMaximumHeight(120)
+        self._wizard_install_log.hide()
+        extras_layout.addWidget(self._wizard_install_log)
+        self._wizard_install_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, checked)
+        )
+
+        layout.addWidget(extras_card)
+        layout.addStretch()
+        self._wizard_extra_worker = None
+        return page
+
+    def _install_selected_wizard_apps(self):
+        if self._wizard_extra_worker and self._wizard_extra_worker.isRunning():
+            return
+        selected = [
+            (app_id, name)
+            for check, app_id, name in self._wizard_extra_checks
+            if check.isChecked() and check.isEnabled()
+        ]
+        if not selected:
+            self._wizard_install_status.setText("No optional apps selected.")
+            self._wizard_install_status.setObjectName("status-dim")
+            _restyle(self._wizard_install_status)
+            return
+
+        app_ids = [app_id for app_id, _ in selected]
+        names = ", ".join(name for _, name in selected)
+        self._wizard_install_btn.setEnabled(False)
+        for check, _, _ in self._wizard_extra_checks:
+            check.setEnabled(False)
+        self._wizard_install_status.setText(f"Installing {names}...")
+        self._wizard_install_status.setObjectName("subheading")
+        _restyle(self._wizard_install_status)
+        self._wizard_install_progress.show()
+        self._wizard_install_log.clear()
+        self._wizard_install_log.append("-> flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo")
+        self._wizard_install_log.append(f"-> flatpak install -y flathub {' '.join(app_ids)}\n")
+        self._wizard_install_log_toggle.show()
+        _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, False)
+
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            + " && flatpak install -y flathub " + " ".join(shlex.quote(app_id) for app_id in app_ids),
+        ]
+        self._wizard_extra_worker = Worker(cmd)
+        self._wizard_extra_worker.line.connect(lambda ln: (
+            self._wizard_install_log.append(ln),
+            self._wizard_install_log.ensureCursorVisible(),
+        ))
+        self._wizard_extra_worker.done.connect(
+            lambda code, installed=selected: self._on_wizard_extra_install_done(code, installed)
+        )
+        self._wizard_extra_worker.start()
+        self._update_nav()
+
+    def _on_wizard_extra_install_done(self, code: int, installed: list[tuple[str, str]]):
+        self._wizard_install_progress.hide()
+        _finish_worker(self, attr="_wizard_extra_worker")
+        if code == 0:
+            self._wizard_install_status.setText("Optional apps installed.")
+            self._wizard_install_status.setObjectName("status-ok")
+            self._wizard_install_log.append("\nDone.")
+            installed_ids = {app_id for app_id, _ in installed}
+            for check, app_id, _ in self._wizard_extra_checks:
+                check.setChecked(False)
+                check.setEnabled(app_id not in installed_ids)
+        else:
+            self._wizard_install_status.setText(f"Optional app install failed (exit {code}).")
+            self._wizard_install_status.setObjectName("status-err")
+            for check, app_id, _ in self._wizard_extra_checks:
+                check.setEnabled(not _is_flatpak_installed(app_id))
+        self._wizard_install_btn.setEnabled(True)
+        _restyle(self._wizard_install_status)
+        self._update_nav()
+
     def _make_finish_step(self) -> QWidget:
         page = QWidget()
         page.setObjectName("content-area")
@@ -10031,8 +10209,9 @@ class WizardWindow(QMainWindow):
         layout.addSpacing(10)
 
         subtitle = QLabel(
-            "KythOS is ready to go. Steam, Heroic, and your full gaming stack are pre-installed.\n"
-            "The System Hub is always available from the application menu whenever you need it."
+            "KythOS is ready to play. Steam, Heroic, Lutris, ProtonUp-Qt, protontricks, "
+            "and the system gaming tweaks are ready on first boot.\n"
+            "The System Hub is always available from the application menu whenever you want more."
         )
         subtitle.setObjectName("finish-subtitle")
         subtitle.setWordWrap(True)
@@ -10043,7 +10222,7 @@ class WizardWindow(QMainWindow):
         btn_row.setSpacing(10)
         steam_btn = QPushButton("Open Steam")
         steam_btn.setObjectName("primary")
-        steam_btn.clicked.connect(lambda: subprocess.Popen(["steam"]))
+        steam_btn.clicked.connect(lambda: subprocess.Popen(["flatpak", "run", "com.valvesoftware.Steam"]))
         btn_row.addWidget(steam_btn)
         hub_btn = QPushButton("Open System Hub")
         hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
@@ -10063,6 +10242,9 @@ class WizardWindow(QMainWindow):
     def _update_nav(self):
         idx = self._current
         total = len(self._steps)
+        install_busy = bool(
+            self._wizard_extra_worker and self._wizard_extra_worker.isRunning()
+        )
 
         for i, (dot, lbl) in enumerate(self._step_label_widgets):
             if i < idx:
@@ -10079,6 +10261,9 @@ class WizardWindow(QMainWindow):
 
         self._back_btn.setVisible(idx > 0)
         self._skip_btn.setVisible(0 < idx < total - 1)
+        self._back_btn.setEnabled(not install_busy)
+        self._skip_btn.setEnabled(not install_busy)
+        self._next_btn.setEnabled(not install_busy)
 
         if idx == total - 1:
             self._next_btn.setText("Close")
@@ -10103,6 +10288,16 @@ class WizardWindow(QMainWindow):
             self._update_nav()
 
     def closeEvent(self, event):
+        if self._wizard_extra_worker and self._wizard_extra_worker.isRunning():
+            QMessageBox.warning(
+                self,
+                "KythOS Is Busy",
+                "Optional apps are still installing. Please wait for the install to finish before closing.",
+            )
+            event.ignore()
+            self.raise_()
+            self.activateWindow()
+            return
         _mark_wizard_done()
         super().closeEvent(event)
 
