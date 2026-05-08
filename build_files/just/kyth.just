@@ -442,9 +442,11 @@ update-ge-proton:
 
 # Create a Fedora development container for KythOS work.
 #
-# This keeps compilers, language servers, and repo-specific tools out of the
-# immutable base image while still giving KythOS developers a ready workspace
-# that shares ~/git and the rest of $HOME.
+# This is intentionally self-contained so it does not depend on any imported
+# justfiles that may not exist on end-user systems.
+#
+# It also installs VS Code from Flatpak when missing, since the RPM is no
+# longer baked into KythOS images.
 [group('KythOS')]
 setup-kyth-dev-box:
     #!/usr/bin/env bash
@@ -459,8 +461,23 @@ setup-kyth-dev-box:
         vim-enhanced neovim
     )
 
+    if ! command -v distrobox >/dev/null 2>&1; then
+        echo "ERROR: distrobox is not installed." >&2
+        echo "Install it first, then rerun this recipe." >&2
+        exit 1
+    fi
+
+    if ! flatpak info com.visualstudio.code >/dev/null 2>&1; then
+        echo "VS Code not found. Installing com.visualstudio.code from Flathub..."
+        flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+        flatpak install -y flathub com.visualstudio.code
+    else
+        echo "VS Code already installed."
+    fi
+
     if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
-        echo "${box} already exists. Enter it with: distrobox enter ${box}"
+        echo "${box} already exists."
+        echo "Enter it with: distrobox enter ${box}"
         exit 0
     fi
 
@@ -471,6 +488,7 @@ setup-kyth-dev-box:
     distrobox enter "${box}" -- sudo dnf install -y "${packages[@]}"
     echo
     echo "Done. Enter it with: distrobox enter ${box}"
+    echo "VS Code launch command: flatpak run com.visualstudio.code"
 
 # Install VS Code as a Flatpak instead of baking the Microsoft RPM into KythOS.
 [group('KythOS')]
