@@ -11,6 +11,7 @@ import os
 import sys
 import json
 import re
+import signal
 import shlex
 import shutil
 import subprocess
@@ -764,12 +765,31 @@ QFrame#hw-card-dim {
 
 # ── Worker thread ──────────────────────────────────────────────────────────────
 class Worker(QThread):
+    CANCELLED = 130
+
     line = pyqtSignal(str)
     done = pyqtSignal(int)
 
     def __init__(self, cmd: list[str]):
         super().__init__()
         self._cmd = cmd
+        self._proc: subprocess.Popen[str] | None = None
+        self._cancel_requested = False
+
+    def cancel(self):
+        self._cancel_requested = True
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                return
 
     def run(self):
         try:
@@ -785,14 +805,21 @@ class Worker(QThread):
                 bufsize=1,
                 env=env,
                 cwd="/tmp",
+                start_new_session=True,
             )
+            self._proc = proc
             for ln in proc.stdout:
                 self.line.emit(ln.rstrip())
             proc.wait()
-            self.done.emit(proc.returncode)
+            if self._cancel_requested:
+                self.done.emit(self.CANCELLED)
+            else:
+                self.done.emit(proc.returncode)
         except Exception as exc:
             self.line.emit(f"Error: {exc}")
             self.done.emit(1)
+        finally:
+            self._proc = None
 
 
 class DownloadMonitor(QThread):
@@ -863,6 +890,31 @@ def _finish_worker(owner: object, attr: str = "_worker") -> None:
     worker.wait()
     worker.deleteLater()
     setattr(owner, attr, None)
+
+
+def _cancel_worker(
+    owner: object,
+    attr: str = "_worker",
+    status_lbl: QLabel | None = None,
+    log: QTextEdit | None = None,
+    cancel_btn: QPushButton | None = None,
+    message: str = "Cancelling...",
+) -> bool:
+    worker = getattr(owner, attr, None)
+    if worker is None or not worker.isRunning() or not hasattr(worker, "cancel"):
+        return False
+    if cancel_btn is not None:
+        cancel_btn.setEnabled(False)
+    if status_lbl is not None:
+        status_lbl.setText(message)
+        status_lbl.setObjectName("status-warn")
+        status_lbl.show()
+        _restyle(status_lbl)
+    if log is not None:
+        log.append("\nCancel requested. Waiting for the running command to stop...")
+        log.ensureCursorVisible()
+    worker.cancel()
+    return True
 
 
 def _set_session_inhibit(owner: object, reason: str | None = None) -> None:

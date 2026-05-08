@@ -94,14 +94,21 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # trigger the allocation (often dbus-broker, Xwayland, or plasmashell) rather
 # than the actual memory hog — causing instant black screens.
 #
-# Tighten the thresholds so oomd fires at 75% swap (not the default 90%) and
-# kills the biggest user-space offender well before the kernel OOM killer runs.
+# Thresholds are tuned for a gaming workload on a low-RAM system (≤16 GB):
+# - 50% pressure / 15 s (old defaults) fires during every game loading screen
+#   because shader compilation and asset streaming routinely sustain high
+#   pressure for 20–40 s. That caused premature browser tab and app kills that
+#   look like "memory crashes" but aren't OOM — just oomd misfiring.
+# - 65% pressure / 40 s gives games room to burst through loading spikes while
+#   still catching genuine runaway processes well before the kernel OOM killer.
+# - SwapUsedLimit raised to 85%: zram compresses at ~3:1, so 85% of 14 GB of
+#   zram logical capacity still leaves physical RAM available for decompression.
 mkdir -p /etc/systemd/oomd.conf.d
 cat > /etc/systemd/oomd.conf.d/99-kyth.conf <<'OOMDEOF'
 [OOM]
-SwapUsedLimit=75%
-DefaultMemoryPressureLimit=50%
-DefaultMemoryPressureDurationSec=15s
+SwapUsedLimit=85%
+DefaultMemoryPressureLimit=65%
+DefaultMemoryPressureDurationSec=40s
 OOMDEOF
 
 # Opt the user session slice into oomd monitoring. oomd will select and kill
@@ -112,7 +119,7 @@ cat > /etc/systemd/system/user.slice.d/10-oomd-user.conf <<'OOMDSLICEEOF'
 [Slice]
 ManagedOOMSwap=kill
 ManagedOOMMemoryPressure=kill
-ManagedOOMMemoryPressureLimit=50%
+ManagedOOMMemoryPressureLimit=65%
 OOMDSLICEEOF
 
 # ── Locale defaults ─────────────────────────────────────────────────────────
@@ -254,6 +261,22 @@ ExecStart=
 ExecStart=/usr/bin/dbus-broker-launch --scope system
 DBUSBROKEREOF
 
+# ── AMD GPU kernel module options ────────────────────────────────────────────
+# ppfeaturemask=0xffffffff: enables all PowerPlay features including fine-grained
+# GPU/memory clock and voltage control. Required for gamemode's amd_performance_level
+# switch to actually take full effect on RDNA APUs; without it some power states
+# are locked out and the GPU stays in a lower-performance tier during gameplay.
+#
+# gttsize: GTT (Graphics Translation Table) is system RAM the GPU maps for overflow
+# VRAM and DMA transfers. On a 14 GB APU the default is auto-sized but uncapped —
+# the GPU can claim most of system RAM as GTT under sustained gaming load, starving
+# CPU-side processes. Capping at 4096 MB leaves ≥10 GB reliably available for the
+# CPU without starving games that need GPU memory bandwidth.
+cat > /etc/modprobe.d/amdgpu-kyth.conf <<'AMDGPUEOF'
+options amdgpu ppfeaturemask=0xffffffff
+options amdgpu gttsize=4096
+AMDGPUEOF
+
 # ── NVIDIA kernel module options ─────────────────────────────────────────────
 # nvidia-drm.modeset=1  — required for Wayland/SDDM to use the NVIDIA KMS driver
 #   instead of falling back to fbdev; without it KDE Plasma on Wayland will not
@@ -276,11 +299,18 @@ NVEOF
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
-# Capped at 8 GB so zram doesn't eat all RAM on large-memory systems.
+# zram-size = min(ram, 8192): logical size equals physical RAM up to 8 GB.
+# The old ram/2 formula gave only 7 GB on this 14 GB machine, which fills
+# quickly under gaming load (VRAM pressure, shader caches, browser).
+# The logical size is not physical cost — zram grows lazily; compressed pages
+# at ~3:1 zstd ratio mean 14 GB of logical space costs ~4–5 GB of real RAM
+# at peak, still cheaper than OOM-killing apps. swap-priority=100 ensures
+# zram is always chosen over any disk swap that might exist.
 cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
 [zram0]
-zram-size = min(ram / 2, 8192)
+zram-size = min(ram, 8192)
 compression-algorithm = zstd
+swap-priority = 100
 ZRAMEOF
 
 # ── gamemode configuration ────────────────────────────────────────────────────

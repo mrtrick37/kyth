@@ -97,6 +97,7 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
+    kwallet-pam \
     plasma-workspace-x11 \
     xorg-x11-server-Xorg \
     xorg-x11-xinit \
