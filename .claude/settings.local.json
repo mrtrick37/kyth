@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(journalctl -b -1 --no-pager -u systemd-oomd)",
+      "Bash(systemd-analyze critical-chain *)",
+      "Bash(systemd-analyze blame *)",
+      "Bash(journalctl -b 0 --no-pager -o short-monotonic)",
+      "Bash(rpm -qa)",
+      "Bash(flatpak list *)",
+      "Bash(find /usr/local/bin /usr/bin /home /var/home -name \"*saml*\" -o -name \"*gp*\" -o -name \"*globalprotect*\" 2>/dev/null | grep -v \".git\" | head -20; find /etc/NetworkManager /etc/vpnc /etc/openconnect -type f 2>/dev/null | head -20)",
+      "Read(//var/usrlocal/bin/**)",
+      "Read(//etc/NetworkManager/**)",
+      "Bash(find /var/home/mrtrick -name \"*.py\" -o -name \"*.sh\" 2>/dev/null | xargs grep -l -i \"saml\\\\|Login Successful\\\\|globalprotect\\\\|gp vpn\" 2>/dev/null | head -10; ps aux | grep -i \"saml\\\\|vpn\\\\|openconnect\\\\|webengine\" | grep -v grep)",
+      "Read(//var/home/mrtrick/**)"
+    ]
+  }
+}
