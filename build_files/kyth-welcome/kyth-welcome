@@ -7947,56 +7947,35 @@ class DevEnvironmentPage(Page):
             "Set up VS Code and a Fedora development container for KythOS work.",
         )
 
-        # VS Code card
-        vsc_card, vsc_layout = _make_card()
-        vsc_title = QLabel("VS Code")
-        vsc_title.setObjectName("card-title")
-        vsc_layout.addWidget(vsc_title)
-        vsc_body = QLabel(
-            "Installs Visual Studio Code as a Flatpak from Flathub. "
-            "It will appear in the application launcher once installed."
+        # Single card covering everything
+        card, layout = _make_card()
+        title = QLabel("KythOS Dev Environment")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Sets up everything you need to work on KythOS:\n"
+            "  •  Installs VS Code from Flathub (appears in your app launcher)\n"
+            "  •  Creates a Fedora 44 distrobox named kyth-dev with the full\n"
+            "     build toolchain: git, just, podman, ShellCheck, ripgrep, and more\n\n"
+            "Your home directory is shared with the container — no files are moved."
         )
-        vsc_body.setObjectName("card-copy")
-        vsc_body.setWordWrap(True)
-        vsc_layout.addWidget(vsc_body)
-        vsc_btn_row = QHBoxLayout()
-        vsc_btn_row.setSpacing(10)
-        self._vsc_btn = QPushButton("Install VS Code")
-        self._vsc_btn.setObjectName("primary")
-        self._vsc_btn.clicked.connect(self._run_install_vscode)
-        vsc_btn_row.addWidget(self._vsc_btn)
-        vsc_btn_row.addStretch()
-        vsc_layout.addLayout(vsc_btn_row)
-        self._add(vsc_card)
-
-        # Dev box card
-        box_card, box_layout = _make_card()
-        box_title = QLabel("KythOS Dev Box")
-        box_title.setObjectName("card-title")
-        box_layout.addWidget(box_title)
-        box_body = QLabel(
-            "Creates a Fedora 44 distrobox named kyth-dev and installs the full "
-            "KythOS build toolchain inside it (git, just, podman, ShellCheck, etc.). "
-            "Also installs VS Code if it isn't already. "
-            "The container shares your home directory — no files are moved."
-        )
-        box_body.setObjectName("card-copy")
-        box_body.setWordWrap(True)
-        box_layout.addWidget(box_body)
-        box_btn_row = QHBoxLayout()
-        box_btn_row.setSpacing(10)
-        self._box_btn = QPushButton("Create Dev Box")
-        self._box_btn.setObjectName("primary")
-        self._box_btn.clicked.connect(self._run_setup_dev_box)
-        box_btn_row.addWidget(self._box_btn)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._setup_btn = QPushButton("Set Up Dev Environment")
+        self._setup_btn.setObjectName("primary")
+        self._setup_btn.clicked.connect(self._run_setup)
+        btn_row.addWidget(self._setup_btn)
         self._enter_btn = QPushButton("Enter Dev Box")
         self._enter_btn.clicked.connect(self._enter_dev_box)
-        box_btn_row.addWidget(self._enter_btn)
-        box_btn_row.addStretch()
-        box_layout.addLayout(box_btn_row)
-        self._add(box_card)
+        btn_row.addWidget(self._enter_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+        self._add(card)
 
-        # Shared status / progress / log
+        # Status / progress / log
         self._status_lbl = QLabel()
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.hide()
@@ -8023,27 +8002,20 @@ class DevEnvironmentPage(Page):
 
         self._stretch()
 
-    def _run_install_vscode(self):
-        self._run(_INSTALL_VSCODE_CMD, "Installing VS Code…", self._vsc_btn)
-
-    def _run_setup_dev_box(self):
-        self._run(_SETUP_DEV_BOX_CMD, "Creating KythOS dev box…", self._box_btn)
-
-    def _run(self, cmd: list[str], status: str, trigger_btn: QPushButton):
+    def _run_setup(self):
         if self._worker and self._worker.isRunning():
             return
-        self._vsc_btn.setEnabled(False)
-        self._box_btn.setEnabled(False)
+        self._setup_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ " + " ".join(cmd[:2]) + " …\n")
+        self._log.append("→ bash dev-setup …\n")
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
-        self._status_lbl.setText(status)
+        self._status_lbl.setText("Setting up dev environment…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         _restyle(self._status_lbl)
-        self._worker = Worker(cmd)
+        self._worker = Worker(_SETUP_DEV_BOX_CMD)
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -8055,14 +8027,13 @@ class DevEnvironmentPage(Page):
     def _on_done(self, code: int):
         self._progress.hide()
         _finish_worker(self)
-        self._vsc_btn.setEnabled(True)
-        self._box_btn.setEnabled(True)
+        self._setup_btn.setEnabled(True)
         if code == 0:
-            self._status_lbl.setText("Done.")
+            self._status_lbl.setText("Dev environment ready.")
             self._status_lbl.setObjectName("status-ok")
-            self._log.append("\nCompleted successfully.")
+            self._log.append("\nDone. Launch VS Code from the app menu, or click 'Enter Dev Box'.")
         else:
-            self._status_lbl.setText(f"Failed (exit code {code}).")
+            self._status_lbl.setText(f"Setup failed (exit code {code}).")
             self._status_lbl.setObjectName("status-err")
             _set_log_panel(self._log_toggle, self._log, True)
         _restyle(self._status_lbl)
