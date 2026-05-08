@@ -4362,6 +4362,20 @@ class GamingPage(Page):
                 "ujust": "install-openrgb",
                 "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
             },
+            {
+                "flatpak": "io.github.benjamimgois.goverlay",
+                "name": "GOverlay",
+                "desc": "Graphical tuning for MangoHud, vkBasalt, and OptiScaler presets.",
+                "ujust": "install-goverlay",
+                "launch": ["flatpak", "run", "io.github.benjamimgois.goverlay"],
+            },
+            {
+                "flatpak": "io.github.radiolamp.mangojuice",
+                "name": "MangoJuice",
+                "desc": "Lightweight MangoHud configuration editor for overlay layout and metrics.",
+                "ujust": "install-mangojuice",
+                "launch": ["flatpak", "run", "io.github.radiolamp.mangojuice"],
+            },
         ]
 
         # Build tiles in a 2-column grid
@@ -4377,6 +4391,32 @@ class GamingPage(Page):
             if len(self._TOOLS[i:i + 2]) == 1:
                 row_layout.addStretch(1)
             self._add_layout(row_layout)
+
+        tuning_card, tuning_layout = _make_card()
+        tuning_title = QLabel("Advanced GPU and Capture Tools")
+        tuning_title.setObjectName("card-title")
+        tuning_layout.addWidget(tuning_title)
+        tuning_desc = QLabel(
+            "LACT and CoreCtrl cover AMD GPU tuning, while OBS uses the built-in "
+            "obs-vkcapture and v4l2loopback support for game capture and virtual camera workflows."
+        )
+        tuning_desc.setObjectName("card-copy")
+        tuning_desc.setWordWrap(True)
+        tuning_layout.addWidget(tuning_desc)
+        tuning_btns = QHBoxLayout()
+        tuning_btns.setSpacing(8)
+        lact_btn = QPushButton("Install LACT")
+        lact_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-lact"], "Install LACT"))
+        tuning_btns.addWidget(lact_btn)
+        corectrl_btn = QPushButton("Open CoreCtrl")
+        corectrl_btn.clicked.connect(lambda _=False: self._open_corectrl())
+        tuning_btns.addWidget(corectrl_btn)
+        obs_btn = QPushButton("Install OBS")
+        obs_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-obs"], "Install OBS"))
+        tuning_btns.addWidget(obs_btn)
+        tuning_btns.addStretch()
+        tuning_layout.addLayout(tuning_btns)
+        self._add(tuning_card)
 
         self._divider()
         launcher_head = QLabel("Launcher setup")
@@ -4510,9 +4550,10 @@ class GamingPage(Page):
         gs_layout.addWidget(gs_desc)
 
         for label, opt in (
-            ("Standard:",   "gamescope -e -- %command%"),
-            ("HDR display:", "gamescope -e --hdr-enabled --adaptive-sync -- %command%"),
-            ("ujust recipe:", "ujust gamescope -- %command%"),
+            ("Quality preset:", "kyth-gamescope quality -- %command%"),
+            ("HDR display:", "kyth-gamescope hdr --fps 120 -- %command%"),
+            ("Sharp upscaling:", "kyth-gamescope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%"),
+            ("ujust recipe:", "ujust game-scope quality -- %command%"),
         ):
             row = QHBoxLayout()
             row.setSpacing(10)
@@ -4525,6 +4566,59 @@ class GamingPage(Page):
             row.addStretch()
             gs_layout.addLayout(row)
         self._add(gs_card)
+
+        # ── sched-ext ────────────────────────────────────────────────────────
+        scx_card, scx_layout = _make_card()
+        scx_top = QHBoxLayout()
+        scx_title = QLabel("sched-ext — CPU Scheduler")
+        scx_title.setObjectName("card-title")
+        scx_top.addWidget(scx_title)
+        scx_top.addStretch()
+        self._scx_badge = QLabel()
+        self._scx_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scx_top.addWidget(self._scx_badge)
+        scx_layout.addLayout(scx_top)
+        scx_desc = QLabel(
+            "KythOS uses CachyOS sched-ext support for latency-focused gaming. "
+            "lavd is the default all-rounder; rusty and bpfland are useful alternates for testing."
+        )
+        scx_desc.setObjectName("card-copy")
+        scx_desc.setWordWrap(True)
+        scx_layout.addWidget(scx_desc)
+        self._scx_status_lbl = QLabel()
+        self._scx_status_lbl.setObjectName("card-copy")
+        scx_layout.addWidget(self._scx_status_lbl)
+        scx_btns = QHBoxLayout()
+        scx_btns.setSpacing(8)
+        for label, scheduler in (
+            ("Use lavd", "lavd"),
+            ("Use rusty", "rusty"),
+            ("Use bpfland", "bpfland"),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, sched=scheduler: self._set_scx_scheduler(sched))
+            scx_btns.addWidget(btn)
+        self._scx_stop_btn = QPushButton("Stop scx")
+        self._scx_stop_btn.clicked.connect(lambda _=False: self._set_scx_scheduler("stop"))
+        scx_btns.addWidget(self._scx_stop_btn)
+        scx_btns.addStretch()
+        scx_layout.addLayout(scx_btns)
+        self._scx_progress = QProgressBar()
+        self._scx_progress.setRange(0, 0)
+        self._scx_progress.hide()
+        scx_layout.addWidget(self._scx_progress)
+        self._scx_log_toggle = QPushButton("Show details")
+        self._scx_log_toggle.setCheckable(True)
+        self._scx_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._scx_log_toggle, self._scx_log, checked))
+        self._scx_log_toggle.hide()
+        scx_layout.addWidget(self._scx_log_toggle)
+        self._scx_log = QTextEdit()
+        self._scx_log.setReadOnly(True)
+        self._scx_log.setMaximumHeight(100)
+        self._scx_log.hide()
+        scx_layout.addWidget(self._scx_log)
+        self._scx_worker = None
+        self._add(scx_card)
 
         # ── GE-Proton ─────────────────────────────────────────────────────────
         gp_card, gp_layout = _make_card()
@@ -4622,11 +4716,11 @@ class GamingPage(Page):
         combo_txt.setMinimumHeight(160)
         combo_txt.setPlainText(
             "# All-rounder: MangoHud overlay + Gamescope compositor\n"
-            "MANGOHUD=1 gamescope -e -- %command%\n\n"
+            "kyth-gamescope quality -- %command%\n\n"
             "# Same but with HDR (requires HDR display)\n"
-            "MANGOHUD=1 gamescope -e --hdr-enabled --adaptive-sync -- %command%\n\n"
+            "kyth-gamescope hdr -- %command%\n\n"
             "# Add CAS sharpening via vkBasalt\n"
-            "MANGOHUD=1 ENABLE_VKBASALT=1 gamescope -e -- %command%\n\n"
+            "kyth-gamescope sharp -- %command%\n\n"
             "# GameMode + performance profile (CPU/GPU governors, renice)\n"
             "ujust game-performance -- %command%"
         )
@@ -4824,6 +4918,18 @@ class GamingPage(Page):
         _apply_install_badge(self._mh_badge, _mangohud_installed())
         _apply_install_badge(self._gs_badge, _gamescope_installed())
         _apply_install_badge(self._vk_badge, _vkbasalt_installed())
+        scx_status = _command_stdout(["kyth-scx", "status"], timeout=5)
+        scx_active = "Service: active" in scx_status
+        _apply_install_badge(self._scx_badge, scx_active, ok_text="Active", warn_text="Inactive")
+        if scx_status:
+            configured = "unknown"
+            for line in scx_status.splitlines():
+                if line.startswith("Configured scheduler:"):
+                    configured = line.split(":", 1)[1].strip() or "unknown"
+                    break
+            self._scx_status_lbl.setText(f"Configured: {configured}")
+        else:
+            self._scx_status_lbl.setText("sched-ext status unavailable.")
 
         gp_ver = _ge_proton_version()
         _apply_install_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
@@ -4839,6 +4945,57 @@ class GamingPage(Page):
             refs["uninstall"].setVisible(installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
+
+    def _open_corectrl(self):
+        if shutil.which("corectrl"):
+            subprocess.Popen(["corectrl"])
+            return
+        QMessageBox.information(
+            self,
+            "CoreCtrl",
+            "CoreCtrl is not installed in this image. Use LACT for AMD GPU tuning, or rebuild with CoreCtrl available in the package repos.",
+        )
+
+    def _set_scx_scheduler(self, scheduler: str):
+        if self._scx_worker and self._scx_worker.isRunning():
+            return
+
+        if scheduler == "stop":
+            cmd = ["kyth-scx", "stop"]
+            label = "Stopping sched-ext loader"
+        else:
+            cmd = ["kyth-scx", "set", scheduler]
+            label = f"Switching sched-ext scheduler to {scheduler}"
+
+        self._scx_log.clear()
+        self._scx_log.append(f"→ {' '.join(cmd)}\n")
+        self._scx_log_toggle.show()
+        _set_log_panel(self._scx_log_toggle, self._scx_log, False)
+        self._scx_progress.show()
+        self._scx_status_lbl.setText(f"{label}…")
+        self._scx_status_lbl.setObjectName("subheading")
+        _restyle(self._scx_status_lbl)
+
+        self._scx_worker = Worker(cmd)
+        self._scx_worker.line.connect(lambda ln: (
+            self._scx_log.append(ln),
+            self._scx_log.ensureCursorVisible(),
+        ))
+        self._scx_worker.done.connect(lambda code: self._on_scx_done(code))
+        self._scx_worker.start()
+
+    def _on_scx_done(self, code: int):
+        self._scx_progress.hide()
+        _finish_worker(self, attr="_scx_worker")
+        if code == 0:
+            self._scx_status_lbl.setText("sched-ext updated.")
+            self._scx_status_lbl.setObjectName("status-ok")
+            self._scx_log.append("\nDone.")
+        else:
+            self._scx_status_lbl.setText(f"sched-ext update failed (exit {code}).")
+            self._scx_status_lbl.setObjectName("status-err")
+        _restyle(self._scx_status_lbl)
+        self._refresh_status()
 
     def _open_heroic_for_epic(self):
         cmd = ["flatpak", "run", "com.heroicgameslauncher.hgl"]
@@ -6830,7 +6987,7 @@ class ContentCreationPage(Page):
             {
                 "flatpak": "com.obsproject.Studio",
                 "name": "OBS Studio",
-                "desc": "Screen recording and live streaming. Virtual cameras, scenes, and plugin support.",
+                "desc": "Screen recording and live streaming with obs-vkcapture-ready game capture.",
                 "ujust": "install-obs",
                 "launch": ["flatpak", "run", "com.obsproject.Studio"],
             },
