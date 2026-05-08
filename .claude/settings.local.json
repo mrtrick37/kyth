@@ -12,7 +12,9 @@
       "Read(//etc/NetworkManager/**)",
       "Bash(find /var/home/mrtrick -name \"*.py\" -o -name \"*.sh\" 2>/dev/null | xargs grep -l -i \"saml\\\\|Login Successful\\\\|globalprotect\\\\|gp vpn\" 2>/dev/null | head -10; ps aux | grep -i \"saml\\\\|vpn\\\\|openconnect\\\\|webengine\" | grep -v grep)",
       "Read(//var/home/mrtrick/**)",
-      "Bash(skopeo inspect *)"
+      "Bash(skopeo inspect *)",
+      "Read(//usr/local/**)",
+      "Read(//usr/**)"
     ]
   }
 }
