@@ -201,6 +201,12 @@ sudo bootc upgrade
 
 Updates are atomic — the previous deployment is kept as a fallback selectable at the GRUB menu. There is no package manager on the running system; all changes go through the image build. For user applications, use Flatpak (via Discover) or Homebrew.
 
+### Verification and changelogs
+
+Container images are signed with keyless Sigstore/Cosign, include attached Syft SBOMs in GHCR, and publish GitHub build provenance attestations. Image releases are generated from SBOM diffs so daily builds show RPM-level package changes.
+
+Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bundle, JSON metadata, and a GitHub build provenance attestation.
+
 ---
 
 ## Build locally
