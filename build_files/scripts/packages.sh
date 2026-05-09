@@ -127,6 +127,7 @@ dnf5 copr enable -y ublue-os/bazzite-multilib
 dnf5 copr enable -y ublue-os/staging
 dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
+dnf5 copr enable -y lukenukem/asus-linux
 dnf5 copr enable -y ycollet/audinux
 
 # Gaming packages
@@ -206,6 +207,18 @@ for pkg in "${optional_gaming_packages[@]}"; do
     fi
 done
 
+# ── ASUS Linux hardware control ───────────────────────────────────────────────
+# asusctl/asusd expose ASUS ROG/TUF/Zephyrus/ProArt controls such as platform
+# profiles, battery charge limits, fan curves, keyboard lighting, and newer
+# Armoury firmware attributes. supergfxctl provides hybrid/dGPU mode management
+# for supported ASUS laptops. The upstream asusd udev rules are DMI-gated, and
+# Kyth adds a matching supergfxd udev rule in the branding layer.
+dnf5 install -y --skip-unavailable \
+    asusctl \
+    supergfxctl || true
+systemctl disable supergfxd.service 2>/dev/null || true
+rm -f /etc/systemd/system/getty.target.wants/supergfxd.service
+
 is_enabled() {
     case "${1,,}" in
         1|true|yes|on) return 0 ;;
@@ -251,6 +264,7 @@ dnf5 copr disable -y ublue-os/bazzite-multilib
 dnf5 copr disable -y ublue-os/staging
 dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
+dnf5 copr disable -y lukenukem/asus-linux
 dnf5 copr disable -y ycollet/audinux
 
 ### GPU drivers

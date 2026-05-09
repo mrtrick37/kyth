@@ -232,6 +232,8 @@ SYSACCOUNTSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-fix-system-accounts
 systemctl enable kyth-system-accounts.service 2>/dev/null || true
 
+mkdir -p /etc/asusd
+
 cat > /usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
 [Unit]
 Description=Create D-Bus runtime directory

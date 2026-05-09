@@ -406,6 +406,7 @@ install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
 install -m 0755 /ctx/kyth-nvidia-setup /usr/bin/kyth-nvidia-setup
 install -m 0644 /ctx/kyth-nvidia-setup.service /usr/lib/systemd/system/kyth-nvidia-setup.service
+install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asus-supergfxd.rules
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
