@@ -39,11 +39,8 @@ jobs:
         branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
 
     permissions:
-      contents: write
+      contents: read
       packages: write
-      id-token: write
-      attestations: write
-      artifact-metadata: write
 
     steps:
       - name: Prepare environment
@@ -87,7 +84,6 @@ jobs:
           # https://artifacthub.io/docs/topics/repositories/container-images/
           # https://linux.die.net/man/1/date
           echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
-          echo "date_short=$(date -u +%Y%m%d)" >> $GITHUB_OUTPUT
 
       # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
       # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
@@ -162,19 +158,6 @@ jobs:
             --push \
             build_base/
 
-      - name: Capture previous image digest
-        id: previous_image
-        run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          DIGEST="$(docker buildx imagetools inspect "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" \
-            --format '{{ .Manifest.Digest }}' 2>/dev/null || true)"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          if [[ -n "${DIGEST}" ]]; then
-            echo "Previous ${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }} digest: ${DIGEST}"
-          else
-            echo "No previous ${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }} image found."
-          fi
-
       - name: Build final image
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
@@ -198,151 +181,3 @@ jobs:
             .
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Enable containerd snapshotter for runtime image inspection
-        run: |
-          # Avoid overlay2 lowerdir limits when pulling very deep images for docker run.
-          sudo systemctl stop docker docker.socket 2>/dev/null || true
-          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl start docker
-
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-
-      - name: Resolve pushed image digest
-        id: current_image
-        run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          DIGEST="$(docker buildx imagetools inspect "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" \
-            --format '{{ .Manifest.Digest }}')"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "image_ref=${IMAGE_FULL}@${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "Resolved ${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }} to ${DIGEST}"
-
-      # Save exact RPM versions from the built image for supply-chain diffing
-      # between daily runs.
-      - name: Capture RPM manifest
-        if: matrix.branch == 'main' || github.event_name == 'schedule'
-        run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          OUT_FILE="rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt"
-          docker run --rm "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" \
-            bash -lc "rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\\n' | sort" \
-            > "${OUT_FILE}"
-
-      - name: Upload RPM manifest artifact
-        if: matrix.branch == 'main' || github.event_name == 'schedule'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: rpm-manifest-${{ matrix.branch }}-${{ github.run_id }}
-          path: rpm-manifest-${{ matrix.branch }}-${{ steps.prep.outputs.default_tag }}.txt
-
-      - name: Setup Syft
-        id: setup_syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          syft-version: v1.39.0
-
-      - name: Generate image SBOM
-        id: generate_sbom
-        env:
-          SYFT_CMD: ${{ steps.setup_syft.outputs.cmd }}
-        run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          SBOM="kyth-${{ steps.prep.outputs.default_tag }}-${{ steps.date.outputs.date_short }}.syft.json"
-          docker pull "${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}"
-          "${SYFT_CMD}" "docker:${IMAGE_FULL}:${{ steps.prep.outputs.default_tag }}" \
-            --source-name "${IMAGE_FULL}@${{ steps.current_image.outputs.digest }}" \
-            -o "syft-json=${SBOM}"
-          echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
-          du -h "${SBOM}"
-
-      - name: Upload SBOM workflow artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: image-sbom-${{ matrix.branch }}-${{ github.run_id }}
-          path: ${{ steps.generate_sbom.outputs.path }}
-
-      - name: Install Cosign
-        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
-        with:
-          cosign-release: 'v2.6.1'
-
-      - name: Sign container image
-        # Keyless signing via GitHub Actions OIDC — no private key required.
-        # Signatures are stored in the Rekor transparency log.
-        # Verify with:
-        #   cosign verify \
-        #     --certificate-identity=https://github.com/mrtrick37/kyth/.github/workflows/build.yml@refs/heads/<branch> \
-        #     --certificate-oidc-issuer=https://token.actions.githubusercontent.com \
-        #     ghcr.io/mrtrick37/kyth:<tag>
-        run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          cosign sign -y "${IMAGE_FULL}@${{ steps.current_image.outputs.digest }}"
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            cosign sign -y $IMAGE_FULL:$tag
-          done
-
-      - name: Install ORAS
-        uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
-
-      - name: Attach SBOM to image
-        id: attach_sbom
-        run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
-          SBOM="${{ steps.generate_sbom.outputs.path }}"
-          oras attach \
-            --artifact-type application/vnd.syft+json \
-            --annotation "org.opencontainers.image.title=$(basename "${SBOM}")" \
-            --annotation "org.opencontainers.image.description=Syft SBOM for Kyth image ${{ steps.prep.outputs.default_tag }}" \
-            "${IMAGE_FULL}@${{ steps.current_image.outputs.digest }}" \
-            "${SBOM}"
-          SBOM_DIGEST="$(oras discover --format json "${IMAGE_FULL}@${{ steps.current_image.outputs.digest }}" \
-            | jq -r '.referrers[] | select(.artifactType == "application/vnd.syft+json") | .digest' \
-            | tail -n1)"
-          test -n "${SBOM_DIGEST}"
-          echo "digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
-
-      - name: Sign SBOM OCI artifact
-        run: |
-          IMAGE_FULL="${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}"
-          cosign sign -y "${IMAGE_FULL}@${{ steps.attach_sbom.outputs.digest }}"
-
-      - name: Attest image build provenance
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
-        with:
-          subject-name: ${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}
-          subject-digest: ${{ steps.current_image.outputs.digest }}
-          push-to-registry: true
-
-      - name: Generate SBOM-powered changelog
-        id: image_changelog
-        run: |
-          NOTES="image-changelog-${{ steps.prep.outputs.default_tag }}-${{ steps.date.outputs.date_short }}.md"
-          python3 .github/scripts/kyth_changelog.py \
-            --image "${{ env.IMAGE_REGISTRY }}/${{ env.IMAGE_NAME }}" \
-            --branch "${{ matrix.branch }}" \
-            --current-tag "${{ steps.prep.outputs.default_tag }}.${{ steps.date.outputs.date_short }}" \
-            --current-digest "${{ steps.current_image.outputs.digest }}" \
-            --previous-digest "${{ steps.previous_image.outputs.digest }}" \
-            --current-sha "${{ steps.checkout_sha.outputs.sha }}" \
-            --output "${NOTES}"
-          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
-
-      - name: Publish image changelog release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          TAG="image-${{ steps.prep.outputs.default_tag }}-${{ steps.date.outputs.date_short }}"
-          TITLE="Kyth Image — ${{ steps.prep.outputs.default_tag }}.${{ steps.date.outputs.date_short }}"
-          NOTES="${{ steps.image_changelog.outputs.path }}"
-          PRERELEASE=""
-          if [[ "${{ matrix.branch }}" != "main" ]]; then
-            PRERELEASE="--prerelease"
-          fi
-
-          if gh release view "${TAG}" &>/dev/null; then
-            gh release edit "${TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
-          else
-            gh release create "${TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
-          fi
