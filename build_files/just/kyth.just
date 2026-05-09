@@ -524,6 +524,7 @@ setup-kyth-dev-box:
     else
         echo "VS Code already installed."
     fi
+    kyth-vscode-wallet
 
     if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
         echo "${box} already exists."
@@ -547,6 +548,7 @@ install-vscode:
     set -euo pipefail
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     flatpak install -y flathub com.visualstudio.code
+    kyth-vscode-wallet
     echo
     echo "VS Code installed. Launch it from the app menu."
 

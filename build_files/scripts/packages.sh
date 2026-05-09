@@ -98,6 +98,7 @@ dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
     kwallet-pam \
+    bubblewrap \
     skopeo \
     plasma-workspace-x11 \
     xorg-x11-server-Xorg \
