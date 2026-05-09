@@ -65,6 +65,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - LatencyFleX — Vulkan implicit layer for frame-pacing in supported Wine/Proton games
 - steam-devices plus optional PC peripheral stack — game-devices udev rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
+- ASUS Linux support — CachyOS ASUS Armoury/WMI kernel modules plus `asusctl` and ASUS-gated `supergfxctl` service activation
 - CoreCtrl included when available from Fedora/RPM Fusion; LACT remains available via `ujust install-lact`
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems

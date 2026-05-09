@@ -31,9 +31,17 @@ safe_cmd lsblk -o NAME,SIZE,FSTYPE,TYPE,MOUNTPOINTS
 safe_cmd lspci -nnk
 
 section "Graphics Stack"
-safe_cmd rpm -q kernel-cachyos kernel-cachyos-core mesa-dri-drivers mesa-vulkan-drivers libdrm
+safe_cmd rpm -q kernel-cachyos kernel-cachyos-core mesa-dri-drivers mesa-vulkan-drivers libdrm asusctl supergfxctl
 safe_cmd sh -lc 'ls /usr/lib/modules | grep cachyos | head -1'
+safe_cmd sh -lc 'find /usr/lib/modules/$(uname -r) -name "asus-armoury.ko*" -o -name "asus-wmi.ko*" -o -name "asus-nb-wmi.ko*"'
 safe_cmd sh -lc 'for dev in /sys/class/drm/card*/device/power_dpm_force_performance_level; do printf "%s: %s\n" "$dev" "$(cat "$dev")"; done'
+
+section "ASUS Linux"
+safe_cmd sh -lc 'cat /sys/class/dmi/id/sys_vendor /sys/class/dmi/id/product_family /sys/class/dmi/id/product_name'
+safe_cmd systemctl status asusd.service --no-pager
+safe_cmd systemctl status supergfxd.service --no-pager
+safe_cmd asusctl --version
+safe_cmd supergfxctl --version
 
 section "KythOS Tunings"
 safe_cmd /usr/bin/kyth-kerver
