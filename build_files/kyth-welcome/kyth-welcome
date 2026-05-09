@@ -7457,6 +7457,7 @@ _INSTALL_VSCODE_CMD = [
     "flatpak remote-add --if-not-exists flathub "
     "https://dl.flathub.org/repo/flathub.flatpakrepo\n"
     "flatpak install --noninteractive -y flathub com.visualstudio.code\n"
+    "kyth-vscode-wallet\n"
     "echo 'VS Code installed. Launch it from the application menu.'",
 ]
 
@@ -7486,6 +7487,7 @@ if ! flatpak info com.visualstudio.code >/dev/null 2>&1; then
 else
     echo "VS Code already installed."
 fi
+kyth-vscode-wallet
 
 if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
     echo "${box} dev box already exists."

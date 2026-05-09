@@ -485,22 +485,9 @@ echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
 # ── VS Code Flatpak: KWallet keyring integration ─────────────────────────────
-# Without these, VS Code shows "OS keyring unavailable" on every launch and
-# falls back to unencrypted secret storage. argv.json selects kwallet6 as the
-# password store; the Flatpak override grants the D-Bus talk permissions the
-# sandbox needs to reach kwalletd6 / the freedesktop secrets service.
-mkdir -p /etc/skel/.var/app/com.visualstudio.code/config/Code
-cat > /etc/skel/.var/app/com.visualstudio.code/config/Code/argv.json <<'CODEARGVEOF'
-{
-  "password-store": "kwallet6"
-}
-CODEARGVEOF
-mkdir -p /etc/skel/.local/share/flatpak/overrides
-cat > /etc/skel/.local/share/flatpak/overrides/com.visualstudio.code <<'CODEFLATPAKEOF'
-[Session Bus Policy]
-org.kde.kwalletd6=talk
-org.freedesktop.secrets=talk
-CODEFLATPAKEOF
+# Seed new users with the same config that kyth-vscode-wallet applies to
+# existing users when they install VS Code from Welcome or ujust.
+HOME=/etc/skel KYTH_VSCODE_WALLET_SKIP_FLATPAK=1 /ctx/kyth-vscode-wallet
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
 # Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game
