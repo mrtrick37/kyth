@@ -849,6 +849,62 @@ install-openrgb:
     echo "If RGB RAM or motherboard headers are missing, load i2c kernel modules:"
     echo "  sudo modprobe i2c-dev i2c-piix4"
 
+# Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
+#
+# The first-boot service (kyth-enroll-mok.service) handles this automatically
+# when Secure Boot is active at install time. Use this recipe if you:
+#   - enabled Secure Boot after installing KythOS
+#   - need to re-enroll after a firmware reset
+#
+# After running, reboot and enter the password you chose at the MokManager screen.
+[group('KythOS')]
+enroll-secureboot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+
+    if [[ ! -f "${CERT}" ]]; then
+        echo "KythOS Secure Boot certificate not found." >&2
+        echo "This image was built without Secure Boot support." >&2
+        exit 1
+    fi
+
+    echo "━━━ KythOS Secure Boot Enrollment ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    if ! mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"; then
+        echo "  Secure Boot is not currently enabled in your firmware."
+        echo "  Enable it in your UEFI/BIOS settings, reboot, then run this again."
+        exit 0
+    fi
+
+    if mokutil --list-enrolled 2>/dev/null | grep -q "KythOS Secure Boot"; then
+        echo "  KythOS Secure Boot key is already enrolled. Nothing to do."
+        exit 0
+    fi
+
+    echo "  Enrolling KythOS Secure Boot certificate."
+    echo "  Choose a one-time confirmation password — you will enter it at the"
+    echo "  MokManager screen on next reboot to complete enrollment."
+    echo
+    read -rsp "  Enrollment password: " MOK_PASS
+    echo
+    read -rsp "  Confirm password:    " MOK_PASS2
+    echo
+    if [[ "${MOK_PASS}" != "${MOK_PASS2}" ]]; then
+        echo "  Passwords do not match." >&2
+        exit 1
+    fi
+
+    echo "${MOK_PASS}" | sudo mokutil --import "${CERT}" --stdin-passwd
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  MOK enrollment staged."
+    echo "  Reboot and enter your password at the blue MokManager screen."
+    echo "    systemctl reboot"
+
 # Install NVIDIA proprietary drivers on KythOS.
 #
 # Runs in two phases — just re-run after each reboot prompt:

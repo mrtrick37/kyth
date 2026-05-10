@@ -1,0 +1,15 @@
+[Unit]
+Description=KythOS Secure Boot MOK enrollment
+Documentation=https://github.com/mrtrick37/kyth
+After=local-fs.target
+ConditionPathExists=!/var/lib/kyth/mok-enrolled
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-enroll-mok
+RemainAfterExit=yes
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
