@@ -1617,6 +1617,14 @@ def _akmod_nvidia_built() -> bool:
         return False
 
 
+def _akmod_nvidia_installed() -> bool:
+    try:
+        r = subprocess.run(["rpm", "-q", "akmod-nvidia"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
         return ("#0f2a31", "#5ee6c1", "OK")
@@ -4017,6 +4025,7 @@ class NvidiaPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._staged_layer = False
 
         self._page_header(
             "System",
@@ -4067,6 +4076,7 @@ class NvidiaPage(Page):
         has_gpu = _detect_nvidia()
         loaded = _nvidia_module_loaded()
         built = _akmod_nvidia_built()
+        installed = _akmod_nvidia_installed()
 
         if not has_gpu:
             self._sub.setText("No NVIDIA GPU detected in this system.")
@@ -4084,16 +4094,53 @@ class NvidiaPage(Page):
             self._status_lbl.setObjectName("status-warn")
             self._install_btn.hide()
             self._reboot_btn.show()
+        elif self._staged_layer:
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText("akmod-nvidia staged — reboot, then reopen this app to build the driver.")
+            self._status_lbl.setObjectName("status-warn")
+            self._install_btn.hide()
+            self._reboot_btn.show()
+        elif installed:
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText("akmod-nvidia is installed. Click below to compile the kernel module.")
+            self._status_lbl.setObjectName("subheading")
+            self._install_btn.setText("Build Driver")
+            self._install_btn.show()
         else:
             self._sub.setText("NVIDIA GPU detected — drivers not installed.")
-            self._status_lbl.setText("Click below to compile and stage the NVIDIA kernel module via akmods.")
+            self._status_lbl.setText(
+                "Step 1/2: Click below to layer the akmod-nvidia package via rpm-ostree.\n"
+                "A reboot is required after this step."
+            )
             self._status_lbl.setObjectName("subheading")
+            self._install_btn.setText("Install NVIDIA Drivers")
             self._install_btn.show()
 
         _restyle(self._sub)
         _restyle(self._status_lbl)
 
     def _run_install(self):
+        if not _akmod_nvidia_installed():
+            self._layer_package()
+        else:
+            self._build_module()
+
+    def _layer_package(self):
+        cmd = ["sudo", "rpm-ostree", "install", "--idempotent", "akmod-nvidia"]
+        self._log.clear()
+        self._log.append("→ Layering akmod-nvidia via rpm-ostree…\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._install_btn.setEnabled(False)
+
+        self._worker = Worker(cmd)
+        _set_session_inhibit(self, "KythOS is staging NVIDIA driver package")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_layer_done)
+        self._worker.start()
+
+    def _build_module(self):
         kargs = (
             "rd.driver.blacklist=nouveau,nova_core "
             "modprobe.blacklist=nouveau,nova_core "
@@ -4101,18 +4148,19 @@ class NvidiaPage(Page):
         )
         cmd = [
             "sudo", "bash", "-c",
-            f"grubby --update-kernel=ALL --args='{kargs}' && "
+            "rm -f /var/lib/kyth/nvidia-setup-done && "
+            f"grubby --update-kernel=ALL --args='{kargs}' ; "
             'akmods --force --kernels "$(uname -r)"',
         ]
         self._log.clear()
-        self._log.append("→ Installing NVIDIA drivers via akmods…\n")
+        self._log.append("→ Building NVIDIA kernel module via akmods…\n")
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._install_btn.setEnabled(False)
 
         self._worker = Worker(cmd)
-        _set_session_inhibit(self, "KythOS is installing NVIDIA drivers")
+        _set_session_inhibit(self, "KythOS is building NVIDIA kernel module")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -4120,6 +4168,21 @@ class NvidiaPage(Page):
     def _on_line(self, text: str):
         self._log.append(text)
         self._log.ensureCursorVisible()
+
+    def _on_layer_done(self, code: int):
+        self._progress.hide()
+        self._install_btn.setEnabled(True)
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+
+        if code == 0:
+            self._staged_layer = True
+            self._log.append("\nakmod-nvidia staged. Reboot, then reopen Welcome App to build the kernel module.")
+            self._reboot_btn.show()
+            self._install_btn.hide()
+        else:
+            self._log.append(f"\nFailed to stage akmod-nvidia (exit code {code}).")
+        self._refresh_status()
 
     def _on_done(self, code: int):
         self._progress.hide()

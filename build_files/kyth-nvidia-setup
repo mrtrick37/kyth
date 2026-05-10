@@ -25,6 +25,13 @@ if modinfo nvidia &>/dev/null; then
     exit 0
 fi
 
+# akmod-nvidia not yet layered — user must install it first.
+# Exit without writing FLAG so this service retries on the next boot after they do.
+if ! rpm -q akmod-nvidia &>/dev/null; then
+    echo "kyth-nvidia-setup: akmod-nvidia not installed — run: ujust install-nvidia-driver"
+    exit 0
+fi
+
 echo "kyth-nvidia-setup: NVIDIA GPU detected — building kernel module via akmods"
 echo "kyth-nvidia-setup: this may take 5-15 minutes on first boot"
 
