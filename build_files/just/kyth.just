@@ -849,6 +849,79 @@ install-openrgb:
     echo "If RGB RAM or motherboard headers are missing, load i2c kernel modules:"
     echo "  sudo modprobe i2c-dev i2c-piix4"
 
+# Install NVIDIA proprietary drivers on KythOS.
+#
+# Runs in two phases — just re-run after each reboot prompt:
+#
+#   Phase 1: Layers akmod-nvidia via rpm-ostree (requires a reboot).
+#   Phase 2: Compiles the kernel module via akmods (requires a final reboot).
+#
+# Usage:
+#   ujust install-nvidia-driver          # run once, reboot when prompted, repeat
+[group('KythOS')]
+install-nvidia-driver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "━━━ KythOS NVIDIA Driver Wizard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    # ── GPU detection ─────────────────────────────────────────────────────────
+    if ! lspci | grep -qi nvidia; then
+        echo "  No NVIDIA GPU detected. Nothing to install."
+        exit 0
+    fi
+    echo "  NVIDIA GPU detected."
+    echo
+
+    # ── Already active ────────────────────────────────────────────────────────
+    if modinfo nvidia &>/dev/null && lsmod | grep -q "^nvidia "; then
+        echo "  NVIDIA driver is already active. Nothing to do."
+        exit 0
+    fi
+
+    # ── Phase 1: layer the source package ────────────────────────────────────
+    if ! rpm -q akmod-nvidia &>/dev/null; then
+        echo "  Phase 1/2 — Layering akmod-nvidia via rpm-ostree."
+        echo "  A reboot is required after this step."
+        echo
+        sudo rpm-ostree install --idempotent akmod-nvidia
+        echo
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  akmod-nvidia has been staged."
+        echo
+        echo "  Next steps:"
+        echo "    1. Reboot:             systemctl reboot"
+        echo "    2. After reboot, run:  ujust install-nvidia-driver"
+        exit 0
+    fi
+
+    # ── Module already built — reboot to activate ─────────────────────────────
+    if modinfo nvidia &>/dev/null; then
+        echo "  Kernel module is already built. Reboot to activate the driver."
+        echo "    systemctl reboot"
+        exit 0
+    fi
+
+    # ── Phase 2: compile the kernel module ───────────────────────────────────
+    echo "  Phase 2/2 — Compiling kernel module via akmods."
+    echo "  This may take 5–15 minutes on first compile…"
+    echo
+
+    KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+    sudo grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null || \
+        echo "  (grubby: non-fatal — kargs.d applies on next deployment)"
+
+    sudo rm -f /var/lib/kyth/nvidia-setup-done
+    sudo akmods --force --kernels "$(uname -r)"
+    sudo touch /var/lib/kyth/nvidia-setup-done
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  NVIDIA driver compiled successfully."
+    echo "  Reboot to activate:"
+    echo "    systemctl reboot"
+
 # Check for and apply firmware updates via fwupd.
 [group('KythOS')]
 firmware-update:
