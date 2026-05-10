@@ -291,6 +291,11 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
 # Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
 # Requires build-base to have run first.
 # Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
+#
+# Secure Boot signing (optional):
+#   Export MOK_KEY with the PEM private key contents before building:
+#     export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
+#     just build
 [group('Build')]
 build: build-base
     #!/usr/bin/env bash
@@ -305,11 +310,19 @@ build: build-base
         | python3 -c 'import sys, json; print(json.load(sys).get("tag_name", ""))' \
         2>/dev/null || true)
     echo "GE-Proton: ${GE_PROTON_VER:-latest}"
+    MOK_SECRET_ARG=()
+    if [[ -n "${MOK_KEY:-}" ]]; then
+        echo "Secure Boot: MOK_KEY set — vmlinuz will be signed"
+        MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+    else
+        echo "Secure Boot: MOK_KEY not set — signing skipped (set MOK_KEY to enable)"
+    fi
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
         --build-arg GE_PROTON_VER="${GE_PROTON_VER}" \
         --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
+        "${MOK_SECRET_ARG[@]}" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \
         --load \
