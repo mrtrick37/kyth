@@ -7,10 +7,12 @@ accessible from the application menu.
 
 import configparser
 import glob
+import hashlib
 import os
 import sys
 import json
 import re
+import signal
 import shlex
 import shutil
 import subprocess
@@ -29,6 +31,7 @@ from PyQt6.QtWidgets import (
     QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
     QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
     QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
+    QDialogButtonBox,
 )
 from PyQt6.QtCore import Qt, QThread, pyqtSignal, QTimer, QUrl, QLibraryInfo
 from PyQt6.QtGui import QDesktopServices, QIcon
@@ -764,12 +767,31 @@ QFrame#hw-card-dim {
 
 # ── Worker thread ──────────────────────────────────────────────────────────────
 class Worker(QThread):
+    CANCELLED = 130
+
     line = pyqtSignal(str)
     done = pyqtSignal(int)
 
     def __init__(self, cmd: list[str]):
         super().__init__()
         self._cmd = cmd
+        self._proc: subprocess.Popen[str] | None = None
+        self._cancel_requested = False
+
+    def cancel(self):
+        self._cancel_requested = True
+        proc = self._proc
+        if proc is None or proc.poll() is not None:
+            return
+        try:
+            os.killpg(proc.pid, signal.SIGTERM)
+        except ProcessLookupError:
+            return
+        except Exception:
+            try:
+                proc.terminate()
+            except Exception:
+                return
 
     def run(self):
         try:
@@ -785,14 +807,21 @@ class Worker(QThread):
                 bufsize=1,
                 env=env,
                 cwd="/tmp",
+                start_new_session=True,
             )
+            self._proc = proc
             for ln in proc.stdout:
                 self.line.emit(ln.rstrip())
             proc.wait()
-            self.done.emit(proc.returncode)
+            if self._cancel_requested:
+                self.done.emit(self.CANCELLED)
+            else:
+                self.done.emit(proc.returncode)
         except Exception as exc:
             self.line.emit(f"Error: {exc}")
             self.done.emit(1)
+        finally:
+            self._proc = None
 
 
 class DownloadMonitor(QThread):
@@ -834,6 +863,70 @@ class DownloadMonitor(QThread):
             self.stats.emit(downloaded, self._total, avg_speed, eta_sec)
 
 
+class UpdateCheckWorker(QThread):
+    """Checks if a newer image is available in the registry without downloading anything.
+    Compares the local booted digest against the remote manifest via skopeo inspect.
+    Emits result(state, remote_ts) where state is 'available', 'uptodate', or 'error'."""
+    result = pyqtSignal(str, str)
+
+    def run(self):
+        local_data = _bootc_status_data() or {}
+        booted = _nested_get(local_data, ("status", "booted")) or {}
+        local_digest = None
+        for path in (
+            ("image", "imageDigest"),
+            ("image", "digest"),
+            ("imageDigest",),
+            ("digest",),
+        ):
+            v = _nested_get(booted, path)
+            if isinstance(v, str) and v.startswith("sha256:"):
+                local_digest = v
+                break
+
+        tag = _current_branch() or "latest"
+        ref = f"{REGISTRY}:{tag}"
+
+        try:
+            r = subprocess.run(
+                ["skopeo", "inspect", "--raw", "--no-creds", f"docker://{ref}"],
+                capture_output=True, timeout=45,
+            )
+        except FileNotFoundError:
+            self.result.emit("error", "")
+            return
+        except subprocess.TimeoutExpired:
+            self.result.emit("error", "")
+            return
+        except Exception:
+            self.result.emit("error", "")
+            return
+
+        if r.returncode != 0:
+            self.result.emit("error", "")
+            return
+
+        # Hash the raw manifest bytes to get the canonical index digest — this matches
+        # what bootc stores in imageDigest (the OCI image index digest), unlike
+        # `skopeo inspect` (non-raw) which returns the amd64 manifest digest instead.
+        remote_digest = "sha256:" + hashlib.sha256(r.stdout).hexdigest()
+
+        remote_ts = ""
+        try:
+            annotations = (json.loads(r.stdout).get("annotations") or {})
+            raw_ts = annotations.get("org.opencontainers.image.created", "")
+            if raw_ts:
+                dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).astimezone()
+                remote_ts = dt.strftime("%Y-%m-%d %H:%M %Z")
+        except Exception:
+            pass
+
+        if local_digest and remote_digest == local_digest:
+            self.result.emit("uptodate", remote_ts)
+        else:
+            self.result.emit("available", remote_ts)
+
+
 # ── Hardware probe dataclass + worker ─────────────────────────────────────────
 @dataclass
 class HardwareProbe:
@@ -863,6 +956,31 @@ def _finish_worker(owner: object, attr: str = "_worker") -> None:
     worker.wait()
     worker.deleteLater()
     setattr(owner, attr, None)
+
+
+def _cancel_worker(
+    owner: object,
+    attr: str = "_worker",
+    status_lbl: QLabel | None = None,
+    log: QTextEdit | None = None,
+    cancel_btn: QPushButton | None = None,
+    message: str = "Cancelling...",
+) -> bool:
+    worker = getattr(owner, attr, None)
+    if worker is None or not worker.isRunning() or not hasattr(worker, "cancel"):
+        return False
+    if cancel_btn is not None:
+        cancel_btn.setEnabled(False)
+    if status_lbl is not None:
+        status_lbl.setText(message)
+        status_lbl.setObjectName("status-warn")
+        status_lbl.show()
+        _restyle(status_lbl)
+    if log is not None:
+        log.append("\nCancel requested. Waiting for the running command to stop...")
+        log.ensureCursorVisible()
+    worker.cancel()
+    return True
 
 
 def _set_session_inhibit(owner: object, reason: str | None = None) -> None:
@@ -1497,6 +1615,31 @@ def _akmod_nvidia_built() -> bool:
         return r.returncode == 0
     except Exception:
         return False
+
+
+def _akmod_nvidia_installed() -> bool:
+    try:
+        r = subprocess.run(["rpm", "-q", "akmod-nvidia"], capture_output=True, text=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _hw_setup_service_state() -> str:
+    """Returns the systemd active state of kyth-hw-setup.service.
+    Possible values: 'activating' (running), 'active' (done), 'failed', 'inactive', or ''."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "kyth-hw-setup.service"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _hw_setup_done() -> bool:
+    return os.path.exists("/var/lib/kyth/hw-setup-done")
 
 
 def _status_palette(status: str) -> tuple[str, str, str]:
@@ -2831,6 +2974,9 @@ class UpdatePage(Page):
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
+        self._check_worker = None
+        self._check_state = "idle"   # idle | checking | available | uptodate | error
+        self._check_ts = ""
 
         self._page_header(
             "System",
@@ -2868,6 +3014,37 @@ class UpdatePage(Page):
             summary_layout.addLayout(row)
 
         self._add(self._summary_card)
+
+        # ── Update availability ───────────────────────────────────────────────
+        avail_card, avail_layout = _make_card()
+        avail_layout.setSpacing(6)
+
+        avail_top = QHBoxLayout()
+        avail_top.setSpacing(10)
+        self._avail_dot = QLabel("●")
+        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+        avail_top.addWidget(self._avail_dot)
+        self._avail_title = QLabel("Checking for updates…")
+        self._avail_title.setObjectName("card-title")
+        avail_top.addWidget(self._avail_title)
+        avail_top.addStretch()
+        self._check_btn = QPushButton("Check Now")
+        self._check_btn.setEnabled(False)
+        self._check_btn.clicked.connect(self._check_for_update)
+        avail_top.addWidget(self._check_btn)
+        self._update_now_btn = QPushButton("Update Now")
+        self._update_now_btn.setObjectName("primary")
+        self._update_now_btn.hide()
+        self._update_now_btn.clicked.connect(self._run_topgrade)
+        avail_top.addWidget(self._update_now_btn)
+        avail_layout.addLayout(avail_top)
+
+        self._avail_lbl = QLabel()
+        self._avail_lbl.setObjectName("card-copy")
+        self._avail_lbl.setWordWrap(True)
+        avail_layout.addWidget(self._avail_lbl)
+        self._avail_card = avail_card
+        self._add(self._avail_card)
 
         # Action buttons
         btn_row = QHBoxLayout()
@@ -3268,10 +3445,12 @@ class UpdatePage(Page):
                 self._status_lbl.setText("Update complete — everything is up to date.")
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nDone. All managed tools and apps are up to date.")
+                self._check_for_update()
             else:
                 self._status_lbl.setText("Already on the latest deployment — no image update was staged.")
                 self._status_lbl.setObjectName("status-ok")
                 self._log.append("\nNo OS image update was staged. System is current.")
+                self._check_for_update()
         else:
             label = {
                 "topgrade": "topgrade", "update": "bootc upgrade",
@@ -3362,6 +3541,53 @@ class UpdatePage(Page):
             self._testing_build_lbl.hide()
         _restyle(self._stable_btn)
         _restyle(self._testing_btn)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._check_state == "idle":
+            self._check_for_update()
+
+    def _check_for_update(self):
+        if self._check_worker and self._check_worker.isRunning():
+            return
+        self._check_state = "checking"
+        self._check_btn.setEnabled(False)
+        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+        self._avail_title.setText("Checking for updates…")
+        self._avail_lbl.setText("")
+        self._update_now_btn.hide()
+        self._check_worker = UpdateCheckWorker()
+        self._check_worker.result.connect(self._on_check_result)
+        self._check_worker.start()
+
+    def _on_check_result(self, state: str, remote_ts: str):
+        self._check_state = state
+        self._check_ts = datetime.now().strftime("%H:%M")
+        self._check_btn.setEnabled(True)
+        ts_hint = f"  ·  Checked at {self._check_ts}"
+
+        if state == "available":
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #e8a838;")
+            self._avail_title.setText("Update available")
+            built = f"  ·  built {remote_ts}" if remote_ts else ""
+            self._avail_lbl.setText(
+                f"A new KythOS image is available{built}. "
+                f"Run Full Update to download and stage it for your next reboot.{ts_hint}"
+            )
+            self._update_now_btn.show()
+        elif state == "uptodate":
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #57cbde;")
+            self._avail_title.setText("Up to date")
+            built = f"  ·  built {remote_ts}" if remote_ts else ""
+            self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
+            self._update_now_btn.hide()
+        else:
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+            self._avail_title.setText("Check unavailable")
+            self._avail_lbl.setText(
+                f"Could not reach the registry — check your network connection.{ts_hint}"
+            )
+            self._update_now_btn.hide()
 
 
 # ── Page: Branches ────────────────────────────────────────────────────────────
@@ -3816,11 +4042,14 @@ class NvidiaPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(8000)
+        self._poll_timer.timeout.connect(self._refresh_status)
 
         self._page_header(
             "System",
             "NVIDIA Drivers",
-            "Install and verify proprietary NVIDIA kernel modules.",
+            "Build and verify proprietary NVIDIA kernel modules.",
         )
         self._sub = self._subheading("")
 
@@ -3829,7 +4058,7 @@ class NvidiaPage(Page):
         self._add(self._status_lbl)
 
         btn_row = QHBoxLayout()
-        self._install_btn = QPushButton("Install NVIDIA Drivers")
+        self._install_btn = QPushButton("Build Driver Now")
         self._install_btn.setObjectName("primary")
         self._install_btn.clicked.connect(self._run_install)
         btn_row.addWidget(self._install_btn)
@@ -3866,33 +4095,86 @@ class NvidiaPage(Page):
         has_gpu = _detect_nvidia()
         loaded = _nvidia_module_loaded()
         built = _akmod_nvidia_built()
+        installed = _akmod_nvidia_installed()
+        svc_state = _hw_setup_service_state()
+        auto_building = svc_state == "activating"
+
+        # Keep polling while the background service is compiling.
+        if auto_building and not self._poll_timer.isActive():
+            self._poll_timer.start()
+        elif not auto_building:
+            self._poll_timer.stop()
 
         if not has_gpu:
             self._sub.setText("No NVIDIA GPU detected in this system.")
             self._status_lbl.setText("No NVIDIA hardware found.")
             self._status_lbl.setObjectName("status-dim")
             self._install_btn.hide()
+            self._progress.hide()
         elif loaded:
             self._sub.setText("NVIDIA GPU detected.")
             self._status_lbl.setText("Drivers are active and the kernel module is loaded.")
             self._status_lbl.setObjectName("status-ok")
             self._install_btn.hide()
+            self._progress.hide()
         elif built:
             self._sub.setText("NVIDIA GPU detected.")
             self._status_lbl.setText("Drivers installed — reboot to activate.")
             self._status_lbl.setObjectName("status-warn")
             self._install_btn.hide()
+            self._progress.hide()
             self._reboot_btn.show()
-        else:
-            self._sub.setText("NVIDIA GPU detected — drivers not installed.")
-            self._status_lbl.setText("Click below to compile and stage the NVIDIA kernel module via akmods.")
+        elif auto_building:
+            # kyth-hw-setup is running akmods in the background right now.
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText(
+                "Building NVIDIA kernel module automatically — this takes 5–15 minutes.\n"
+                "You can keep using the system. This page will update when the build finishes."
+            )
             self._status_lbl.setObjectName("subheading")
+            self._install_btn.hide()
+            self._progress.setRange(0, 0)
+            self._progress.show()
+        elif _hw_setup_done() and svc_state == "failed":
+            # Service ran but akmods failed — offer a manual retry.
+            self._sub.setText("NVIDIA GPU detected — automatic build failed.")
+            self._status_lbl.setText(
+                "kyth-hw-setup could not build the kernel module. "
+                "Check journalctl -u kyth-hw-setup for details, then click below to retry."
+            )
+            self._status_lbl.setObjectName("status-err")
+            self._install_btn.setText("Retry Build")
             self._install_btn.show()
+            self._progress.hide()
+        elif installed:
+            # Service hasn't run yet or was reset — offer a manual kick-off.
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText(
+                "Kernel module will be compiled automatically on next boot, "
+                "or click below to build it now."
+            )
+            self._status_lbl.setObjectName("subheading")
+            self._install_btn.setText("Build Driver Now")
+            self._install_btn.show()
+            self._progress.hide()
+        else:
+            # akmod-nvidia missing — should never happen on a correctly built image.
+            self._sub.setText("NVIDIA GPU detected — driver package missing.")
+            self._status_lbl.setText(
+                "akmod-nvidia is not installed. This is unexpected on KythOS.\n"
+                "Run: rpm-ostree install akmod-nvidia, then reboot and return here."
+            )
+            self._status_lbl.setObjectName("status-err")
+            self._install_btn.hide()
+            self._progress.hide()
 
         _restyle(self._sub)
         _restyle(self._status_lbl)
 
     def _run_install(self):
+        self._build_module()
+
+    def _build_module(self):
         kargs = (
             "rd.driver.blacklist=nouveau,nova_core "
             "modprobe.blacklist=nouveau,nova_core "
@@ -3900,18 +4182,19 @@ class NvidiaPage(Page):
         )
         cmd = [
             "sudo", "bash", "-c",
-            f"grubby --update-kernel=ALL --args='{kargs}' && "
+            "rm -f /var/lib/kyth/hw-setup-done && "
+            f"grubby --update-kernel=ALL --args='{kargs}' ; "
             'akmods --force --kernels "$(uname -r)"',
         ]
         self._log.clear()
-        self._log.append("→ Installing NVIDIA drivers via akmods…\n")
+        self._log.append("→ Building NVIDIA kernel module via akmods…\n")
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
         self._install_btn.setEnabled(False)
 
         self._worker = Worker(cmd)
-        _set_session_inhibit(self, "KythOS is installing NVIDIA drivers")
+        _set_session_inhibit(self, "KythOS is building NVIDIA kernel module")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -4080,7 +4363,7 @@ class GamingPage(Page):
             "Apps",
             "Gaming",
             "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
-            "Install Steam and Lutris below, then add the right launch options to your games.",
+            "Steam, Heroic, Lutris, and Proton tools are installed on first boot.",
         )
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
@@ -4089,10 +4372,9 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Steam and Lutris are optional installs — click Install below to add them. "
-            "Heroic is installed by default for Epic, GOG, and Amazon libraries. "
+            "Steam, Heroic, Lutris, ProtonUp-Qt, and protontricks are part of the game-ready setup. "
             "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
-            "All tools are also available via the corresponding ujust recipe."
+            "Additional launchers and device tools are available here or via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
         tools_sub.setWordWrap(True)
@@ -4102,14 +4384,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.valvesoftware.Steam",
                 "name": "Steam",
-                "desc": "Valve's gaming platform — thousands of native Linux games plus Windows games via Proton.",
+                "desc": "Installed on first boot — Valve's gaming platform plus Windows games via Proton.",
                 "ujust": "install-steam",
                 "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
             },
             {
                 "flatpak": "net.lutris.Lutris",
                 "name": "Lutris",
-                "desc": "Open gaming platform for Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "desc": "Installed on first boot — Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
                 "ujust": "install-lutris",
                 "launch": ["flatpak", "run", "net.lutris.Lutris"],
             },
@@ -4162,6 +4444,20 @@ class GamingPage(Page):
                 "ujust": "install-openrgb",
                 "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
             },
+            {
+                "flatpak": "io.github.benjamimgois.goverlay",
+                "name": "GOverlay",
+                "desc": "Graphical tuning for MangoHud, vkBasalt, and OptiScaler presets.",
+                "ujust": "install-goverlay",
+                "launch": ["flatpak", "run", "io.github.benjamimgois.goverlay"],
+            },
+            {
+                "flatpak": "io.github.radiolamp.mangojuice",
+                "name": "MangoJuice",
+                "desc": "Lightweight MangoHud configuration editor for overlay layout and metrics.",
+                "ujust": "install-mangojuice",
+                "launch": ["flatpak", "run", "io.github.radiolamp.mangojuice"],
+            },
         ]
 
         # Build tiles in a 2-column grid
@@ -4177,6 +4473,32 @@ class GamingPage(Page):
             if len(self._TOOLS[i:i + 2]) == 1:
                 row_layout.addStretch(1)
             self._add_layout(row_layout)
+
+        tuning_card, tuning_layout = _make_card()
+        tuning_title = QLabel("Advanced GPU and Capture Tools")
+        tuning_title.setObjectName("card-title")
+        tuning_layout.addWidget(tuning_title)
+        tuning_desc = QLabel(
+            "LACT and CoreCtrl cover AMD GPU tuning, while OBS uses the built-in "
+            "obs-vkcapture and v4l2loopback support for game capture and virtual camera workflows."
+        )
+        tuning_desc.setObjectName("card-copy")
+        tuning_desc.setWordWrap(True)
+        tuning_layout.addWidget(tuning_desc)
+        tuning_btns = QHBoxLayout()
+        tuning_btns.setSpacing(8)
+        lact_btn = QPushButton("Install LACT")
+        lact_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-lact"], "Install LACT"))
+        tuning_btns.addWidget(lact_btn)
+        corectrl_btn = QPushButton("Open CoreCtrl")
+        corectrl_btn.clicked.connect(lambda _=False: self._open_corectrl())
+        tuning_btns.addWidget(corectrl_btn)
+        obs_btn = QPushButton("Install OBS")
+        obs_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-obs"], "Install OBS"))
+        tuning_btns.addWidget(obs_btn)
+        tuning_btns.addStretch()
+        tuning_layout.addLayout(tuning_btns)
+        self._add(tuning_card)
 
         self._divider()
         launcher_head = QLabel("Launcher setup")
@@ -4310,9 +4632,10 @@ class GamingPage(Page):
         gs_layout.addWidget(gs_desc)
 
         for label, opt in (
-            ("Standard:",   "gamescope -e -- %command%"),
-            ("HDR display:", "gamescope -e --hdr-enabled --adaptive-sync -- %command%"),
-            ("ujust recipe:", "ujust gamescope -- %command%"),
+            ("Quality preset:", "kyth-gamescope quality -- %command%"),
+            ("HDR display:", "kyth-gamescope hdr --fps 120 -- %command%"),
+            ("Sharp upscaling:", "kyth-gamescope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%"),
+            ("ujust recipe:", "ujust game-scope quality -- %command%"),
         ):
             row = QHBoxLayout()
             row.setSpacing(10)
@@ -4325,6 +4648,59 @@ class GamingPage(Page):
             row.addStretch()
             gs_layout.addLayout(row)
         self._add(gs_card)
+
+        # ── sched-ext ────────────────────────────────────────────────────────
+        scx_card, scx_layout = _make_card()
+        scx_top = QHBoxLayout()
+        scx_title = QLabel("sched-ext — CPU Scheduler")
+        scx_title.setObjectName("card-title")
+        scx_top.addWidget(scx_title)
+        scx_top.addStretch()
+        self._scx_badge = QLabel()
+        self._scx_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        scx_top.addWidget(self._scx_badge)
+        scx_layout.addLayout(scx_top)
+        scx_desc = QLabel(
+            "KythOS uses CachyOS sched-ext support for latency-focused gaming. "
+            "lavd is the default all-rounder; rusty and bpfland are useful alternates for testing."
+        )
+        scx_desc.setObjectName("card-copy")
+        scx_desc.setWordWrap(True)
+        scx_layout.addWidget(scx_desc)
+        self._scx_status_lbl = QLabel()
+        self._scx_status_lbl.setObjectName("card-copy")
+        scx_layout.addWidget(self._scx_status_lbl)
+        scx_btns = QHBoxLayout()
+        scx_btns.setSpacing(8)
+        for label, scheduler in (
+            ("Use lavd", "lavd"),
+            ("Use rusty", "rusty"),
+            ("Use bpfland", "bpfland"),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, sched=scheduler: self._set_scx_scheduler(sched))
+            scx_btns.addWidget(btn)
+        self._scx_stop_btn = QPushButton("Stop scx")
+        self._scx_stop_btn.clicked.connect(lambda _=False: self._set_scx_scheduler("stop"))
+        scx_btns.addWidget(self._scx_stop_btn)
+        scx_btns.addStretch()
+        scx_layout.addLayout(scx_btns)
+        self._scx_progress = QProgressBar()
+        self._scx_progress.setRange(0, 0)
+        self._scx_progress.hide()
+        scx_layout.addWidget(self._scx_progress)
+        self._scx_log_toggle = QPushButton("Show details")
+        self._scx_log_toggle.setCheckable(True)
+        self._scx_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._scx_log_toggle, self._scx_log, checked))
+        self._scx_log_toggle.hide()
+        scx_layout.addWidget(self._scx_log_toggle)
+        self._scx_log = QTextEdit()
+        self._scx_log.setReadOnly(True)
+        self._scx_log.setMaximumHeight(100)
+        self._scx_log.hide()
+        scx_layout.addWidget(self._scx_log)
+        self._scx_worker = None
+        self._add(scx_card)
 
         # ── GE-Proton ─────────────────────────────────────────────────────────
         gp_card, gp_layout = _make_card()
@@ -4422,11 +4798,11 @@ class GamingPage(Page):
         combo_txt.setMinimumHeight(160)
         combo_txt.setPlainText(
             "# All-rounder: MangoHud overlay + Gamescope compositor\n"
-            "MANGOHUD=1 gamescope -e -- %command%\n\n"
+            "kyth-gamescope quality -- %command%\n\n"
             "# Same but with HDR (requires HDR display)\n"
-            "MANGOHUD=1 gamescope -e --hdr-enabled --adaptive-sync -- %command%\n\n"
+            "kyth-gamescope hdr -- %command%\n\n"
             "# Add CAS sharpening via vkBasalt\n"
-            "MANGOHUD=1 ENABLE_VKBASALT=1 gamescope -e -- %command%\n\n"
+            "kyth-gamescope sharp -- %command%\n\n"
             "# GameMode + performance profile (CPU/GPU governors, renice)\n"
             "ujust game-performance -- %command%"
         )
@@ -4624,6 +5000,18 @@ class GamingPage(Page):
         _apply_install_badge(self._mh_badge, _mangohud_installed())
         _apply_install_badge(self._gs_badge, _gamescope_installed())
         _apply_install_badge(self._vk_badge, _vkbasalt_installed())
+        scx_status = _command_stdout(["kyth-scx", "status"], timeout=5)
+        scx_active = "Service: active" in scx_status
+        _apply_install_badge(self._scx_badge, scx_active, ok_text="Active", warn_text="Inactive")
+        if scx_status:
+            configured = "unknown"
+            for line in scx_status.splitlines():
+                if line.startswith("Configured scheduler:"):
+                    configured = line.split(":", 1)[1].strip() or "unknown"
+                    break
+            self._scx_status_lbl.setText(f"Configured: {configured}")
+        else:
+            self._scx_status_lbl.setText("sched-ext status unavailable.")
 
         gp_ver = _ge_proton_version()
         _apply_install_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
@@ -4639,6 +5027,57 @@ class GamingPage(Page):
             refs["uninstall"].setVisible(installed)
 
     # ── Tool install ───────────────────────────────────────────────────────────
+
+    def _open_corectrl(self):
+        if shutil.which("corectrl"):
+            subprocess.Popen(["corectrl"])
+            return
+        QMessageBox.information(
+            self,
+            "CoreCtrl",
+            "CoreCtrl is not installed in this image. Use LACT for AMD GPU tuning, or rebuild with CoreCtrl available in the package repos.",
+        )
+
+    def _set_scx_scheduler(self, scheduler: str):
+        if self._scx_worker and self._scx_worker.isRunning():
+            return
+
+        if scheduler == "stop":
+            cmd = ["kyth-scx", "stop"]
+            label = "Stopping sched-ext loader"
+        else:
+            cmd = ["kyth-scx", "set", scheduler]
+            label = f"Switching sched-ext scheduler to {scheduler}"
+
+        self._scx_log.clear()
+        self._scx_log.append(f"→ {' '.join(cmd)}\n")
+        self._scx_log_toggle.show()
+        _set_log_panel(self._scx_log_toggle, self._scx_log, False)
+        self._scx_progress.show()
+        self._scx_status_lbl.setText(f"{label}…")
+        self._scx_status_lbl.setObjectName("subheading")
+        _restyle(self._scx_status_lbl)
+
+        self._scx_worker = Worker(cmd)
+        self._scx_worker.line.connect(lambda ln: (
+            self._scx_log.append(ln),
+            self._scx_log.ensureCursorVisible(),
+        ))
+        self._scx_worker.done.connect(lambda code: self._on_scx_done(code))
+        self._scx_worker.start()
+
+    def _on_scx_done(self, code: int):
+        self._scx_progress.hide()
+        _finish_worker(self, attr="_scx_worker")
+        if code == 0:
+            self._scx_status_lbl.setText("sched-ext updated.")
+            self._scx_status_lbl.setObjectName("status-ok")
+            self._scx_log.append("\nDone.")
+        else:
+            self._scx_status_lbl.setText(f"sched-ext update failed (exit {code}).")
+            self._scx_status_lbl.setObjectName("status-err")
+        _restyle(self._scx_status_lbl)
+        self._refresh_status()
 
     def _open_heroic_for_epic(self):
         cmd = ["flatpak", "run", "com.heroicgameslauncher.hgl"]
@@ -6630,7 +7069,7 @@ class ContentCreationPage(Page):
             {
                 "flatpak": "com.obsproject.Studio",
                 "name": "OBS Studio",
-                "desc": "Screen recording and live streaming. Virtual cameras, scenes, and plugin support.",
+                "desc": "Screen recording and live streaming with obs-vkcapture-ready game capture.",
                 "ujust": "install-obs",
                 "launch": ["flatpak", "run", "com.obsproject.Studio"],
             },
@@ -7100,6 +7539,7 @@ _INSTALL_VSCODE_CMD = [
     "flatpak remote-add --if-not-exists flathub "
     "https://dl.flathub.org/repo/flathub.flatpakrepo\n"
     "flatpak install --noninteractive -y flathub com.visualstudio.code\n"
+    "kyth-vscode-wallet\n"
     "echo 'VS Code installed. Launch it from the application menu.'",
 ]
 
@@ -7129,6 +7569,7 @@ if ! flatpak info com.visualstudio.code >/dev/null 2>&1; then
 else
     echo "VS Code already installed."
 fi
+kyth-vscode-wallet
 
 if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
     echo "${box} dev box already exists."
@@ -7434,7 +7875,16 @@ class SecurityPage(Page):
                 "copying blob", "copying config",
             )):
                 self._install_phase = 1
-                self._status_lbl.setText("Pulling Kali container image…")
+                # Show which layer/blob is being transferred when possible
+                if "copying blob" in lo:
+                    digest = ln.split()[-1] if ln.split() else ""
+                    short = digest[:19] if digest else ""
+                    msg = f"Pulling image layer {short}…" if short else "Pulling Kali image layers…"
+                elif "copying config" in lo:
+                    msg = "Pulling image config…"
+                else:
+                    msg = "Pulling kalilinux/kali-rolling from registry…"
+                self._status_lbl.setText(msg)
                 _restyle(self._status_lbl)
                 cur = self._progress.value()
                 if cur < 40:
@@ -7442,6 +7892,8 @@ class SecurityPage(Page):
                 return
             if "writing manifest" in lo or "storing signatures" in lo:
                 self._install_phase = 1
+                self._status_lbl.setText("Storing image manifest…")
+                _restyle(self._status_lbl)
                 self._progress.setValue(42)
                 return
             # Distrobox init lines — image was cached or pull just finished
@@ -7450,7 +7902,7 @@ class SecurityPage(Page):
                 "image is now available", "image already present",
             )) or (phase == 1 and "distrobox" in lo and "creat" in lo):
                 self._install_phase = 2
-                self._status_lbl.setText("Initialising Kali container…")
+                self._status_lbl.setText("Creating Kali distrobox container…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 44))
                 return
@@ -7459,7 +7911,7 @@ class SecurityPage(Page):
         if phase == 2:
             if any(k in lo for k in ("installing basic", "bootstrapping", "reading package")):
                 self._install_phase = 3
-                self._status_lbl.setText("Updating package lists…")
+                self._status_lbl.setText("Bootstrapping Kali environment…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 55))
             else:
@@ -7472,14 +7924,14 @@ class SecurityPage(Page):
         if phase == 3:
             if any(k in lo for k in ("reading package lists", "building dependency",
                                      "reading state information")):
-                self._status_lbl.setText("Updating package lists…")
+                self._status_lbl.setText("Fetching Kali package lists…")
                 _restyle(self._status_lbl)
                 cur = self._progress.value()
                 if cur < 59:
                     self._progress.setValue(cur + 1)
             elif any(k in lo for k in ("following new package", "following additional",
                                        "will be installed")):
-                self._status_lbl.setText("Resolving dependencies…")
+                self._status_lbl.setText("Resolving package dependencies…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 58))
             # "0 upgraded, N newly installed" — grab total package count
@@ -7487,7 +7939,15 @@ class SecurityPage(Page):
             if m:
                 self._total_packages = int(m.group(1))
             # "Need to get X MB of archives" — transition to download phase
-            if "need to get" in lo and "archive" in lo:
+            m2 = re.search(r'Need to get (.+?) of archives', ln, re.IGNORECASE)
+            if m2:
+                self._install_phase = 4
+                size_str = m2.group(1)
+                count_str = f" ({self._total_packages} packages)" if self._total_packages else ""
+                self._status_lbl.setText(f"Downloading {size_str} of packages{count_str}…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 60))
+            elif "need to get" in lo and "archive" in lo:
                 self._install_phase = 4
                 self._status_lbl.setText("Downloading packages…")
                 _restyle(self._status_lbl)
@@ -7496,20 +7956,27 @@ class SecurityPage(Page):
 
         # ── Phase 4: Downloading packages (60–75 %) ──────────────────────────
         if phase == 4:
-            m = re.match(r'Get:(\d+)\s', ln)
+            m = re.match(r'Get:(\d+)\s+\S+\s+\S+\s+\S+\s+(\S+)', ln)
             if m:
                 n = int(m.group(1))
+                pkg = m.group(2)
                 if self._total_packages > 0:
                     frac = min(1.0, n / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
                                                int(60 + frac * 15)))
+                    self._status_lbl.setText(
+                        f"Downloading {pkg}… ({n} / {self._total_packages})"
+                    )
                 else:
                     cur = self._progress.value()
                     if cur < 74:
                         self._progress.setValue(cur + 1)
+                    self._status_lbl.setText(f"Downloading {pkg}…")
+                _restyle(self._status_lbl)
             if ln.startswith("Selecting previously") or ln.startswith("Preparing to unpack"):
                 self._install_phase = 5
-                self._status_lbl.setText("Unpacking packages…")
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(f"Unpacking packages… (0{total_str})")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 75))
             return
@@ -7518,6 +7985,13 @@ class SecurityPage(Page):
         if phase == 5:
             if ln.startswith("Unpacking "):
                 self._unpack_count += 1
+                pkg = ln.split()[1] if len(ln.split()) > 1 else ""
+                pkg = pkg.split(":")[0]  # strip :amd64 arch suffix
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Unpacking {pkg}… ({self._unpack_count}{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, self._unpack_count / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7528,9 +8002,14 @@ class SecurityPage(Page):
                         self._progress.setValue(cur + 1)
             if ln.startswith("Setting up "):
                 self._install_phase = 6
-                self._status_lbl.setText("Configuring packages…")
-                _restyle(self._status_lbl)
+                pkg = ln.split()[2] if len(ln.split()) > 2 else ""
+                pkg = pkg.split(":")[0]
                 self._setup_count = 1
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Configuring {pkg}… (1{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, 1 / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7543,6 +8022,13 @@ class SecurityPage(Page):
         if phase == 6:
             if ln.startswith("Setting up "):
                 self._setup_count += 1
+                pkg = ln.split()[2] if len(ln.split()) > 2 else ""
+                pkg = pkg.split(":")[0]
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Configuring {pkg}… ({self._setup_count}{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, self._setup_count / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7552,7 +8038,10 @@ class SecurityPage(Page):
                     if cur < 97:
                         self._progress.setValue(cur + 1)
             if "processing triggers" in lo:
-                self._status_lbl.setText("Finishing up…")
+                pkg_m = re.search(r'processing triggers for (\S+)', lo)
+                trigger_pkg = pkg_m.group(1) if pkg_m else ""
+                msg = f"Running post-install triggers ({trigger_pkg})…" if trigger_pkg else "Running post-install triggers…"
+                self._status_lbl.setText(msg)
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 98))
 
@@ -7947,56 +8436,39 @@ class DevEnvironmentPage(Page):
             "Set up VS Code and a Fedora development container for KythOS work.",
         )
 
-        # VS Code card
-        vsc_card, vsc_layout = _make_card()
-        vsc_title = QLabel("VS Code")
-        vsc_title.setObjectName("card-title")
-        vsc_layout.addWidget(vsc_title)
-        vsc_body = QLabel(
-            "Installs Visual Studio Code as a Flatpak from Flathub. "
-            "It will appear in the application launcher once installed."
+        # Single card covering everything
+        card, layout = _make_card()
+        title = QLabel("KythOS Dev Environment")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Sets up everything you need to work on KythOS:\n"
+            "  •  Installs VS Code from Flathub (appears in your app launcher)\n"
+            "  •  Creates a Fedora 44 distrobox named kyth-dev with the full\n"
+            "     build toolchain: git, just, podman, ShellCheck, ripgrep, and more\n\n"
+            "Your home directory is shared with the container — no files are moved."
         )
-        vsc_body.setObjectName("card-copy")
-        vsc_body.setWordWrap(True)
-        vsc_layout.addWidget(vsc_body)
-        vsc_btn_row = QHBoxLayout()
-        vsc_btn_row.setSpacing(10)
-        self._vsc_btn = QPushButton("Install VS Code")
-        self._vsc_btn.setObjectName("primary")
-        self._vsc_btn.clicked.connect(self._run_install_vscode)
-        vsc_btn_row.addWidget(self._vsc_btn)
-        vsc_btn_row.addStretch()
-        vsc_layout.addLayout(vsc_btn_row)
-        self._add(vsc_card)
-
-        # Dev box card
-        box_card, box_layout = _make_card()
-        box_title = QLabel("KythOS Dev Box")
-        box_title.setObjectName("card-title")
-        box_layout.addWidget(box_title)
-        box_body = QLabel(
-            "Creates a Fedora 44 distrobox named kyth-dev and installs the full "
-            "KythOS build toolchain inside it (git, just, podman, ShellCheck, etc.). "
-            "Also installs VS Code if it isn't already. "
-            "The container shares your home directory — no files are moved."
-        )
-        box_body.setObjectName("card-copy")
-        box_body.setWordWrap(True)
-        box_layout.addWidget(box_body)
-        box_btn_row = QHBoxLayout()
-        box_btn_row.setSpacing(10)
-        self._box_btn = QPushButton("Create Dev Box")
-        self._box_btn.setObjectName("primary")
-        self._box_btn.clicked.connect(self._run_setup_dev_box)
-        box_btn_row.addWidget(self._box_btn)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._setup_btn = QPushButton("Set Up Dev Environment")
+        self._setup_btn.setObjectName("primary")
+        self._setup_btn.clicked.connect(self._run_setup)
+        btn_row.addWidget(self._setup_btn)
         self._enter_btn = QPushButton("Enter Dev Box")
         self._enter_btn.clicked.connect(self._enter_dev_box)
-        box_btn_row.addWidget(self._enter_btn)
-        box_btn_row.addStretch()
-        box_layout.addLayout(box_btn_row)
-        self._add(box_card)
+        btn_row.addWidget(self._enter_btn)
+        btn_row.addStretch()
+        self._delete_btn = QPushButton("Delete Dev Environment")
+        self._delete_btn.setObjectName("danger")
+        self._delete_btn.clicked.connect(self._confirm_delete)
+        btn_row.addWidget(self._delete_btn)
+        layout.addLayout(btn_row)
+        self._add(card)
 
-        # Shared status / progress / log
+        # Status / progress / log
         self._status_lbl = QLabel()
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.hide()
@@ -8023,27 +8495,20 @@ class DevEnvironmentPage(Page):
 
         self._stretch()
 
-    def _run_install_vscode(self):
-        self._run(_INSTALL_VSCODE_CMD, "Installing VS Code…", self._vsc_btn)
-
-    def _run_setup_dev_box(self):
-        self._run(_SETUP_DEV_BOX_CMD, "Creating KythOS dev box…", self._box_btn)
-
-    def _run(self, cmd: list[str], status: str, trigger_btn: QPushButton):
+    def _run_setup(self):
         if self._worker and self._worker.isRunning():
             return
-        self._vsc_btn.setEnabled(False)
-        self._box_btn.setEnabled(False)
+        self._setup_btn.setEnabled(False)
         self._log.clear()
-        self._log.append("→ " + " ".join(cmd[:2]) + " …\n")
+        self._log.append("→ bash dev-setup …\n")
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
-        self._status_lbl.setText(status)
+        self._status_lbl.setText("Setting up dev environment…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         _restyle(self._status_lbl)
-        self._worker = Worker(cmd)
+        self._worker = Worker(_SETUP_DEV_BOX_CMD)
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)
         self._worker.start()
@@ -8055,14 +8520,116 @@ class DevEnvironmentPage(Page):
     def _on_done(self, code: int):
         self._progress.hide()
         _finish_worker(self)
-        self._vsc_btn.setEnabled(True)
-        self._box_btn.setEnabled(True)
+        self._setup_btn.setEnabled(True)
         if code == 0:
-            self._status_lbl.setText("Done.")
+            self._status_lbl.setText("Dev environment ready.")
             self._status_lbl.setObjectName("status-ok")
-            self._log.append("\nCompleted successfully.")
+            self._log.append("\nDone. Launch VS Code from the app menu, or click 'Enter Dev Box'.")
         else:
-            self._status_lbl.setText(f"Failed (exit code {code}).")
+            self._status_lbl.setText(f"Setup failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            _set_log_panel(self._log_toggle, self._log, True)
+        _restyle(self._status_lbl)
+
+    def _confirm_delete(self):
+        if self._worker and self._worker.isRunning():
+            return
+        if not _is_distrobox_container("kyth-dev"):
+            QMessageBox.information(
+                self, "Nothing to Delete",
+                "The kyth-dev container does not exist.",
+            )
+            return
+
+        # First warning: explain what will be lost
+        first = QMessageBox.warning(
+            self,
+            "Delete Dev Environment?",
+            "This will permanently delete the kyth-dev distrobox container.\n\n"
+            "Everything inside the container will be lost:\n"
+            "  •  All installed packages (git, just, podman, ripgrep, etc.)\n"
+            "  •  Any tools you installed manually inside the container\n"
+            "  •  Container-level configuration and state\n\n"
+            "Your home directory is NOT affected — source code, dotfiles,\n"
+            "and projects remain untouched.\n\n"
+            "You can recreate it at any time with 'Set Up Dev Environment'.",
+            QMessageBox.StandardButton.Ok | QMessageBox.StandardButton.Cancel,
+        )
+        if first != QMessageBox.StandardButton.Ok:
+            return
+
+        # Second confirmation: type to confirm
+        dlg = QDialog(self)
+        dlg.setWindowTitle("Confirm Permanent Deletion")
+        dlg_layout = QVBoxLayout(dlg)
+        dlg_layout.setSpacing(12)
+        dlg_layout.setContentsMargins(20, 20, 20, 20)
+
+        warn_lbl = QLabel("Are you absolutely sure?")
+        warn_lbl.setStyleSheet("color: #f7768e; font-size: 14px; font-weight: 700;")
+        dlg_layout.addWidget(warn_lbl)
+
+        detail = QLabel(
+            "The kyth-dev container and every package inside it will be\n"
+            "permanently removed. This cannot be undone.\n\n"
+            "Type  DELETE  below to confirm:"
+        )
+        detail.setWordWrap(True)
+        dlg_layout.addWidget(detail)
+
+        confirm_edit = QLineEdit()
+        confirm_edit.setPlaceholderText("DELETE")
+        dlg_layout.addWidget(confirm_edit)
+
+        buttons = QDialogButtonBox(
+            QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel
+        )
+        ok_btn = buttons.button(QDialogButtonBox.StandardButton.Ok)
+        ok_btn.setText("Delete Forever")
+        ok_btn.setObjectName("danger")
+        ok_btn.setEnabled(False)
+        _restyle(ok_btn)
+        confirm_edit.textChanged.connect(
+            lambda t: ok_btn.setEnabled(t.strip() == "DELETE")
+        )
+        buttons.accepted.connect(dlg.accept)
+        buttons.rejected.connect(dlg.reject)
+        dlg_layout.addWidget(buttons)
+
+        if dlg.exec() != QDialog.DialogCode.Accepted:
+            return
+        self._run_delete()
+
+    def _run_delete(self):
+        self._setup_btn.setEnabled(False)
+        self._enter_btn.setEnabled(False)
+        self._delete_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ distrobox rm --force kyth-dev\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Deleting dev environment…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._worker = Worker(["distrobox", "rm", "--force", "kyth-dev"])
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_delete_done)
+        self._worker.start()
+
+    def _on_delete_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        self._setup_btn.setEnabled(True)
+        self._enter_btn.setEnabled(True)
+        self._delete_btn.setEnabled(True)
+        if code == 0:
+            self._status_lbl.setText("Dev environment deleted.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Click 'Set Up Dev Environment' to recreate it.")
+        else:
+            self._status_lbl.setText(f"Deletion failed (exit {code}).")
             self._status_lbl.setObjectName("status-err")
             _set_log_panel(self._log_toggle, self._log, True)
         _restyle(self._status_lbl)
@@ -9772,7 +10339,7 @@ class WizardWindow(QMainWindow):
     """Linear first-run wizard. On close writes a sentinel so future launches
     open the hub (MainWindow) instead."""
 
-    _STEP_LABELS = ["Welcome", "Update", "Hardware", "Gaming", "All Done"]
+    _STEP_LABELS = ["Welcome", "Update", "Hardware", "Pick Apps", "Gaming", "All Done"]
 
     def __init__(self):
         super().__init__()
@@ -9854,6 +10421,7 @@ class WizardWindow(QMainWindow):
         self._update_page = UpdatePage()
         self._hw_page = HardwarePage()
         self._gaming_page = GamingPage()
+        self._first_run_apps_step = self._make_first_run_apps_step()
 
         self._steps = [
             self._make_welcome_step(),
@@ -9867,9 +10435,10 @@ class WizardWindow(QMainWindow):
                 "Confirming your graphics, audio, and wireless are working correctly.",
                 self._hw_page,
             ),
+            self._first_run_apps_step,
             self._wrap_step(
                 "Your Gaming Stack",
-                "Everything is pre-installed and pre-configured. Here's how to use it.",
+                "Steam, Heroic, Lutris, and Proton tools are ready. Here's how to use them.",
                 self._gaming_page,
             ),
             self._make_finish_step(),
@@ -9917,7 +10486,7 @@ class WizardWindow(QMainWindow):
         self._setup_banner_bar.setFixedHeight(4)
         self._setup_banner_bar.setTextVisible(False)
         banner_layout.addWidget(self._setup_banner_bar)
-        banner_lbl = QLabel("Setting up your system in the background — this takes a few minutes on first boot.")
+        banner_lbl = QLabel("Installing Steam, Heroic, Lutris, and Proton tools in the background — this takes a few minutes on first boot.")
         banner_lbl.setObjectName("setup-banner-label")
         banner_layout.addWidget(banner_lbl)
         banner_layout.addStretch()
@@ -9990,7 +10559,8 @@ class WizardWindow(QMainWindow):
 
         desc = QLabel(
             "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa RADV Vulkan drivers, "
-            "and a complete gaming stack pre-installed. Updates ship as atomic container images — "
+            "and the gaming runtime already tuned. Steam, Heroic, Lutris, and Proton tools are set up on first boot. "
+            "Updates ship as atomic container images — "
             "every change is instant to roll back with a single command."
         )
         desc.setObjectName("wizard-desc")
@@ -10039,6 +10609,182 @@ class WizardWindow(QMainWindow):
         outer.addWidget(stats_bar)
         return page
 
+    def _make_first_run_apps_step(self) -> QWidget:
+        page = QWidget()
+        page.setObjectName("content-area")
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(56, 38, 56, 32)
+        layout.setSpacing(18)
+
+        title = QLabel("Choose Your Extras")
+        title.setObjectName("heading")
+        layout.addWidget(title)
+
+        subtitle = QLabel(
+            "Your core gaming setup is already handled. Pick anything else you want now; "
+            "you can install or remove these later from the System Hub."
+        )
+        subtitle.setObjectName("subheading")
+        subtitle.setWordWrap(True)
+        layout.addWidget(subtitle)
+
+        core_card, core_layout = _make_card("card-accent-ok")
+        core_title = QLabel("Game-ready defaults")
+        core_title.setObjectName("card-title")
+        core_layout.addWidget(core_title)
+        core_copy = QLabel(
+            "Steam, Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
+            "as soon as networking is available."
+        )
+        core_copy.setObjectName("card-copy")
+        core_copy.setWordWrap(True)
+        core_layout.addWidget(core_copy)
+        layout.addWidget(core_card)
+
+        self._wizard_extra_apps = [
+            ("com.brave.Browser", "Brave Browser", "Fast web browser with good media support."),
+            ("com.discordapp.Discord", "Discord", "Voice and community chat for games."),
+            ("com.obsproject.Studio", "OBS Studio", "Recording and streaming."),
+            ("it.mijorus.gearlever", "Gear Lever", "Manage AppImage apps."),
+            ("com.github.tchx84.Flatseal", "Flatseal", "Review and adjust Flatpak permissions."),
+        ]
+
+        extras_card, extras_layout = _make_card()
+        extras_title = QLabel("Optional apps")
+        extras_title.setObjectName("card-title")
+        extras_layout.addWidget(extras_title)
+
+        self._wizard_extra_checks = []
+        for app_id, name, desc in self._wizard_extra_apps:
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 0, 0, 0)
+            row_layout.setSpacing(12)
+
+            check = QCheckBox()
+            check.setChecked(False)
+            check.setEnabled(not _is_flatpak_installed(app_id))
+            self._wizard_extra_checks.append((check, app_id, name))
+            row_layout.addWidget(check, 0, Qt.AlignmentFlag.AlignTop)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            name_lbl = QLabel(name)
+            name_lbl.setObjectName("card-title")
+            name_lbl.setStyleSheet("font-size: 14px;")
+            desc_lbl = QLabel("Already installed." if not check.isEnabled() else desc)
+            desc_lbl.setObjectName("card-copy")
+            desc_lbl.setWordWrap(True)
+            text_col.addWidget(name_lbl)
+            text_col.addWidget(desc_lbl)
+            row_layout.addLayout(text_col, 1)
+            extras_layout.addWidget(row)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        self._wizard_install_btn = QPushButton("Install Selected")
+        self._wizard_install_btn.setObjectName("primary")
+        self._wizard_install_btn.clicked.connect(self._install_selected_wizard_apps)
+        btn_row.addWidget(self._wizard_install_btn)
+        select_none_btn = QPushButton("Clear")
+        select_none_btn.clicked.connect(lambda: [check.setChecked(False) for check, _, _ in self._wizard_extra_checks])
+        btn_row.addWidget(select_none_btn)
+        btn_row.addStretch()
+        extras_layout.addLayout(btn_row)
+
+        self._wizard_install_status = QLabel("Select apps above, or continue if you only want the gaming defaults.")
+        self._wizard_install_status.setObjectName("subheading")
+        extras_layout.addWidget(self._wizard_install_status)
+
+        self._wizard_install_progress = QProgressBar()
+        self._wizard_install_progress.setRange(0, 0)
+        self._wizard_install_progress.hide()
+        extras_layout.addWidget(self._wizard_install_progress)
+
+        self._wizard_install_log_toggle = QPushButton("Show details")
+        self._wizard_install_log_toggle.setCheckable(True)
+        self._wizard_install_log_toggle.hide()
+        extras_layout.addWidget(self._wizard_install_log_toggle)
+
+        self._wizard_install_log = QTextEdit()
+        self._wizard_install_log.setReadOnly(True)
+        self._wizard_install_log.setMaximumHeight(120)
+        self._wizard_install_log.hide()
+        extras_layout.addWidget(self._wizard_install_log)
+        self._wizard_install_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, checked)
+        )
+
+        layout.addWidget(extras_card)
+        layout.addStretch()
+        self._wizard_extra_worker = None
+        return page
+
+    def _install_selected_wizard_apps(self):
+        if self._wizard_extra_worker and self._wizard_extra_worker.isRunning():
+            return
+        selected = [
+            (app_id, name)
+            for check, app_id, name in self._wizard_extra_checks
+            if check.isChecked() and check.isEnabled()
+        ]
+        if not selected:
+            self._wizard_install_status.setText("No optional apps selected.")
+            self._wizard_install_status.setObjectName("status-dim")
+            _restyle(self._wizard_install_status)
+            return
+
+        app_ids = [app_id for app_id, _ in selected]
+        names = ", ".join(name for _, name in selected)
+        self._wizard_install_btn.setEnabled(False)
+        for check, _, _ in self._wizard_extra_checks:
+            check.setEnabled(False)
+        self._wizard_install_status.setText(f"Installing {names}...")
+        self._wizard_install_status.setObjectName("subheading")
+        _restyle(self._wizard_install_status)
+        self._wizard_install_progress.show()
+        self._wizard_install_log.clear()
+        self._wizard_install_log.append("-> flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo")
+        self._wizard_install_log.append(f"-> flatpak install -y flathub {' '.join(app_ids)}\n")
+        self._wizard_install_log_toggle.show()
+        _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, False)
+
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            + " && flatpak install -y flathub " + " ".join(shlex.quote(app_id) for app_id in app_ids),
+        ]
+        self._wizard_extra_worker = Worker(cmd)
+        self._wizard_extra_worker.line.connect(lambda ln: (
+            self._wizard_install_log.append(ln),
+            self._wizard_install_log.ensureCursorVisible(),
+        ))
+        self._wizard_extra_worker.done.connect(
+            lambda code, installed=selected: self._on_wizard_extra_install_done(code, installed)
+        )
+        self._wizard_extra_worker.start()
+        self._update_nav()
+
+    def _on_wizard_extra_install_done(self, code: int, installed: list[tuple[str, str]]):
+        self._wizard_install_progress.hide()
+        _finish_worker(self, attr="_wizard_extra_worker")
+        if code == 0:
+            self._wizard_install_status.setText("Optional apps installed.")
+            self._wizard_install_status.setObjectName("status-ok")
+            self._wizard_install_log.append("\nDone.")
+            installed_ids = {app_id for app_id, _ in installed}
+            for check, app_id, _ in self._wizard_extra_checks:
+                check.setChecked(False)
+                check.setEnabled(app_id not in installed_ids)
+        else:
+            self._wizard_install_status.setText(f"Optional app install failed (exit {code}).")
+            self._wizard_install_status.setObjectName("status-err")
+            for check, app_id, _ in self._wizard_extra_checks:
+                check.setEnabled(not _is_flatpak_installed(app_id))
+        self._wizard_install_btn.setEnabled(True)
+        _restyle(self._wizard_install_status)
+        self._update_nav()
+
     def _make_finish_step(self) -> QWidget:
         page = QWidget()
         page.setObjectName("content-area")
@@ -10060,8 +10806,9 @@ class WizardWindow(QMainWindow):
         layout.addSpacing(10)
 
         subtitle = QLabel(
-            "KythOS is ready to go. Steam, Heroic, and your full gaming stack are pre-installed.\n"
-            "The System Hub is always available from the application menu whenever you need it."
+            "KythOS is ready to play. Steam, Heroic, Lutris, ProtonUp-Qt, protontricks, "
+            "and the system gaming tweaks are ready on first boot.\n"
+            "The System Hub is always available from the application menu whenever you want more."
         )
         subtitle.setObjectName("finish-subtitle")
         subtitle.setWordWrap(True)
@@ -10072,7 +10819,7 @@ class WizardWindow(QMainWindow):
         btn_row.setSpacing(10)
         steam_btn = QPushButton("Open Steam")
         steam_btn.setObjectName("primary")
-        steam_btn.clicked.connect(lambda: subprocess.Popen(["steam"]))
+        steam_btn.clicked.connect(lambda: subprocess.Popen(["flatpak", "run", "com.valvesoftware.Steam"]))
         btn_row.addWidget(steam_btn)
         hub_btn = QPushButton("Open System Hub")
         hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
@@ -10092,6 +10839,9 @@ class WizardWindow(QMainWindow):
     def _update_nav(self):
         idx = self._current
         total = len(self._steps)
+        install_busy = bool(
+            self._wizard_extra_worker and self._wizard_extra_worker.isRunning()
+        )
 
         for i, (dot, lbl) in enumerate(self._step_label_widgets):
             if i < idx:
@@ -10108,6 +10858,9 @@ class WizardWindow(QMainWindow):
 
         self._back_btn.setVisible(idx > 0)
         self._skip_btn.setVisible(0 < idx < total - 1)
+        self._back_btn.setEnabled(not install_busy)
+        self._skip_btn.setEnabled(not install_busy)
+        self._next_btn.setEnabled(not install_busy)
 
         if idx == total - 1:
             self._next_btn.setText("Close")
@@ -10132,12 +10885,29 @@ class WizardWindow(QMainWindow):
             self._update_nav()
 
     def closeEvent(self, event):
+        if self._wizard_extra_worker and self._wizard_extra_worker.isRunning():
+            QMessageBox.warning(
+                self,
+                "KythOS Is Busy",
+                "Optional apps are still installing. Please wait for the install to finish before closing.",
+            )
+            event.ignore()
+            self.raise_()
+            self.activateWindow()
+            return
         _mark_wizard_done()
         super().closeEvent(event)
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
+    # Parse --page PAGEKEY before QApplication (which may strip unrecognised args)
+    start_page = None
+    raw_args = sys.argv[1:]
+    for i, a in enumerate(raw_args):
+        if a == "--page" and i + 1 < len(raw_args):
+            start_page = raw_args[i + 1]
+
     _wait_for_display_setup()
     _prefer_xwayland_if_wayland_plugin_missing()
 
@@ -10150,6 +10920,8 @@ def main():
     win = WizardWindow() if _is_first_run() else MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
+    if start_page and isinstance(win, MainWindow):
+        win._navigate_to(start_page)
     _remove_autostart()
     sys.exit(app.exec())
 

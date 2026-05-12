@@ -46,30 +46,35 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 
 ### Gaming
 
-- Steam, Lutris, Heroic Games Launcher, Bottles — via Flatpak
-- Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB
+- Steam, Lutris, Heroic Games Launcher, protontricks, ProtonUp-Qt — first-boot Flatpaks once networking is available
+- Bottles, Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB — optional Flatpaks from the helper app
 - GameMode, gamescope, MangoHud, vkBasalt, umu-launcher, winetricks, libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
-- OBS Studio + obs-vkcapture (GPU capture without display compositor overhead)
+- obs-vkcapture runtime support; OBS Studio is an optional Flatpak from the helper app
 - scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
 - system76-scheduler — dynamically adjusts process priorities based on focused window
 - ananicy-cpp — static per-process CPU/IO priority rules
 - NTSYNC udev rules (faster Wine sync primitives, lower latency than esync/fsync)
 - GameMode auto performance profile — switches to `performance` + reduces KWin animations on game launch; restores on exit
 - GameMode soft-realtime (`SCHED_FIFO` via rtkit) + screensaver inhibit
+- `kyth-gamescope` preset wrapper — quality/HDR/sharp/latency launch recipes for Gamescope, MangoHud, vkBasalt, FSR, VRR, and frame limits
 - MangoHud pre-configured with a curated overlay (fps, frametimes, GPU/CPU temp/clock, VRAM — toggle `Shift_R+F12`)
 - vkBasalt pre-configured with CAS sharpening (strength 0.4, `Home` to toggle) — active when `ENABLE_VKBASALT=1`
+- GOverlay and MangoJuice optional Flatpaks for MangoHud/vkBasalt/OptiScaler overlay configuration
 - FSR upscaling in fullscreen Wine/Proton games (`WINE_FULLSCREEN_FSR=1`, strength 2)
 - LatencyFleX — Vulkan implicit layer for frame-pacing in supported Wine/Proton games
-- steam-devices — Valve's udev rules for PS/Xbox/Switch/third-party controllers
+- steam-devices plus optional PC peripheral stack — game-devices udev rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB
 - input-remapper (remap controllers, mice, keyboards at the kernel level)
+- ASUS Linux support — CachyOS ASUS Armoury/WMI kernel modules plus `asusctl` and ASUS-gated `supergfxctl` service activation
+- CoreCtrl included when available from Fedora/RPM Fusion; LACT remains available via `ujust install-lact`
 - `game-performance` and `zink-run` helper wrappers
 - Weekly `duperemove` timer for reclaiming duplicate blocks on supported filesystems
-- First-boot Flatpaks (auto-installed once networking is available): Steam, Lutris, Heroic, protontricks, ProtonUp-Qt, Discord, Flatseal, Gearlever, OBS Studio
+- Welcome wizard offers optional extras on first login: Brave, Discord, OBS Studio, Gear Lever, and Flatseal
 
 ### Content Creation
 
-- OBS Studio + obs-vkcapture, Kdenlive, Audacity, GIMP, OpenDeck (Stream Deck for Linux)
+- OBS Studio, Kdenlive, Audacity, GIMP, OpenDeck (Stream Deck for Linux) — optional Flatpaks from the helper app
+- obs-vkcapture enabled by default for Vulkan/OpenGL game capture; v4l2loopback included when available for OBS virtual camera workflows
 - DaVinci Resolve — installer helper packages the Blackmagic ZIP as a local Flatpak; AMD GPU + Mesa-git gives excellent hardware acceleration
 - Full codec stack: ffmpeg, GStreamer (OpenH264, libav, ugly, bad-freeworld), mpv
 - ffmpegthumbnailer for video thumbnail previews
@@ -117,6 +122,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - **Audio:** PipeWire at 48 kHz / 128-sample quantum (~2.7 ms), allowed-rates=[44100 48000]
 - **Storage:** I/O scheduler per device type — `none` on NVMe, `mq-deadline` on SATA SSD, `bfq` on HDD; weekly `fstrim.timer`
 - **Gaming:** split-lock mitigation disabled, sched_autogroup, NMI watchdog off, perf_event_paranoid=1; irqbalance on
+- **sched-ext:** `kyth-scx` / System Hub controls for `scx_lavd`, `scx_rusty`, and `scx_bpfland`
 - **Wine/Proton:** full 4 GB address space, NTSYNC + fsync/esync fallbacks, VKD3D DXR + feature level 12_2, RADV_PERFTEST=gpl (reduces shader stutter), mesa_glthread; NVIDIA: NVAPI + threaded optimisations auto-enabled on NVIDIA GPU
 - zram (min(RAM/2, 8 GB), zstd compression)
 - WiFi power-save disabled; Intel BT coexistence disabled; MT7921 ASPM disabled
@@ -194,6 +200,12 @@ sudo bootc upgrade
 ```
 
 Updates are atomic — the previous deployment is kept as a fallback selectable at the GRUB menu. There is no package manager on the running system; all changes go through the image build. For user applications, use Flatpak (via Discover) or Homebrew.
+
+### Verification and changelogs
+
+Container images are signed with keyless Sigstore/Cosign, include attached Syft SBOMs in GHCR, and publish GitHub build provenance attestations. Image releases are generated from SBOM diffs so daily builds show RPM-level package changes.
+
+Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bundle, JSON metadata, and a GitHub build provenance attestation.
 
 ---
 

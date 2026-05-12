@@ -1,0 +1,49 @@
+#!/bin/bash
+# kyth-enroll-mok — first-boot KythOS Secure Boot MOK enrollment.
+#
+# Runs once at boot. If Secure Boot is active and the KythOS key is not yet
+# enrolled, stages it via mokutil. On the next reboot, UEFI's MokManager will
+# present a confirmation screen — enter the password "kyth" to complete
+# enrollment. Once enrolled the kernel and its signed vmlinuz are trusted.
+#
+# The flag file is written whether or not Secure Boot is active so this
+# service does not repeat on every boot for AMD/non-SB users.
+
+set -euo pipefail
+
+FLAG="/var/lib/kyth/mok-enrolled"
+CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+
+mkdir -p /var/lib/kyth
+
+if [[ ! -f "${CERT}" ]]; then
+    echo "kyth-enroll-mok: cert not found — image built without Secure Boot support"
+    touch "${FLAG}"
+    exit 0
+fi
+
+# Check if Secure Boot is active in the firmware
+SB_STATE=$(mokutil --sb-state 2>/dev/null || true)
+if ! echo "${SB_STATE}" | grep -q "SecureBoot enabled"; then
+    echo "kyth-enroll-mok: Secure Boot not enabled — skipping enrollment"
+    echo "kyth-enroll-mok: run 'ujust enroll-secureboot' after enabling it in firmware"
+    touch "${FLAG}"
+    exit 0
+fi
+
+# Check if our key is already enrolled
+if mokutil --list-enrolled 2>/dev/null | grep -q "KythOS Secure Boot"; then
+    echo "kyth-enroll-mok: KythOS Secure Boot key already enrolled"
+    touch "${FLAG}"
+    exit 0
+fi
+
+# Stage the enrollment — user confirms with password "kyth" in MokManager
+echo "kyth-enroll-mok: staging Secure Boot MOK enrollment"
+if echo "kyth" | mokutil --import "${CERT}" --stdin-passwd; then
+    echo "kyth-enroll-mok: enrollment staged — reboot and enter password 'kyth' at the MokManager screen"
+else
+    echo "kyth-enroll-mok: mokutil import failed (non-fatal)" >&2
+fi
+
+touch "${FLAG}"

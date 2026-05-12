@@ -1,5 +1,5 @@
 [Unit]
-Description=Install default Flatpak applications
+Description=Install game-ready Flatpak applications
 Documentation=https://github.com/mrtrick37/kyth
 After=network-online.target kyth-flathub-setup.service
 # Requires= (not just Wants=) so this service is skipped on offline boots
@@ -12,17 +12,14 @@ ConditionPathExists=!/var/lib/kyth/default-flatpaks-done
 Type=oneshot
 # --system  : install for all users (consistent with kyth-flathub-setup.service)
 # --or-update: idempotent — updates if already present, installs if not
+# Keep first boot game-ready without pulling in general desktop, creator, or
+# admin utilities. Those stay available from the KythOS System Hub.
 ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flathub \
     com.valvesoftware.Steam \
     net.lutris.Lutris \
-    com.brave.Browser \
-    com.discordapp.Discord \
-    it.mijorus.gearlever \
     com.heroicgameslauncher.hgl \
     com.github.Matoking.protontricks \
-    net.davidotek.pupgui2 \
-    com.obsproject.Studio \
-    com.github.tchx84.Flatseal
+    net.davidotek.pupgui2
 ExecStartPost=/bin/mkdir -p /var/lib/kyth
 ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-done
 RemainAfterExit=yes

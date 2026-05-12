@@ -26,6 +26,13 @@ dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
 
 depmod -a "${CACHYOS_KVER}"
 
+# ASUS Linux support depends on the newer ASUS Armoury/WMI platform drivers.
+# CachyOS mainline kernels currently carry these; warn loudly if the Fedora
+# COPR ever drops them so the userspace tools do not silently become half-useful.
+if ! find "/usr/lib/modules/${CACHYOS_KVER}" -name 'asus-armoury.ko*' -print -quit | grep -q .; then
+    echo "WARNING: CachyOS kernel lacks asus-armoury.ko; ASUS Linux support will be reduced." >&2
+fi
+
 # Remove every non-CachyOS kernel from /usr/lib/modules/ so bootc sees
 # exactly one kernel (it errors out if multiple subdirectories are present).
 for kdir in /usr/lib/modules/*/; do
