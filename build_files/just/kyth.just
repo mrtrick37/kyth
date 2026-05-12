@@ -299,7 +299,8 @@ install-boxbuddy:
 
 # Set up a Kali Linux security toolbox via distrobox.
 #
-# The container runs --privileged --network host so security tools (nmap,
+# The container runs privileged and uses Distrobox's default shared network
+# namespace so security tools (nmap,
 # zenmap, wireshark, aircrack-ng, etc.) have full hardware, device, and raw
 # socket access on the real host network interfaces.
 #
@@ -344,10 +345,11 @@ setup-kali-box tools="headless":
     echo "  Package:  ${meta}"
     echo
 
-    # --network host: security tools (nmap, wireshark, aircrack-ng, etc.) need raw
-    # socket access and must see real network interfaces, not a container namespace.
+    # Distrobox shares the host network namespace by default; adding an explicit
+    # --network host here can collide with distrobox/podman-generated network
+    # flags on newer systems.
     distrobox create --image kalilinux/kali-rolling --name kali --yes \
-        --additional-flags "--privileged --network host"
+        --additional-flags "--privileged"
     distrobox enter kali -- sudo apt-get install -y "${meta}"
 
     # Grant passwordless sudo inside the container so root-requiring tools
