@@ -338,6 +338,12 @@ systemctl enable qemu-guest-agent.service 2>/dev/null || true
 # Remove plasma-welcome — plasma-login handles first-boot setup instead.
 dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
 
+# Remove the rpm-ostree backend for Discover. On a bootc system the OS is
+# updated as a whole image via `bootc upgrade`; individual RPM updates shown
+# by Discover are phantom/unactionable and confuse users. Keep Discover itself
+# so Flatpak management still works.
+dnf5 remove -y --no-autoremove plasma-discover-rpm-ostree 2>/dev/null || true
+
 # Remove Firefox — Brave Browser is installed as a Flatpak on first boot
 # via kyth-default-flatpaks.service (avoids baking external repo keys into
 # the build and eliminates DNS-dependent rpm --import calls in CI).

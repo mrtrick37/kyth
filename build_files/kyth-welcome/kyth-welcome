@@ -684,17 +684,6 @@ QWidget#wizard-footer {
     border-top: 1px solid #0d1117;
 }
 
-/* ── First-boot setup banner ─────────────────────────────────────────────── */
-QWidget#setup-banner {
-    background: #0f1a28;
-    border-top: 1px solid #1a3a5a;
-}
-
-QLabel#setup-banner-label {
-    font-size: 12px;
-    color: #6a8aa0;
-}
-
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -4363,7 +4352,7 @@ class GamingPage(Page):
             "Apps",
             "Gaming",
             "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
-            "Steam, Heroic, Lutris, and Proton tools are installed on first boot.",
+            "Install your preferred launchers below.",
         )
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
@@ -4372,7 +4361,7 @@ class GamingPage(Page):
         tools_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(tools_head)
         tools_sub = QLabel(
-            "Steam, Heroic, Lutris, ProtonUp-Qt, and protontricks are part of the game-ready setup. "
+            "Install the launchers and tools you want. "
             "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
             "Additional launchers and device tools are available here or via the corresponding ujust recipe."
         )
@@ -4384,21 +4373,21 @@ class GamingPage(Page):
             {
                 "flatpak": "com.valvesoftware.Steam",
                 "name": "Steam",
-                "desc": "Installed on first boot — Valve's gaming platform plus Windows games via Proton.",
+                "desc": "Valve's gaming platform plus Windows games via Proton.",
                 "ujust": "install-steam",
                 "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
             },
             {
                 "flatpak": "net.lutris.Lutris",
                 "name": "Lutris",
-                "desc": "Installed on first boot — Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "desc": "Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
                 "ujust": "install-lutris",
                 "launch": ["flatpak", "run", "net.lutris.Lutris"],
             },
             {
                 "flatpak": "com.heroicgameslauncher.hgl",
                 "name": "Heroic Games Launcher",
-                "desc": "Installed by default — Epic Games, GOG and Amazon Games library in one place.",
+                "desc": "Epic Games, GOG, and Amazon Games library in one place.",
                 "ujust": "install-heroic",
                 "launch": ["flatpak", "run", "com.heroicgameslauncher.hgl"],
             },
@@ -10473,38 +10462,6 @@ class WizardWindow(QMainWindow):
         footer_layout.addWidget(self._next_btn)
         root_layout.addWidget(footer)
 
-        # ── First-boot setup banner ───────────────────────────────────────────
-        # kyth-default-flatpaks.service runs after network comes up, which is
-        # after the graphical target — it can't appear in the Plymouth splash.
-        # Show a banner here instead so the user knows setup is still in progress.
-        self._setup_banner = QWidget()
-        self._setup_banner.setObjectName("setup-banner")
-        banner_layout = QHBoxLayout(self._setup_banner)
-        banner_layout.setContentsMargins(24, 7, 24, 7)
-        banner_layout.setSpacing(14)
-        self._setup_banner_bar = QProgressBar()
-        self._setup_banner_bar.setRange(0, 0)
-        self._setup_banner_bar.setFixedWidth(100)
-        self._setup_banner_bar.setFixedHeight(4)
-        self._setup_banner_bar.setTextVisible(False)
-        banner_layout.addWidget(self._setup_banner_bar)
-        banner_lbl = QLabel("Installing Steam, Heroic, Lutris, and Proton tools in the background — this takes a few minutes on first boot.")
-        banner_lbl.setObjectName("setup-banner-label")
-        banner_layout.addWidget(banner_lbl)
-        banner_layout.addStretch()
-        root_layout.addWidget(self._setup_banner)
-
-        _FLATPAK_SENTINEL = "/var/lib/kyth/default-flatpaks-done"
-        if os.path.exists(_FLATPAK_SENTINEL):
-            self._setup_banner.hide()
-        else:
-            self._setup_poll = QTimer(self)
-            self._setup_poll.setInterval(3000)
-            self._setup_poll.timeout.connect(
-                lambda: self._setup_banner.hide() or self._setup_poll.stop()
-                if os.path.exists(_FLATPAK_SENTINEL) else None
-            )
-            self._setup_poll.start()
 
         self._current = 0
         self._update_nav()
@@ -10561,7 +10518,7 @@ class WizardWindow(QMainWindow):
 
         desc = QLabel(
             "Built on a hardened KDE Plasma desktop with the CachyOS kernel, Mesa RADV Vulkan drivers, "
-            "and the gaming runtime already tuned. Steam, Heroic, Lutris, and Proton tools are set up on first boot. "
+            "and the gaming runtime already tuned. "
             "Updates ship as atomic container images — "
             "every change is instant to roll back with a single command."
         )
@@ -10808,8 +10765,7 @@ class WizardWindow(QMainWindow):
         layout.addSpacing(10)
 
         subtitle = QLabel(
-            "KythOS is ready to play. Steam, Heroic, Lutris, ProtonUp-Qt, protontricks, "
-            "and the system gaming tweaks are ready on first boot.\n"
+            "KythOS is ready to play. The gaming runtime and system tweaks are configured.\n"
             "The System Hub is always available from the application menu whenever you want more."
         )
         subtitle.setObjectName("finish-subtitle")

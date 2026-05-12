@@ -769,6 +769,11 @@ systemctl enable fwupd 2>/dev/null || true
 # Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
+# Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
+# plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
+# DNF/PackageKit backend as a belt-and-suspenders measure. Discover's Flatpak
+# backend does not use PackageKit and is unaffected.
+systemctl mask packagekit.service 2>/dev/null || true
 
 # ── Boot-time noise reduction ─────────────────────────────────────────────────
 # NetworkManager-wait-online blocks network-online.target (and thus multi-user
