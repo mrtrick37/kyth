@@ -86,7 +86,9 @@ cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 # distrobox: disabled because distrobox-upgrade --all fails without a PTY.
 #   Update containers manually with: distrobox-upgrade --all
 # containers: podman container updates fail on a bootc read-only system.
-disable = ["system", "distrobox", "containers"]
+# toolbx: kyth-dev is managed via ujust, not topgrade; toolbx version-compat
+#   checks will fail the whole topgrade run if the container needs recreation.
+disable = ["system", "distrobox", "containers", "toolbx"]
 
 [commands]
 # -n makes sudo fail fast if it can't run non-interactively, rather than hanging
@@ -324,7 +326,7 @@ rm -rf /usr/share/waydroid /var/lib/waydroid || true
 rm -f /usr/share/applications/Waydroid.desktop || true
 
 # QA check: fail the build if any Waydroid desktop/menu files remain
-if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then
+if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit 2>/dev/null | grep -q .; then
 	echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
 	find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
 	exit 1
@@ -384,6 +386,7 @@ install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
+install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-launch
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer

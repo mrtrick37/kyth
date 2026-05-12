@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_id="com.visualstudio.code"
+# Configure VS Code to use KWallet6 for secret storage.
+# Native RPM installs use ~/.config/Code/argv.json.
 
 write_argv() {
     local path="$1"
@@ -33,26 +34,6 @@ EOF
     fi
 }
 
-# VS Code has used both locations across Linux package variants. Writing both is
-# harmless, and keeps the Flatpak from missing the runtime argument after install.
-write_argv "${HOME}/.var/app/${app_id}/config/Code/argv.json"
-write_argv "${HOME}/.var/app/${app_id}/config/Code/User/argv.json"
-
-if [[ "${KYTH_VSCODE_WALLET_SKIP_FLATPAK:-0}" != "1" ]] \
-    && command -v flatpak >/dev/null 2>&1; then
-    flatpak override --user \
-        --talk-name=org.kde.kwalletd5 \
-        --talk-name=org.kde.kwalletd6 \
-        --talk-name=org.freedesktop.secrets \
-        "${app_id}" >/dev/null
-else
-    mkdir -p "${HOME}/.local/share/flatpak/overrides"
-    cat > "${HOME}/.local/share/flatpak/overrides/${app_id}" <<'EOF'
-[Session Bus Policy]
-org.kde.kwalletd5=talk
-org.kde.kwalletd6=talk
-org.freedesktop.secrets=talk
-EOF
-fi
+write_argv "${HOME}/.config/Code/argv.json"
 
 echo "VS Code wallet integration configured for ${USER:-this user}."

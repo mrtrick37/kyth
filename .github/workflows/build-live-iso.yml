@@ -1,5 +1,5 @@
 name: Build Live ISO
-run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || github.event.workflow_run.head_branch }}"
+run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || (github.event.workflow_run.event == 'schedule' && 'scheduled latest + testing' || github.event.workflow_run.head_branch) }}"
 
 on:
   workflow_run:
@@ -31,14 +31,14 @@ jobs:
     runs-on: ubuntu-24.04
     if: >
       github.event_name == 'workflow_dispatch' ||
-      (github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'push')
+      github.event.workflow_run.conclusion == 'success'
     concurrency:
       group: build-live-container-${{ matrix.source_tag }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
       packages: write
 
@@ -46,7 +46,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -59,7 +59,26 @@ jobs:
           swap-storage: true
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: |
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
@@ -107,14 +126,33 @@ jobs:
           sudo systemctl stop docker docker.socket 2>/dev/null || true
           echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
           sudo systemctl start docker
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
           # Pull the multi-layer image, flatten to one layer locally, push back.
-          docker pull "${IMAGE}"
+          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
           CID=$(docker create "${IMAGE}" /bin/true)
           docker export "${CID}" | docker import - "${IMAGE}"
           docker rm "${CID}"
-          docker push "${IMAGE}"
+          retry "Docker push ${IMAGE}" 30 docker push "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
@@ -129,7 +167,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
       contents: write
       packages: read
@@ -141,7 +179,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event == 'push' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -179,7 +217,25 @@ jobs:
         #   latest  → kyth-live:build
         #   testing → kyth-live:build-testing
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
           SOURCE_TAG="${{ matrix.source_tag }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
@@ -189,7 +245,7 @@ jobs:
           fi
 
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          docker pull "${IMAGE}"
+          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LIVE_TAG}"
           docker rmi "${IMAGE}" || true
 
@@ -326,17 +382,10 @@ jobs:
             PRERELEASE="--latest"
           fi
 
-          # Use edit-or-create to avoid the delete+create window where both
-          # the release and its git tag are absent.  gh release edit is atomic
-          # on an existing release; gh release create handles the first run.
-          if gh release view "${TAG}" &>/dev/null; then
-            gh release edit "${TAG}" \
-              --title "${TITLE}" \
-              --notes "${NOTES}" \
-              ${PRERELEASE}
-          else
-            gh release create "${TAG}" \
-              --title "${TITLE}" \
-              --notes "${NOTES}" \
-              ${PRERELEASE}
-          fi
+          # Recreate the rolling release so GitHub shows the new publish date
+          # and moves the rolling tag to the commit that produced this ISO.
+          gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
+          gh release create "${TAG}" \
+            --title "${TITLE}" \
+            --notes "${NOTES}" \
+            ${PRERELEASE}
