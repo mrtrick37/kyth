@@ -427,7 +427,7 @@ setup-kali-box tools="headless":
                 grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
                 grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec' "${_f}" 2>/dev/null || continue
                 grep -q ' sudo ' "${_f}" && continue
-                sed -i 's| -- | -- sudo -E |' "${_f}"
+                sed -i -E 's|[[:space:]]--[[:space:]]+| -- sudo -E |' "${_f}"
                 echo "  Injected sudo -E into ${_f##*/}."
             done
         done
@@ -435,9 +435,9 @@ setup-kali-box tools="headless":
             [[ -f "${_f}" ]] || continue
             grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali|^Exec=.*sudo -E' "${_f}" 2>/dev/null || continue
             grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec|sudo -E' "${_f}" 2>/dev/null || continue
-            sed -i -E 's|^Exec=.* -- sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' "${_f}"
-            sed -i -E 's#^Exec=.* -- (pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\3#' "${_f}"
-            sed -i -E 's#^Exec=.* -- (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
+            sed -i -E 's|^Exec=.*[[:space:]]--[[:space:]]+sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' "${_f}"
+            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\3#' "${_f}"
+            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
             sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
             sed -i 's|^TryExec=.*|TryExec=kyth-distrobox-root-launch|' "${_f}"
             echo "  Routed ${_f##*/} through kyth-distrobox-root-launch."
@@ -538,7 +538,7 @@ export-kali-apps:
             grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
             grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec' "${_f}" 2>/dev/null || continue
             grep -q ' sudo ' "${_f}" && continue
-            sed -i 's| -- | -- sudo -E |' "${_f}"
+            sed -i -E 's|[[:space:]]--[[:space:]]+| -- sudo -E |' "${_f}"
             echo "  Injected sudo -E into ${_f##*/}."
         done
     done
@@ -546,9 +546,9 @@ export-kali-apps:
         [[ -f "${_f}" ]] || continue
         grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali|^Exec=.*sudo -E' "${_f}" 2>/dev/null || continue
         grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec|sudo -E' "${_f}" 2>/dev/null || continue
-        sed -i -E 's|^Exec=.* -- sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' "${_f}"
-        sed -i -E 's#^Exec=.* -- (pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\3#' "${_f}"
-        sed -i -E 's#^Exec=.* -- (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
+        sed -i -E 's|^Exec=.*[[:space:]]--[[:space:]]+sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' "${_f}"
+        sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\3#' "${_f}"
+        sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
         sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
         sed -i 's|^TryExec=.*|TryExec=kyth-distrobox-root-launch|' "${_f}"
         echo "  Routed ${_f##*/} through kyth-distrobox-root-launch."
