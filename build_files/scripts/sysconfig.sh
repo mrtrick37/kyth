@@ -496,10 +496,10 @@ DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
 
-# ── VS Code Flatpak: KWallet keyring integration ─────────────────────────────
-# Seed new users with the same config that kyth-vscode-wallet applies to
-# existing users when they install VS Code from Welcome or ujust.
-HOME=/etc/skel KYTH_VSCODE_WALLET_SKIP_FLATPAK=1 /ctx/kyth-vscode-wallet
+# ── VS Code: KWallet keyring integration ─────────────────────────────────────
+# Seed new users with argv.json pointing at kwallet6 so VS Code never prompts
+# for a keychain password on first launch.
+HOME=/etc/skel /ctx/kyth-vscode-wallet
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
 # Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game
