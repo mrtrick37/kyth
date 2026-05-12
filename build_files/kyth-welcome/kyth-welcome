@@ -7804,7 +7804,7 @@ class SecurityPage(Page):
         )
         self._log.append(
             f"→ distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME}"
-            f" --additional-flags '--privileged --network host'\n"
+            f" --additional-flags '--privileged'\n"
             f"→ distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}\n"
             + sudo_note + export_note + size_note
         )
@@ -7867,7 +7867,7 @@ class SecurityPage(Page):
         cmd = [
             "bash", "-c",
             f"distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME} --yes"
-            f" --additional-flags '--privileged --network host'"
+            f" --additional-flags '--privileged'"
             f" && distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}"
             f" && distrobox enter {self._BOX_NAME} -- bash -c \""
             "echo '${USER} ALL=(root) NOPASSWD: ALL' "
