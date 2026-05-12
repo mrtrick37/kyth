@@ -422,14 +422,39 @@ NoDisplay=true
 WELCOMEEOF
 
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
-# Ship a no-splash installed boot baseline while we stabilize the QEMU/SDDM
-# handoff. The base layer owns the full list; this lower-priority file keeps
-# compatibility with bootc versions that only read one kargs.d entry.
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "rd.plymouth=0", "plymouth.enable=0"]
+kargs = ["quiet", "splash"]
 KARGSEOF
+
+# ── Plymouth boot splash ───────────────────────────────────────────────────────
+PLYMOUTH_THEME_DIR=/usr/share/plymouth/themes/kyth
+mkdir -p "${PLYMOUTH_THEME_DIR}"
+rsvg-convert -w 256 /ctx/branding/kyth-logo-transparent.svg \
+    -o "${PLYMOUTH_THEME_DIR}/kyth-logo.png"
+install -m 0644 /ctx/plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
+install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
+plymouth-set-default-theme --rebuild-initrd kyth
+
+# First-boot notice: shown once via Plymouth message_callback, then sentinel
+# gates it so subsequent boots skip the message.
+cat > /usr/lib/systemd/system/kyth-firstboot-notice.service <<'FBOOTEOF'
+[Unit]
+Description=KythOS first-boot Plymouth notice
+After=plymouth-start.service
+Before=plymouth-quit.service
+DefaultDependencies=no
+ConditionPathExists=!/var/lib/kyth/first-boot-done
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/first-boot-done && plymouth message --text="Setting up KythOS for the first time — this may take a minute…"'
+
+[Install]
+WantedBy=sysinit.target
+FBOOTEOF
+systemctl enable kyth-firstboot-notice.service 2>/dev/null || true
 
 # ── Security Tools menu group ──────────────────────────────────────────────────
 # Define a custom "Security Tools" group in the XDG application menu so that

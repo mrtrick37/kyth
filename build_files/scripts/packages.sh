@@ -351,6 +351,7 @@ dnf5 install -y \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
+    librsvg2-tools \
     distrobox \
     unzip \
     git \
