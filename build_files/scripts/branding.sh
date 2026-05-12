@@ -336,6 +336,14 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-laun
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
+install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
+install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
+    /usr/share/applications/kyth-update-notifier.desktop
+# Autostart the notifier for new user accounts
+mkdir -p /etc/skel/.config/autostart
+install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
+    /etc/skel/.config/autostart/kyth-update-notifier.desktop
+
 # Smoke-test the helper during the build so startup regressions fail the image
 # instead of surfacing only after first login.
 # timeout 30: pages run synchronous subprocess calls (bootc status, flatpak info)
@@ -367,7 +375,9 @@ elif [ "${smoke_exit}" -ne 0 ]; then
 fi
 
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
+install -m 0755 /ctx/kyth-gamescope /usr/bin/kyth-gamescope
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
+install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
@@ -379,6 +389,7 @@ install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-dupere
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
+install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
@@ -394,8 +405,9 @@ install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
-install -m 0755 /ctx/kyth-nvidia-setup /usr/bin/kyth-nvidia-setup
-install -m 0644 /ctx/kyth-nvidia-setup.service /usr/lib/systemd/system/kyth-nvidia-setup.service
+install -m 0755 /ctx/kyth-hw-setup /usr/bin/kyth-hw-setup
+install -m 0644 /ctx/kyth-hw-setup.service /usr/lib/systemd/system/kyth-hw-setup.service
+install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asus-supergfxd.rules
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
@@ -481,7 +493,7 @@ systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
-systemctl enable kyth-nvidia-setup.service 2>/dev/null || true
+systemctl enable kyth-hw-setup.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive popup

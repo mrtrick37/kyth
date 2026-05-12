@@ -133,6 +133,9 @@ jobs:
     permissions:
       contents: write
       packages: read
+      id-token: write
+      attestations: write
+      artifact-metadata: write
 
     steps:
       - name: Checkout repository
@@ -229,11 +232,62 @@ jobs:
 
           wait $BUILD_PID
 
+      - name: Generate ISO checksum
+        run: |
+          ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
+          (cd "$(dirname "${ISO}")" && sha256sum "$(basename "${ISO}")" > "$(basename "${ISO}")-CHECKSUM")
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
+        with:
+          cosign-release: 'v2.6.1'
+
+      - name: Sign ISO
+        run: |
+          ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
+          cosign sign-blob -y "${ISO}" \
+            --output-signature "${ISO}.sig" \
+            --bundle "${ISO}.bundle"
+
+      - name: Attest ISO build provenance
+        id: attest_iso
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        with:
+          subject-path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso
+
+      - name: Generate ISO metadata
+        run: |
+          ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
+          export SHA256="$(sha256sum "${ISO}" | awk '{print $1}')"
+          export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          iso = Path(f"output/live-iso/kyth-live-{os.environ['SOURCE_TAG']}.iso")
+          metadata = {
+              "iso": iso.name,
+              "sha256": os.environ["SHA256"],
+              "signature": iso.name + ".sig",
+              "bundle": iso.name + ".bundle",
+              "checksum": iso.name + "-CHECKSUM",
+              "attestation_url": os.environ.get("ATTESTATION_URL", ""),
+              "source_image": f"ghcr.io/{os.environ['GITHUB_REPOSITORY']}:live-build-{os.environ['SOURCE_TAG']}",
+              "source_tag": os.environ["SOURCE_TAG"],
+              "build_date": os.environ["BUILD_DATE"],
+          }
+          Path(str(iso) + ".json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          PY
+        env:
+          SOURCE_TAG: ${{ matrix.source_tag }}
+          ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
+
       - name: Upload ISO artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kyth-live-iso-${{ matrix.source_tag }}
-          path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso
+          path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -243,10 +297,12 @@ jobs:
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
-          aws s3 cp "${ISO}" \
-            "s3://kyth-releases/$(basename ${ISO})" \
-            --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-            --no-progress
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+            aws s3 cp "${artifact}" \
+              "s3://kyth-releases/$(basename "${artifact}")" \
+              --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+              --no-progress
+          done
 
       - name: Publish release notes to GitHub Releases
         env:
@@ -255,14 +311,18 @@ jobs:
           SOURCE_TAG="${{ matrix.source_tag }}"
           TAG="${{ matrix.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
           ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
+          CHECKSUM_URL="${ISO_URL}-CHECKSUM"
+          SIG_URL="${ISO_URL}.sig"
+          BUNDLE_URL="${ISO_URL}.bundle"
+          META_URL="${ISO_URL}.json"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [kyth-live-testing.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [kyth-live-latest.iso](%s)' "${ISO_URL}")
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
             PRERELEASE="--latest"
           fi
 

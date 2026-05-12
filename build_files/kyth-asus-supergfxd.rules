@@ -1,0 +1,21 @@
+ENV{DMI_VENDOR}="$attr{[dmi/id]sys_vendor}"
+ENV{DMI_VENDOR}!="ASUS*", GOTO="kyth_asus_end"
+
+ENV{DMI_FAMILY}="$attr{[dmi/id]product_family}"
+ENV{DMI_FAMILY}=="*TUF*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*ROG*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*Zephyrus*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*Strix*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*Vivo*ook*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*Zen*ook*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*ProArt*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*TX Air*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*TX Gaming*", GOTO="kyth_asus_start"
+ENV{DMI_FAMILY}=="*EXPERTBOOK*", GOTO="kyth_asus_start"
+GOTO="kyth_asus_end"
+
+LABEL="kyth_asus_start"
+ACTION=="add|change", DRIVER=="asus-nb-wmi", TAG+="systemd", ENV{SYSTEMD_WANTS}+="supergfxd.service"
+ACTION=="add|remove", DRIVER=="asus-nb-wmi", TAG+="systemd", ENV{SYSTEMD_WANTS}+="supergfxd.service"
+
+LABEL="kyth_asus_end"

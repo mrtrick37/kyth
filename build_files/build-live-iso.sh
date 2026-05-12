@@ -47,31 +47,24 @@ else
     LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
 
-# ── Sudo setup: ask once, work fully unattended for the rest of the build ─────
-if command sudo -n true 2>/dev/null; then
-    _ASKPASS=""
-else
+# ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
+SUDO_KEEPALIVE_PID=""
+if ! command sudo -n true 2>/dev/null; then
     if [[ ! -t 0 ]]; then
         echo "ERROR: sudo credentials are required, but stdin is not interactive." >&2
         echo "       Run 'sudo -v' first or run this ISO build from a terminal." >&2
         exit 1
     fi
-    IFS= read -rsp "Enter sudo password (needed for export, squashfs, and ISO assembly): " _build_pw
-    echo
-    printf '%s\n' "$_build_pw" | command sudo -S true 2>/dev/null \
-        || { echo "error: incorrect sudo password"; exit 1; }
-    export _KYTH_BUILD_PW="$_build_pw"
-    unset _build_pw
-    _ASKPASS=$(mktemp -p /var/tmp kyth-build-askpass.XXXXXXXX)
-    chmod 0700 "$_ASKPASS"
-    # shellcheck disable=SC2016  # single quotes intentional: var expands when askpass script runs, not now
-    printf '#!/bin/sh\nprintf "%%s\\n" "$_KYTH_BUILD_PW"\n' > "$_ASKPASS"
-    # Remove the askpass script on exit (normal or error) so it never
-    # lingers in /var/tmp if the build is killed mid-run.
-    trap '[[ -n "${_ASKPASS:-}" ]] && rm -f "${_ASKPASS}"' EXIT
-    export SUDO_ASKPASS="$_ASKPASS"
-    sudo() { command sudo -A "$@"; }
+    echo "==> Sudo credentials are needed for export, squashfs, and ISO assembly."
+    command sudo -v
 fi
+
+(
+    while command sudo -n true 2>/dev/null; do
+        sleep 60
+    done
+) &
+SUDO_KEEPALIVE_PID=$!
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
@@ -136,9 +129,10 @@ fi
 
 cleanup() {
     echo "==> Cleaning up ${WORK}"
+    if [[ -n "${SUDO_KEEPALIVE_PID:-}" ]]; then
+        kill "${SUDO_KEEPALIVE_PID}" 2>/dev/null || true
+    fi
     sudo rm -rf "${WORK}" 2>/dev/null || true
-    if [[ -n "${_ASKPASS:-}" ]]; then rm -f "$_ASKPASS" 2>/dev/null || true; fi
-    unset _KYTH_BUILD_PW
     # kyth-live:build is kept intentionally so Docker layer cache is preserved
     # for the next build. Run 'docker rmi kyth-live:build' to force a rebuild.
 }

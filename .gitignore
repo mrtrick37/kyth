@@ -19,3 +19,6 @@ core.*
 
 #Ignore vscode AI rules
 .github/instructions/codacy.instructions.md
+
+# Local Claude/Codex agent permissions and machine-specific settings
+.claude/settings.local.json

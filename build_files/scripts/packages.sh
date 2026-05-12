@@ -97,6 +97,9 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 dnf5 install -y --skip-unavailable \
     sddm \
     sddm-breeze \
+    kwallet-pam \
+    bubblewrap \
+    skopeo \
     plasma-workspace-x11 \
     xorg-x11-server-Xorg \
     xorg-x11-xinit \
@@ -125,6 +128,7 @@ dnf5 copr enable -y ublue-os/bazzite-multilib
 dnf5 copr enable -y ublue-os/staging
 dnf5 copr enable -y ublue-os/packages
 dnf5 copr enable -y ublue-os/obs-vkcapture
+dnf5 copr enable -y lukenukem/asus-linux
 dnf5 copr enable -y ycollet/audinux
 
 # Gaming packages
@@ -174,6 +178,48 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     rom-properties-kf6 \
     input-remapper
 
+# ── Optional PC gaming peripheral stack ──────────────────────────────────────
+# Keep these out of the core gaming transaction. They come from a mix of Fedora,
+# RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
+# dependency conflict, the image should still ship the core Steam/Gamescope/
+# MangoHud/GameMode stack. Each package is attempted independently so one flaky
+# package does not prevent the rest from landing.
+optional_gaming_packages=(
+    game-devices-udev
+    xpadneo
+    xone
+    jstest-gtk
+    libcec
+    cec-utils
+    openrazer-daemon
+    openrazer-meta
+    opentabletdriver
+    corectrl
+    akmod-v4l2loopback
+    v4l2loopback
+)
+
+for pkg in "${optional_gaming_packages[@]}"; do
+    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable "${pkg}" || \
+            echo "WARNING: optional gaming package '${pkg}' failed to install; continuing." >&2
+    else
+        echo "optional gaming package '${pkg}' is unavailable in configured repos; skipping."
+    fi
+done
+
+# ── ASUS Linux hardware control ───────────────────────────────────────────────
+# asusctl/asusd expose ASUS ROG/TUF/Zephyrus/ProArt controls such as platform
+# profiles, battery charge limits, fan curves, keyboard lighting, and newer
+# Armoury firmware attributes. supergfxctl provides hybrid/dGPU mode management
+# for supported ASUS laptops. The upstream asusd udev rules are DMI-gated, and
+# Kyth adds a matching supergfxd udev rule in the branding layer.
+dnf5 install -y --skip-unavailable \
+    asusctl \
+    supergfxctl || true
+systemctl disable supergfxd.service 2>/dev/null || true
+rm -f /etc/systemd/system/getty.target.wants/supergfxd.service
+
 is_enabled() {
     case "${1,,}" in
         1|true|yes|on) return 0 ;;
@@ -219,6 +265,7 @@ dnf5 copr disable -y ublue-os/bazzite-multilib
 dnf5 copr disable -y ublue-os/staging
 dnf5 copr disable -y ublue-os/packages
 dnf5 copr disable -y ublue-os/obs-vkcapture
+dnf5 copr disable -y lukenukem/asus-linux
 dnf5 copr disable -y ycollet/audinux
 
 ### GPU drivers
@@ -259,6 +306,22 @@ dnf5 install -y --skip-unavailable \
     radeontop \
     libclc \
     qemu-guest-agent
+
+# ── Intel GPU ─────────────────────────────────────────────────────────────────
+# mesa-dri-drivers already ships iris (Gen 9+) and crocus (Gen 4–8) Gallium
+# drivers, and mesa-vulkan-drivers includes ANV (Intel Vulkan). The gap is
+# hardware video decode (VA-API): iHD is the modern backend (Broadwell/Gen 8+),
+# i965 covers older Gen 4–7 parts.
+dnf5 install -y --skip-unavailable \
+    intel-media-driver \
+    libva-intel-driver \
+    intel-gpu-tools || true
+
+# ── NVIDIA GPU ────────────────────────────────────────────────────────────────
+# Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
+# boot without requiring a manual rpm-ostree layer step. On AMD/Intel systems
+# the package sits dormant and the build is never triggered.
+dnf5 install -y --skip-unavailable akmod-nvidia || true
 
 # Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
 # the VA-API driver is installed. Verify the capability and file ownership

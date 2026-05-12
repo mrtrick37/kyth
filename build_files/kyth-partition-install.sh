@@ -132,7 +132,7 @@ create_user() {
 	local deploy_etc="$2"
 	local username="$3"
 	local password="$4"
-	local deploy_root shadow_path pw_hash uid gid var_home skel
+	local deploy_root shadow_path pw_hash uid gid var_home skel tmp_shadow
 
 	[[ -n "$username" && -n "$password" ]] || return 0
 
@@ -145,17 +145,18 @@ create_user() {
 
 	pw_hash="$(openssl passwd -6 -stdin <<<"$password")"
 	shadow_path="$deploy_etc/shadow"
+	tmp_shadow="$(mktemp)"
 	as_root awk -F: -v OFS=: -v user="$username" -v hash="$pw_hash" '
 		$1 == user { $2 = hash; found = 1 }
 		{ print }
 		END { if (!found) exit 42 }
-	' "$shadow_path" >"/tmp/kyth-shadow.$$" \
+	' "$shadow_path" >"$tmp_shadow" \
 		|| {
-			rm -f "/tmp/kyth-shadow.$$"
+			rm -f "$tmp_shadow"
 			die "Failed to update password hash for ${username}"
 		}
-	as_root tee "$shadow_path" >/dev/null <"/tmp/kyth-shadow.$$"
-	rm -f "/tmp/kyth-shadow.$$"
+	as_root tee "$shadow_path" >/dev/null <"$tmp_shadow"
+	rm -f "$tmp_shadow"
 
 	uid="1000"
 	gid="1000"

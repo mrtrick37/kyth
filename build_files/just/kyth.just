@@ -175,9 +175,7 @@ game-performance-profile profile +args:
 gamescope +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec gamescope \
-        --adaptive-sync \
-        {{ args }}
+    exec /usr/bin/kyth-gamescope quality {{ args }}
 
 # Run a game or app inside gamescope with HDR enabled.
 # Requires an HDR-capable display and a Wayland session.
@@ -191,10 +189,30 @@ gamescope +args:
 game-hdr +args:
     #!/usr/bin/env bash
     set -euo pipefail
-    exec gamescope \
-        --hdr-enabled \
-        --adaptive-sync \
-        {{ args }}
+    exec /usr/bin/kyth-gamescope hdr {{ args }}
+
+# Run a game or app with KythOS Gamescope presets.
+# Usage:
+#   ujust game-scope quality -- %command%
+#   ujust game-scope hdr --fps 120 -- %command%
+#   ujust game-scope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%
+[group('KythOS')]
+game-scope preset="quality" +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec /usr/bin/kyth-gamescope "{{ preset }}" {{ args }}
+
+# Show or change the active sched-ext scheduler.
+# Usage: ujust scx status | ujust scx list | ujust scx set lavd
+[group('KythOS')]
+scx action="status" scheduler="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [[ -n "{{ scheduler }}" ]]; then
+        /usr/bin/kyth-scx "{{ action }}" "{{ scheduler }}"
+    else
+        /usr/bin/kyth-scx "{{ action }}"
+    fi
 
 # Run an OpenGL app through Zink.
 [group('KythOS')]
@@ -233,6 +251,38 @@ install-lact:
     echo "Launch it from the app launcher."
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
 
+# Install GOverlay from Flathub for MangoHud, vkBasalt, and OptiScaler tuning.
+[group('KythOS')]
+install-goverlay:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.github.benjamimgois.goverlay
+    echo
+    echo "GOverlay installed. Launch it from the app menu."
+
+# Install MangoJuice from Flathub for lightweight MangoHud configuration.
+[group('KythOS')]
+install-mangojuice:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub io.github.radiolamp.mangojuice
+    echo
+    echo "MangoJuice installed. Launch it from the app menu."
+
+# Launch CoreCtrl if the image includes it.
+[group('KythOS')]
+corectrl:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! command -v corectrl >/dev/null 2>&1; then
+        echo "CoreCtrl is not installed in this image." >&2
+        echo "If Fedora packaging skipped it during build, use LACT instead: ujust install-lact" >&2
+        exit 1
+    fi
+    exec corectrl
+
 # Install BoxBuddy (distrobox GUI) from Flathub.
 [group('KythOS')]
 install-boxbuddy:
@@ -248,6 +298,9 @@ install-boxbuddy:
     echo "BoxBuddy installed. Launch it from the app launcher to manage your distrobox containers."
 
 # Set up a Kali Linux security toolbox via distrobox.
+#
+# The container runs --privileged so security tools (nmap, zenmap, wireshark,
+# aircrack-ng, etc.) have full hardware and raw socket access.
 #
 # Usage:
 #   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
@@ -290,7 +343,8 @@ setup-kali-box tools="headless":
     echo "  Package:  ${meta}"
     echo
 
-    distrobox create --image kalilinux/kali-rolling --name kali --yes
+    distrobox create --image kalilinux/kali-rolling --name kali --yes \
+        --additional-flags "--privileged"
     distrobox enter kali -- sudo apt-get install -y "${meta}"
 
     if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
@@ -474,6 +528,7 @@ setup-kyth-dev-box:
     else
         echo "VS Code already installed."
     fi
+    kyth-vscode-wallet
 
     if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
         echo "${box} already exists."
@@ -497,6 +552,7 @@ install-vscode:
     set -euo pipefail
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     flatpak install -y flathub com.visualstudio.code
+    kyth-vscode-wallet
     echo
     echo "VS Code installed. Launch it from the app menu."
 
@@ -740,9 +796,10 @@ install-obs:
     set -euo pipefail
     flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
     flatpak install -y flathub com.obsproject.Studio
+    flatpak override --user --env=OBS_VKCAPTURE=1 com.obsproject.Studio || true
     echo
     echo "OBS Studio installed. Launch it from the app menu."
-    echo "Tip: run OBS under Wayland with: OBS_USE_EGL=1 obs"
+    echo "obs-vkcapture is enabled for Vulkan/OpenGL game capture."
 
 # Install the Itch.io desktop app — indie game store and library manager.
 [group('KythOS')]
@@ -795,6 +852,135 @@ install-openrgb:
     echo "OpenRGB installed. Launch it from the app menu."
     echo "If RGB RAM or motherboard headers are missing, load i2c kernel modules:"
     echo "  sudo modprobe i2c-dev i2c-piix4"
+
+# Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
+#
+# The first-boot service (kyth-enroll-mok.service) handles this automatically
+# when Secure Boot is active at install time. Use this recipe if you:
+#   - enabled Secure Boot after installing KythOS
+#   - need to re-enroll after a firmware reset
+#
+# After running, reboot and enter the password you chose at the MokManager screen.
+[group('KythOS')]
+enroll-secureboot:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+
+    if [[ ! -f "${CERT}" ]]; then
+        echo "KythOS Secure Boot certificate not found." >&2
+        echo "This image was built without Secure Boot support." >&2
+        exit 1
+    fi
+
+    echo "━━━ KythOS Secure Boot Enrollment ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    if ! mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"; then
+        echo "  Secure Boot is not currently enabled in your firmware."
+        echo "  Enable it in your UEFI/BIOS settings, reboot, then run this again."
+        exit 0
+    fi
+
+    if mokutil --list-enrolled 2>/dev/null | grep -q "KythOS Secure Boot"; then
+        echo "  KythOS Secure Boot key is already enrolled. Nothing to do."
+        exit 0
+    fi
+
+    echo "  Enrolling KythOS Secure Boot certificate."
+    echo "  Choose a one-time confirmation password — you will enter it at the"
+    echo "  MokManager screen on next reboot to complete enrollment."
+    echo
+    read -rsp "  Enrollment password: " MOK_PASS
+    echo
+    read -rsp "  Confirm password:    " MOK_PASS2
+    echo
+    if [[ "${MOK_PASS}" != "${MOK_PASS2}" ]]; then
+        echo "  Passwords do not match." >&2
+        exit 1
+    fi
+
+    echo "${MOK_PASS}" | sudo mokutil --import "${CERT}" --stdin-passwd
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  MOK enrollment staged."
+    echo "  Reboot and enter your password at the blue MokManager screen."
+    echo "    systemctl reboot"
+
+# Install NVIDIA proprietary drivers on KythOS.
+#
+# Runs in two phases — just re-run after each reboot prompt:
+#
+#   Phase 1: Layers akmod-nvidia via rpm-ostree (requires a reboot).
+#   Phase 2: Compiles the kernel module via akmods (requires a final reboot).
+#
+# Usage:
+#   ujust install-nvidia-driver          # run once, reboot when prompted, repeat
+[group('KythOS')]
+install-nvidia-driver:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "━━━ KythOS NVIDIA Driver Wizard ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    # ── GPU detection ─────────────────────────────────────────────────────────
+    if ! lspci | grep -qi nvidia; then
+        echo "  No NVIDIA GPU detected. Nothing to install."
+        exit 0
+    fi
+    echo "  NVIDIA GPU detected."
+    echo
+
+    # ── Already active ────────────────────────────────────────────────────────
+    if modinfo nvidia &>/dev/null && lsmod | grep -q "^nvidia "; then
+        echo "  NVIDIA driver is already active. Nothing to do."
+        exit 0
+    fi
+
+    # ── Phase 1: layer the source package ────────────────────────────────────
+    if ! rpm -q akmod-nvidia &>/dev/null; then
+        echo "  Phase 1/2 — Layering akmod-nvidia via rpm-ostree."
+        echo "  A reboot is required after this step."
+        echo
+        sudo rpm-ostree install --idempotent akmod-nvidia
+        echo
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  akmod-nvidia has been staged."
+        echo
+        echo "  Next steps:"
+        echo "    1. Reboot:             systemctl reboot"
+        echo "    2. After reboot, run:  ujust install-nvidia-driver"
+        exit 0
+    fi
+
+    # ── Module already built — reboot to activate ─────────────────────────────
+    if modinfo nvidia &>/dev/null; then
+        echo "  Kernel module is already built. Reboot to activate the driver."
+        echo "    systemctl reboot"
+        exit 0
+    fi
+
+    # ── Phase 2: compile the kernel module ───────────────────────────────────
+    echo "  Phase 2/2 — Compiling kernel module via akmods."
+    echo "  This may take 5–15 minutes on first compile…"
+    echo
+
+    KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+    sudo grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null || \
+        echo "  (grubby: non-fatal — kargs.d applies on next deployment)"
+
+    sudo rm -f /var/lib/kyth/hw-setup-done
+    sudo akmods --force --kernels "$(uname -r)"
+    sudo touch /var/lib/kyth/hw-setup-done
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  NVIDIA driver compiled successfully."
+    echo "  Reboot to activate:"
+    echo "    systemctl reboot"
 
 # Check for and apply firmware updates via fwupd.
 [group('KythOS')]
