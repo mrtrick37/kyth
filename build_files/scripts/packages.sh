@@ -307,6 +307,22 @@ dnf5 install -y --skip-unavailable \
     libclc \
     qemu-guest-agent
 
+# ── Intel GPU ─────────────────────────────────────────────────────────────────
+# mesa-dri-drivers already ships iris (Gen 9+) and crocus (Gen 4–8) Gallium
+# drivers, and mesa-vulkan-drivers includes ANV (Intel Vulkan). The gap is
+# hardware video decode (VA-API): iHD is the modern backend (Broadwell/Gen 8+),
+# i965 covers older Gen 4–7 parts.
+dnf5 install -y --skip-unavailable \
+    intel-media-driver \
+    libva-intel-driver \
+    intel-gpu-tools || true
+
+# ── NVIDIA GPU ────────────────────────────────────────────────────────────────
+# Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
+# boot without requiring a manual rpm-ostree layer step. On AMD/Intel systems
+# the package sits dormant and the build is never triggered.
+dnf5 install -y --skip-unavailable akmod-nvidia || true
+
 # Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
 # the VA-API driver is installed. Verify the capability and file ownership
 # directly so build logs catch a genuinely broken AMD video decode stack.

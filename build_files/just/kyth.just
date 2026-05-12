@@ -968,9 +968,9 @@ install-nvidia-driver:
     sudo grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null || \
         echo "  (grubby: non-fatal — kargs.d applies on next deployment)"
 
-    sudo rm -f /var/lib/kyth/nvidia-setup-done
+    sudo rm -f /var/lib/kyth/hw-setup-done
     sudo akmods --force --kernels "$(uname -r)"
-    sudo touch /var/lib/kyth/nvidia-setup-done
+    sudo touch /var/lib/kyth/hw-setup-done
 
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"

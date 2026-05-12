@@ -405,8 +405,8 @@ install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
-install -m 0755 /ctx/kyth-nvidia-setup /usr/bin/kyth-nvidia-setup
-install -m 0644 /ctx/kyth-nvidia-setup.service /usr/lib/systemd/system/kyth-nvidia-setup.service
+install -m 0755 /ctx/kyth-hw-setup /usr/bin/kyth-hw-setup
+install -m 0644 /ctx/kyth-hw-setup.service /usr/lib/systemd/system/kyth-hw-setup.service
 install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asus-supergfxd.rules
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -493,7 +493,7 @@ systemctl enable kyth-duperemove.timer 2>/dev/null || true
 systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
-systemctl enable kyth-nvidia-setup.service 2>/dev/null || true
+systemctl enable kyth-hw-setup.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive popup
