@@ -23,5 +23,10 @@ exec distrobox enter "${box}" -- bash -lc '
             || xhost +si:localuser:root >/dev/null 2>&1 \
             || true
     fi
+    # Root cannot access the Wayland socket in /run/user/<uid>/ (drwx------ owned
+    # by the login user).  Force X11/XWayland, which xhost already grants root
+    # access to, so GTK apps don't SIGABRT trying to connect to Wayland.
+    export GDK_BACKEND=x11
+    unset WAYLAND_DISPLAY
     exec sudo -E "$@"
 ' bash "$@"
