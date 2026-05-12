@@ -1625,6 +1625,23 @@ def _akmod_nvidia_installed() -> bool:
         return False
 
 
+def _hw_setup_service_state() -> str:
+    """Returns the systemd active state of kyth-hw-setup.service.
+    Possible values: 'activating' (running), 'active' (done), 'failed', 'inactive', or ''."""
+    try:
+        r = subprocess.run(
+            ["systemctl", "is-active", "kyth-hw-setup.service"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip()
+    except Exception:
+        return ""
+
+
+def _hw_setup_done() -> bool:
+    return os.path.exists("/var/lib/kyth/hw-setup-done")
+
+
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
         return ("#0f2a31", "#5ee6c1", "OK")
@@ -4025,12 +4042,14 @@ class NvidiaPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
-        self._staged_layer = False
+        self._poll_timer = QTimer(self)
+        self._poll_timer.setInterval(8000)
+        self._poll_timer.timeout.connect(self._refresh_status)
 
         self._page_header(
             "System",
             "NVIDIA Drivers",
-            "Install and verify proprietary NVIDIA kernel modules.",
+            "Build and verify proprietary NVIDIA kernel modules.",
         )
         self._sub = self._subheading("")
 
@@ -4039,7 +4058,7 @@ class NvidiaPage(Page):
         self._add(self._status_lbl)
 
         btn_row = QHBoxLayout()
-        self._install_btn = QPushButton("Install NVIDIA Drivers")
+        self._install_btn = QPushButton("Build Driver Now")
         self._install_btn.setObjectName("primary")
         self._install_btn.clicked.connect(self._run_install)
         btn_row.addWidget(self._install_btn)
@@ -4077,68 +4096,83 @@ class NvidiaPage(Page):
         loaded = _nvidia_module_loaded()
         built = _akmod_nvidia_built()
         installed = _akmod_nvidia_installed()
+        svc_state = _hw_setup_service_state()
+        auto_building = svc_state == "activating"
+
+        # Keep polling while the background service is compiling.
+        if auto_building and not self._poll_timer.isActive():
+            self._poll_timer.start()
+        elif not auto_building:
+            self._poll_timer.stop()
 
         if not has_gpu:
             self._sub.setText("No NVIDIA GPU detected in this system.")
             self._status_lbl.setText("No NVIDIA hardware found.")
             self._status_lbl.setObjectName("status-dim")
             self._install_btn.hide()
+            self._progress.hide()
         elif loaded:
             self._sub.setText("NVIDIA GPU detected.")
             self._status_lbl.setText("Drivers are active and the kernel module is loaded.")
             self._status_lbl.setObjectName("status-ok")
             self._install_btn.hide()
+            self._progress.hide()
         elif built:
             self._sub.setText("NVIDIA GPU detected.")
             self._status_lbl.setText("Drivers installed — reboot to activate.")
             self._status_lbl.setObjectName("status-warn")
             self._install_btn.hide()
+            self._progress.hide()
             self._reboot_btn.show()
-        elif self._staged_layer:
+        elif auto_building:
+            # kyth-hw-setup is running akmods in the background right now.
             self._sub.setText("NVIDIA GPU detected.")
-            self._status_lbl.setText("akmod-nvidia staged — reboot, then reopen this app to build the driver.")
-            self._status_lbl.setObjectName("status-warn")
-            self._install_btn.hide()
-            self._reboot_btn.show()
-        elif installed:
-            self._sub.setText("NVIDIA GPU detected.")
-            self._status_lbl.setText("akmod-nvidia is installed. Click below to compile the kernel module.")
-            self._status_lbl.setObjectName("subheading")
-            self._install_btn.setText("Build Driver")
-            self._install_btn.show()
-        else:
-            self._sub.setText("NVIDIA GPU detected — drivers not installed.")
             self._status_lbl.setText(
-                "Step 1/2: Click below to layer the akmod-nvidia package via rpm-ostree.\n"
-                "A reboot is required after this step."
+                "Building NVIDIA kernel module automatically — this takes 5–15 minutes.\n"
+                "You can keep using the system. This page will update when the build finishes."
             )
             self._status_lbl.setObjectName("subheading")
-            self._install_btn.setText("Install NVIDIA Drivers")
+            self._install_btn.hide()
+            self._progress.setRange(0, 0)
+            self._progress.show()
+        elif _hw_setup_done() and svc_state == "failed":
+            # Service ran but akmods failed — offer a manual retry.
+            self._sub.setText("NVIDIA GPU detected — automatic build failed.")
+            self._status_lbl.setText(
+                "kyth-hw-setup could not build the kernel module. "
+                "Check journalctl -u kyth-hw-setup for details, then click below to retry."
+            )
+            self._status_lbl.setObjectName("status-err")
+            self._install_btn.setText("Retry Build")
             self._install_btn.show()
+            self._progress.hide()
+        elif installed:
+            # Service hasn't run yet or was reset — offer a manual kick-off.
+            self._sub.setText("NVIDIA GPU detected.")
+            self._status_lbl.setText(
+                "Kernel module will be compiled automatically on next boot, "
+                "or click below to build it now."
+            )
+            self._status_lbl.setObjectName("subheading")
+            self._install_btn.setText("Build Driver Now")
+            self._install_btn.show()
+            self._progress.hide()
+        else:
+            # akmod-nvidia missing — should never happen on a correctly built image.
+            self._sub.setText("NVIDIA GPU detected — driver package missing.")
+            self._status_lbl.setText(
+                "akmod-nvidia is not installed. This is unexpected on KythOS.\n"
+                "Run: rpm-ostree install akmod-nvidia, then reboot and return here."
+            )
+            self._status_lbl.setObjectName("status-err")
+            self._install_btn.hide()
+            self._progress.hide()
 
         _restyle(self._sub)
         _restyle(self._status_lbl)
 
     def _run_install(self):
-        if not _akmod_nvidia_installed():
-            self._layer_package()
-        else:
-            self._build_module()
-
-    def _layer_package(self):
-        cmd = ["sudo", "rpm-ostree", "install", "--idempotent", "akmod-nvidia"]
-        self._log.clear()
-        self._log.append("→ Layering akmod-nvidia via rpm-ostree…\n")
-        self._log_toggle.show()
-        _set_log_panel(self._log_toggle, self._log, False)
-        self._progress.show()
-        self._install_btn.setEnabled(False)
-
-        self._worker = Worker(cmd)
-        _set_session_inhibit(self, "KythOS is staging NVIDIA driver package")
-        self._worker.line.connect(self._on_line)
-        self._worker.done.connect(self._on_layer_done)
-        self._worker.start()
+        self._build_module()
 
     def _build_module(self):
         kargs = (
@@ -4148,7 +4182,7 @@ class NvidiaPage(Page):
         )
         cmd = [
             "sudo", "bash", "-c",
-            "rm -f /var/lib/kyth/nvidia-setup-done && "
+            "rm -f /var/lib/kyth/hw-setup-done && "
             f"grubby --update-kernel=ALL --args='{kargs}' ; "
             'akmods --force --kernels "$(uname -r)"',
         ]
@@ -4168,21 +4202,6 @@ class NvidiaPage(Page):
     def _on_line(self, text: str):
         self._log.append(text)
         self._log.ensureCursorVisible()
-
-    def _on_layer_done(self, code: int):
-        self._progress.hide()
-        self._install_btn.setEnabled(True)
-        _finish_worker(self)
-        _set_session_inhibit(self, None)
-
-        if code == 0:
-            self._staged_layer = True
-            self._log.append("\nakmod-nvidia staged. Reboot, then reopen Welcome App to build the kernel module.")
-            self._reboot_btn.show()
-            self._install_btn.hide()
-        else:
-            self._log.append(f"\nFailed to stage akmod-nvidia (exit code {code}).")
-        self._refresh_status()
 
     def _on_done(self, code: int):
         self._progress.hide()
@@ -7856,7 +7875,16 @@ class SecurityPage(Page):
                 "copying blob", "copying config",
             )):
                 self._install_phase = 1
-                self._status_lbl.setText("Pulling Kali container image…")
+                # Show which layer/blob is being transferred when possible
+                if "copying blob" in lo:
+                    digest = ln.split()[-1] if ln.split() else ""
+                    short = digest[:19] if digest else ""
+                    msg = f"Pulling image layer {short}…" if short else "Pulling Kali image layers…"
+                elif "copying config" in lo:
+                    msg = "Pulling image config…"
+                else:
+                    msg = "Pulling kalilinux/kali-rolling from registry…"
+                self._status_lbl.setText(msg)
                 _restyle(self._status_lbl)
                 cur = self._progress.value()
                 if cur < 40:
@@ -7864,6 +7892,8 @@ class SecurityPage(Page):
                 return
             if "writing manifest" in lo or "storing signatures" in lo:
                 self._install_phase = 1
+                self._status_lbl.setText("Storing image manifest…")
+                _restyle(self._status_lbl)
                 self._progress.setValue(42)
                 return
             # Distrobox init lines — image was cached or pull just finished
@@ -7872,7 +7902,7 @@ class SecurityPage(Page):
                 "image is now available", "image already present",
             )) or (phase == 1 and "distrobox" in lo and "creat" in lo):
                 self._install_phase = 2
-                self._status_lbl.setText("Initialising Kali container…")
+                self._status_lbl.setText("Creating Kali distrobox container…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 44))
                 return
@@ -7881,7 +7911,7 @@ class SecurityPage(Page):
         if phase == 2:
             if any(k in lo for k in ("installing basic", "bootstrapping", "reading package")):
                 self._install_phase = 3
-                self._status_lbl.setText("Updating package lists…")
+                self._status_lbl.setText("Bootstrapping Kali environment…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 55))
             else:
@@ -7894,14 +7924,14 @@ class SecurityPage(Page):
         if phase == 3:
             if any(k in lo for k in ("reading package lists", "building dependency",
                                      "reading state information")):
-                self._status_lbl.setText("Updating package lists…")
+                self._status_lbl.setText("Fetching Kali package lists…")
                 _restyle(self._status_lbl)
                 cur = self._progress.value()
                 if cur < 59:
                     self._progress.setValue(cur + 1)
             elif any(k in lo for k in ("following new package", "following additional",
                                        "will be installed")):
-                self._status_lbl.setText("Resolving dependencies…")
+                self._status_lbl.setText("Resolving package dependencies…")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 58))
             # "0 upgraded, N newly installed" — grab total package count
@@ -7909,7 +7939,15 @@ class SecurityPage(Page):
             if m:
                 self._total_packages = int(m.group(1))
             # "Need to get X MB of archives" — transition to download phase
-            if "need to get" in lo and "archive" in lo:
+            m2 = re.search(r'Need to get (.+?) of archives', ln, re.IGNORECASE)
+            if m2:
+                self._install_phase = 4
+                size_str = m2.group(1)
+                count_str = f" ({self._total_packages} packages)" if self._total_packages else ""
+                self._status_lbl.setText(f"Downloading {size_str} of packages{count_str}…")
+                _restyle(self._status_lbl)
+                self._progress.setValue(max(self._progress.value(), 60))
+            elif "need to get" in lo and "archive" in lo:
                 self._install_phase = 4
                 self._status_lbl.setText("Downloading packages…")
                 _restyle(self._status_lbl)
@@ -7918,20 +7956,27 @@ class SecurityPage(Page):
 
         # ── Phase 4: Downloading packages (60–75 %) ──────────────────────────
         if phase == 4:
-            m = re.match(r'Get:(\d+)\s', ln)
+            m = re.match(r'Get:(\d+)\s+\S+\s+\S+\s+\S+\s+(\S+)', ln)
             if m:
                 n = int(m.group(1))
+                pkg = m.group(2)
                 if self._total_packages > 0:
                     frac = min(1.0, n / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
                                                int(60 + frac * 15)))
+                    self._status_lbl.setText(
+                        f"Downloading {pkg}… ({n} / {self._total_packages})"
+                    )
                 else:
                     cur = self._progress.value()
                     if cur < 74:
                         self._progress.setValue(cur + 1)
+                    self._status_lbl.setText(f"Downloading {pkg}…")
+                _restyle(self._status_lbl)
             if ln.startswith("Selecting previously") or ln.startswith("Preparing to unpack"):
                 self._install_phase = 5
-                self._status_lbl.setText("Unpacking packages…")
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(f"Unpacking packages… (0{total_str})")
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 75))
             return
@@ -7940,6 +7985,13 @@ class SecurityPage(Page):
         if phase == 5:
             if ln.startswith("Unpacking "):
                 self._unpack_count += 1
+                pkg = ln.split()[1] if len(ln.split()) > 1 else ""
+                pkg = pkg.split(":")[0]  # strip :amd64 arch suffix
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Unpacking {pkg}… ({self._unpack_count}{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, self._unpack_count / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7950,9 +8002,14 @@ class SecurityPage(Page):
                         self._progress.setValue(cur + 1)
             if ln.startswith("Setting up "):
                 self._install_phase = 6
-                self._status_lbl.setText("Configuring packages…")
-                _restyle(self._status_lbl)
+                pkg = ln.split()[2] if len(ln.split()) > 2 else ""
+                pkg = pkg.split(":")[0]
                 self._setup_count = 1
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Configuring {pkg}… (1{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, 1 / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7965,6 +8022,13 @@ class SecurityPage(Page):
         if phase == 6:
             if ln.startswith("Setting up "):
                 self._setup_count += 1
+                pkg = ln.split()[2] if len(ln.split()) > 2 else ""
+                pkg = pkg.split(":")[0]
+                total_str = f" / {self._total_packages}" if self._total_packages else ""
+                self._status_lbl.setText(
+                    f"Configuring {pkg}… ({self._setup_count}{total_str})"
+                )
+                _restyle(self._status_lbl)
                 if self._total_packages > 0:
                     frac = min(1.0, self._setup_count / self._total_packages)
                     self._progress.setValue(max(self._progress.value(),
@@ -7974,7 +8038,10 @@ class SecurityPage(Page):
                     if cur < 97:
                         self._progress.setValue(cur + 1)
             if "processing triggers" in lo:
-                self._status_lbl.setText("Finishing up…")
+                pkg_m = re.search(r'processing triggers for (\S+)', lo)
+                trigger_pkg = pkg_m.group(1) if pkg_m else ""
+                msg = f"Running post-install triggers ({trigger_pkg})…" if trigger_pkg else "Running post-install triggers…"
+                self._status_lbl.setText(msg)
                 _restyle(self._status_lbl)
                 self._progress.setValue(max(self._progress.value(), 98))
 

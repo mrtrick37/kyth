@@ -1,14 +1,14 @@
 [Unit]
-Description=KythOS NVIDIA driver first-boot setup
+Description=KythOS hardware auto-setup (SCX scheduler + NVIDIA driver)
 Documentation=https://github.com/mrtrick37/kyth
-# Run after the filesystem is ready but don't block the display manager —
+# Run after filesystems and PCI devices are enumerated, but don't block SDDM —
 # akmods can take 5-15 min and we don't want to stall the first login screen.
 After=sysinit.target local-fs.target
-ConditionPathExists=!/var/lib/kyth/nvidia-setup-done
+ConditionPathExists=!/var/lib/kyth/hw-setup-done
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/kyth-nvidia-setup
+ExecStart=/usr/bin/kyth-hw-setup
 RemainAfterExit=yes
 StandardOutput=journal
 StandardError=journal

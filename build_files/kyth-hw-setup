@@ -1,0 +1,101 @@
+#!/bin/bash
+# kyth-hw-setup — first-boot hardware auto-configuration.
+#
+# Runs once at boot via kyth-hw-setup.service. Does two things:
+#
+#   1. SCX scheduler selection: reads the CPU vendor and picks the best
+#      available sched-ext scheduler for that architecture.
+#
+#   2. NVIDIA driver build: if an NVIDIA GPU is present and akmod-nvidia is
+#      installed, builds the kernel module via akmods. The flag file is NOT
+#      written on akmod failure so the service retries on the next boot.
+#
+# Flag file: /var/lib/kyth/hw-setup-done
+#   Written on success (or when no action is needed). Prevents re-runs.
+#   Delete it to force a re-run on the next boot.
+
+set -euo pipefail
+
+FLAG="/var/lib/kyth/hw-setup-done"
+mkdir -p /var/lib/kyth
+
+log() { echo "kyth-hw-setup: $*"; }
+
+# ── SCX scheduler selection ───────────────────────────────────────────────────
+# Only attempt if scx_loader is installed and the kernel exposes sched_ext.
+if command -v scx_loader >/dev/null 2>&1 && [[ -d /sys/kernel/sched_ext ]]; then
+    vendor_id=$(grep "^vendor_id" /proc/cpuinfo | head -1 | awk -F': ' '{print $2}' | tr -d ' ')
+
+    case "$vendor_id" in
+        AuthenticAMD)
+            # scx_lavd is tuned for AMD CCX/SMT topologies and excels at
+            # gaming latency on Zen 2+. Prefer it over the generic bpfland.
+            scheduler_order=(scx_lavd scx_bpfland scx_rusty)
+            cpu_label="AMD"
+            ;;
+        GenuineIntel)
+            # scx_bpfland handles the P+E core asymmetry of Alder Lake+
+            # more conservatively; use it first on all Intel hardware.
+            scheduler_order=(scx_bpfland scx_lavd scx_rusty)
+            cpu_label="Intel"
+            ;;
+        *)
+            # Unknown vendor (VM, ARM, etc.): bpfland is the safest default.
+            scheduler_order=(scx_bpfland scx_rusty)
+            cpu_label="unknown"
+            ;;
+    esac
+
+    SCHEDULER=""
+    for sched in "${scheduler_order[@]}"; do
+        if command -v "$sched" >/dev/null 2>&1; then
+            SCHEDULER="$sched"
+            break
+        fi
+    done
+
+    if [[ -n "$SCHEDULER" ]]; then
+        mkdir -p /etc/scx
+        echo "SCX_SCHEDULER=${SCHEDULER}" > /etc/scx/scx_loader.conf
+        systemctl enable scx_loader.service >/dev/null 2>&1 || true
+        systemctl restart scx_loader.service 2>/dev/null \
+            || log "scx_loader restart failed (non-fatal — active on next boot)"
+        log "SCX scheduler set to ${SCHEDULER} for ${cpu_label} CPU"
+    else
+        log "no SCX schedulers found — leaving kernel default scheduler"
+    fi
+else
+    log "sched-ext not available, skipping scheduler selection"
+fi
+
+# ── NVIDIA GPU detection → akmod build ───────────────────────────────────────
+if lspci 2>/dev/null | grep -qi nvidia; then
+    if modinfo nvidia &>/dev/null; then
+        log "NVIDIA kernel module already loaded — nothing to build"
+        touch "${FLAG}"
+        exit 0
+    fi
+
+    if ! rpm -q akmod-nvidia &>/dev/null; then
+        log "ERROR: NVIDIA GPU detected but akmod-nvidia is not in the image"
+        log "This is a build-time bug. Workaround: rpm-ostree install akmod-nvidia"
+        # Do not write the flag — retry on next boot after manual intervention.
+        exit 1
+    fi
+
+    log "NVIDIA GPU detected — building kernel module via akmods (5–15 min)"
+
+    # Blacklist nouveau/nova_core and enable DRM modesetting so Wayland/SDDM
+    # can use the NVIDIA KMS path after the first reboot with the new module.
+    KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+    grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null \
+        || log "grubby could not update kernel args (non-fatal — kargs.d applies on next deployment)"
+
+    akmods --force --kernels "$(uname -r)"
+
+    touch "${FLAG}"
+    log "NVIDIA setup complete — reboot to activate drivers"
+else
+    # No NVIDIA hardware — mark done so this service never runs again.
+    touch "${FLAG}"
+fi
