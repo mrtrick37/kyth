@@ -299,8 +299,9 @@ install-boxbuddy:
 
 # Set up a Kali Linux security toolbox via distrobox.
 #
-# The container runs --privileged so security tools (nmap, zenmap, wireshark,
-# aircrack-ng, etc.) have full hardware and raw socket access.
+# The container runs --privileged --network host so security tools (nmap,
+# zenmap, wireshark, aircrack-ng, etc.) have full hardware, device, and raw
+# socket access on the real host network interfaces.
 #
 # Usage:
 #   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
@@ -343,9 +344,20 @@ setup-kali-box tools="headless":
     echo "  Package:  ${meta}"
     echo
 
+    # --network host: security tools (nmap, wireshark, aircrack-ng, etc.) need raw
+    # socket access and must see real network interfaces, not a container namespace.
     distrobox create --image kalilinux/kali-rolling --name kali --yes \
-        --additional-flags "--privileged"
+        --additional-flags "--privileged --network host"
     distrobox enter kali -- sudo apt-get install -y "${meta}"
+
+    # Grant passwordless sudo inside the container so root-requiring tools
+    # (nmap, wireshark, aircrack-ng, etc.) launch from the app menu without a
+    # polkit dialog that can't reach the host agent from inside distrobox.
+    distrobox enter kali -- bash -c "
+        echo '${USER} ALL=(root) NOPASSWD: ALL' \
+            | sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null
+        sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd
+    " && echo "  Configured passwordless sudo for security tools in kali." || true
 
     if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
         echo
@@ -356,11 +368,11 @@ setup-kali-box tools="headless":
         # host-side .desktop wrappers to ~/.local/share/applications/.
         distrobox enter kali -- bash -c '
             exported=0
-            for f in /usr/share/applications/*.desktop; do
+            while IFS= read -r -d "" f; do
                 [[ -f "$f" ]] || continue
                 app=$(basename "$f" .desktop)
                 distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
-            done
+            done < <(find /usr/share/applications -name "*.desktop" -print0)
             echo "  Exported ${exported} desktop entries."
         '
 
@@ -381,32 +393,31 @@ setup-kali-box tools="headless":
             fi
         done
         echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
-        # Strip NoDisplay=true so entries actually appear in the launcher.
+        # Strip visibility guards so entries appear in the KDE launcher.
         for _f in "${_appdir}/"*.desktop; do
             [[ -f "${_f}" ]] || continue
             grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
             sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
             sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+            sed -i '/^NotShowIn[[:space:]]*=/d' "${_f}"
         done
+        # Replace pkexec/kdesu/gksu with sudo -E for all exported kali apps.
+        # polkit agents are unreachable from inside the container on Wayland;
+        # passwordless sudo (configured above) is the correct mechanism here.
+        _fixed_priv=0
+        for _f in "${_appdir}/"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+            if grep -qE 'pkexec|kdesu|gksu|gksudo' "${_f}" 2>/dev/null; then
+                sed -i -E 's/(pkexec|kdesu|gksu|gksudo)[[:space:]]+/sudo -E /g' "${_f}"
+                _fixed_priv=$((_fixed_priv+1))
+            fi
+        done
+        [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
         update-desktop-database "${_appdir}" 2>/dev/null || true
         # Rebuild KDE's application-launcher cache (update-desktop-database alone
         # is not enough — KDE maintains its own ksycoca index).
         kbuildsycoca6 --noincremental 2>/dev/null || true
-
-        # ── Zenmap: fix root launcher (pkexec fails inside distrobox on Wayland) ──
-        # distrobox-export generates kali-zenmap-root.desktop with pkexec, which
-        # can't reach the host polkit agent from inside the container.  Replace it
-        # with sudo -E so Wayland env vars are preserved and no dialog is needed.
-        _zenmapd="${_appdir}/kali-zenmap-root.desktop"
-        if [[ -f "${_zenmapd}" ]]; then
-            sed -i 's|pkexec /usr/bin/zenmap|sudo -E /usr/bin/zenmap|g' "${_zenmapd}"
-            echo "  Patched kali-zenmap-root.desktop to use sudo -E."
-            distrobox enter kali -- bash -c "
-                echo '${USER} ALL=(root) NOPASSWD: /usr/bin/zenmap' \
-                    | sudo tee /etc/sudoers.d/zenmap-nopasswd > /dev/null
-                sudo chmod 0440 /etc/sudoers.d/zenmap-nopasswd
-            " && echo "  Added passwordless sudo for zenmap in kali." || true
-        fi
 
         echo "  Done — Kali tools should appear under 'Security Tools' in the app launcher."
     fi
@@ -433,14 +444,22 @@ export-kali-apps:
 
     echo "━━━ Exporting Kali GUI apps ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
-    # Export every .desktop file found in the kali container.
+    # Ensure passwordless sudo is configured inside the container so root-requiring
+    # tools launched from the app menu don't silently fail on a polkit prompt.
+    distrobox enter kali -- bash -c "
+        echo '${USER} ALL=(root) NOPASSWD: ALL' \
+            | sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null
+        sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd
+    " && echo "  Configured passwordless sudo for security tools in kali." || true
+
+    # Export every .desktop file found in the kali container, including subdirs.
     distrobox enter kali -- bash -c '
         exported=0
-        for f in /usr/share/applications/*.desktop; do
+        while IFS= read -r -d "" f; do
             [[ -f "$f" ]] || continue
             app=$(basename "$f" .desktop)
             distrobox-export --app "$app" 2>/dev/null && exported=$((exported+1)) || true
-        done
+        done < <(find /usr/share/applications -name "*.desktop" -print0)
         echo "  Exported ${exported} desktop entries."
     '
 
@@ -460,29 +479,29 @@ export-kali-apps:
     done
 
     echo "  Set Categories=X-KythSecurity; on ${_patched} entries."
-    # Strip NoDisplay=true so entries actually appear in the launcher.
+    # Strip visibility guards so entries appear in the KDE launcher.
     for _f in "${_appdir}/"*.desktop; do
         [[ -f "${_f}" ]] || continue
         grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
         sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' "${_f}"
         sed -i '/^OnlyShowIn[[:space:]]*=/d' "${_f}"
+        sed -i '/^NotShowIn[[:space:]]*=/d' "${_f}"
     done
+    # Replace pkexec/kdesu/gksu with sudo -E for all exported kali apps.
+    _fixed_priv=0
+    for _f in "${_appdir}/"*.desktop; do
+        [[ -f "${_f}" ]] || continue
+        grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+        if grep -qE 'pkexec|kdesu|gksu|gksudo' "${_f}" 2>/dev/null; then
+            sed -i -E 's/(pkexec|kdesu|gksu|gksudo)[[:space:]]+/sudo -E /g' "${_f}"
+            _fixed_priv=$((_fixed_priv+1))
+        fi
+    done
+    [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
     update-desktop-database "${_appdir}" 2>/dev/null || true
     # Rebuild KDE's application-launcher cache (update-desktop-database alone
     # is not enough — KDE maintains its own ksycoca index).
     kbuildsycoca6 --noincremental 2>/dev/null || true
-
-    # ── Zenmap: fix root launcher (pkexec fails inside distrobox on Wayland) ──
-    _zenmapd="${_appdir}/kali-zenmap-root.desktop"
-    if [[ -f "${_zenmapd}" ]]; then
-        sed -i 's|pkexec /usr/bin/zenmap|sudo -E /usr/bin/zenmap|g' "${_zenmapd}"
-        echo "  Patched kali-zenmap-root.desktop to use sudo -E."
-        distrobox enter kali -- bash -c "
-            echo '${USER} ALL=(root) NOPASSWD: /usr/bin/zenmap' \
-                | sudo tee /etc/sudoers.d/zenmap-nopasswd > /dev/null
-            sudo chmod 0440 /etc/sudoers.d/zenmap-nopasswd
-        " && echo "  Added passwordless sudo for zenmap in kali." || true
-    fi
 
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "Kali tools are now exported to the application launcher under 'Security Tools'."
