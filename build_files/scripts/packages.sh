@@ -140,10 +140,11 @@ dnf5 copr enable -y ycollet/audinux
 # umu-launcher is intentionally absent here — not in bazzite COPR for Fedora 44;
 # installed from GitHub releases in thirdparty.sh instead.
 #
-# Keep native libatomic aligned before adding libatomic.i686. Fedora mirror/COPR
-# timing can expose a newer i686 build while the base image still carries the
-# previous x86_64 build; mismatched multilib RPMs conflict on shared doc files.
-dnf5 upgrade -y libatomic.x86_64 || true
+# Keep native x86_64 packages aligned before adding their i686 multilib builds.
+# Fedora mirror/COPR timing can expose a newer i686 build while the base image
+# still carries the previous x86_64 build; mismatched versions conflict on
+# shared doc/man files.
+dnf5 upgrade -y libatomic.x86_64 nss.x86_64 || true
 
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     gamescope \
@@ -351,6 +352,7 @@ dnf5 install -y \
     qt6-qtwayland \
     plymouth \
     plymouth-plugin-script \
+    librsvg2-tools \
     distrobox \
     unzip \
     git \
