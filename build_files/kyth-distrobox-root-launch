@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+if [[ $# -lt 2 ]]; then
+    echo "Usage: ${0##*/} BOX COMMAND [ARGS...]" >&2
+    exit 2
+fi
+
+box="$1"
+shift
+
+# Root GUI apps often fail from desktop launchers with "No protocol specified"
+# unless the display server allows the local root user before sudo is invoked.
+if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+    xhost +SI:localuser:root >/dev/null 2>&1 \
+        || xhost +si:localuser:root >/dev/null 2>&1 \
+        || true
+fi
+
+exec distrobox enter "${box}" -- bash -lc '
+    if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
+        xhost +SI:localuser:root >/dev/null 2>&1 \
+            || xhost +si:localuser:root >/dev/null 2>&1 \
+            || true
+    fi
+    exec sudo -E "$@"
+' bash "$@"
