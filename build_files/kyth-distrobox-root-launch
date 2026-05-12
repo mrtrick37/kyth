@@ -25,8 +25,13 @@ exec distrobox enter "${box}" -- bash -lc '
     fi
     # Root cannot access the Wayland socket in /run/user/<uid>/ (drwx------ owned
     # by the login user).  Force X11/XWayland, which xhost already grants root
-    # access to, so GTK apps don't SIGABRT trying to connect to Wayland.
+    # access to, so GTK apps do not SIGABRT trying to connect to Wayland.
     export GDK_BACKEND=x11
     unset WAYLAND_DISPLAY
+    # breeze-dark (mounted from host /usr/local) ships SVG icons that glycin
+    # loads via bwrap --unshare-all. That sandbox call fails when root runs
+    # inside a container, causing a Gtk:ERROR assertion crash. Force the
+    # PNG-only hicolor fallback theme to sidestep the glycin sandbox entirely.
+    export GTK_ICON_THEME=hicolor
     exec sudo -E "$@"
 ' bash "$@"
