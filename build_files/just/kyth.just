@@ -414,6 +414,23 @@ setup-kali-box tools="headless":
             fi
         done
         [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+
+        # Some tools (zenmap, etc.) declare no pkexec in their Exec= line but
+        # self-elevate via pkexec at runtime.  polkit is unreachable from inside
+        # the container, so inject sudo -E into the distrobox-enter separator.
+        # The pattern ' -- ' only appears once in a distrobox-enter Exec line
+        # (as the argument separator), so this replacement is unambiguous.
+        _self_elevate=(zenmap)
+        for _tool in "${_self_elevate[@]}"; do
+            for _f in "${_appdir}/"*"${_tool}"*.desktop; do
+                [[ -f "${_f}" ]] || continue
+                grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+                grep -q ' sudo ' "${_f}" && continue
+                sed -i 's| -- | -- sudo -E |' "${_f}"
+                echo "  Injected sudo -E into ${_f##*/}."
+            done
+        done
+
         update-desktop-database "${_appdir}" 2>/dev/null || true
         # Rebuild KDE's application-launcher cache (update-desktop-database alone
         # is not enough — KDE maintains its own ksycoca index).
@@ -498,6 +515,21 @@ export-kali-apps:
         fi
     done
     [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+
+    # Some tools (zenmap, etc.) declare no pkexec in their Exec= line but
+    # self-elevate via pkexec at runtime.  polkit is unreachable from inside
+    # the container, so inject sudo -E into the distrobox-enter separator.
+    _self_elevate=(zenmap)
+    for _tool in "${_self_elevate[@]}"; do
+        for _f in "${_appdir}/"*"${_tool}"*.desktop; do
+            [[ -f "${_f}" ]] || continue
+            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+            grep -q ' sudo ' "${_f}" && continue
+            sed -i 's| -- | -- sudo -E |' "${_f}"
+            echo "  Injected sudo -E into ${_f##*/}."
+        done
+    done
+
     update-desktop-database "${_appdir}" 2>/dev/null || true
     # Rebuild KDE's application-launcher cache (update-desktop-database alone
     # is not enough — KDE maintains its own ksycoca index).
