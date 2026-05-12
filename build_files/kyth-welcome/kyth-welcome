@@ -7811,7 +7811,8 @@ class SecurityPage(Page):
             "The first run will take a few minutes depending on your connection.\n"
         )
         self._log.append(
-            f"→ distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME}\n"
+            f"→ distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME}"
+            f" --additional-flags '--cap-add=NET_RAW --cap-add=NET_ADMIN'\n"
             f"→ distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}\n"
             + export_note + size_note
         )
@@ -7853,6 +7854,7 @@ class SecurityPage(Page):
         cmd = [
             "bash", "-c",
             f"distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME} --yes"
+            f" --additional-flags '--cap-add=NET_RAW --cap-add=NET_ADMIN'"
             f" && distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}"
             + export_step,
         ]
