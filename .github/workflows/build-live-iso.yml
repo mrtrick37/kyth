@@ -59,7 +59,26 @@ jobs:
           swap-storage: true
 
       - name: Log in to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+        run: |
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
@@ -107,14 +126,33 @@ jobs:
           sudo systemctl stop docker docker.socket 2>/dev/null || true
           echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
           sudo systemctl start docker
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
           # Pull the multi-layer image, flatten to one layer locally, push back.
-          docker pull "${IMAGE}"
+          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
           CID=$(docker create "${IMAGE}" /bin/true)
           docker export "${CID}" | docker import - "${IMAGE}"
           docker rm "${CID}"
-          docker push "${IMAGE}"
+          retry "Docker push ${IMAGE}" 30 docker push "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
   # Fresh runner — Docker image is pulled then immediately removed after export
@@ -179,7 +217,25 @@ jobs:
         #   latest  → kyth-live:build
         #   testing → kyth-live:build-testing
         run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          retry() {
+            local description="$1"
+            local delay="$2"
+            shift 2
+            for attempt in 1 2 3 4 5; do
+              if "$@"; then
+                return 0
+              fi
+              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
+              sleep $((attempt * delay))
+            done
+            "$@"
+          }
+
+          ghcr_login() {
+            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          }
+
+          retry "GHCR login" 20 ghcr_login
 
           SOURCE_TAG="${{ matrix.source_tag }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
@@ -189,7 +245,7 @@ jobs:
           fi
 
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          docker pull "${IMAGE}"
+          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
           docker tag "${IMAGE}" "${LIVE_TAG}"
           docker rmi "${IMAGE}" || true
 
