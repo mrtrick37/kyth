@@ -271,7 +271,7 @@ newgrp docker
 | Workflow | Trigger | Output |
 |----------|---------|--------|
 | Build container image | Push to `main`/`testing`, daily at 10:05 UTC, PR | `ghcr.io/mrtrick37/kyth:latest` and `:testing` |
-| Build Live ISO | Automatic after successful container-image pushes, or manual dispatch | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
+| Build Live ISO | Automatic after successful container-image builds, or manual dispatch | `kyth-live-latest.iso` / `kyth-live-testing.iso` on Cloudflare R2 |
 | Lint | PR / push | Shell and desktop-file validation |
 
 ---
