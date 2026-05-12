@@ -299,6 +299,9 @@ install-boxbuddy:
 
 # Set up a Kali Linux security toolbox via distrobox.
 #
+# The container runs --privileged so security tools (nmap, zenmap, wireshark,
+# aircrack-ng, etc.) have full hardware and raw socket access.
+#
 # Usage:
 #   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
 #   ujust setup-kali-box gui          # headless + GUI tools (kali-linux-default)
@@ -340,7 +343,8 @@ setup-kali-box tools="headless":
     echo "  Package:  ${meta}"
     echo
 
-    distrobox create --image kalilinux/kali-rolling --name kali --yes
+    distrobox create --image kalilinux/kali-rolling --name kali --yes \
+        --additional-flags "--privileged"
     distrobox enter kali -- sudo apt-get install -y "${meta}"
 
     if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
