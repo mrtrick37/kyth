@@ -7525,11 +7525,8 @@ def _is_distrobox_container(name: str) -> bool:
 _INSTALL_VSCODE_CMD = [
     "bash", "-c",
     "set -euo pipefail\n"
-    "flatpak remote-add --if-not-exists flathub "
-    "https://dl.flathub.org/repo/flathub.flatpakrepo\n"
-    "flatpak install --noninteractive -y flathub com.visualstudio.code\n"
     "kyth-vscode-wallet\n"
-    "echo 'VS Code installed. Launch it from the application menu.'",
+    "echo 'VS Code is baked into the image. KWallet integration configured.'",
 ]
 
 _SETUP_DEV_BOX_CMD = [
@@ -7549,15 +7546,6 @@ if ! command -v distrobox >/dev/null 2>&1; then
     exit 1
 fi
 
-if ! flatpak info com.visualstudio.code >/dev/null 2>&1; then
-    echo "VS Code not found — installing from Flathub..."
-    flatpak remote-add --if-not-exists flathub \
-        https://dl.flathub.org/repo/flathub.flatpakrepo
-    flatpak install --noninteractive -y flathub com.visualstudio.code
-    echo "VS Code installed."
-else
-    echo "VS Code already installed."
-fi
 kyth-vscode-wallet
 
 if distrobox list --no-color 2>/dev/null | grep -q "^${box}\b"; then
@@ -8785,9 +8773,9 @@ class SoftwarePage(Page):
         dev_title.setObjectName("card-title")
         dev_layout.addWidget(dev_title)
         dev_body = QLabel(
-            "Set up the tools used to work on KythOS without baking the whole "
-            "development stack into the base image. VS Code installs as a Flatpak; "
-            "build and repo tools live in a Fedora distrobox named kyth-dev."
+            "Set up the tools used to work on KythOS. VS Code is baked into the "
+            "image with full local filesystem and terminal access. Build and repo "
+            "tools live in a Fedora distrobox named kyth-dev."
         )
         dev_body.setObjectName("card-copy")
         dev_body.setWordWrap(True)
@@ -8798,9 +8786,9 @@ class SoftwarePage(Page):
         ))
         dev_btn_row = QHBoxLayout()
         dev_btn_row.setSpacing(10)
-        dev_code_btn = QPushButton("Install VS Code")
+        dev_code_btn = QPushButton("Configure VS Code")
         dev_code_btn.clicked.connect(
-            lambda: self._run_dev_command(_INSTALL_VSCODE_CMD, "Installing VS Code…")
+            lambda: self._run_dev_command(_INSTALL_VSCODE_CMD, "Configuring VS Code…")
         )
         dev_btn_row.addWidget(dev_code_btn)
         dev_box_btn = QPushButton("Create Dev Box")

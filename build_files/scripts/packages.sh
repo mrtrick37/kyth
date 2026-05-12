@@ -385,6 +385,23 @@ ln -sf /usr/lib/systemd/system/graphical.target \
     /etc/systemd/system/default.target
 
 
+# ── VS Code ───────────────────────────────────────────────────────────────────
+# Bake VS Code native RPM into the image so it has full access to the local
+# filesystem and terminal without the sandboxing constraints of a Flatpak.
+rpm --import https://packages.microsoft.com/keys/microsoft.asc
+cat > /etc/yum.repos.d/vscode.repo <<'EOF'
+[code]
+name=Visual Studio Code
+baseurl=https://packages.microsoft.com/yumrepos/vscode
+enabled=1
+gpgcheck=1
+gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+EOF
+dnf5 install -y code
+# Disable so the Microsoft repo is not active in the running OS;
+# VS Code self-updates are not meaningful in an immutable image.
+dnf5 config-manager setopt code.enabled=0
+
 # Remove dnf transaction history and repo solver data from the image layer.
 # The download cache is already excluded via --mount=type=cache in the
 # Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates
