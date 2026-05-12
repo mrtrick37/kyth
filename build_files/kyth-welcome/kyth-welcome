@@ -7789,6 +7789,9 @@ class SecurityPage(Page):
         for rb in (self._radio_headless, self._radio_default, self._radio_everything):
             rb.setEnabled(False)
         self._log.clear()
+        sudo_note = (
+            f"→ distrobox enter {self._BOX_NAME} -- configure passwordless sudo\n"
+        )
         export_note = (
             f"→ distrobox enter {self._BOX_NAME} -- distrobox-export (bulk GUI apps)\n"
             "→ kbuildsycoca6 (refresh KDE application menu)\n"
@@ -7803,7 +7806,7 @@ class SecurityPage(Page):
             f"→ distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME}"
             f" --additional-flags '--cap-add=NET_RAW --cap-add=NET_ADMIN'\n"
             f"→ distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}\n"
-            + export_note + size_note
+            + sudo_note + export_note + size_note
         )
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
@@ -7836,6 +7839,27 @@ class SecurityPage(Page):
             "    fi\n"
             "    sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' \"$_f\"\n"
             "    sed -i '/^OnlyShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "    sed -i '/^NotShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "    if grep -qE 'pkexec|kdesu|gksu|gksudo' \"$_f\" 2>/dev/null; then\n"
+            "        sed -i -E 's/(pkexec|kdesu|gksu|gksudo)[[:space:]]+/sudo -E /g' \"$_f\"\n"
+            "    fi\n"
+            "done\n"
+            "for _f in \"$_d/\"*zenmap*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -q ' sudo ' \"$_f\" && continue\n"
+            "    sed -i 's| -- | -- sudo -E |' \"$_f\"\n"
+            "done\n"
+            "for _f in \"$_d/\"*zenmap*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali|^Exec=.*sudo -E' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec|sudo -E' \"$_f\" 2>/dev/null || continue\n"
+            "    sed -i -E 's|^Exec=.* -- sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=.* -- (pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\3#' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=.* -- (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\2#' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\2#' \"$_f\"\n"
+            "    sed -i 's|^TryExec=.*|TryExec=kyth-distrobox-root-launch|' \"$_f\"\n"
             "done\n"
             "update-desktop-database \"$_d\" 2>/dev/null || true\n"
             "kbuildsycoca6 --noincremental 2>/dev/null || true"
@@ -7845,6 +7869,10 @@ class SecurityPage(Page):
             f"distrobox create --image {self._BOX_IMAGE} --name {self._BOX_NAME} --yes"
             f" --additional-flags '--cap-add=NET_RAW --cap-add=NET_ADMIN'"
             f" && distrobox enter {self._BOX_NAME} -- sudo apt-get install -y {meta}"
+            f" && distrobox enter {self._BOX_NAME} -- bash -c \""
+            "echo '${USER} ALL=(root) NOPASSWD: ALL' "
+            "| sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null; "
+            "sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd\""
             + export_step,
         ]
         self._worker = Worker(cmd)
@@ -8089,6 +8117,7 @@ class SecurityPage(Page):
         self._log.clear()
         self._log.append(
             f"→ distrobox enter {self._BOX_NAME} -- distrobox-export (bulk GUI apps)\n"
+            f"→ distrobox enter {self._BOX_NAME} -- configure passwordless sudo\n"
             "→ kbuildsycoca6 (refresh KDE application menu)\n\n"
             "Scanning Kali container for GUI apps…\n"
         )
@@ -8116,6 +8145,10 @@ class SecurityPage(Page):
             # Step 2: patch host-side .desktop files — set Categories=X-KythSecurity;
             # strip NoDisplay/OnlyShowIn so entries appear in the launcher
             "\n_rc=$?; [ \"$_rc\" -eq 2 ] && exit 2\n"
+            f"distrobox enter {self._BOX_NAME} -- bash -c \""
+            "echo '${USER} ALL=(root) NOPASSWD: ALL' "
+            "| sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null; "
+            "sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd\"\n"
             "_d=\"$HOME/.local/share/applications\"\n"
             "for _f in \"$_d/\"*.desktop; do\n"
             "    [[ -f \"$_f\" ]] || continue\n"
@@ -8127,6 +8160,27 @@ class SecurityPage(Page):
             "    fi\n"
             "    sed -i '/^NoDisplay[[:space:]]*=[[:space:]]*true/Id' \"$_f\"\n"
             "    sed -i '/^OnlyShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "    sed -i '/^NotShowIn[[:space:]]*=/d' \"$_f\"\n"
+            "    if grep -qE 'pkexec|kdesu|gksu|gksudo' \"$_f\" 2>/dev/null; then\n"
+            "        sed -i -E 's/(pkexec|kdesu|gksu|gksudo)[[:space:]]+/sudo -E /g' \"$_f\"\n"
+            "    fi\n"
+            "done\n"
+            "for _f in \"$_d/\"*zenmap*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -q ' sudo ' \"$_f\" && continue\n"
+            "    sed -i 's| -- | -- sudo -E |' \"$_f\"\n"
+            "done\n"
+            "for _f in \"$_d/\"*zenmap*.desktop; do\n"
+            "    [[ -f \"$_f\" ]] || continue\n"
+            "    grep -qE -- '--name kali|-n kali|^Exec=.*sudo -E' \"$_f\" 2>/dev/null || continue\n"
+            "    grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec|sudo -E' \"$_f\" 2>/dev/null || continue\n"
+            "    sed -i -E 's|^Exec=.* -- sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=.* -- (pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\3#' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=.* -- (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\2#' \"$_f\"\n"
+            "    sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\\2#' \"$_f\"\n"
+            "    sed -i 's|^TryExec=.*|TryExec=kyth-distrobox-root-launch|' \"$_f\"\n"
             "done\n"
             "update-desktop-database \"$_d\" 2>/dev/null || true\n"
             "kbuildsycoca6 --noincremental 2>/dev/null || true",
@@ -8203,16 +8257,65 @@ class SecurityPage(Page):
         self._enter_btn.setEnabled(False)
         self._remove_btn.setEnabled(False)
         self._log.clear()
-        self._log.append(f"→ distrobox rm --force {self._BOX_NAME}\n")
+        self._log.append(
+            f"→ distrobox stop {self._BOX_NAME}\n"
+            f"→ distrobox rm --force {self._BOX_NAME}\n"
+            "→ verify removal and clean exported launchers\n"
+        )
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
-        self._status_lbl.setText("Removing Kali box…")
+        self._status_lbl.setText("Stopping and removing Kali box…")
         self._status_lbl.setObjectName("subheading")
         self._status_lbl.show()
         _restyle(self._status_lbl)
 
-        self._worker = Worker(["distrobox", "rm", "--force", self._BOX_NAME])
+        remove_script = f"""
+set -euo pipefail
+box={self._BOX_NAME!r}
+appdir="${{HOME}}/.local/share/applications"
+
+echo "Stopping ${{box}} if it is running..."
+distrobox stop "${{box}}" --yes 2>/dev/null \
+    || distrobox stop "${{box}}" 2>/dev/null \
+    || true
+
+echo "Removing ${{box}}..."
+distrobox rm --force "${{box}}" \
+    || distrobox rm "${{box}}" --yes \
+    || true
+
+if distrobox list --no-color 2>/dev/null | grep -q "^${{box}}\\b"; then
+    echo "Distrobox still lists ${{box}}; forcing backend container removal..."
+    if command -v podman >/dev/null 2>&1; then
+        podman rm -f "${{box}}" 2>/dev/null || true
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        docker rm -f "${{box}}" 2>/dev/null || true
+    fi
+fi
+
+if distrobox list --no-color 2>/dev/null | grep -q "^${{box}}\\b"; then
+    echo "ERROR: ${{box}} still exists after removal attempts." >&2
+    exit 1
+fi
+
+if [[ -d "${{appdir}}" ]]; then
+    removed=0
+    while IFS= read -r -d "" f; do
+        if grep -qE -- "--name[[:space:]]+${{box}}|-n[[:space:]]+${{box}}|kyth-distrobox-root-launch[[:space:]]+${{box}}\\b" "$f" 2>/dev/null; then
+            rm -f "$f"
+            removed=$((removed + 1))
+        fi
+    done < <(find "${{appdir}}" -maxdepth 1 -type f -name "*.desktop" -print0)
+    echo "Removed ${{removed}} exported launcher(s)."
+fi
+
+update-desktop-database "${{appdir}}" 2>/dev/null || true
+kbuildsycoca6 --noincremental 2>/dev/null || true
+echo "Kali box is stopped and removed."
+"""
+        self._worker = Worker(["bash", "-c", remove_script])
         self._worker.line.connect(lambda ln: (
             self._log.append(ln),
             self._log.ensureCursorVisible(),
