@@ -197,7 +197,7 @@ game-hdr +args:
 #   ujust game-scope hdr --fps 120 -- %command%
 #   ujust game-scope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%
 [group('KythOS')]
-game-scope preset="quality" +args:
+game-scope preset="quality" *args:
     #!/usr/bin/env bash
     set -euo pipefail
     exec /usr/bin/kyth-gamescope "{{ preset }}" {{ args }}
@@ -299,7 +299,7 @@ install-boxbuddy:
 
 # Set up a Kali Linux security toolbox via distrobox.
 #
-# The container is created rootful (sudo distrobox create) so that root inside
+# The container is created rootful (distrobox create --root) so that root inside
 # has real CAP_NET_RAW/CAP_NET_ADMIN in the initial user namespace.  Rootless
 # containers cannot open AF_PACKET/SOCK_RAW sockets against host interfaces
 # even with --privileged, which breaks nmap, wireshark, and similar tools.
@@ -314,6 +314,14 @@ install-boxbuddy:
 setup-kali-box tools="headless":
     #!/usr/bin/env bash
     set -euo pipefail
+
+    _sudo() {
+        if [[ -t 0 ]]; then
+            sudo "$@"
+        else
+            sudo -A "$@"
+        fi
+    }
 
     tools="{{ tools }}"
     case "${tools}" in
@@ -335,20 +343,38 @@ setup-kali-box tools="headless":
         echo
     fi
 
-    # Verify the existing "kali" container actually uses the kali image.
-    # A stale container from another distrobox (e.g. fedora-toolbox) named
-    # "kali" would otherwise block setup permanently.
-    _kali_image=$(sudo podman inspect kali --format '{{.ImageName}}' 2>/dev/null || true)
-    if sudo distrobox list --no-color 2>/dev/null | grep -q '^kali\b' \
-        || distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
-        if [[ "${_kali_image}" == *kali* ]] || [[ "${_kali_image}" == *kali-migration* ]]; then
-            echo "Kali box already exists. To enter it: distrobox enter --root kali"
+    # Verify the existing "kali" container is the socket-capable rootful Kali box.
+    # Rootless containers and older rootful containers without label=disable can
+    # exist under the same name but still fail nmap/zenmap raw socket scans.
+    if distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "Found a rootless container named 'kali'; replacing it with the rootful security toolbox..."
+        distrobox stop kali --yes 2>/dev/null || distrobox stop kali 2>/dev/null || true
+        distrobox rm --force kali 2>/dev/null || distrobox rm kali --yes 2>/dev/null || true
+        podman rm -f kali 2>/dev/null || true
+    fi
+
+    _rootful_exists=0
+    _sudo podman inspect kali >/dev/null 2>&1 && _rootful_exists=1 || true
+    if [[ "${_rootful_exists}" -eq 1 ]]; then
+        _kali_image=$(_sudo podman inspect kali --format '{{"{{"}}.ImageName{{"}}"}}' 2>/dev/null || true)
+        _kali_privileged=$(_sudo podman inspect kali --format '{{"{{"}}.HostConfig.Privileged{{"}}"}}' 2>/dev/null || true)
+        _kali_security_opts=$(_sudo podman inspect kali --format '{{"{{"}}range .HostConfig.SecurityOpt{{"}}"}}{{"{{"}}.{{"}}"}} {{"{{"}}end{{"}}"}}' 2>/dev/null || true)
+        if [[ "${_kali_image}" == *kali* ]] \
+            && [[ "${_kali_privileged}" == "true" ]] \
+            && [[ "${_kali_security_opts}" == *label=disable* ]]; then
+            echo "Kali box already exists with raw-socket capable rootful settings."
+            echo "To enter it: distrobox enter --root kali"
             exit 0
-        else
-            echo "Found a container named 'kali' but it uses image: ${_kali_image}"
-            echo "Removing it so the real Kali box can be created..."
-            sudo distrobox rm --name kali --force 2>/dev/null || sudo podman rm -f kali 2>/dev/null || true
         fi
+
+        echo "Found an existing 'kali' container that cannot be trusted for raw socket scans."
+        echo "  Image:       ${_kali_image:-unknown}"
+        echo "  Privileged:  ${_kali_privileged:-unknown}"
+        echo "  SELinux opt: ${_kali_security_opts:-none}"
+        echo "Recreating it with privileged rootful networking and SELinux label disabled..."
+        distrobox stop --root kali --yes 2>/dev/null || distrobox stop --root kali 2>/dev/null || true
+        distrobox rm --root --force kali 2>/dev/null || distrobox rm --root kali --yes 2>/dev/null || true
+        _sudo podman rm -f kali 2>/dev/null || true
     fi
 
     echo "━━━ Setting up Kali Linux toolbox ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -358,11 +384,34 @@ setup-kali-box tools="headless":
     echo
 
     # Create as a rootful container so security tools (nmap, wireshark, etc.)
-    # get real CAP_NET_RAW.  Rootless podman cannot grant raw socket access
-    # against host network interfaces even with --privileged.
-    sudo distrobox create --image kalilinux/kali-rolling --name kali --yes \
-        --additional-flags "--privileged"
-    distrobox enter --root kali -- sudo apt-get install -y "${meta}"
+    # get real CAP_NET_RAW.  --privileged grants the Linux capabilities, but
+    # SELinux on Fedora still enforces its own type-enforcement policy on the
+    # container_t domain even for privileged containers.  label=disable runs
+    # the container as spc_t (super-privileged container), which is the kernel
+    # SELinux type that is unconditionally allowed to open raw/packet sockets.
+    distrobox create --root --image kalilinux/kali-rolling --name kali --yes \
+        --additional-flags "--privileged --security-opt label=disable"
+    distrobox enter --root kali -- bash -c "
+        export DEBIAN_FRONTEND=noninteractive
+        (
+            printf '%s\n' \
+                'popularity-contest popularity-contest/participate boolean false' \
+                'encfs encfs/security-information boolean true' \
+                'encfs encfs/security-information seen true' \
+                'console-setup console-setup/charmap47 select UTF-8' \
+                'samba-common samba-common/dhcp boolean false' \
+                'macchanger macchanger/automatically_run boolean false' \
+                'kismet-capture-common kismet-capture-common/install-users string' \
+                'kismet-capture-common kismet-capture-common/install-setuid boolean true' \
+                'wireshark-common wireshark-common/install-setuid boolean true' \
+                'sslh sslh/inetd_or_standalone select standalone' \
+                | sudo debconf-set-selections
+        ) || true
+        sudo -E apt-get install -y \
+            -o Dpkg::Options::=--force-confdef \
+            -o Dpkg::Options::=--force-confold \
+            '${meta}'
+    "
 
     # Grant passwordless sudo inside the container so root-requiring tools
     # (nmap, wireshark, aircrack-ng, etc.) launch from the app menu without a
@@ -486,7 +535,7 @@ export-kali-apps:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    if ! sudo distrobox list --no-color 2>/dev/null | grep -q '^kali\b' \
+    if ! distrobox list --root --no-color 2>/dev/null | grep -q '^kali\b' \
         && ! distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
         echo "No kali container found." >&2
         echo "Run 'ujust setup-kali-box gui' first." >&2
