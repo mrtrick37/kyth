@@ -97,9 +97,14 @@ dnf5 copr disable -y bieszczaders/kernel-cachyos
 # quiet/rhgb/splash: suppress kernel log spam and show the KythOS Plymouth theme.
 # threadirqs: keep the low-latency desktop tuning without affecting display.
 # rd.plymouth=1/plymouth.enable=1: explicitly keep Plymouth enabled for boot.
+# plymouth.ignore-serial-consoles: keep Plymouth active even on machines/VMs
+# that expose a serial console.
+# systemd.show_status=false/rd.systemd.show_status=false/loglevel=3/
+# rd.udev.log_level=3/vt.global_cursor_default=0: avoid text fallback chatter
+# while the graphical splash is taking over the framebuffer.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "threadirqs", "console=tty0", "console=ttyS0,115200"]
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

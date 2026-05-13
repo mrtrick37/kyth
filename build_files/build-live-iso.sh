@@ -322,7 +322,7 @@ echo "==> Writing GRUB config and theme"
 # Use a temporary OverlayFS upperdir for the live session. Do not set
 # rd.live.overlay=tmpfs: dracut treats rd.live.overlay as a persistent overlay
 # location, then prints an interactive warning when it cannot find one.
-LIVE_ARGS="quiet rhgb rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on console=ttyS0,115200 console=tty0"
+LIVE_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on"
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme
