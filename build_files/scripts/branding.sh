@@ -228,7 +228,7 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
-# ── KythOS logo as system icon ──────────────────────────────────────────────────
+# ── KythOS abstract mark as system icon ─────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
 # Install under all three names in hicolor (universal fallback), breeze
@@ -428,7 +428,7 @@ WELCOMEEOF
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash"]
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1"]
 KARGSEOF
 
 # ── Plymouth boot splash ───────────────────────────────────────────────────────
