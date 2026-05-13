@@ -1,8 +1,17 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Optional --root flag: pass it when the target box is a rootful container
+# (created with sudo distrobox create). Rootful containers have real
+# CAP_NET_RAW so network tools like nmap/zenmap can open raw sockets.
+root_flag=""
+if [[ "${1:-}" == "--root" ]]; then
+    root_flag="--root"
+    shift
+fi
+
 if [[ $# -lt 2 ]]; then
-    echo "Usage: ${0##*/} BOX COMMAND [ARGS...]" >&2
+    echo "Usage: ${0##*/} [--root] BOX COMMAND [ARGS...]" >&2
     exit 2
 fi
 
@@ -17,7 +26,7 @@ if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
         || true
 fi
 
-exec distrobox enter "${box}" -- bash -lc '
+exec distrobox enter ${root_flag} "${box}" -- bash -lc '
     if command -v xhost >/dev/null 2>&1 && [[ -n "${DISPLAY:-}" ]]; then
         xhost +SI:localuser:root >/dev/null 2>&1 \
             || xhost +si:localuser:root >/dev/null 2>&1 \
