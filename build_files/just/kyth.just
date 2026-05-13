@@ -430,9 +430,12 @@ setup-kali-box tools="headless":
         # zenmap requires root for raw-socket scans and cannot re-elevate via polkit
         # inside the container.  Route every exported zenmap launcher unconditionally
         # through kyth-distrobox-root-launch so it always runs as root.
+        # Match by distrobox Exec pattern OR by kali* filename prefix so this
+        # re-run is idempotent even after a previous partial patch.
         for _f in "${_appdir}/"*zenmap*.desktop; do
             [[ -f "${_f}" ]] || continue
-            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+            grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali|kyth-distrobox-root-launch' "${_f}" 2>/dev/null \
+                || [[ "${_f##*/}" == kali* ]] || continue
             sed -i -E 's|^Exec=.*$|Exec=kyth-distrobox-root-launch --root kali /usr/bin/zenmap|' "${_f}"
             sed -i -E 's|^TryExec=.*$|TryExec=kyth-distrobox-root-launch|' "${_f}"
             echo "  Routed ${_f##*/} → kyth-distrobox-root-launch --root kali /usr/bin/zenmap"
@@ -527,9 +530,12 @@ export-kali-apps:
     # zenmap requires root for raw-socket scans and cannot re-elevate via polkit
     # inside the container.  Route every exported zenmap launcher unconditionally
     # through kyth-distrobox-root-launch so it always runs as root.
+    # Match by distrobox Exec pattern OR by kali* filename prefix so this
+    # re-run is idempotent even after a previous partial patch.
     for _f in "${_appdir}/"*zenmap*.desktop; do
         [[ -f "${_f}" ]] || continue
-        grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali' "${_f}" 2>/dev/null || continue
+        grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali|kyth-distrobox-root-launch' "${_f}" 2>/dev/null \
+            || [[ "${_f##*/}" == kali* ]] || continue
         sed -i -E 's|^Exec=.*$|Exec=kyth-distrobox-root-launch --root kali /usr/bin/zenmap|' "${_f}"
         sed -i -E 's|^TryExec=.*$|TryExec=kyth-distrobox-root-launch|' "${_f}"
         echo "  Routed ${_f##*/} → kyth-distrobox-root-launch --root kali /usr/bin/zenmap"
