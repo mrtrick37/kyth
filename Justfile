@@ -64,6 +64,20 @@ disk-usage:
     echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
     find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
 
+# Set up a Kali Linux security toolbox via the shipped KythOS ujust recipe.
+[group('Utility')]
+setup-kali-box tools="headless":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec just --justfile build_files/just/kyth.just setup-kali-box "{{ tools }}"
+
+# Export Kali Linux GUI apps via the shipped KythOS ujust recipe.
+[group('Utility')]
+export-kali-apps:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec just --justfile build_files/just/kyth.just export-kali-apps
+
 # Refresh the auto-generated README project snapshot section.
 [group('Utility')]
 sync-readme:
