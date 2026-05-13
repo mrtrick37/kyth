@@ -1,15 +1,17 @@
 #!/usr/bin/env python3
-"""KythOS update notifier — system tray app that checks for OS updates in the background.
+"""KythOS update notifier — background app that checks for OS updates.
 
 Autostarted at login via /etc/skel/.config/autostart/. Checks every 4 hours by
 comparing the running image digest against the registry manifest via skopeo. Sends a
-desktop notification once per distinct update digest. Left-click opens kyth-welcome
-on the Update page. Single-instance guarded via a PID lock file.
+desktop notification once per distinct update digest, and shows a tray icon only
+while an update is available. Left-click opens kyth-welcome on the Update page.
+Single-instance guarded via a PID lock file.
 """
 
 import hashlib
 import json
 import os
+import re
 import subprocess
 import sys
 from datetime import datetime
@@ -28,45 +30,106 @@ _NOTIFIED_DIGEST_FILE = Path.home() / ".config" / "kyth-update-notified-digest"
 # ── Helpers (duplicated from kyth-welcome to keep notifier self-contained) ────
 
 def _bootc_status_data() -> dict | None:
-    try:
-        r = subprocess.run(
-            ["bootc", "status", "--json"],
-            capture_output=True, text=True, timeout=15,
-        )
-        if r.returncode == 0:
+    for cmd in (["sudo", "-n", "bootc", "status", "--json"], ["bootc", "status", "--json"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        except Exception:
+            continue
+        if r.returncode != 0 or not r.stdout.strip():
+            continue
+        try:
             return json.loads(r.stdout)
-    except Exception:
-        pass
+        except json.JSONDecodeError:
+            continue
     return None
 
 
-def _nested_get(data, keys: tuple):
-    for k in keys:
-        if not isinstance(data, dict):
+def _bootc_status_text() -> str:
+    for cmd in (["sudo", "-n", "bootc", "status"], ["bootc", "status"]):
+        try:
+            r = subprocess.run(cmd, capture_output=True, text=True, timeout=15)
+        except Exception:
+            continue
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    return ""
+
+
+def _nested_get(data: object, path: tuple[str, ...]) -> object | None:
+    current = data
+    for key in path:
+        if not isinstance(current, dict):
             return None
-        data = data.get(k)
-    return data
+        current = current.get(key)
+    return current
+
+
+def _walk_strings(data: object):
+    if isinstance(data, str):
+        yield data
+        return
+    if isinstance(data, dict):
+        for value in data.values():
+            yield from _walk_strings(value)
+        return
+    if isinstance(data, list):
+        for value in data:
+            yield from _walk_strings(value)
+
+
+def _bootc_image_reference() -> str | None:
+    data = _bootc_status_data() or {}
+    candidates = (
+        ("spec", "image", "image"),
+        ("spec", "image", "reference"),
+        ("status", "booted", "image", "reference"),
+        ("status", "booted", "image", "image", "reference"),
+        ("status", "booted", "image", "image", "image"),
+        ("status", "booted", "image", "image"),
+        ("status", "booted", "image"),
+    )
+    for path in candidates:
+        value = _nested_get(data, path)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for value in _walk_strings(data):
+        stripped = value.strip()
+        if REGISTRY in stripped:
+            return stripped
+    text = _bootc_status_text()
+    if text:
+        pattern = re.compile(rf"({re.escape(REGISTRY)}(?::[A-Za-z0-9._-]+)?(?:@sha256:[a-fA-F0-9]+)?)")
+        match = pattern.search(text)
+        if match:
+            return match.group(1)
+    return None
+
+
+def _branch_from_ref(ref: str | None) -> str | None:
+    if not ref:
+        return None
+    ref = ref.strip()
+    if not ref:
+        return None
+    if f"{REGISTRY}:latest" in ref:
+        return "latest"
+    if f"{REGISTRY}:testing" in ref:
+        return "testing"
+    if "@" in ref:
+        return ref.split("@", 1)[0].rsplit(":", 1)[-1]
+    if ":" in ref:
+        return ref.rsplit(":", 1)[-1]
+    return None
 
 
 def _current_branch() -> str:
-    data = _bootc_status_data() or {}
-    booted = _nested_get(data, ("status", "booted")) or {}
-    for path in (
-        ("image", "image", "image"),
-        ("image", "transport",),
-    ):
-        ref = _nested_get(booted, path) or ""
-        if ":" in ref:
-            tag = ref.rsplit(":", 1)[-1]
-            if tag in ("latest", "testing"):
-                return tag
-    return "latest"
+    return _branch_from_ref(_bootc_image_reference()) or "latest"
 
 
 # ── Update check worker ───────────────────────────────────────────────────────
 
 class UpdateCheckWorker(QThread):
-    result = pyqtSignal(str, str)  # (state, remote_digest): state = available|uptodate|error
+    result = pyqtSignal(str, str)  # (state, remote_digest): state = available|uptodate|unknown|error
 
     def run(self):
         local_data = _bootc_status_data() or {}
@@ -82,6 +145,10 @@ class UpdateCheckWorker(QThread):
             if isinstance(v, str) and v.startswith("sha256:"):
                 local_digest = v
                 break
+
+        if not local_digest:
+            self.result.emit("unknown", "")
+            return
 
         tag = _current_branch()
         ref = f"{REGISTRY}:{tag}"
@@ -154,8 +221,6 @@ class UpdateNotifier(QSystemTrayIcon):
         # Delay initial check so the session has time to fully settle
         QTimer.singleShot(15_000, self._check_now)
 
-        self.show()
-
     def _set_icon_normal(self):
         for name in ("system-software-update", "software-update-available", "view-refresh"):
             icon = QIcon.fromTheme(name)
@@ -183,6 +248,7 @@ class UpdateNotifier(QSystemTrayIcon):
             self._set_icon_update()
             self.setToolTip("KythOS: Update available — click to open hub")
             self._status_action.setText("Update available — click to open hub")
+            self.show()
 
             # Notify once per distinct remote digest to avoid spam
             last_notified = ""
@@ -211,6 +277,15 @@ class UpdateNotifier(QSystemTrayIcon):
             checked = datetime.now().strftime("%H:%M")
             self.setToolTip(f"KythOS: Up to date (last checked {checked})")
             self._status_action.setText(f"Up to date  ·  checked {checked}")
+            self.hide()
+
+        elif state == "unknown":
+            self._update_available = False
+            self._set_icon_normal()
+            checked = datetime.now().strftime("%H:%M")
+            self.setToolTip(f"KythOS: Update status unavailable (last checked {checked})")
+            self._status_action.setText(f"Update status unavailable  ·  checked {checked}")
+            self.hide()
 
         # On error: preserve previous state — transient network failures are common
 

@@ -873,6 +873,10 @@ class UpdateCheckWorker(QThread):
                 local_digest = v
                 break
 
+        if not local_digest:
+            self.result.emit("error", "")
+            return
+
         tag = _current_branch() or "latest"
         ref = f"{REGISTRY}:{tag}"
 
