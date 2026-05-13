@@ -335,10 +335,20 @@ setup-kali-box tools="headless":
         echo
     fi
 
+    # Verify the existing "kali" container actually uses the kali image.
+    # A stale container from another distrobox (e.g. fedora-toolbox) named
+    # "kali" would otherwise block setup permanently.
+    _kali_image=$(sudo podman inspect kali --format '{{.ImageName}}' 2>/dev/null || true)
     if sudo distrobox list --no-color 2>/dev/null | grep -q '^kali\b' \
         || distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
-        echo "Kali box already exists. To enter it: distrobox enter --root kali"
-        exit 0
+        if [[ "${_kali_image}" == *kali* ]] || [[ "${_kali_image}" == *kali-migration* ]]; then
+            echo "Kali box already exists. To enter it: distrobox enter --root kali"
+            exit 0
+        else
+            echo "Found a container named 'kali' but it uses image: ${_kali_image}"
+            echo "Removing it so the real Kali box can be created..."
+            sudo distrobox rm --name kali --force 2>/dev/null || sudo podman rm -f kali 2>/dev/null || true
+        fi
     fi
 
     echo "━━━ Setting up Kali Linux toolbox ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -370,6 +380,19 @@ setup-kali-box tools="headless":
         printf '[Settings]\ngtk-icon-theme-name = hicolor\n' \
             > /root/.config/gtk-3.0/settings.ini
     " && echo "  Configured passwordless sudo and GTK icon theme for kali root." || true
+
+    # Set file capabilities on nmap so it can always open raw sockets.
+    # Rootless containers use user namespaces where sudo-root does NOT have
+    # CAP_NET_RAW in the initial user namespace (required for AF_PACKET).
+    # File capabilities on the binary bypass the user-namespace restriction so
+    # nmap works even if the container is entered without --root.
+    distrobox enter --root kali -- bash -c "
+        sudo apt-get install -y --no-install-recommends libcap2-bin 2>/dev/null || true
+        if command -v nmap >/dev/null 2>&1; then
+            sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
+            echo '  Set cap_net_raw,cap_net_admin on /usr/bin/nmap'
+        fi
+    " || true
 
     if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
         echo
@@ -479,6 +502,14 @@ export-kali-apps:
             | sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null
         sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd
     " && echo "  Configured passwordless sudo for security tools in kali." || true
+
+    # Ensure nmap has file capabilities so raw sockets work from the app menu.
+    distrobox enter --root kali -- bash -c "
+        if command -v nmap >/dev/null 2>&1 && command -v setcap >/dev/null 2>&1; then
+            sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
+            echo '  Set cap_net_raw,cap_net_admin on /usr/bin/nmap'
+        fi
+    " || true
 
     # Export every .desktop file found in the kali container, including subdirs.
     distrobox enter --root kali -- bash -c '
