@@ -739,6 +739,12 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx set *
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx restart
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx stop
+# distrobox enter --root internally calls "sudo podman exec/start/inspect" to
+# manage rootful containers.  From a KDE app launcher (no TTY) sudo cannot
+# prompt for a password, so GUI apps like zenmap would silently fail.
+# Granting blanket podman access here is equivalent to the user's existing
+# full sudo access — it only removes the interactive prompt for GUI launches.
+%wheel ALL=(root) NOPASSWD: /usr/bin/podman
 SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
