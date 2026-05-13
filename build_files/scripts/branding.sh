@@ -231,14 +231,16 @@ SDDMEOF
 # ── KythOS abstract mark as system icon ─────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Install under all three names in hicolor (universal fallback), breeze
-# (default KDE theme), and breeze-dark so every combination is covered.
+# Use the square transparent symbol for small app/menu/panel icons. The
+# horizontal full logo has text and a black canvas that collapses badly at
+# launcher sizes.
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
     /usr/share/icons/breeze-dark/apps/scalable; do
     mkdir -p "${theme_dir}"
-    cp /ctx/branding/kyth-logo.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde-plasma.svg"

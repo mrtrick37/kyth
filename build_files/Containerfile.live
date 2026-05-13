@@ -223,7 +223,7 @@ RUN mkdir -p \
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
      /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
-COPY build_files/branding/kyth-logo.svg \
+COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg
