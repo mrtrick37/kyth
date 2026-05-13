@@ -318,27 +318,6 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
 
-# Remove Waydroid desktop/menu entries and related files if present
-# (some base images include a Waydroid helper that we don't ship in KythOS)
-rm -f /usr/share/applications/*waydroid*.desktop || true
-rm -f /usr/local/share/applications/*waydroid*.desktop || true
-rm -f /usr/share/kservices5/*waydroid* || true
-rm -rf /usr/share/waydroid /var/lib/waydroid || true
-# Also remove common capitalized filenames
-rm -f /usr/share/applications/Waydroid.desktop || true
-
-# QA check: fail the build if any Waydroid desktop/menu files remain
-_waydroid_dirs=()
-for _d in /usr/share/applications /usr/local/share/applications /usr/share/kservices5; do
-    [ -d "${_d}" ] && _waydroid_dirs+=("${_d}")
-done
-if [ "${#_waydroid_dirs[@]}" -gt 0 ] && \
-   find "${_waydroid_dirs[@]}" -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then
-    echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
-    find "${_waydroid_dirs[@]}" -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
-    exit 1
-fi
-
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
