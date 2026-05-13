@@ -328,10 +328,15 @@ rm -rf /usr/share/waydroid /var/lib/waydroid || true
 rm -f /usr/share/applications/Waydroid.desktop || true
 
 # QA check: fail the build if any Waydroid desktop/menu files remain
-if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit 2>/dev/null | grep -q .; then
-	echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
-	find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
-	exit 1
+_waydroid_dirs=()
+for _d in /usr/share/applications /usr/local/share/applications /usr/share/kservices5; do
+    [ -d "${_d}" ] && _waydroid_dirs+=("${_d}")
+done
+if [ "${#_waydroid_dirs[@]}" -gt 0 ] && \
+   find "${_waydroid_dirs[@]}" -maxdepth 2 -type f -iname '*waydroid*' -print -quit | grep -q .; then
+    echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
+    find "${_waydroid_dirs[@]}" -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
+    exit 1
 fi
 
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
