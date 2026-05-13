@@ -381,16 +381,16 @@ setup-kali-box tools="headless":
             > /root/.config/gtk-3.0/settings.ini
     " && echo "  Configured passwordless sudo and GTK icon theme for kali root." || true
 
-    # Set file capabilities on nmap so it can always open raw sockets.
-    # Rootless containers use user namespaces where sudo-root does NOT have
-    # CAP_NET_RAW in the initial user namespace (required for AF_PACKET).
-    # File capabilities on the binary bypass the user-namespace restriction so
-    # nmap works even if the container is entered without --root.
+    # setcap does not survive overlayfs containers reliably — the kernel strips
+    # file capabilities on exec inside user-namespaced containers.  Instead,
+    # place a sudo wrapper at /usr/local/bin/nmap (ahead of /usr/bin in PATH)
+    # so any user gets CAP_NET_RAW via the already-configured passwordless sudo.
     distrobox enter --root kali -- bash -c "
-        sudo apt-get install -y --no-install-recommends libcap2-bin 2>/dev/null || true
         if command -v nmap >/dev/null 2>&1; then
-            sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
-            echo '  Set cap_net_raw,cap_net_admin on /usr/bin/nmap'
+            printf '#!/bin/sh\nexec sudo /usr/bin/nmap \"\$@\"\n' \
+                | sudo tee /usr/local/bin/nmap > /dev/null
+            sudo chmod 755 /usr/local/bin/nmap
+            echo '  Installed sudo nmap wrapper at /usr/local/bin/nmap'
         fi
     " || true
 
@@ -503,11 +503,13 @@ export-kali-apps:
         sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd
     " && echo "  Configured passwordless sudo for security tools in kali." || true
 
-    # Ensure nmap has file capabilities so raw sockets work from the app menu.
+    # Ensure the sudo nmap wrapper is in place (idempotent re-run of setup-kali-box logic).
     distrobox enter --root kali -- bash -c "
-        if command -v nmap >/dev/null 2>&1 && command -v setcap >/dev/null 2>&1; then
-            sudo setcap cap_net_raw,cap_net_admin+eip /usr/bin/nmap
-            echo '  Set cap_net_raw,cap_net_admin on /usr/bin/nmap'
+        if command -v nmap >/dev/null 2>&1; then
+            printf '#!/bin/sh\nexec sudo /usr/bin/nmap \"\$@\"\n' \
+                | sudo tee /usr/local/bin/nmap > /dev/null
+            sudo chmod 755 /usr/local/bin/nmap
+            echo '  Installed sudo nmap wrapper at /usr/local/bin/nmap'
         fi
     " || true
 
