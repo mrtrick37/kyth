@@ -1,45 +1,49 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 280 420" width="280" height="420">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200" role="img" aria-label="KythOS abstract bloom mark">
   <defs>
-    <!-- Identical to wallpaper logo-glow -->
-    <filter id="logo-glow" x="-80%" y="-80%" width="260%" height="260%">
-      <feGaussianBlur stdDeviation="28" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <filter id="spark-glow" x="-200%" y="-200%" width="500%" height="500%">
-      <feGaussianBlur stdDeviation="32" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
+    <linearGradient id="petal-cool" x1="30" y1="22" x2="170" y2="178" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#7dcfff"/>
+      <stop offset="48%" stop-color="#73daca"/>
+      <stop offset="100%" stop-color="#bb9af7"/>
+    </linearGradient>
+    <linearGradient id="petal-warm" x1="170" y1="30" x2="35" y2="174" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#ff9e64"/>
+      <stop offset="48%" stop-color="#e0af68"/>
+      <stop offset="100%" stop-color="#f7768e"/>
+    </linearGradient>
+    <radialGradient id="core-fill" cx="50%" cy="45%" r="64%">
+      <stop offset="0%" stop-color="#fff1b8"/>
+      <stop offset="42%" stop-color="#e0af68"/>
+      <stop offset="100%" stop-color="#f7768e"/>
+    </radialGradient>
+    <filter id="soft-glow" x="-70%" y="-70%" width="240%" height="240%">
+      <feGaussianBlur stdDeviation="7" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
     </filter>
   </defs>
 
-  <!-- Pure black background — matches wallpaper -->
-  <rect width="280" height="420" fill="#000000"/>
+  <g filter="url(#soft-glow)">
+    <g opacity="0.9">
+      <path d="M100 18 C126 44 126 72 100 95 C74 72 74 44 100 18Z" fill="url(#petal-cool)" opacity="0.78"/>
+      <path d="M182 100 C156 126 128 126 105 100 C128 74 156 74 182 100Z" fill="url(#petal-warm)" opacity="0.78"/>
+      <path d="M100 182 C74 156 74 128 100 105 C126 128 126 156 100 182Z" fill="url(#petal-cool)" opacity="0.72"/>
+      <path d="M18 100 C44 74 72 74 95 100 C72 126 44 126 18 100Z" fill="url(#petal-warm)" opacity="0.72"/>
 
-  <!-- KythOS logo — exact same drawing as wallpaper, scaled 2× and centred -->
-  <g transform="translate(-49, 25) scale(2.0)" filter="url(#logo-glow)">
-    <line x1="54.6" y1="140.6" x2="54.6" y2="27.5"
-          stroke="#7aa2f7" stroke-width="16.9" stroke-linecap="round"/>
-    <circle cx="54.6" cy="17.2" r="12.5" fill="#7aa2f7"/>
+      <path d="M42 42 C79 45 99 65 98 98 C65 99 45 79 42 42Z" fill="#bb9af7" opacity="0.62"/>
+      <path d="M158 42 C155 79 135 99 102 98 C101 65 121 45 158 42Z" fill="#73daca" opacity="0.62"/>
+      <path d="M158 158 C121 155 101 135 102 102 C135 101 155 121 158 158Z" fill="#7dcfff" opacity="0.58"/>
+      <path d="M42 158 C45 121 65 101 98 102 C99 135 79 155 42 158Z" fill="#f7768e" opacity="0.58"/>
+    </g>
 
-    <line x1="122.5" y1="26.9" x2="54.6" y2="82.0"
-          stroke="#bb9af7" stroke-width="16.9" stroke-linecap="round"/>
-    <circle cx="130.6" cy="19.4" r="12.5" fill="#bb9af7"/>
+    <path d="M59 101 C74 70 126 70 141 101 C126 130 74 130 59 101Z" fill="#0d1117" opacity="0.34"/>
+    <circle cx="100" cy="100" r="28" fill="url(#core-fill)"/>
+    <circle cx="100" cy="100" r="10" fill="#0d1117" opacity="0.56"/>
 
-    <line x1="122.5" y1="137.5" x2="54.6" y2="82.0"
-          stroke="#73daca" stroke-width="16.9" stroke-linecap="round"/>
-    <circle cx="130.6" cy="145.0" r="12.5" fill="#73daca"/>
-
-    <circle cx="54.6" cy="82.0" r="10.0" fill="#e0af68" opacity="0.4"
-            filter="url(#spark-glow)"/>
-    <circle cx="54.6" cy="82.0" r="5.6" fill="#e0af68"/>
+    <circle cx="100" cy="28" r="5" fill="#fff1b8" opacity="0.88"/>
+    <circle cx="172" cy="100" r="5" fill="#73daca" opacity="0.88"/>
+    <circle cx="100" cy="172" r="5" fill="#bb9af7" opacity="0.88"/>
+    <circle cx="28" cy="100" r="5" fill="#ff9e64" opacity="0.88"/>
   </g>
-
-  <!-- "KythOS" wordmark — centred under the K -->
-  <text x="140" y="400"
-        font-family="'DejaVu Sans', 'Liberation Sans', sans-serif"
-        font-size="48"
-        font-weight="300"
-        letter-spacing="15"
-        fill="#a9b1d6"
-        opacity="0.8"
-        text-anchor="middle">KythOS</text>
 </svg>

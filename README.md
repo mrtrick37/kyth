@@ -295,8 +295,8 @@ build_files/
   kyth-manual-install.sh          Manual/fallback install script
   kyth-partition-install.sh       Manual install to an existing blank partition
   branding/
-    kyth-logo.svg                 KythOS logo (with background and wordmark)
-    kyth-logo-transparent.svg     KythOS K mark (transparent)
+    kyth-logo.svg                 KythOS horizontal logo (with background)
+    kyth-logo-transparent.svg     KythOS abstract bloom mark (transparent)
     cockpit-branding.css          Themed CSS for the installer UI
   scripts/
     packages.sh                   RPM packages, repos, dnf upgrade (Layer 1)
@@ -313,7 +313,7 @@ build_files/
   kyth-vpn-status/                KDE system tray VPN status helper
   MangoHud.conf                   System-wide MangoHud defaults
   vkBasalt.conf                   System-wide vkBasalt defaults
-  plymouth/                       Boot splash theme (pulsating KythOS logo)
+  plymouth/                       Boot splash theme (pulsating KythOS abstract mark)
   wallpaper/                      Desktop wallpaper (SVG)
   kyth-ge-proton-update           Weekly GE-Proton update script (+ .service/.timer)
   kyth-rclone-update              Install/update latest rclone release into /usr/local/bin

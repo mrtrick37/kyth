@@ -70,26 +70,11 @@ dnf5 remove -y librsvg2-tools || true
 # Write dracut config.
 # ostree module is required — without it the initramfs cannot find or mount
 # the ostree deployment root.
-# drm module pulls in KMS drivers so the display is available after pivot_root.
-# plymouth is intentionally excluded: when plymouth is in the initramfs and
-# the drm module is also present, plymouth probes for any available DRM device
-# (virtio_gpu in QEMU; simpledrm on bare metal before hardware KMS loads)
-# and acquires DRM master. The plymouth→SDDM/Xorg handoff is racy on RDNA3
-# and virtio-gpu and produces the persistent blink loop seen at boot.
-# Excluding plymouth from the initramfs means nothing holds DRM master before
-# SDDM starts — SDDM acquires it cleanly on first try. Plymouth still runs
-# as a systemd userspace service after pivot_root; without the splash karg
-# it uses the text renderer and never touches DRM.
+# drm module pulls in KMS drivers so the display is available early.
+# plymouth is included so the KythOS splash theme is visible during boot.
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree drm "
-# Plymouth is installed as an RPM, so dracut auto-includes it via its check()
-# function unless explicitly omitted. Plymouth in the initramfs acquires DRM
-# master on the first available device (virtio_gpu in QEMU, amdgpu on hardware)
-# and the Plymouth→SDDM handoff races, causing the persistent blink loop after
-# install. Omitting it here means Plymouth only runs as a userspace service
-# after pivot_root, in text mode (no splash karg), never touching DRM.
-omit_dracutmodules+=" plymouth "
+add_dracutmodules+=" ostree drm plymouth "
 # virtio_gpu/qxl/bochs: QEMU/KVM display paths. Keep all three available early
 # so local tests can switch between virtio, SPICE/QXL, and firmware fallback
 # without rebuilding the kernel/initramfs layer.
@@ -107,16 +92,19 @@ TMPDIR=/var/tmp dracut \
 dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Set kernel args for the installed system via bootc kargs.d.
-# Keep the baseline deliberately QEMU-safe. Hardware-specific GPU workarounds
-# are applied later only on systems that need them; baking them into every
-# install made virtio/EFI framebuffer handoff failures very hard to diagnose.
-# quiet: suppress kernel log spam on the console.
+# Keep hardware-specific GPU workarounds out of the baseline. Those are applied
+# later only on systems that need them.
+# quiet/rhgb/splash: suppress kernel log spam and show the KythOS Plymouth theme.
 # threadirqs: keep the low-latency desktop tuning without affecting display.
-# rd.plymouth=0/plymouth.enable=0: keep the QEMU baseline free of splash/DRM
-# handoff races until the installed desktop path is proven stable.
+# rd.plymouth=1/plymouth.enable=1: explicitly keep Plymouth enabled for boot.
+# plymouth.ignore-serial-consoles: keep Plymouth active even on machines/VMs
+# that expose a serial console.
+# systemd.show_status=false/rd.systemd.show_status=false/loglevel=3/
+# rd.udev.log_level=3/vt.global_cursor_default=0: avoid text fallback chatter
+# while the graphical splash is taking over the framebuffer.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "threadirqs", "rd.plymouth=0", "plymouth.enable=0", "console=tty0", "console=ttyS0,115200"]
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
 # ── SDDM — ensure graphical target ───────────────────────────────────────────

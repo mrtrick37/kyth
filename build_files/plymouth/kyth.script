@@ -1,5 +1,5 @@
 # KythOS Plymouth boot splash
-# Pure black background, K logo pulsating (breathing glow effect).
+# Pure black background, abstract bloom mark pulsating (breathing glow effect).
 
 # ── Background ────────────────────────────────────────────────────────────────
 Window.SetBackgroundTopColor    (0.0, 0.0, 0.0);

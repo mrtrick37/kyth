@@ -228,17 +228,19 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
-# ── KythOS logo as system icon ──────────────────────────────────────────────────
+# ── KythOS abstract mark as system icon ─────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Install under all three names in hicolor (universal fallback), breeze
-# (default KDE theme), and breeze-dark so every combination is covered.
+# Use the square transparent symbol for small app/menu/panel icons. The
+# horizontal full logo has text and a black canvas that collapses badly at
+# launcher sizes.
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
     /usr/share/icons/breeze-dark/apps/scalable; do
     mkdir -p "${theme_dir}"
-    cp /ctx/branding/kyth-logo.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde-plasma.svg"
@@ -428,8 +430,27 @@ WELCOMEEOF
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
 cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "splash"]
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0"]
 KARGSEOF
+
+# Existing installs may still have older KythOS boot entries with serial/TTY
+# console arguments that make Plymouth fall back to visible boot text. This
+# one-shot migration fixes the bootloader entries after the updated image boots;
+# the freshly staged deployment gets the clean kargs above at install/update time.
+cat > /usr/lib/systemd/system/kyth-boot-splash-kargs.service <<'SPLASHKARGSEOF'
+[Unit]
+Description=KythOS boot splash kernel argument migration
+ConditionPathExists=!/var/lib/kyth/boot-splash-kargs-v2
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'set -e; mkdir -p /var/lib/kyth; if command -v grubby >/dev/null 2>&1; then grubby --update-kernel=ALL --remove-args="console=tty0 console=ttyS0,115200"; grubby --update-kernel=ALL --args="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"; fi; touch /var/lib/kyth/boot-splash-kargs-v2'
+
+[Install]
+WantedBy=multi-user.target
+SPLASHKARGSEOF
+systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 
 # ── Plymouth boot splash ───────────────────────────────────────────────────────
 PLYMOUTH_THEME_DIR=/usr/share/plymouth/themes/kyth
