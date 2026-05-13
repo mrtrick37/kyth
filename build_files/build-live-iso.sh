@@ -84,6 +84,7 @@ SOURCE_HASH="$(
         build_files/plymouth/kyth.script \
         build_files/wallpaper/kyth-wallpaper.svg \
         build_files/branding/kyth-logo.svg \
+        build_files/branding/kyth-logo-transparent.svg \
     | sha256sum \
     | awk '{print $1}'
 )"

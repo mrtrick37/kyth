@@ -225,6 +225,8 @@ COPY build_files/wallpaper/kyth-wallpaper.svg \
      /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 COPY build_files/branding/kyth-logo.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
+COPY build_files/branding/kyth-logo-transparent.svg \
+     /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
 COPY build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
 COPY build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
@@ -240,10 +242,10 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyt
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
           /usr/share/icons/hicolor/scalable/apps/start-here.svg \
     && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
@@ -264,7 +266,7 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyt
 # ── Branding assets, Plymouth theme, and live initramfs ──────────────────────
 RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1) \
     && rsvg-convert -w 200 \
-        /usr/share/icons/hicolor/scalable/apps/kyth.svg \
+        /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
     && rsvg-convert -w 1920 -h 1080 \
         /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
