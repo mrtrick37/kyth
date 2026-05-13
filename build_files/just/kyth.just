@@ -299,17 +299,17 @@ install-boxbuddy:
 
 # Set up a Kali Linux security toolbox via distrobox.
 #
-# The container runs privileged and uses Distrobox's default shared network
-# namespace so security tools (nmap,
-# zenmap, wireshark, aircrack-ng, etc.) have full hardware, device, and raw
-# socket access on the real host network interfaces.
+# The container is created rootful (sudo distrobox create) so that root inside
+# has real CAP_NET_RAW/CAP_NET_ADMIN in the initial user namespace.  Rootless
+# containers cannot open AF_PACKET/SOCK_RAW sockets against host interfaces
+# even with --privileged, which breaks nmap, wireshark, and similar tools.
 #
 # Usage:
 #   ujust setup-kali-box              # headless CLI tools only (kali-linux-headless)
 #   ujust setup-kali-box gui          # headless + GUI tools (kali-linux-default)
 #   ujust setup-kali-box everything   # every available Kali tool (WARNING: 15-20 GB+)
 #
-# After setup: distrobox enter kali
+# After setup: distrobox enter --root kali
 [group('KythOS')]
 setup-kali-box tools="headless":
     #!/usr/bin/env bash
@@ -335,31 +335,41 @@ setup-kali-box tools="headless":
         echo
     fi
 
-    if distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
-        echo "Kali box already exists. To enter it: distrobox enter kali"
+    if sudo distrobox list --no-color 2>/dev/null | grep -q '^kali\b' \
+        || distrobox list --no-color 2>/dev/null | grep -q '^kali\b'; then
+        echo "Kali box already exists. To enter it: distrobox enter --root kali"
         exit 0
     fi
 
     echo "━━━ Setting up Kali Linux toolbox ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  Image:    kalilinux/kali-rolling"
     echo "  Package:  ${meta}"
+    echo "  Mode:     rootful (required for nmap/wireshark raw socket access)"
     echo
 
-    # Distrobox shares the host network namespace by default; adding an explicit
-    # --network host here can collide with distrobox/podman-generated network
-    # flags on newer systems.
-    distrobox create --image kalilinux/kali-rolling --name kali --yes \
+    # Create as a rootful container so security tools (nmap, wireshark, etc.)
+    # get real CAP_NET_RAW.  Rootless podman cannot grant raw socket access
+    # against host network interfaces even with --privileged.
+    sudo distrobox create --image kalilinux/kali-rolling --name kali --yes \
         --additional-flags "--privileged"
-    distrobox enter kali -- sudo apt-get install -y "${meta}"
+    distrobox enter --root kali -- sudo apt-get install -y "${meta}"
 
     # Grant passwordless sudo inside the container so root-requiring tools
     # (nmap, wireshark, aircrack-ng, etc.) launch from the app menu without a
-    # polkit dialog that can't reach the host agent from inside distrobox.
-    distrobox enter kali -- bash -c "
+    # polkit dialog that can not reach the host agent from inside distrobox.
+    distrobox enter --root kali -- bash -c "
         echo '${USER} ALL=(root) NOPASSWD: ALL' \
             | sudo tee /etc/sudoers.d/kali-user-nopasswd > /dev/null
         sudo chmod 0440 /etc/sudoers.d/kali-user-nopasswd
-    " && echo "  Configured passwordless sudo for security tools in kali." || true
+        # GTK3 reads the icon theme from the user config dir. When running as
+        # root via sudo -E, HOME is preserved as the invoking user but we
+        # reset it to /root in kyth-distrobox-root-launch. Pre-create a
+        # settings file so GTK uses hicolor (PNG-only) and skips breeze-dark
+        # SVG icons that crash via glycin/bwrap inside a container.
+        mkdir -p /root/.config/gtk-3.0
+        printf '[Settings]\ngtk-icon-theme-name = hicolor\n' \
+            > /root/.config/gtk-3.0/settings.ini
+    " && echo "  Configured passwordless sudo and GTK icon theme for kali root." || true
 
     if [[ "${tools}" == "gui" || "${tools}" == "everything" ]]; then
         echo
@@ -368,7 +378,7 @@ setup-kali-box tools="headless":
         # Export every .desktop file found in the kali container.
         # distrobox-export is run from *inside* the container; it writes
         # host-side .desktop wrappers to ~/.local/share/applications/.
-        distrobox enter kali -- bash -c '
+        distrobox enter --root kali -- bash -c '
             exported=0
             while IFS= read -r -d "" f; do
                 [[ -f "$f" ]] || continue
@@ -437,10 +447,10 @@ setup-kali-box tools="headless":
             [[ -f "${_f}" ]] || continue
             grep -qE '\-\-name[[:space:]]+kali|-n[[:space:]]+kali|^Exec=.*sudo -E' "${_f}" 2>/dev/null || continue
             grep -qiE '^Name=.*root|zenmap-root|su-to-zenmap|pkexec|sudo -E' "${_f}" 2>/dev/null || continue
-            sed -i -E 's|^Exec=.*[[:space:]]--[[:space:]]+sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch kali |' "${_f}"
-            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\3#' "${_f}"
-            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
-            sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch kali /usr/bin/zenmap\2#' "${_f}"
+            sed -i -E 's|^Exec=.*[[:space:]]--[[:space:]]+sudo -E[[:space:]]+|Exec=kyth-distrobox-root-launch --root kali |' "${_f}"
+            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(pkexec[[:space:]]+)?(/usr/bin/)?zenmap([[:space:]]|$)#Exec=kyth-distrobox-root-launch --root kali /usr/bin/zenmap\3#' "${_f}"
+            sed -i -E 's#^Exec=.*[[:space:]]--[[:space:]]+(/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch --root kali /usr/bin/zenmap\2#' "${_f}"
+            sed -i -E 's#^Exec=kyth-distrobox-root-launch kali (/usr/bin/)?su-to-zenmap.sh([[:space:]]|$)#Exec=kyth-distrobox-root-launch --root kali /usr/bin/zenmap\2#' "${_f}"
             sed -i 's|^TryExec=.*|TryExec=kyth-distrobox-root-launch|' "${_f}"
             echo "  Routed ${_f##*/} through kyth-distrobox-root-launch."
         done
@@ -455,7 +465,7 @@ setup-kali-box tools="headless":
 
     echo
     echo "━━━ Done ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "Kali box ready. Enter it with: distrobox enter kali"
+    echo "Kali box ready. Enter it with: distrobox enter --root kali"
 
 # Export Kali Linux GUI apps to the host application launcher.
 #

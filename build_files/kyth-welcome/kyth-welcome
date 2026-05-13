@@ -895,20 +895,30 @@ class UpdateCheckWorker(QThread):
             self.result.emit("error", "")
             return
 
-        # Hash the raw manifest bytes to get the canonical index digest — this matches
-        # what bootc stores in imageDigest (the OCI image index digest), unlike
-        # `skopeo inspect` (non-raw) which returns the amd64 manifest digest instead.
-        remote_digest = "sha256:" + hashlib.sha256(r.stdout).hexdigest()
-
+        # bootc stores the platform-specific (amd64) manifest digest in imageDigest,
+        # not the OCI image index digest. Parse the index to extract the amd64 entry.
+        # Fall back to hashing the raw bytes (for single-arch images with no index).
+        remote_digest = None
         remote_ts = ""
         try:
-            annotations = (json.loads(r.stdout).get("annotations") or {})
+            manifest = json.loads(r.stdout)
+            for entry in manifest.get("manifests", []):
+                plat = entry.get("platform", {})
+                if plat.get("architecture") == "amd64" and plat.get("os") == "linux":
+                    d = entry.get("digest", "")
+                    if d.startswith("sha256:"):
+                        remote_digest = d
+                    break
+            annotations = manifest.get("annotations") or {}
             raw_ts = annotations.get("org.opencontainers.image.created", "")
             if raw_ts:
                 dt = datetime.fromisoformat(raw_ts.replace("Z", "+00:00")).astimezone()
                 remote_ts = dt.strftime("%Y-%m-%d %H:%M %Z")
         except Exception:
             pass
+
+        if remote_digest is None:
+            remote_digest = "sha256:" + hashlib.sha256(r.stdout).hexdigest()
 
         if local_digest and remote_digest == local_digest:
             self.result.emit("uptodate", remote_ts)
