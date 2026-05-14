@@ -847,6 +847,7 @@ class MainWindow(QMainWindow):
             "/usr/bin/openconnect",
             "--protocol", protocol,
             "--os", os_emul,
+            "--script", "/usr/libexec/kyth-vpnc-script",
         ]
         if username:
             cmd += ["--user", username]
@@ -924,6 +925,7 @@ class MainWindow(QMainWindow):
             "sudo", "-E", "-A", "/usr/bin/openconnect",
             "--protocol", protocol,
             "--os", os_emul,
+            "--script", "/usr/libexec/kyth-vpnc-script",
         ]
         worker_stdin = ""
         if protocol == "gp" and field and value:
