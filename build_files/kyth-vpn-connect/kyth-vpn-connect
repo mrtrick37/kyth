@@ -20,7 +20,7 @@ os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 os.environ.setdefault("QTWEBENGINE_CHROMIUM_FLAGS", "--no-sandbox --disable-dev-shm-usage")
 
 from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, pyqtSignal
-from PyQt6.QtGui import QFont, QIcon
+from PyQt6.QtGui import QAction, QFont, QIcon
 from PyQt6.QtWidgets import (
     QApplication,
     QComboBox,
@@ -34,6 +34,8 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QPushButton,
     QSizePolicy,
+    QMenu,
+    QSystemTrayIcon,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -115,6 +117,28 @@ def _vpn_line_is_connected(line: str) -> bool:
             "configured as",
         )
     )
+
+
+def _run(args: list[str]) -> str:
+    try:
+        return subprocess.check_output(
+            args,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            timeout=2,
+        )
+    except Exception:
+        return ""
+
+
+def _vpn_has_address() -> bool:
+    output = _run(["ip", "-o", "addr", "show"])
+    for line in output.splitlines():
+        if " tun" in line or " vpn" in line:
+            if " inet " in line or " inet6 " in line:
+                return True
+    return False
+
 
 if _WEBENGINE_AVAILABLE:
     class _GpCallbackHandler(QWebEngineUrlSchemeHandler):
@@ -731,11 +755,70 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._worker: _VpnWorker | None = None
         self._saml_in_progress = False
+        self._status_state = "disconnected"
+        self._hid_after_connect = False
         self.setWindowTitle("VPN Connect")
         self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
         self.setMinimumSize(560, 560)
         self._build_ui()
+        self._build_tray()
         self._load_saved_config()
+        self._update_tray_actions()
+
+    def _build_tray(self) -> None:
+        self._tray = QSystemTrayIcon(QIcon.fromTheme(_APP_ICON_NAME), self)
+        self._tray.setToolTip("VPN disconnected")
+        self._tray.activated.connect(self._on_tray_activated)
+
+        self._tray_menu = QMenu(self)
+        self._tray_status_action = QAction("VPN: disconnected", self)
+        self._tray_status_action.setEnabled(False)
+        self._tray_open_action = QAction("Open VPN Connect", self)
+        self._tray_open_action.triggered.connect(self._show_window)
+        self._tray_connect_action = QAction("Connect", self)
+        self._tray_connect_action.triggered.connect(self._on_connect)
+        self._tray_refresh_action = QAction("Refresh Status", self)
+        self._tray_refresh_action.triggered.connect(self._refresh_status)
+        self._tray_disconnect_action = QAction("Disconnect", self)
+        self._tray_disconnect_action.triggered.connect(self._on_disconnect)
+        self._tray_quit_action = QAction("Quit", self)
+        self._tray_quit_action.triggered.connect(self._quit_from_tray)
+
+        self._tray_menu.addAction(self._tray_status_action)
+        self._tray_menu.addSeparator()
+        self._tray_menu.addAction(self._tray_open_action)
+        self._tray_menu.addAction(self._tray_connect_action)
+        self._tray_menu.addAction(self._tray_refresh_action)
+        self._tray_menu.addAction(self._tray_disconnect_action)
+        self._tray_menu.addSeparator()
+        self._tray_menu.addAction(self._tray_quit_action)
+        self._tray.setContextMenu(self._tray_menu)
+        self._tray.show()
+
+    def _on_tray_activated(self, reason) -> None:
+        if reason in (
+            QSystemTrayIcon.ActivationReason.Trigger,
+            QSystemTrayIcon.ActivationReason.DoubleClick,
+        ):
+            self._show_window()
+
+    def _show_window(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _quit_from_tray(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._worker.stop()
+            self._worker.wait(3000)
+        QApplication.quit()
+
+    def _refresh_status(self) -> None:
+        if self._worker and self._worker.isRunning():
+            state = "connected" if _vpn_has_address() else "connecting"
+        else:
+            state = "disconnected"
+        self._set_status(state, hide_on_connected=False)
 
     def _build_ui(self) -> None:
         root = QWidget()
@@ -822,9 +905,13 @@ class MainWindow(QMainWindow):
         self._username.setText(v.get("username", ""))
 
     def _on_connect(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._show_window()
+            return
         gateway = self._gateway.text().strip()
         if not gateway:
             self._log.append("[Error: Gateway is required]")
+            self._show_window()
             return
 
         protocol = self._protocol.currentText()
@@ -835,6 +922,7 @@ class MainWindow(QMainWindow):
         _save_config(gateway, protocol, os_emul, username)
 
         self._log.clear()
+        self._hid_after_connect = False
         self._set_status("connecting")
         self._connect_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
@@ -860,6 +948,8 @@ class MainWindow(QMainWindow):
     def _on_disconnect(self) -> None:
         if self._worker:
             self._worker.stop()
+        else:
+            self._set_status("disconnected")
 
     def _on_line(self, line: str) -> None:
         self._log.append(_redact_vpn_log_line(line))
@@ -964,22 +1054,64 @@ class MainWindow(QMainWindow):
         for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
             w.setEnabled(True)
 
-    def _set_status(self, state: str) -> None:
+    def _set_status(self, state: str, hide_on_connected: bool = True) -> None:
+        self._status_state = state
         if state == "connected":
             self._status.setText("● Connected")
             self._status.setStyleSheet("color: #4caf50; font-weight: bold;")
+            if hide_on_connected and not self._hid_after_connect:
+                self._hid_after_connect = True
+                self.hide()
+                self._tray.showMessage(
+                    "VPN connected",
+                    "VPN Connect is running in the system tray.",
+                    QSystemTrayIcon.MessageIcon.Information,
+                    3500,
+                )
         elif state == "connecting":
             self._status.setText("● Connecting…")
             self._status.setStyleSheet("color: #ff9800; font-weight: bold;")
         else:
             self._status.setText("● Disconnected")
             self._status.setStyleSheet("color: palette(mid); font-weight: bold;")
+            self._hid_after_connect = False
+        self._update_tray_actions()
+
+    def _update_tray_actions(self) -> None:
+        connected = self._status_state == "connected"
+        connecting = self._status_state == "connecting"
+        disconnected = self._status_state == "disconnected"
+
+        if connected:
+            status_text = "VPN: connected"
+            tooltip = "VPN connected"
+        elif connecting:
+            status_text = "VPN: connecting"
+            tooltip = "VPN connecting"
+        else:
+            status_text = "VPN: disconnected"
+            tooltip = "VPN disconnected"
+
+        self._tray_status_action.setText(status_text)
+        self._tray.setToolTip(tooltip)
+        self._tray_connect_action.setEnabled(disconnected)
+        self._tray_disconnect_action.setEnabled(connected or connecting)
+        self._tray_refresh_action.setEnabled(True)
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
         if self._worker and self._worker.isRunning():
-            self._worker.stop()
-            self._worker.wait(3000)
+            self.hide()
+            event.ignore()
+            self._tray.showMessage(
+                "VPN Connect is still running",
+                "Use the tray menu to reopen or disconnect.",
+                QSystemTrayIcon.MessageIcon.Information,
+                3000,
+            )
+            return
+        self._tray.hide()
         event.accept()
+        QApplication.quit()
 
 
 def main() -> None:
@@ -987,6 +1119,7 @@ def main() -> None:
     app.setApplicationName("kyth-vpn-connect")
     app.setDesktopFileName("kyth-vpn-connect")
     app.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
+    app.setQuitOnLastWindowClosed(False)
     win = MainWindow()
     win.show()
     sys.exit(app.exec())

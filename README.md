@@ -107,7 +107,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - OpenConnect wrapper for GlobalProtect, AnyConnect, Pulse, F5, Fortinet, Array, and Network Connect protocols
 - Embedded GlobalProtect SAML browser flow for Azure/Microsoft SSO portals
 - GlobalProtect ACS handoff support: captures `prelogin-cookie` and `saml-username`, reconnects through the portal, then proceeds to the gateway
-- System tray **VPN Status** helper (`kyth-vpn-status`) autostarts in KDE and shows connected / connecting / disconnected state near the wireless, volume, and Bluetooth indicators
+- After connecting, **VPN Connect** hides to the system tray with actions to reopen, refresh status, disconnect, or quit
 - VPN logs redact GlobalProtect auth cookies before displaying them
 - Built as a workaround for KDE/plasma-nm OpenConnect crashes while keeping the actual tunnel handled by upstream `openconnect`
 
