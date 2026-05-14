@@ -385,9 +385,6 @@ install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
     /usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
-mkdir -p /etc/xdg/autostart
-install -m 0644 /ctx/kyth-vpn-status/kyth-vpn-status.desktop \
-    /etc/xdg/autostart/kyth-vpn-status.desktop
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
