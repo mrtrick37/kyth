@@ -367,8 +367,12 @@ dnf5 install -y \
     kscreen \
     neovim \
     zsh \
+    nodejs \
+    npm \
     jetbrains-mono-fonts \
-    cascadia-code-fonts
+    cascadia-code-fonts \
+    openconnect \
+    vpnc
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 
 # Wire up SDDM and graphical boot via explicit symlinks.
