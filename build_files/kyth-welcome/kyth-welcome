@@ -938,6 +938,8 @@ class HardwareProbe:
     summary: str
     details: str
     action: str | None = None
+    action_page_key: str | None = None
+    action_cmd: list[str] | None = None
 
 
 class HardwareProbeWorker(QThread):
@@ -1685,12 +1687,14 @@ def _gpu_probe(pci_text: str, lsmod_text: str) -> HardwareProbe:
                 "NVIDIA drivers installed but not yet active.",
                 "The nvidia module exists for this kernel but is not loaded.\nDetected:\n" + "\n".join(gpu_lines),
                 "Reboot to activate the staged driver.",
+                action_page_key="NVIDIA",
             )
         summary = "Hybrid graphics: NVIDIA driver not active." if hybrid else "NVIDIA hardware found without an active driver."
         return HardwareProbe(
             "Graphics", "err", summary,
             "Detected:\n" + "\n".join(gpu_lines),
-            "Use the NVIDIA Drivers page to build and stage the driver.",
+            "Open NVIDIA Drivers to build and stage the driver.",
+            action_page_key="NVIDIA",
         )
 
     if has_amd:
@@ -1718,6 +1722,7 @@ def _firmware_probe() -> HardwareProbe:
             "Firmware tooling installed but device enumeration failed.",
             devices.stdout.strip() or "fwupdmgr get-devices exited with an error.",
             "Open Firmware to retry.",
+            action_page_key="Firmware",
         )
 
     device_count = devices.stdout.count("Device ID:")
@@ -1727,7 +1732,8 @@ def _firmware_probe() -> HardwareProbe:
             "Firmware", "warn",
             f"Firmware updates available for {device_count or 'one or more'} device(s).",
             updates.stdout.strip() or devices.stdout.strip(),
-            "Open the Firmware page to apply updates.",
+            "Open Firmware to apply updates.",
+            action_page_key="Firmware",
         )
     if updates is not None and updates.returncode == 2:
         return HardwareProbe(
@@ -1784,7 +1790,8 @@ def _connectivity_probe(pci_text: str, usb_text: str) -> HardwareProbe:
             "Connectivity", "warn",
             f"{', '.join(parts)} detected but radio is {', '.join(blocked)}.",
             "\n\n".join(details) or "rfkill reports blocked radios.",
-            "Clear the rfkill block or check your wireless toggle.",
+            "Enable Wireless",
+            action_cmd=["rfkill", "unblock", "all"],
         )
 
     return HardwareProbe(
@@ -2341,6 +2348,11 @@ class HardwareCard(QFrame):
         self._action.setObjectName("card-action")
         layout.addWidget(self._action)
 
+        self._action_btn = QPushButton()
+        self._action_btn.setObjectName("primary")
+        self._action_btn.hide()
+        layout.addWidget(self._action_btn)
+
         self.update_probe(probe)
 
     def update_probe(self, probe: HardwareProbe):
@@ -2365,6 +2377,16 @@ class HardwareCard(QFrame):
             self._action.show()
         else:
             self._action.hide()
+
+    def set_action_fn(self, label: str, fn) -> None:
+        self._action.hide()
+        self._action_btn.setText(label)
+        try:
+            self._action_btn.clicked.disconnect()
+        except RuntimeError:
+            pass
+        self._action_btn.clicked.connect(fn)
+        self._action_btn.show()
 
 
 # ── Stat tile widget ───────────────────────────────────────────────────────────
@@ -2671,9 +2693,12 @@ class WelcomePage(Page):
 
 # ── Page: Hardware ────────────────────────────────────────────────────────────
 class HardwarePage(Page):
-    def __init__(self):
+    action_requested = pyqtSignal(str)
+
+    def __init__(self, wizard_mode: bool = False):
         super().__init__()
         self._worker = None
+        self._wizard_mode = wizard_mode
         self._cards: list[HardwareCard] = []
         self._last_probes: list[HardwareProbe] = []
 
@@ -2708,46 +2733,53 @@ class HardwarePage(Page):
         self._card_col.setSpacing(12)
         self._add(self._card_container)
 
-        # ── Diagnostics Report ────────────────────────────────────────────────
-        self._divider()
-        diag_head = QLabel("Diagnostics Report")
-        diag_head.setObjectName("heading")
-        diag_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
-        self._add(diag_head)
-        diag_sub = QLabel(
-            "A full system report covering all hardware checks above. "
-            "Paste into a bug report or save to a file."
-        )
-        diag_sub.setObjectName("card-copy")
-        diag_sub.setWordWrap(True)
-        self._add(diag_sub)
+        if not wizard_mode:
+            # ── Diagnostics Report ────────────────────────────────────────────
+            self._divider()
+            diag_head = QLabel("Diagnostics Report")
+            diag_head.setObjectName("heading")
+            diag_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
+            self._add(diag_head)
+            diag_sub = QLabel(
+                "A full system report covering all hardware checks above. "
+                "Paste into a bug report or save to a file."
+            )
+            diag_sub.setObjectName("card-copy")
+            diag_sub.setWordWrap(True)
+            self._add(diag_sub)
 
-        diag_btn_row = QHBoxLayout()
-        diag_btn_row.setSpacing(10)
-        self._diag_refresh_btn = QPushButton("Refresh & Regenerate")
-        self._diag_refresh_btn.clicked.connect(self.refresh)
-        diag_btn_row.addWidget(self._diag_refresh_btn)
-        self._diag_copy_btn = QPushButton("Copy Report")
-        self._diag_copy_btn.setEnabled(False)
-        self._diag_copy_btn.clicked.connect(self._copy_diag_report)
-        diag_btn_row.addWidget(self._diag_copy_btn)
-        self._diag_save_btn = QPushButton("Save Report…")
-        self._diag_save_btn.setEnabled(False)
-        self._diag_save_btn.clicked.connect(self._save_diag_report)
-        diag_btn_row.addWidget(self._diag_save_btn)
-        diag_btn_row.addStretch()
-        self._diag_status_lbl = QLabel()
-        self._diag_status_lbl.setObjectName("subheading")
-        diag_btn_row.addWidget(self._diag_status_lbl)
-        self._add_layout(diag_btn_row)
+            diag_btn_row = QHBoxLayout()
+            diag_btn_row.setSpacing(10)
+            self._diag_refresh_btn = QPushButton("Refresh & Regenerate")
+            self._diag_refresh_btn.clicked.connect(self.refresh)
+            diag_btn_row.addWidget(self._diag_refresh_btn)
+            self._diag_copy_btn = QPushButton("Copy Report")
+            self._diag_copy_btn.setEnabled(False)
+            self._diag_copy_btn.clicked.connect(self._copy_diag_report)
+            diag_btn_row.addWidget(self._diag_copy_btn)
+            self._diag_save_btn = QPushButton("Save Report…")
+            self._diag_save_btn.setEnabled(False)
+            self._diag_save_btn.clicked.connect(self._save_diag_report)
+            diag_btn_row.addWidget(self._diag_save_btn)
+            diag_btn_row.addStretch()
+            self._diag_status_lbl = QLabel()
+            self._diag_status_lbl.setObjectName("subheading")
+            diag_btn_row.addWidget(self._diag_status_lbl)
+            self._add_layout(diag_btn_row)
 
-        self._diag_report = QTextEdit()
-        self._diag_report.setReadOnly(True)
-        self._diag_report.setMinimumHeight(260)
-        self._diag_report.setStyleSheet(
-            "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
-        )
-        self._add(self._diag_report)
+            self._diag_report = QTextEdit()
+            self._diag_report.setReadOnly(True)
+            self._diag_report.setMinimumHeight(260)
+            self._diag_report.setStyleSheet(
+                "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
+            )
+            self._add(self._diag_report)
+        else:
+            self._diag_refresh_btn = None
+            self._diag_copy_btn = None
+            self._diag_save_btn = None
+            self._diag_status_lbl = None
+            self._diag_report = None
 
         self._stretch()
         self.refresh()
@@ -2778,7 +2810,8 @@ class HardwarePage(Page):
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._diag_refresh_btn.setEnabled(True)
+        if self._diag_refresh_btn:
+            self._diag_refresh_btn.setEnabled(True)
         _finish_worker(self)
         self._replace_cards(probes)
         self._last_probes = probes
@@ -2787,24 +2820,56 @@ class HardwarePage(Page):
         if "err" in levels:
             self._status_lbl.setText("One or more issues need attention.")
             self._status_lbl.setObjectName("status-err")
-            self._diag_status_lbl.setText("Issues found — review before filing a bug.")
-            self._diag_status_lbl.setObjectName("status-err")
+            if self._diag_status_lbl:
+                self._diag_status_lbl.setText("Issues found — review before filing a bug.")
+                self._diag_status_lbl.setObjectName("status-err")
         elif "warn" in levels:
             self._status_lbl.setText("Mostly healthy — a few items worth checking.")
             self._status_lbl.setObjectName("status-warn")
-            self._diag_status_lbl.setText("Completed with warnings.")
-            self._diag_status_lbl.setObjectName("status-warn")
+            if self._diag_status_lbl:
+                self._diag_status_lbl.setText("Completed with warnings.")
+                self._diag_status_lbl.setObjectName("status-warn")
         else:
             self._status_lbl.setText("All checks passed.")
             self._status_lbl.setObjectName("status-ok")
-            self._diag_status_lbl.setText("All checks passed.")
-            self._diag_status_lbl.setObjectName("status-ok")
+            if self._diag_status_lbl:
+                self._diag_status_lbl.setText("All checks passed.")
+                self._diag_status_lbl.setObjectName("status-ok")
         _restyle(self._status_lbl)
-        _restyle(self._diag_status_lbl)
+        if self._diag_status_lbl:
+            _restyle(self._diag_status_lbl)
 
-        self._diag_report.setPlainText(_diagnostics_report(probes))
-        self._diag_copy_btn.setEnabled(True)
-        self._diag_save_btn.setEnabled(True)
+        if self._diag_report:
+            self._diag_report.setPlainText(_diagnostics_report(probes))
+        if self._diag_copy_btn:
+            self._diag_copy_btn.setEnabled(True)
+        if self._diag_save_btn:
+            self._diag_save_btn.setEnabled(True)
+
+        if self._wizard_mode:
+            self._wire_wizard_action_buttons(probes)
+
+    def _wire_wizard_action_buttons(self, probes: list[HardwareProbe]):
+        for card, probe in zip(self._cards, probes):
+            if probe.action_page_key:
+                key = probe.action_page_key
+                card.set_action_fn(
+                    probe.action or f"Open {key}",
+                    lambda k=key: self.action_requested.emit(k),
+                )
+            elif probe.action_cmd:
+                cmd = probe.action_cmd
+                card.set_action_fn(
+                    probe.action or "Fix",
+                    lambda c=cmd: self._run_inline_cmd(c),
+                )
+
+    def _run_inline_cmd(self, cmd: list[str]):
+        try:
+            subprocess.Popen(cmd)
+        except OSError:
+            pass
+        QTimer.singleShot(1500, self.refresh)
 
     def _on_failed(self, message: str):
         self._progress.hide()
@@ -10588,7 +10653,8 @@ class WizardWindow(QMainWindow):
         root_layout.addWidget(self._stack, 1)
 
         self._update_page = UpdatePage()
-        self._hw_page = HardwarePage()
+        self._hw_page = HardwarePage(wizard_mode=True)
+        self._hw_page.action_requested.connect(self._on_hw_action_requested)
         self._gaming_page = GamingPage()
         self._first_run_apps_step = self._make_first_run_apps_step()
 
@@ -11004,6 +11070,14 @@ class WizardWindow(QMainWindow):
             self._next_btn.setText("Get Started  →")
         else:
             self._next_btn.setText("Next  →")
+
+    def _on_hw_action_requested(self, page_key: str):
+        _mark_wizard_done()
+        main_win = MainWindow()
+        main_win.setWindowIcon(QIcon.fromTheme("kyth"))
+        main_win.show()
+        main_win._navigate_to(page_key)
+        self.close()
 
     def _go_back(self):
         if self._current > 0:
