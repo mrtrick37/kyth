@@ -189,6 +189,7 @@ optional_gaming_packages=(
     game-devices-udev
     xpadneo
     xone
+    dualsensectl
     jstest-gtk
     libcec
     cec-utils
