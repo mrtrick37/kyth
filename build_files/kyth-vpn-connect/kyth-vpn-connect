@@ -32,9 +32,9 @@ from PyQt6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QPushButton,
     QSizePolicy,
-    QMenu,
     QSystemTrayIcon,
     QTextEdit,
     QVBoxLayout,
@@ -757,6 +757,7 @@ class MainWindow(QMainWindow):
         self._saml_in_progress = False
         self._status_state = "disconnected"
         self._hid_after_connect = False
+        self._pending_reconnect = False
         self.setWindowTitle("VPN Connect")
         self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
         self.setMinimumSize(560, 560)
@@ -887,6 +888,63 @@ class MainWindow(QMainWindow):
         self._log.setReadOnly(True)
         self._log.setFont(QFont("monospace", 9))
         layout.addWidget(self._log)
+
+    def _setup_tray(self) -> None:
+        self._tray = QSystemTrayIcon(QIcon.fromTheme(_APP_ICON_NAME), self)
+        self._tray.setToolTip("VPN Connect — Disconnected")
+
+        menu = QMenu()
+
+        self._tray_status_action = QAction("● Disconnected", menu)
+        self._tray_status_action.setEnabled(False)
+        menu.addAction(self._tray_status_action)
+        menu.addSeparator()
+
+        show_action = QAction("Show", menu)
+        show_action.triggered.connect(self._show_window)
+        menu.addAction(show_action)
+
+        self._tray_disconnect_action = QAction("Disconnect", menu)
+        self._tray_disconnect_action.triggered.connect(self._on_disconnect)
+        self._tray_disconnect_action.setEnabled(False)
+        menu.addAction(self._tray_disconnect_action)
+
+        self._tray_reconnect_action = QAction("Reconnect", menu)
+        self._tray_reconnect_action.triggered.connect(self._on_tray_reconnect)
+        self._tray_reconnect_action.setEnabled(False)
+        menu.addAction(self._tray_reconnect_action)
+
+        menu.addSeparator()
+        quit_action = QAction("Quit", menu)
+        quit_action.triggered.connect(self._quit_app)
+        menu.addAction(quit_action)
+
+        self._tray.setContextMenu(menu)
+        self._tray.activated.connect(self._on_tray_activated)
+        self._tray.show()
+
+    def _show_window(self) -> None:
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
+            if self.isVisible():
+                self.hide()
+            else:
+                self._show_window()
+
+    def _on_tray_reconnect(self) -> None:
+        self._pending_reconnect = True
+        self._on_disconnect()
+
+    def _quit_app(self) -> None:
+        if self._worker and self._worker.isRunning():
+            self._worker.stop()
+            self._worker.wait(3000)
+        self._tray.hide()
+        QApplication.quit()
 
     def _load_saved_config(self) -> None:
         cfg = _load_config()
@@ -1053,6 +1111,11 @@ class MainWindow(QMainWindow):
         self._disconnect_btn.setEnabled(False)
         for w in (self._gateway, self._protocol, self._os_emul, self._username, self._password):
             w.setEnabled(True)
+        if self._pending_reconnect:
+            self._pending_reconnect = False
+            QTimer.singleShot(500, self._on_connect)
+        else:
+            self._show_window()
 
     def _set_status(self, state: str, hide_on_connected: bool = True) -> None:
         self._status_state = state
@@ -1071,6 +1134,10 @@ class MainWindow(QMainWindow):
         elif state == "connecting":
             self._status.setText("● Connecting…")
             self._status.setStyleSheet("color: #ff9800; font-weight: bold;")
+            self._tray_status_action.setText("● Connecting…")
+            self._tray.setToolTip("VPN Connect — Connecting…")
+            self._tray_disconnect_action.setEnabled(True)
+            self._tray_reconnect_action.setEnabled(False)
         else:
             self._status.setText("● Disconnected")
             self._status.setStyleSheet("color: palette(mid); font-weight: bold;")
