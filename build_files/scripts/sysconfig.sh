@@ -403,6 +403,15 @@ amd_performance_level = high
 nv_perf_level = 5
 GAMEMODEEOF
 
+# ── Bluetooth — enable adapter on boot ───────────────────────────────────────
+# BlueZ ships with AutoEnable commented out (value is 'false' in modern versions).
+# Replace any commented AutoEnable line with the enabled form; append to [Policy]
+# if the line is missing entirely.
+sed -i 's/^#\s*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf
+grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
+    printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
+systemctl enable bluetooth.service 2>/dev/null || true
+
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
 # sensitivity and causing apparent "weak signal" even close to the AP.
