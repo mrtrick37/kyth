@@ -1670,6 +1670,46 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
     ]
 
 
+def _ludusavi_backup_summary() -> tuple[str, str, str]:
+    ludusavi_ok = _is_flatpak_installed("com.github.mtkennerly.ludusavi")
+    candidates = [
+        os.path.expanduser("~/Ludusavi"),
+        os.path.expanduser("~/Games/Ludusavi"),
+        os.path.expanduser("~/Documents/Ludusavi"),
+        os.path.expanduser("~/.var/app/com.github.mtkennerly.ludusavi"),
+    ]
+    existing = [path for path in candidates if os.path.exists(path)]
+    if ludusavi_ok and existing:
+        newest = max(existing, key=lambda path: os.path.getmtime(path))
+        return "ok", "Save backups", f"Ludusavi installed; backup/config path found: {newest}"
+    if ludusavi_ok:
+        return "warn", "Save backups", "Ludusavi installed; run a backup before migration or modding."
+    return "warn", "Save backups", "Install Ludusavi before importing saves or modding."
+
+
+def _streaming_health_items() -> list[tuple[str, str, str]]:
+    pipewire_ok = shutil.which("pw-cli") is not None or shutil.which("wpctl") is not None
+    obs_capture_ok = any(
+        os.path.exists(path) for path in (
+            "/usr/lib64/libobs_vkcapture.so",
+            "/usr/lib/libobs_vkcapture.so",
+            "/usr/lib64/obs-plugins/libobs_vkcapture.so",
+            "/usr/lib/obs-plugins/libobs_vkcapture.so",
+        )
+    )
+    v4l2_probe = _run_command(["modprobe", "-n", "v4l2loopback"], timeout=4)
+    v4l2_ok = v4l2_probe is not None and v4l2_probe.returncode == 0
+    mic_hint = "PipeWire ready; test mic in Discord/OBS." if pipewire_ok else "PipeWire tools not found."
+
+    return [
+        ("ok" if _is_flatpak_installed("com.obsproject.Studio") else "warn", "OBS Studio", "Installed." if _is_flatpak_installed("com.obsproject.Studio") else "Install OBS for capture and streaming."),
+        ("ok" if _is_flatpak_installed("com.discordapp.Discord") else "warn", "Discord", "Installed." if _is_flatpak_installed("com.discordapp.Discord") else "Install Discord for voice and screen share testing."),
+        ("ok" if pipewire_ok else "warn", "PipeWire", mic_hint),
+        ("ok" if obs_capture_ok else "warn", "Game capture", "obs-vkcapture runtime present." if obs_capture_ok else "obs-vkcapture runtime not detected."),
+        ("ok" if v4l2_ok else "dim", "Virtual camera", "v4l2loopback available." if v4l2_ok else "Optional: v4l2loopback not available."),
+    ]
+
+
 def _detect_nvidia() -> bool:
     try:
         r = subprocess.run(["lspci"], capture_output=True, text=True, timeout=5)
@@ -5228,6 +5268,70 @@ class GamingPage(Page):
         health_layout.addLayout(self._health_rows_layout)
         self._add(health_card)
 
+        # ── Windows gamer migration checklist ───────────────────────────────
+        checklist_card, checklist_layout = _make_card("card-accent-ok")
+        checklist_top = QHBoxLayout()
+        checklist_title = QLabel("Windows Gamer Migration Checklist")
+        checklist_title.setObjectName("card-title")
+        checklist_top.addWidget(checklist_title)
+        checklist_top.addStretch()
+        checklist_refresh = QPushButton("Refresh")
+        checklist_refresh.clicked.connect(self._refresh_migration_checklist)
+        checklist_top.addWidget(checklist_refresh)
+        checklist_layout.addLayout(checklist_top)
+        checklist_desc = QLabel(
+            "A retention checklist for the first week: launchers, Proton, saves, "
+            "controllers, streaming tools, and known blocked games."
+        )
+        checklist_desc.setObjectName("card-copy")
+        checklist_desc.setWordWrap(True)
+        checklist_layout.addWidget(checklist_desc)
+        self._checklist_rows_layout = QVBoxLayout()
+        self._checklist_rows_layout.setSpacing(8)
+        checklist_layout.addLayout(self._checklist_rows_layout)
+        self._add(checklist_card)
+
+        # ── Game readiness scanner ───────────────────────────────────────────
+        scanner_card, scanner_layout = _make_card()
+        scanner_title = QLabel("Game Readiness Scanner")
+        scanner_title.setObjectName("card-title")
+        scanner_layout.addWidget(scanner_title)
+        scanner_desc = QLabel(
+            "Search the KythOS compatibility list and get the recommended launcher, "
+            "runner, launch profile, save step, and source check date."
+        )
+        scanner_desc.setObjectName("card-copy")
+        scanner_desc.setWordWrap(True)
+        scanner_layout.addWidget(scanner_desc)
+        scanner_row = QHBoxLayout()
+        scanner_row.setSpacing(8)
+        self._readiness_combo = QComboBox()
+        self._readiness_combo.setEditable(True)
+        self._readiness_combo.setMinimumWidth(320)
+        for game in sorted(_COMPAT_GAMES, key=lambda item: item.name.lower()):
+            self._readiness_combo.addItem(game.name)
+        scanner_row.addWidget(self._readiness_combo, 1)
+        readiness_btn = QPushButton("Check Game")
+        readiness_btn.setObjectName("primary")
+        readiness_btn.clicked.connect(self._check_game_readiness)
+        scanner_row.addWidget(readiness_btn)
+        scanner_layout.addLayout(scanner_row)
+        self._readiness_result = QLabel("Pick a game or type a title to check readiness.")
+        self._readiness_result.setObjectName("card-copy")
+        self._readiness_result.setWordWrap(True)
+        scanner_layout.addWidget(self._readiness_result)
+        scanner_btns = QHBoxLayout()
+        scanner_btns.setSpacing(8)
+        protondb_lookup = QPushButton("Open ProtonDB")
+        protondb_lookup.clicked.connect(self._open_readiness_protondb)
+        scanner_btns.addWidget(protondb_lookup)
+        anticheat_lookup = QPushButton("Open Anti-Cheat Status")
+        anticheat_lookup.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://areweanticheatyet.com")))
+        scanner_btns.addWidget(anticheat_lookup)
+        scanner_btns.addStretch()
+        scanner_layout.addLayout(scanner_btns)
+        self._add(scanner_card)
+
         # ── First-failure playbook ────────────────────────────────────────────
         playbook_card, playbook_layout = _make_card()
         playbook_title = QLabel("Game will not launch")
@@ -5260,6 +5364,36 @@ class GamingPage(Page):
         playbook_btns.addStretch()
         playbook_layout.addLayout(playbook_btns)
         self._add(playbook_card)
+
+        # ── Fix my game ──────────────────────────────────────────────────────
+        fix_card, fix_layout = _make_card()
+        fix_title = QLabel("Fix My Game")
+        fix_title.setObjectName("card-title")
+        fix_layout.addWidget(fix_title)
+        fix_desc = QLabel(
+            "Fast non-destructive support actions: open the folders players need, "
+            "copy safe launch tests, and generate diagnostics."
+        )
+        fix_desc.setObjectName("card-copy")
+        fix_desc.setWordWrap(True)
+        fix_layout.addWidget(fix_desc)
+        fix_btns = QHBoxLayout()
+        fix_btns.setSpacing(8)
+        for label, action in (
+            ("Open Steam compatdata", lambda: self._open_user_path("~/.local/share/Steam/steamapps/compatdata")),
+            ("Open shadercache", lambda: self._open_user_path("~/.local/share/Steam/steamapps/shadercache")),
+            ("Copy reset-prefix command", self._copy_prefix_reset_hint),
+            ("Copy support snapshot", self._copy_support_snapshot_command),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(action)
+            fix_btns.addWidget(btn)
+        fix_btns.addStretch()
+        fix_layout.addLayout(fix_btns)
+        self._fix_status_lbl = QLabel("")
+        self._fix_status_lbl.setObjectName("card-copy")
+        fix_layout.addWidget(self._fix_status_lbl)
+        self._add(fix_card)
 
         # ── Gaming Tools ──────────────────────────────────────────────────────
         tools_head = QLabel("Gaming Tools")
@@ -5401,6 +5535,38 @@ class GamingPage(Page):
         tuning_btns.addStretch()
         tuning_layout.addLayout(tuning_btns)
         self._add(tuning_card)
+
+        streaming_card, streaming_layout = _make_card()
+        streaming_top = QHBoxLayout()
+        streaming_title = QLabel("Streaming and Discord Readiness")
+        streaming_title.setObjectName("card-title")
+        streaming_top.addWidget(streaming_title)
+        streaming_top.addStretch()
+        streaming_refresh = QPushButton("Refresh")
+        streaming_refresh.clicked.connect(self._refresh_streaming_health)
+        streaming_top.addWidget(streaming_refresh)
+        streaming_layout.addLayout(streaming_top)
+        streaming_desc = QLabel(
+            "Windows gamers bring Discord, OBS, capture, microphones, and screen share "
+            "expectations with them. This checks the pieces that make that feel normal."
+        )
+        streaming_desc.setObjectName("card-copy")
+        streaming_desc.setWordWrap(True)
+        streaming_layout.addWidget(streaming_desc)
+        self._streaming_rows_layout = QVBoxLayout()
+        self._streaming_rows_layout.setSpacing(8)
+        streaming_layout.addLayout(self._streaming_rows_layout)
+        streaming_btns = QHBoxLayout()
+        streaming_btns.setSpacing(8)
+        install_discord = QPushButton("Install Discord")
+        install_discord.clicked.connect(lambda _=False: self._install_flatpak_app("com.discordapp.Discord", "Discord"))
+        streaming_btns.addWidget(install_discord)
+        install_obs = QPushButton("Install OBS")
+        install_obs.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-obs"], "Install OBS"))
+        streaming_btns.addWidget(install_obs)
+        streaming_btns.addStretch()
+        streaming_layout.addLayout(streaming_btns)
+        self._add(streaming_card)
 
         self._divider()
         launcher_head = QLabel("Launcher setup")
@@ -5923,6 +6089,10 @@ class GamingPage(Page):
         saves_desc.setObjectName("card-copy")
         saves_desc.setWordWrap(True)
         saves_layout.addWidget(saves_desc)
+        self._saves_status_lbl = QLabel("")
+        self._saves_status_lbl.setObjectName("card-copy")
+        self._saves_status_lbl.setWordWrap(True)
+        saves_layout.addWidget(self._saves_status_lbl)
         saves_btns = QHBoxLayout()
         saves_btns.setSpacing(8)
         ludusavi_btn = QPushButton("Install Ludusavi")
@@ -5931,6 +6101,9 @@ class GamingPage(Page):
         ludusavi_open_btn = QPushButton("Open Ludusavi")
         ludusavi_open_btn.clicked.connect(lambda _=False: subprocess.Popen(["flatpak", "run", "com.github.mtkennerly.ludusavi"]))
         saves_btns.addWidget(ludusavi_open_btn)
+        saves_refresh_btn = QPushButton("Refresh Status")
+        saves_refresh_btn.clicked.connect(self._refresh_save_status)
+        saves_btns.addWidget(saves_refresh_btn)
         saves_doc_btn = QPushButton("Save Migration Checklist")
         saves_doc_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/blob/main/docs/game-save-migration.md")))
         saves_btns.addWidget(saves_doc_btn)
@@ -5968,7 +6141,10 @@ class GamingPage(Page):
 
         self._stretch()
         self._update_profile_builder()
+        self._refresh_migration_checklist()
         self._refresh_gaming_health()
+        self._refresh_streaming_health()
+        self._refresh_save_status()
         self._refresh_status()
         self._refresh_ntfs_drives()
 
@@ -6040,6 +6216,157 @@ class GamingPage(Page):
                 item.widget().deleteLater()
         for status, title, summary in _gaming_health_items():
             self._health_rows_layout.addWidget(self._make_health_row(status, title, summary))
+
+    def _migration_checklist_items(self) -> list[tuple[str, str, str]]:
+        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+        heroic_ok = _is_flatpak_installed("com.heroicgameslauncher.hgl")
+        lutris_ok = _is_flatpak_installed("net.lutris.Lutris")
+        discord_ok = _is_flatpak_installed("com.discordapp.Discord")
+        obs_ok = _is_flatpak_installed("com.obsproject.Studio")
+        ludusavi_status, _, ludusavi_summary = _ludusavi_backup_summary()
+        controller_info = _detect_controllers()
+        controller_count = len(controller_info.get("usb_controllers", [])) + len(controller_info.get("input_nodes", []))
+        ntfs_count = len(_find_ntfs_drives())
+        ge_ok = bool(_ge_proton_version())
+        return [
+            ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
+            ("ok" if ge_ok else "err", "GE-Proton ready", _ge_proton_version() or "Missing; update GE-Proton before testing Windows games."),
+            ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
+            (ludusavi_status, "Saves backed up", ludusavi_summary),
+            ("warn" if ntfs_count else "dim", "Windows library migration", f"{ntfs_count} NTFS partition(s) detected; copy games read-only below." if ntfs_count else "No Windows game drive detected."),
+            ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
+            ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
+            ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
+        ]
+
+    def _refresh_migration_checklist(self):
+        while self._checklist_rows_layout.count():
+            item = self._checklist_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for status, title, summary in self._migration_checklist_items():
+            self._checklist_rows_layout.addWidget(self._make_health_row(status, title, summary))
+
+    def _refresh_streaming_health(self):
+        while self._streaming_rows_layout.count():
+            item = self._streaming_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for status, title, summary in _streaming_health_items():
+            self._streaming_rows_layout.addWidget(self._make_health_row(status, title, summary))
+
+    def _refresh_save_status(self):
+        if not hasattr(self, "_saves_status_lbl"):
+            return
+        status, title, summary = _ludusavi_backup_summary()
+        prefix = {"ok": "OK", "warn": "Check", "err": "Fix", "dim": "Info"}.get(status, "Info")
+        self._saves_status_lbl.setText(f"{prefix}: {title} - {summary}")
+
+    def _find_compat_game(self, query: str):
+        needle = query.strip().lower()
+        if not needle:
+            return None
+        for game in _COMPAT_GAMES:
+            if game.name.lower() == needle:
+                return game
+        for game in _COMPAT_GAMES:
+            if needle in game.name.lower() or game.name.lower() in needle:
+                return game
+        return None
+
+    def _recommended_launcher_for_game(self, game) -> str:
+        name = game.name.lower()
+        if "overwatch" in name:
+            return "Lutris with Battle.net via umu-run"
+        if any(token in name for token in ("red dead", "gta")):
+            return "Steam when owned there; otherwise Lutris/Heroic plus the Rockstar launcher"
+        if game.status == "blocked":
+            return "None on Linux until the publisher enables support"
+        if game.status == "native":
+            return "Steam native Linux build"
+        return "Steam with Proton Experimental first, then GE-Proton"
+
+    def _recommended_profile_for_game(self, game) -> str:
+        if game.status == "blocked":
+            return "Do not try bypass launch options; use Windows or wait for publisher support."
+        if any(token in game.name.lower() for token in ("cyberpunk", "red dead", "hogwarts")):
+            return "kyth-gamescope quality -- %command%"
+        if game.anticheat in ("EAC", "BattlEye", "VAC", "Warden"):
+            return "game-performance --profile gaming -- %command%"
+        return "kyth-gamescope quality -- %command%"
+
+    def _check_game_readiness(self):
+        query = self._readiness_combo.currentText()
+        game = self._find_compat_game(query)
+        if game is None:
+            encoded = urlencode({"q": query.strip() or "game"})
+            self._readiness_result.setText(
+                "Not in the KythOS curated list yet. Check ProtonDB and Are We Anti-Cheat Yet, "
+                f"then record the result in docs/gaming-results/. Search: https://www.protondb.com/search?{encoded}"
+            )
+            return
+
+        status_label = {
+            "native": "Native Linux",
+            "proton": "Works via Proton",
+            "tweaks": "Works with tweaks",
+            "blocked": "Blocked by publisher/anti-cheat",
+        }.get(game.status, game.status)
+        save_note = (
+            "Back up saves with Ludusavi before migrating or modding."
+            if game.status != "blocked"
+            else "Do not migrate saves until the game has a supported Linux path."
+        )
+        mod_note = (
+            "Use the Modding guide before applying Windows mod managers."
+            if game.status != "blocked"
+            else "Modding is irrelevant while the game is blocked."
+        )
+        self._readiness_result.setText(
+            f"{game.name}: {status_label}\n"
+            f"Anti-cheat/middleware: {game.anticheat}\n"
+            f"Launcher: {self._recommended_launcher_for_game(game)}\n"
+            f"Runner/profile: {self._recommended_profile_for_game(game)}\n"
+            f"Saves: {save_note}\n"
+            f"Mods: {mod_note}\n"
+            f"Checked: {game.checked} via {game.source}\n"
+            f"{game.note}"
+        )
+
+    def _open_readiness_protondb(self):
+        query = self._readiness_combo.currentText().strip()
+        if query:
+            QDesktopServices.openUrl(QUrl(f"https://www.protondb.com/search?{urlencode({'q': query})}"))
+        else:
+            QDesktopServices.openUrl(QUrl("https://www.protondb.com"))
+
+    def _open_user_path(self, path: str):
+        expanded = os.path.abspath(os.path.expanduser(path))
+        if not os.path.exists(expanded):
+            self._fix_status_lbl.setText(f"Folder not found yet: {expanded}")
+            return
+        QDesktopServices.openUrl(QUrl.fromLocalFile(expanded))
+        self._fix_status_lbl.setText(f"Opened {expanded}")
+
+    def _copy_prefix_reset_hint(self):
+        text = (
+            "# Replace APPID with the Steam app id. This moves the Proton prefix aside as a backup.\n"
+            "mv ~/.local/share/Steam/steamapps/compatdata/APPID "
+            "~/.local/share/Steam/steamapps/compatdata/APPID.bak-$(date +%Y%m%d-%H%M%S)"
+        )
+        _copy_text(text)
+        self._fix_status_lbl.setText("Copied a safe Proton prefix reset command with an APPID placeholder.")
+
+    def _copy_support_snapshot_command(self):
+        text = "kyth-device-info | tee ~/kyth-device-info.txt"
+        _copy_text(text)
+        self._fix_status_lbl.setText("Copied support snapshot command.")
+
+    def _install_flatpak_app(self, app_id: str, name: str):
+        _open_terminal_with_cmd(
+            ["flatpak", "install", "-y", "flathub", app_id],
+            f"Install {name}",
+        )
 
     def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
         card, layout = _make_card()
@@ -6148,6 +6475,9 @@ class GamingPage(Page):
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
         self._refresh_gaming_health()
+        self._refresh_migration_checklist()
+        self._refresh_streaming_health()
+        self._refresh_save_status()
         if not self._win_lib_probed:
             self._win_lib_probed = True
             self._win_lib_worker = WindowsLibraryWorker()

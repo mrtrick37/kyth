@@ -51,6 +51,7 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - GameMode, gamescope, MangoHud, vkBasalt, umu-launcher, winetricks, libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
 - System Hub gaming health check — validates Steam, Proton runners, Vulkan, NTSYNC, launchers, overlays, controllers, Windows game-drive migration, and staged updates before play
+- System Hub Windows gamer retention tools — migration checklist, game readiness scanner, non-destructive "Fix My Game" actions, save status, and streaming readiness checks
 - Ludusavi save backup/restore support from System Hub and `ujust install-ludusavi`
 - Optional Proton-CachyOS SLR path via ProtonUp-Qt for per-game fallback testing; GE-Proton remains the default recommendation
 - Gaming validation matrix for release testing: [`docs/gaming-validation-matrix.md`](docs/gaming-validation-matrix.md)
