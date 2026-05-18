@@ -5033,7 +5033,9 @@ def _probe_windows_partitions() -> list[dict]:
 
     def _walk(nodes: list) -> None:
         for node in nodes or []:
-            if node.get("fstype", "").lower() == "ntfs":
+            if not isinstance(node, dict):
+                continue
+            if (node.get("fstype") or "").lower() == "ntfs":
                 ntfs_devs.append(node)
             _walk(node.get("children") or [])
 
@@ -5041,7 +5043,10 @@ def _probe_windows_partitions() -> list[dict]:
 
     results: list[dict] = []
     for dev in ntfs_devs:
-        path = dev.get("path") or f"/dev/{dev['name']}"
+        name = dev.get("name") or ""
+        path = dev.get("path") or (f"/dev/{name}" if name else "")
+        if not path:
+            continue
         label = dev.get("label") or ""
         size  = dev.get("size") or ""
 
@@ -5098,7 +5103,12 @@ class WindowsLibraryWorker(QThread):
     result = pyqtSignal(list)
 
     def run(self) -> None:
-        self.result.emit(_probe_windows_partitions())
+        try:
+            partitions = _probe_windows_partitions()
+        except Exception as exc:
+            print(f"Windows library probe failed: {exc}", file=sys.stderr)
+            partitions = []
+        self.result.emit(partitions)
 
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
@@ -6382,10 +6392,16 @@ def _find_ntfs_drives() -> list[dict]:
 
     def _walk(devices: list):
         for dev in devices:
-            if dev.get("fstype") in ("ntfs", "ntfs3"):
+            if not isinstance(dev, dict):
+                continue
+            if (dev.get("fstype") or "").lower() in ("ntfs", "ntfs3"):
+                name = dev.get("name") or ""
+                path = dev.get("path") or (f"/dev/{name}" if name else "")
+                if not path:
+                    continue
                 results.append({
-                    "dev":   dev.get("path") or f"/dev/{dev['name']}",
-                    "name":  dev["name"],
+                    "dev":   path,
+                    "name":  name,
                     "size":  dev.get("size", "?"),
                     "label": dev.get("label") or "",
                     "mount": dev.get("mountpoint") or "",
