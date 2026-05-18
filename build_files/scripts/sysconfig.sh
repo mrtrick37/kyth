@@ -350,6 +350,8 @@ I915EOF
 # CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
 # access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
 # (faster and lower-latency than esync/fsync for Windows game compatibility).
+mkdir -p /usr/lib/modules-load.d
+echo 'ntsync' > /usr/lib/modules-load.d/kyth-ntsync.conf
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
