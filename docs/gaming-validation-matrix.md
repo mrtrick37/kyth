@@ -15,6 +15,9 @@ Before recording a game result, the System Hub gaming health check should be mos
 - No staged OS update before benchmark runs
 - Controller detected when testing controller-heavy games
 - Windows Steam library copied to a Linux filesystem before performance testing
+- Save backup/restore path verified for migration-sensitive games
+- Mod manager path documented when testing heavily modded titles
+- Compatibility source checked date recorded for anti-cheat-sensitive games
 
 ## Runner Policy
 
@@ -38,7 +41,7 @@ GE-Proton remains the default recommendation. Proton-CachyOS SLR is an optional 
 | Red Dead Redemption 2 | Third-party launcher stress test | GE-Proton or Proton-CachyOS SLR | Rockstar Launcher signs in and game reaches menu |
 | Overwatch 2 | Battle.net and competitive online flow | Lutris/Heroic via umu | Battle.net signs in and game reaches practice range |
 | Warframe | Online game that sometimes needs runner changes | GE-Proton or Proton-CachyOS SLR | Launcher updates and game reaches orbiter |
-| Apex Legends | Anti-cheat status can change | Proton if supported | Launch result recorded with anti-cheat status date |
+| Apex Legends | Anti-cheat status can change | Blocked unless publisher support returns | Launch result recorded with anti-cheat status date |
 | Fortnite | Known blocked title | Blocked | User-facing explanation points to anti-cheat/vendor decision |
 | Valorant | Known blocked title | Blocked | User-facing explanation points to Vanguard/kernel driver |
 
@@ -69,7 +72,13 @@ Runner:
 Launch options:
 Filesystem:
 Controller:
+Save path:
+Mods:
 Result:
+Compatibility source checked:
 Notes:
 ```
 
+Store completed results in [`docs/gaming-results/`](gaming-results/). Keep the
+System Hub compatibility list conservative: publisher-blocked games stay blocked
+until a current release result proves otherwise.

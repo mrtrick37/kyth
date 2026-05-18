@@ -5305,6 +5305,13 @@ class GamingPage(Page):
                 "launch": ["flatpak", "run", "com.usebottles.bottles"],
             },
             {
+                "flatpak": "com.github.mtkennerly.ludusavi",
+                "name": "Ludusavi",
+                "desc": "Back up and restore game saves across Steam, Heroic, Lutris, and Windows migrations.",
+                "ujust": "install-ludusavi",
+                "launch": ["flatpak", "run", "com.github.mtkennerly.ludusavi"],
+            },
+            {
                 "flatpak": "org.prismlauncher.PrismLauncher",
                 "name": "Prism Launcher",
                 "desc": "Minecraft launcher with modpacks, multiple instances, and Java version control.",
@@ -5543,6 +5550,49 @@ class GamingPage(Page):
             row.addStretch()
             gs_layout.addLayout(row)
         self._add(gs_card)
+
+        # ── Per-game profile builder ─────────────────────────────────────────
+        profile_card, profile_layout = _make_card()
+        profile_title = QLabel("Per-Game Profile Builder")
+        profile_title.setObjectName("card-title")
+        profile_layout.addWidget(profile_title)
+        profile_desc = QLabel(
+            "Pick a common goal and copy the Steam launch option. Use this before "
+            "manual tuning so players get a known-good KythOS baseline first."
+        )
+        profile_desc.setObjectName("card-copy")
+        profile_desc.setWordWrap(True)
+        profile_layout.addWidget(profile_desc)
+
+        profile_row = QHBoxLayout()
+        profile_row.setSpacing(8)
+        self._profile_goal_combo = QComboBox()
+        self._profile_goal_combo.addItem("Balanced quality", "quality")
+        self._profile_goal_combo.addItem("HDR display", "hdr")
+        self._profile_goal_combo.addItem("Sharp upscaling", "sharp")
+        self._profile_goal_combo.addItem("Low latency", "latency")
+        self._profile_goal_combo.addItem("Troubleshoot launch", "troubleshoot")
+        profile_row.addWidget(self._profile_goal_combo)
+        self._profile_fps_combo = QComboBox()
+        for label, value in (("No FPS cap", ""), ("60 FPS", "60"), ("90 FPS", "90"), ("120 FPS", "120"), ("144 FPS", "144"), ("165 FPS", "165")):
+            self._profile_fps_combo.addItem(label, value)
+        profile_row.addWidget(self._profile_fps_combo)
+        profile_row.addStretch()
+        profile_layout.addLayout(profile_row)
+
+        profile_opt_row = QHBoxLayout()
+        profile_opt_row.setSpacing(10)
+        profile_opt_row.addWidget(_launch_opt_label("Steam launch option:"))
+        self._profile_launch_value = _launch_opt_value("")
+        profile_opt_row.addWidget(self._profile_launch_value, 1)
+        profile_copy = QPushButton("Copy")
+        profile_copy.clicked.connect(lambda: _copy_text(self._profile_launch_value.text()))
+        profile_opt_row.addWidget(profile_copy)
+        profile_layout.addLayout(profile_opt_row)
+
+        self._profile_goal_combo.currentIndexChanged.connect(self._update_profile_builder)
+        self._profile_fps_combo.currentIndexChanged.connect(self._update_profile_builder)
+        self._add(profile_card)
 
         # ── sched-ext ────────────────────────────────────────────────────────
         scx_card, scx_layout = _make_card()
@@ -5859,7 +5909,65 @@ class GamingPage(Page):
         self._migrate_worker = None
         self._scanned_mount = None
 
+        # ── Save backup / restore ─────────────────────────────────────────────
+        self._divider()
+        saves_card, saves_layout = _make_card("card-accent-ok")
+        saves_title = QLabel("Game Saves — Back Up Before You Switch")
+        saves_title.setObjectName("card-title")
+        saves_layout.addWidget(saves_title)
+        saves_desc = QLabel(
+            "KythOS recommends Ludusavi for game save backup and restore. Run it "
+            "before a Windows migration, after importing a library, and before "
+            "large modding sessions."
+        )
+        saves_desc.setObjectName("card-copy")
+        saves_desc.setWordWrap(True)
+        saves_layout.addWidget(saves_desc)
+        saves_btns = QHBoxLayout()
+        saves_btns.setSpacing(8)
+        ludusavi_btn = QPushButton("Install Ludusavi")
+        ludusavi_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-ludusavi"], "Install Ludusavi"))
+        saves_btns.addWidget(ludusavi_btn)
+        ludusavi_open_btn = QPushButton("Open Ludusavi")
+        ludusavi_open_btn.clicked.connect(lambda _=False: subprocess.Popen(["flatpak", "run", "com.github.mtkennerly.ludusavi"]))
+        saves_btns.addWidget(ludusavi_open_btn)
+        saves_doc_btn = QPushButton("Save Migration Checklist")
+        saves_doc_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/blob/main/docs/game-save-migration.md")))
+        saves_btns.addWidget(saves_doc_btn)
+        saves_btns.addStretch()
+        saves_layout.addLayout(saves_btns)
+        self._add(saves_card)
+
+        # ── Modding migration ────────────────────────────────────────────────
+        mods_card, mods_layout = _make_card()
+        mods_title = QLabel("Mods — Nexus, MO2, SteamTinkerLaunch")
+        mods_title.setObjectName("card-title")
+        mods_layout.addWidget(mods_title)
+        mods_desc = QLabel(
+            "Start with Steam Workshop and native mod managers when a game provides "
+            "them. For Bethesda-style load orders, use SteamTinkerLaunch to install "
+            "Mod Organizer 2 per game; use Bottles for standalone patchers and tools."
+        )
+        mods_desc.setObjectName("card-copy")
+        mods_desc.setWordWrap(True)
+        mods_layout.addWidget(mods_desc)
+        mods_btns = QHBoxLayout()
+        mods_btns.setSpacing(8)
+        protonup_btn = QPushButton("Open ProtonUp-Qt")
+        protonup_btn.clicked.connect(lambda _=False: self._open_protonupqt())
+        mods_btns.addWidget(protonup_btn)
+        bottles_btn = QPushButton("Install Bottles")
+        bottles_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-bottles"], "Install Bottles"))
+        mods_btns.addWidget(bottles_btn)
+        mods_doc_btn = QPushButton("Modding Guide")
+        mods_doc_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/blob/main/docs/modding-on-kythos.md")))
+        mods_btns.addWidget(mods_doc_btn)
+        mods_btns.addStretch()
+        mods_layout.addLayout(mods_btns)
+        self._add(mods_card)
+
         self._stretch()
+        self._update_profile_builder()
         self._refresh_gaming_health()
         self._refresh_status()
         self._refresh_ntfs_drives()
@@ -5876,6 +5984,21 @@ class GamingPage(Page):
         row.addWidget(cp)
         row.addStretch()
         return row
+
+    def _update_profile_builder(self):
+        if not hasattr(self, "_profile_launch_value"):
+            return
+        goal = self._profile_goal_combo.currentData() or "quality"
+        fps = self._profile_fps_combo.currentData() or ""
+        fps_arg = f" --fps {fps}" if fps else ""
+        launch_options = {
+            "quality": f"kyth-gamescope quality{fps_arg} -- %command%",
+            "hdr": f"kyth-gamescope hdr{fps_arg} -- %command%",
+            "sharp": f"kyth-gamescope sharp --fsr{fps_arg} -- %command%",
+            "latency": f"game-performance --profile gaming -- kyth-gamescope latency{fps_arg} -- %command%",
+            "troubleshoot": "PROTON_LOG=1 PROTON_NO_NTSYNC=1 %command%",
+        }
+        self._profile_launch_value.setText(launch_options.get(goal, launch_options["quality"]))
 
     def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
         bg, fg, label = {
@@ -6683,55 +6806,66 @@ def _find_steam_libraries(mount_point: str) -> list[str]:
     return found
 
 
+@dataclass(frozen=True)
+class CompatGame:
+    name: str
+    anticheat: str
+    status: str
+    note: str
+    checked: str
+    source: str
+    source_url: str
+
+
 # ── Game compatibility data ────────────────────────────────────────────────────
 # Status values: "native" | "proton" | "tweaks" | "blocked"
-# Anti-cheat values used as display tags.
-_COMPAT_GAMES: list[tuple[str, str, str, str]] = [
-    # name,  anti-cheat,  status,  note
+# Anti-cheat values used as display tags. Every entry carries a date/source so
+# stale anti-cheat claims are easy to audit during release validation.
+_COMPAT_GAMES: list[CompatGame] = [
     # ── Native Linux builds ──────────────────────────────────────────────────
-    ("Counter-Strike 2",         "VAC",       "native",  "Native Linux client; full competitive matchmaking."),
-    ("Dota 2",                   "VAC",       "native",  "Native Linux client."),
-    ("Team Fortress 2",          "VAC",       "native",  "Native Linux client."),
-    ("Baldur's Gate 3",          "None",      "native",  "Native Linux client. Day-one support."),
-    ("The Witcher 3",            "None",      "native",  "Native Linux client included."),
-    ("Hollow Knight",            "None",      "native",  "Native Linux client."),
-    ("Stardew Valley",           "None",      "native",  "Native Linux client."),
-    ("Terraria",                 "None",      "native",  "Native Linux client."),
+    CompatGame("Counter-Strike 2", "VAC", "native", "Native Linux client; full competitive matchmaking.", "2026-05-18", "Steam store / KythOS validation target", "https://store.steampowered.com/app/730/CounterStrike_2/"),
+    CompatGame("Dota 2", "VAC", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/570/Dota_2/"),
+    CompatGame("Team Fortress 2", "VAC", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/440/Team_Fortress_2/"),
+    CompatGame("Baldur's Gate 3", "None", "native", "Native Linux client. Proton is also worth testing for regressions.", "2026-05-18", "Steam store / validation matrix", "https://store.steampowered.com/app/1086940/Baldurs_Gate_3/"),
+    CompatGame("The Witcher 3", "None", "native", "Native Linux client included.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/"),
+    CompatGame("Hollow Knight", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/367520/Hollow_Knight/"),
+    CompatGame("Stardew Valley", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/413150/Stardew_Valley/"),
+    CompatGame("Terraria", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/105600/Terraria/"),
     # ── Works via Proton (no AC or AC with Linux support) ────────────────────
-    ("Elden Ring",               "None",      "proton",  "Platinum rated on ProtonDB."),
-    ("Cyberpunk 2077",           "None",      "proton",  "Excellent Proton support. Ray tracing works."),
-    ("Red Dead Redemption 2",    "Rockstar",  "proton",  "Gold on ProtonDB. Rockstar Launcher runs via Proton."),
-    ("GTA V",                    "Rockstar",  "proton",  "Works online and story mode via Proton."),
-    ("God of War",               "None",      "proton",  "Platinum rated on ProtonDB."),
-    ("Hogwarts Legacy",          "None",      "proton",  "Gold on ProtonDB."),
-    ("Spider-Man Remastered",    "None",      "proton",  "Gold on ProtonDB."),
-    ("Resident Evil 4 (2023)",   "None",      "proton",  "Works via Proton."),
-    ("Sekiro",                   "None",      "proton",  "Platinum on ProtonDB."),
-    ("Dark Souls III",           "VAC",       "proton",  "Works via Proton; VAC does not restrict Linux."),
-    ("Monster Hunter: World",    "None",      "proton",  "Gold on ProtonDB."),
-    ("Hades",                    "None",      "proton",  "Platinum on ProtonDB."),
-    ("Apex Legends",             "EAC",       "proton",  "EAC Linux support enabled by EA. Runs via Proton."),
-    ("Destiny 2",                "BattlEye",  "proton",  "BattlEye Linux support enabled by Bungie."),
-    ("PUBG",                     "BattlEye",  "proton",  "BattlEye Linux support enabled by PUBG Corp."),
-    ("Deep Rock Galactic",       "EAC",       "proton",  "EAC Linux support enabled by Ghost Ship Games."),
-    ("Rust",                     "EAC",       "proton",  "EAC Linux support enabled by Facepunch."),
-    ("Dead by Daylight",         "EAC",       "proton",  "EAC Linux support enabled by Behaviour Interactive."),
-    ("The Finals",               "EAC",       "proton",  "EAC Linux support enabled by Embark Studios."),
-    ("Halo Infinite",            "EAC",       "proton",  "EAC Linux support enabled by 343 Industries."),
-    ("Overwatch 2",              "Warden",    "proton",  "Runs via Proton + Battle.net through Lutris. Gold on ProtonDB."),
-    ("Paladins",                 "EAC",       "proton",  "EAC Linux support enabled by Hi-Rez."),
+    CompatGame("Elden Ring", "None", "proton", "Platinum-rated community reports; online path is part of KythOS validation.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1245620"),
+    CompatGame("Cyberpunk 2077", "None", "proton", "Excellent Proton support. Test HDR, FSR, and frame pacing on each release.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1091500"),
+    CompatGame("Red Dead Redemption 2", "Rockstar", "proton", "Gold community reports; Rockstar Launcher remains the risk surface.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1174180"),
+    CompatGame("GTA V", "Rockstar", "proton", "Story mode and launcher path need periodic revalidation.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/271590"),
+    CompatGame("God of War", "None", "proton", "Platinum-rated community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1593500"),
+    CompatGame("Hogwarts Legacy", "None", "proton", "Gold-rated community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/990080"),
+    CompatGame("Spider-Man Remastered", "None", "proton", "Gold/Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1817070"),
+    CompatGame("Resident Evil 4 (2023)", "None", "proton", "Works via Proton.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/2050650"),
+    CompatGame("Sekiro", "None", "proton", "Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/814380"),
+    CompatGame("Dark Souls III", "VAC", "proton", "Works via Proton; VAC does not restrict Linux for this title.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/374320"),
+    CompatGame("Monster Hunter: World", "None", "proton", "Gold community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/582010"),
+    CompatGame("Hades", "None", "proton", "Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1145360"),
+    CompatGame("Deep Rock Galactic", "EAC", "proton", "EAC Linux support is enabled; retest after major anti-cheat updates.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/548430"),
+    CompatGame("Dead by Daylight", "EAC", "proton", "EAC Linux support is enabled; retest after major game updates.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/381210"),
+    CompatGame("The Finals", "EAC", "proton", "EAC Linux path has community support; validate matchmaking on release images.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/2073850"),
+    CompatGame("Halo Infinite", "EAC", "proton", "EAC Linux support is enabled.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1240440"),
+    CompatGame("Overwatch 2", "Warden", "proton", "Runs via Proton + Battle.net through Lutris/umu. Launcher flow is the main risk.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/2357570"),
+    CompatGame("Paladins", "EAC", "proton", "EAC Linux support is enabled by the publisher.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/444090"),
     # ── Works with tweaks ────────────────────────────────────────────────────
-    ("Rainbow Six Siege",        "BattlEye",  "tweaks",  "Mostly works; occasional BattlEye launch failures. Try: PROTON_NO_ESYNC=1 as a launch option if it fails to start."),
-    ("Hunt: Showdown",           "BattlEye",  "tweaks",  "BattlEye enabled but reports are mixed. Check ProtonDB for latest status."),
-    ("Warframe",                 "EAC",       "tweaks",  "EAC Linux support enabled; occasionally needs a specific Proton version. Check ProtonDB."),
+    CompatGame("Rainbow Six Siege", "BattlEye", "tweaks", "Mostly works; occasional BattlEye launch failures. Try PROTON_NO_ESYNC=1 if it fails to start.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/359550"),
+    CompatGame("Hunt: Showdown", "BattlEye", "tweaks", "BattlEye enabled but reports are mixed. Check ProtonDB before promising support.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/594650"),
+    CompatGame("Warframe", "EAC", "tweaks", "EAC Linux support enabled; occasionally needs a specific Proton version.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/230410"),
     # ── Blocked ──────────────────────────────────────────────────────────────
-    ("Valorant",                 "Vanguard",  "blocked", "Riot Vanguard requires ring-0 kernel access — Windows-only driver. No Linux support from Riot."),
-    ("Fortnite",                 "EAC",       "blocked", "Epic chose EAC kernel mode and has not enabled Linux support, despite EAC supporting Linux for other games."),
-    ("Call of Duty (MP/WZ)",     "RICOCHET",  "blocked", "RICOCHET anti-cheat runs at kernel level on Windows and has no Linux support."),
-    ("Roblox",                   "Hyperion",  "blocked", "Roblox's Byfron/Hyperion anti-cheat blocked Linux users in 2024."),
-    ("League of Legends",        "Vanguard",  "blocked", "Riot migrated LoL to Vanguard in 2024. Same block as Valorant."),
-    ("Escape from Tarkov",       "BattlEye",  "blocked", "BattlEye supports Linux, but Battlestate Games has not opted in."),
-    ("Lost Ark",                 "GameGuard", "blocked", "nProtect GameGuard is kernel-level and blocks Linux."),
+    CompatGame("Apex Legends", "EAC", "blocked", "EA removed Steam Deck/Linux support in 2024. Retest only if EA announces a policy reversal.", "2026-05-18", "EA / ProtonDB", "https://www.protondb.com/app/1172470"),
+    CompatGame("Destiny 2", "BattlEye", "blocked", "Bungie states SteamOS/Proton is unsupported and warns against bypass attempts.", "2026-05-18", "Bungie Help", "https://help.bungie.net/hc/en-us/articles/360049517431-Destiny-Account-Restrictions-and-Banning-Policies"),
+    CompatGame("Rust", "EAC", "blocked", "Facepunch has publicly said there are no current Proton/Linux support plans.", "2026-05-18", "Facepunch statement coverage", "https://www.pcgamer.com/games/survival-crafting/rust-developer-has-no-plans-for-linux-or-proton-support-says-games-that-support-them-are-not-serious-about-anti-cheat/"),
+    CompatGame("PUBG", "BattlEye", "blocked", "Treat as blocked until KythOS validation confirms current official Proton support.", "2026-05-18", "KythOS conservative policy", "https://areweanticheatyet.com"),
+    CompatGame("Valorant", "Vanguard", "blocked", "Riot Vanguard requires ring-0 kernel access: Windows-only driver. No Linux support from Riot.", "2026-05-18", "Riot Vanguard architecture", "https://support-valorant.riotgames.com/hc/en-us/articles/360046160933-VALORANT-anti-cheat-FAQ"),
+    CompatGame("Fortnite", "EAC", "blocked", "Epic has not enabled Linux support for Fortnite, despite EAC supporting Linux for other games.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
+    CompatGame("Call of Duty (MP/WZ)", "RICOCHET", "blocked", "RICOCHET anti-cheat runs at kernel level on Windows and has no Linux support.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
+    CompatGame("Roblox", "Hyperion", "blocked", "Roblox's Byfron/Hyperion anti-cheat blocks Wine/Proton paths.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
+    CompatGame("League of Legends", "Vanguard", "blocked", "Riot migrated LoL to Vanguard in 2024. Same Linux blocker as Valorant.", "2026-05-18", "Riot Vanguard architecture", "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/"),
+    CompatGame("Escape from Tarkov", "BattlEye", "blocked", "BattlEye can support Linux, but this title has not enabled a supported Proton path.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
+    CompatGame("Lost Ark", "GameGuard", "blocked", "nProtect GameGuard is kernel-level and blocks Linux.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
 ]
 
 _COMPAT_AC_EXPLAINERS: list[tuple[str, str, str]] = [
@@ -6777,9 +6911,10 @@ class CompatibilityPage(Page):
         )
 
         # ── Summary bar ───────────────────────────────────────────────────────
-        works   = sum(1 for *_, s, _ in _COMPAT_GAMES if s in ("native", "proton", "tweaks"))
-        blocked = sum(1 for *_, s, _ in _COMPAT_GAMES if s == "blocked")
+        works   = sum(1 for game in _COMPAT_GAMES if game.status in ("native", "proton", "tweaks"))
+        blocked = sum(1 for game in _COMPAT_GAMES if game.status == "blocked")
         total   = len(_COMPAT_GAMES)
+        oldest_check = min((game.checked for game in _COMPAT_GAMES), default="unknown")
 
         sum_card, sum_layout = _make_card("card-accent-ok")
         sum_layout.setSpacing(4)
@@ -6791,10 +6926,9 @@ class CompatibilityPage(Page):
         sum_title.setWordWrap(True)
         sum_layout.addWidget(sum_title)
         sum_copy = QLabel(
-            f"The {blocked} blocked titles all share one cause: kernel-level anti-cheat "
-            "built as a Windows-only driver. That's a vendor choice, not a Linux limitation. "
-            "EAC and BattlEye both support Linux — the games below that are blocked chose "
-            "not to enable it."
+            f"The {blocked} blocked titles are tracked conservatively: if a publisher blocks "
+            "or refuses SteamOS/Proton, KythOS marks it blocked until release validation proves "
+            f"otherwise. Oldest source check in this list: {oldest_check}."
         )
         sum_copy.setObjectName("card-copy")
         sum_copy.setWordWrap(True)
@@ -6855,9 +6989,9 @@ class CompatibilityPage(Page):
         self._add_layout(filter_row)
 
         self._game_rows: list[tuple[QFrame, str]] = []  # (widget, status)
-        for name, ac, status, note in _COMPAT_GAMES:
-            row = self._make_game_row(name, ac, status, note)
-            self._game_rows.append((row, status))
+        for game in _COMPAT_GAMES:
+            row = self._make_game_row(game)
+            self._game_rows.append((row, game.status))
             self._add(row)
 
         # ── ProtonDB CTA ──────────────────────────────────────────────────────
@@ -6912,9 +7046,9 @@ class CompatibilityPage(Page):
         for row, status in self._game_rows:
             row.setVisible(statuses is None or status in statuses)
 
-    def _make_game_row(self, name: str, ac: str, status: str, note: str) -> QFrame:
+    def _make_game_row(self, game: CompatGame) -> QFrame:
         badge_text, badge_css, border_color = self._STATUS_STYLE.get(
-            status, self._STATUS_STYLE["tweaks"]
+            game.status, self._STATUS_STYLE["tweaks"]
         )
         row = QFrame()
         row.setObjectName("hw-card-dim")
@@ -6925,20 +7059,29 @@ class CompatibilityPage(Page):
         rl.setContentsMargins(14, 8, 14, 8)
         rl.setSpacing(10)
 
-        name_lbl = QLabel(name)
+        name_lbl = QLabel(game.name)
         name_lbl.setObjectName("card-summary")
         name_lbl.setStyleSheet("font-size:13px; font-weight:600;")
         rl.addWidget(name_lbl, 1)
 
-        if note:
-            name_lbl.setToolTip(note)
-            row.setToolTip(note)
+        tooltip = (
+            f"{game.note}\n\n"
+            f"Checked: {game.checked}\n"
+            f"Source: {game.source}\n{game.source_url}"
+        )
+        name_lbl.setToolTip(tooltip)
+        row.setToolTip(tooltip)
 
-        ac_lbl = QLabel(ac)
+        ac_lbl = QLabel(game.anticheat)
         ac_lbl.setStyleSheet(self._AC_BADGE_CSS)
         ac_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         ac_lbl.setFixedHeight(20)
         rl.addWidget(ac_lbl)
+
+        checked_lbl = QLabel(game.checked)
+        checked_lbl.setStyleSheet("font-size:10px; color:#6a7a8a;")
+        checked_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        rl.addWidget(checked_lbl)
 
         badge = QLabel(f"  {badge_text}  ")
         badge.setStyleSheet(
@@ -12484,6 +12627,7 @@ class WizardWindow(QMainWindow):
             ("com.discordapp.Discord",       "Discord",       "Voice, text, and community chat — used by almost every gaming community."),
             ("com.brave.Browser",            "Brave Browser", "Fast, privacy-friendly browser with good media support."),
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
+            ("com.github.mtkennerly.ludusavi","Ludusavi",      "Back up and restore game saves before migration or modding."),
             ("com.moonlight_stream.Moonlight","Moonlight",     "Stream games from another PC or NVIDIA Shield on your network."),
         ]
 
