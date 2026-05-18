@@ -1687,6 +1687,188 @@ def _ludusavi_backup_summary() -> tuple[str, str, str]:
     return "warn", "Save backups", "Install Ludusavi before importing saves or modding."
 
 
+def _parse_steam_acf(path: str) -> dict:
+    data: dict[str, str] = {}
+    try:
+        with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+            text = fh.read()
+    except OSError:
+        return data
+    for key in ("appid", "name", "installdir"):
+        match = re.search(rf'"{re.escape(key)}"\s+"([^"]*)"', text, re.IGNORECASE)
+        if match:
+            data[key] = match.group(1)
+    return data
+
+
+def _steam_library_roots() -> list[str]:
+    roots: list[str] = []
+    for root in (
+        os.path.expanduser("~/.local/share/Steam"),
+        os.path.expanduser("~/.steam/steam"),
+        os.path.expanduser("~/.var/app/com.valvesoftware.Steam/.local/share/Steam"),
+    ):
+        if os.path.isdir(root) and root not in roots:
+            roots.append(root)
+
+    for root in list(roots):
+        vdf = os.path.join(root, "steamapps", "libraryfolders.vdf")
+        try:
+            with open(vdf, "r", encoding="utf-8", errors="ignore") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for match in re.finditer(r'"path"\s+"([^"]+)"', text):
+            lib = match.group(1).replace("\\\\", "/")
+            lib = os.path.expanduser(lib)
+            if os.path.isdir(lib) and lib not in roots:
+                roots.append(lib)
+    return roots
+
+
+def _detect_steam_games() -> list[dict]:
+    games: list[dict] = []
+    seen: set[tuple[str, str]] = set()
+    for root in _steam_library_roots():
+        steamapps = os.path.join(root, "steamapps")
+        for manifest in glob.glob(os.path.join(steamapps, "appmanifest_*.acf")):
+            data = _parse_steam_acf(manifest)
+            name = data.get("name", "").strip()
+            appid = data.get("appid", "").strip()
+            installdir = data.get("installdir", "").strip()
+            if not name:
+                continue
+            install_path = os.path.join(steamapps, "common", installdir) if installdir else steamapps
+            key = ("Steam", appid or name.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            games.append({
+                "name": name,
+                "launcher": "Steam",
+                "path": install_path,
+                "appid": appid,
+            })
+    return games
+
+
+def _detect_heroic_games() -> list[dict]:
+    games: list[dict] = []
+    seen: set[str] = set()
+    roots = [
+        os.path.expanduser("~/.config/heroic"),
+        os.path.expanduser("~/.var/app/com.heroicgameslauncher.hgl/config/heroic"),
+    ]
+    for root in roots:
+        for pattern in (
+            os.path.join(root, "GamesConfig", "*.json"),
+            os.path.join(root, "legendaryConfig", "legendary", "installed.json"),
+            os.path.join(root, "gog_store", "installed.json"),
+        ):
+            for path in glob.glob(pattern):
+                try:
+                    with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                        data = json.load(fh)
+                except (OSError, json.JSONDecodeError):
+                    continue
+                entries = data.values() if isinstance(data, dict) else data if isinstance(data, list) else []
+                for entry in entries:
+                    if not isinstance(entry, dict):
+                        continue
+                    name = (
+                        entry.get("title")
+                        or entry.get("name")
+                        or entry.get("app_name")
+                        or entry.get("appName")
+                        or ""
+                    )
+                    install_path = (
+                        entry.get("install_path")
+                        or entry.get("installPath")
+                        or entry.get("path")
+                        or entry.get("folder_name")
+                        or ""
+                    )
+                    name = str(name).strip()
+                    if not name or name in seen:
+                        continue
+                    seen.add(name)
+                    games.append({
+                        "name": name,
+                        "launcher": "Heroic",
+                        "path": str(install_path),
+                        "appid": str(entry.get("app_name") or entry.get("appName") or ""),
+                    })
+    return games
+
+
+def _detect_lutris_games() -> list[dict]:
+    games: list[dict] = []
+    seen: set[str] = set()
+    roots = [
+        os.path.expanduser("~/.local/share/lutris/games"),
+        os.path.expanduser("~/.var/app/net.lutris.Lutris/data/lutris/games"),
+    ]
+    for root in roots:
+        for path in glob.glob(os.path.join(root, "*.yml")) + glob.glob(os.path.join(root, "*.yaml")):
+            try:
+                with open(path, "r", encoding="utf-8", errors="ignore") as fh:
+                    text = fh.read()
+            except OSError:
+                continue
+            name_match = re.search(r"(?m)^\s*name:\s*[\"']?(.+?)[\"']?\s*$", text)
+            game_match = re.search(r"(?m)^\s*game_slug:\s*[\"']?(.+?)[\"']?\s*$", text)
+            path_match = re.search(r"(?m)^\s*(?:prefix|working_dir):\s*[\"']?(.+?)[\"']?\s*$", text)
+            name = (name_match.group(1) if name_match else "").strip()
+            if not name:
+                name = os.path.splitext(os.path.basename(path))[0].replace("-", " ").title()
+            key = (game_match.group(1) if game_match else name).lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            games.append({
+                "name": name,
+                "launcher": "Lutris",
+                "path": (path_match.group(1).strip() if path_match else path),
+                "appid": "",
+            })
+    return games
+
+
+def _detect_bottles_apps() -> list[dict]:
+    games: list[dict] = []
+    seen: set[str] = set()
+    roots = [
+        os.path.expanduser("~/.local/share/bottles/bottles"),
+        os.path.expanduser("~/.var/app/com.usebottles.bottles/data/bottles/bottles"),
+    ]
+    for root in roots:
+        for path in glob.glob(os.path.join(root, "*")):
+            if not os.path.isdir(path):
+                continue
+            name = os.path.basename(path).replace("_", " ").replace("-", " ").strip()
+            if not name or name.lower() in seen:
+                continue
+            seen.add(name.lower())
+            games.append({
+                "name": name,
+                "launcher": "Bottles",
+                "path": path,
+                "appid": "",
+            })
+    return games
+
+
+def _detect_installed_games() -> list[dict]:
+    games = []
+    games.extend(_detect_steam_games())
+    games.extend(_detect_heroic_games())
+    games.extend(_detect_lutris_games())
+    games.extend(_detect_bottles_apps())
+    games.sort(key=lambda item: (item.get("launcher", ""), item.get("name", "").lower()))
+    return games
+
+
 def _streaming_health_items() -> list[tuple[str, str, str]]:
     pipewire_ok = shutil.which("pw-cli") is not None or shutil.which("wpctl") is not None
     obs_capture_ok = any(
@@ -5332,6 +5514,33 @@ class GamingPage(Page):
         scanner_layout.addLayout(scanner_btns)
         self._add(scanner_card)
 
+        # ── My Games dashboard ───────────────────────────────────────────────
+        my_games_card, my_games_layout = _make_card()
+        my_games_top = QHBoxLayout()
+        my_games_title = QLabel("My Games")
+        my_games_title.setObjectName("card-title")
+        my_games_top.addWidget(my_games_title)
+        my_games_top.addStretch()
+        my_games_refresh = QPushButton("Scan Libraries")
+        my_games_refresh.clicked.connect(self._refresh_my_games)
+        my_games_top.addWidget(my_games_refresh)
+        my_games_layout.addLayout(my_games_top)
+        my_games_desc = QLabel(
+            "Detects installed games from Steam, Heroic, Lutris, and Bottles, then "
+            "adds KythOS compatibility and profile hints when a title matches the curated list."
+        )
+        my_games_desc.setObjectName("card-copy")
+        my_games_desc.setWordWrap(True)
+        my_games_layout.addWidget(my_games_desc)
+        self._my_games_summary_lbl = QLabel("Scan libraries to build your local dashboard.")
+        self._my_games_summary_lbl.setObjectName("card-copy")
+        self._my_games_summary_lbl.setWordWrap(True)
+        my_games_layout.addWidget(self._my_games_summary_lbl)
+        self._my_games_rows_layout = QVBoxLayout()
+        self._my_games_rows_layout.setSpacing(8)
+        my_games_layout.addLayout(self._my_games_rows_layout)
+        self._add(my_games_card)
+
         # ── First-failure playbook ────────────────────────────────────────────
         playbook_card, playbook_layout = _make_card()
         playbook_title = QLabel("Game will not launch")
@@ -6143,6 +6352,7 @@ class GamingPage(Page):
         self._update_profile_builder()
         self._refresh_migration_checklist()
         self._refresh_gaming_health()
+        self._refresh_my_games()
         self._refresh_streaming_health()
         self._refresh_save_status()
         self._refresh_status()
@@ -6261,6 +6471,103 @@ class GamingPage(Page):
         status, title, summary = _ludusavi_backup_summary()
         prefix = {"ok": "OK", "warn": "Check", "err": "Fix", "dim": "Info"}.get(status, "Info")
         self._saves_status_lbl.setText(f"{prefix}: {title} - {summary}")
+
+    def _make_my_game_row(self, game_info: dict) -> QFrame:
+        compat = self._find_compat_game(game_info.get("name", ""))
+        if compat is None:
+            status = "dim"
+            status_text = "Unknown"
+            summary = "Not in curated compatibility list yet. Check ProtonDB before promising support."
+            profile = "kyth-gamescope quality -- %command%"
+        else:
+            status = "ok" if compat.status in ("native", "proton") else "warn" if compat.status == "tweaks" else "err"
+            status_text = {
+                "native": "Native",
+                "proton": "Works",
+                "tweaks": "Tweaks",
+                "blocked": "Blocked",
+            }.get(compat.status, compat.status)
+            summary = f"{compat.note} Checked {compat.checked} via {compat.source}."
+            profile = self._recommended_profile_for_game(compat)
+
+        row = QFrame()
+        row.setObjectName("hw-card-dim")
+        layout = QVBoxLayout(row)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(6)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        name_lbl = QLabel(game_info.get("name", "Unknown game"))
+        name_lbl.setObjectName("card-summary")
+        name_lbl.setStyleSheet("font-size:13px; font-weight:700;")
+        top.addWidget(name_lbl, 1)
+        launcher_lbl = QLabel(f"  {game_info.get('launcher', 'Unknown')}  ")
+        launcher_lbl.setStyleSheet("font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; background:#1e2d3e; color:#8aaac8; border:1px solid #2a3f5a;")
+        top.addWidget(launcher_lbl)
+        badge = QLabel(f"  {status_text}  ")
+        badge_bg, badge_fg = {
+            "ok": ("#0f2a31", "#5ee6c1"),
+            "warn": ("#3a2a00", "#e8a838"),
+            "err": ("#3a1010", "#e96060"),
+            "dim": ("#1e2d3e", "#6a7a8a"),
+        }.get(status, ("#1e2d3e", "#6a7a8a"))
+        badge.setStyleSheet(f"background:{badge_bg}; color:{badge_fg}; border:1px solid {badge_fg}; border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
+        top.addWidget(badge)
+        layout.addLayout(top)
+
+        detail = QLabel(
+            f"{summary}\n"
+            f"Profile: {profile}\n"
+            f"Path: {game_info.get('path') or 'unknown'}"
+        )
+        detail.setObjectName("card-copy")
+        detail.setWordWrap(True)
+        detail.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
+        layout.addWidget(detail)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        copy_profile = QPushButton("Copy Profile")
+        copy_profile.clicked.connect(lambda _=False, text=profile: _copy_text(text))
+        btns.addWidget(copy_profile)
+        path = game_info.get("path", "")
+        if path:
+            open_path = QPushButton("Open Folder")
+            open_path.clicked.connect(lambda _=False, p=path: self._open_user_path(p))
+            btns.addWidget(open_path)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return row
+
+    def _refresh_my_games(self):
+        while self._my_games_rows_layout.count():
+            item = self._my_games_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        games = _detect_installed_games()
+        if not games:
+            self._my_games_summary_lbl.setText(
+                "No installed games detected yet. Install a game in Steam, Heroic, Lutris, or Bottles, then scan again."
+            )
+            return
+
+        matched = sum(1 for game in games if self._find_compat_game(game.get("name", "")))
+        by_launcher: dict[str, int] = {}
+        for game in games:
+            launcher = game.get("launcher", "Unknown")
+            by_launcher[launcher] = by_launcher.get(launcher, 0) + 1
+        launcher_summary = ", ".join(f"{name}: {count}" for name, count in sorted(by_launcher.items()))
+        self._my_games_summary_lbl.setText(
+            f"Detected {len(games)} installed item(s); {matched} matched KythOS compatibility data. {launcher_summary}"
+        )
+
+        for game in games[:20]:
+            self._my_games_rows_layout.addWidget(self._make_my_game_row(game))
+        if len(games) > 20:
+            more = QLabel(f"{len(games) - 20} more detected. Showing the first 20 to keep the dashboard fast.")
+            more.setObjectName("card-copy")
+            self._my_games_rows_layout.addWidget(more)
 
     def _find_compat_game(self, query: str):
         needle = query.strip().lower()
@@ -6476,6 +6783,7 @@ class GamingPage(Page):
         super().showEvent(event)
         self._refresh_gaming_health()
         self._refresh_migration_checklist()
+        self._refresh_my_games()
         self._refresh_streaming_health()
         self._refresh_save_status()
         if not self._win_lib_probed:
