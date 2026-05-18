@@ -1585,17 +1585,89 @@ def _vkbasalt_installed() -> bool:
 
 def _ge_proton_version() -> str | None:
     """Return the latest installed GE-Proton directory name, or None."""
+    found: list[str] = []
     for base in (
         "/usr/share/steam/compatibilitytools.d",
         "/var/lib/kyth/ge-proton",
     ):
         try:
-            entries = sorted(e for e in os.listdir(base) if e.startswith("GE-Proton"))
-            if entries:
-                return entries[-1]
+            found.extend(e for e in os.listdir(base) if e.startswith("GE-Proton"))
         except OSError:
             pass
-    return None
+    return sorted(found)[-1] if found else None
+
+
+def _compat_tool_version(prefix: str) -> str | None:
+    """Return the latest installed Steam compatibility tool matching prefix."""
+    bases = [
+        "/usr/share/steam/compatibilitytools.d",
+        "/var/lib/kyth/ge-proton",
+        os.path.expanduser("~/.steam/root/compatibilitytools.d"),
+        os.path.expanduser("~/.steam/steam/compatibilitytools.d"),
+        os.path.expanduser("~/.local/share/Steam/compatibilitytools.d"),
+    ]
+    found: list[str] = []
+    for base in bases:
+        try:
+            found.extend(e for e in os.listdir(base) if e.lower().startswith(prefix.lower()))
+        except OSError:
+            pass
+    return sorted(found)[-1] if found else None
+
+
+def _ntsync_state() -> tuple[str, str]:
+    if os.path.exists("/dev/ntsync"):
+        return "ok", "/dev/ntsync is present."
+    module_probe = _run_command(["modprobe", "-n", "ntsync"], timeout=5)
+    if module_probe is not None and module_probe.returncode == 0:
+        return "warn", "ntsync module exists but /dev/ntsync is not present yet."
+    return "warn", "ntsync device not detected; Proton will fall back to fsync/esync."
+
+
+def _vulkan_state() -> tuple[str, str]:
+    if shutil.which("vulkaninfo"):
+        result = _run_command(["vulkaninfo", "--summary"], timeout=12)
+        if result is not None and result.returncode == 0:
+            gpus = [
+                line.split("=", 1)[1].strip()
+                for line in result.stdout.splitlines()
+                if "deviceName" in line and "=" in line
+            ]
+            return "ok", "Vulkan ready" + (f": {', '.join(gpus[:2])}" if gpus else ".")
+        return "err", "vulkaninfo is installed but Vulkan probing failed."
+    render_nodes = glob.glob("/dev/dri/renderD*")
+    if render_nodes:
+        return "warn", "Render device exists, but vulkaninfo is not installed for a full check."
+    return "err", "No Vulkan render device detected."
+
+
+def _gaming_health_items() -> list[tuple[str, str, str]]:
+    """Small, fast checks aimed at Windows gamers before they launch a title."""
+    ge_ver = _ge_proton_version()
+    cachy_ver = _compat_tool_version("proton-cachyos")
+    vulkan_status, vulkan_summary = _vulkan_state()
+    ntsync_status, ntsync_summary = _ntsync_state()
+    steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+    heroic_ok = _is_flatpak_installed("com.heroicgameslauncher.hgl")
+    lutris_ok = _is_flatpak_installed("net.lutris.Lutris")
+    controllers = _detect_controllers()
+    controller_count = len(controllers.get("usb_controllers", [])) + len(controllers.get("input_nodes", []))
+    ntfs_count = len(_find_ntfs_drives())
+
+    return [
+        ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam to run your Steam library."),
+        ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Missing; use Update GE-Proton below."),
+        ("ok" if cachy_ver else "dim", "Proton-CachyOS SLR", cachy_ver or "Optional runner for stubborn games."),
+        (vulkan_status, "Vulkan", vulkan_summary),
+        (ntsync_status, "NTSYNC", ntsync_summary),
+        ("ok" if shutil.which("umu-run") else "warn", "umu-launcher", "Installed." if shutil.which("umu-run") else "Needed by some Lutris/Heroic launcher flows."),
+        ("ok" if _gamescope_installed() else "warn", "Gamescope", "Installed." if _gamescope_installed() else "Missing compositor for HDR/VRR/upscaling presets."),
+        ("ok" if _mangohud_installed() else "warn", "MangoHud", "Installed." if _mangohud_installed() else "Missing performance overlay."),
+        ("ok" if controller_count else "dim", "Controllers", f"{controller_count} controller input(s) detected." if controller_count else "Connect one and press Refresh."),
+        ("ok" if heroic_ok or lutris_ok else "dim", "Non-Steam launchers", "Heroic or Lutris installed." if heroic_ok or lutris_ok else "Install Heroic or Lutris for Epic, GOG, Battle.net, EA, and Ubisoft."),
+        ("warn" if ntfs_count else "ok", "Windows game drives", f"{ntfs_count} NTFS partition(s) detected; use migration below." if ntfs_count else "No NTFS game drives detected."),
+        ("warn" if _has_staged_update() else "ok", "OS update", "Update staged; reboot before benchmarking." if _has_staged_update() else "No staged OS update."),
+    ]
 
 
 def _detect_nvidia() -> bool:
@@ -5132,6 +5204,63 @@ class GamingPage(Page):
         self._add(self._win_lib_card)
         self._divider()
 
+        # ── Gaming Health Check ──────────────────────────────────────────────
+        health_card, health_layout = _make_card()
+        health_top = QHBoxLayout()
+        health_title = QLabel("Gaming Health Check")
+        health_title.setObjectName("card-title")
+        health_top.addWidget(health_title)
+        health_top.addStretch()
+        health_refresh = QPushButton("Refresh")
+        health_refresh.clicked.connect(self._refresh_gaming_health)
+        health_top.addWidget(health_refresh)
+        health_layout.addLayout(health_top)
+        health_desc = QLabel(
+            "Fast checks for the pieces that make Windows games feel plug-and-play: "
+            "Steam, Proton runners, Vulkan, NTSYNC, launchers, overlays, controllers, "
+            "Windows game drives, and staged OS updates."
+        )
+        health_desc.setObjectName("card-copy")
+        health_desc.setWordWrap(True)
+        health_layout.addWidget(health_desc)
+        self._health_rows_layout = QVBoxLayout()
+        self._health_rows_layout.setSpacing(8)
+        health_layout.addLayout(self._health_rows_layout)
+        self._add(health_card)
+
+        # ── First-failure playbook ────────────────────────────────────────────
+        playbook_card, playbook_layout = _make_card()
+        playbook_title = QLabel("Game will not launch")
+        playbook_title.setObjectName("card-title")
+        playbook_layout.addWidget(playbook_title)
+        playbook_desc = QLabel(
+            "Start simple: try a clean Proton runner, collect a log, then disable one "
+            "sync path at a time. These launch options are safe per-game tests."
+        )
+        playbook_desc.setObjectName("card-copy")
+        playbook_desc.setWordWrap(True)
+        playbook_layout.addWidget(playbook_desc)
+        for label, opt in (
+            ("Capture Proton log:", "PROTON_LOG=1 %command%"),
+            ("Disable NTSYNC:", "PROTON_NO_NTSYNC=1 %command%"),
+            ("Disable esync:", "PROTON_NO_ESYNC=1 %command%"),
+            ("Disable fsync:", "PROTON_NO_FSYNC=1 %command%"),
+            ("Force Vulkan HUD:", "MANGOHUD=1 %command%"),
+            ("Launcher retry:", "PROTON_LOG=1 PROTON_NO_NTSYNC=1 %command%"),
+        ):
+            playbook_layout.addLayout(self._copy_option_row(label, opt))
+        playbook_btns = QHBoxLayout()
+        playbook_btns.setSpacing(8)
+        protondb_btn = QPushButton("Open ProtonDB")
+        protondb_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://www.protondb.com")))
+        playbook_btns.addWidget(protondb_btn)
+        anticheat_btn = QPushButton("Open Anti-Cheat Status")
+        anticheat_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://areweanticheatyet.com")))
+        playbook_btns.addWidget(anticheat_btn)
+        playbook_btns.addStretch()
+        playbook_layout.addLayout(playbook_btns)
+        self._add(playbook_card)
+
         # ── Gaming Tools ──────────────────────────────────────────────────────
         tools_head = QLabel("Gaming Tools")
         tools_head.setObjectName("heading")
@@ -5517,6 +5646,47 @@ class GamingPage(Page):
         self._gp_worker = None
         self._add(gp_card)
 
+        # ── Optional Proton-CachyOS SLR ──────────────────────────────────────
+        pc_card, pc_layout = _make_card()
+        pc_top = QHBoxLayout()
+        pc_title = QLabel("Optional Proton-CachyOS SLR")
+        pc_title.setObjectName("card-title")
+        pc_top.addWidget(pc_title)
+        pc_top.addStretch()
+        self._pc_badge = QLabel()
+        self._pc_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        pc_top.addWidget(self._pc_badge)
+        pc_layout.addLayout(pc_top)
+        pc_desc = QLabel(
+            "Keep GE-Proton as the default. Proton-CachyOS SLR is worth having as "
+            "a second per-game runner for stubborn launchers, anti-cheat edge cases, "
+            "and games where ProtonDB reports Cachy-specific success."
+        )
+        pc_desc.setObjectName("card-copy")
+        pc_desc.setWordWrap(True)
+        pc_layout.addWidget(pc_desc)
+        self._pc_version_lbl = QLabel()
+        self._pc_version_lbl.setObjectName("card-copy")
+        pc_layout.addWidget(self._pc_version_lbl)
+        pc_btns = QHBoxLayout()
+        pc_btns.setSpacing(10)
+        pc_open = QPushButton("Open ProtonUp-Qt")
+        pc_open.clicked.connect(lambda _=False: self._open_protonupqt())
+        pc_btns.addWidget(pc_open)
+        pc_docs = QPushButton("Open CachyOS Guide")
+        pc_docs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://wiki.cachyos.org/configuration/gaming/")))
+        pc_btns.addWidget(pc_docs)
+        pc_btns.addStretch()
+        pc_layout.addLayout(pc_btns)
+        pc_note = QLabel(
+            "In ProtonUp-Qt, add a Steam compatibility tool and choose Proton-CachyOS SLR. "
+            "Restart Steam, then select it per-game under Properties -> Compatibility."
+        )
+        pc_note.setObjectName("card-copy")
+        pc_note.setWordWrap(True)
+        pc_layout.addWidget(pc_note)
+        self._add(pc_card)
+
         # ── vkBasalt ──────────────────────────────────────────────────────────
         vk_card, vk_layout = _make_card()
         vk_top = QHBoxLayout()
@@ -5690,10 +5860,63 @@ class GamingPage(Page):
         self._scanned_mount = None
 
         self._stretch()
+        self._refresh_gaming_health()
         self._refresh_status()
         self._refresh_ntfs_drives()
 
     # ── Tool tile builder ──────────────────────────────────────────────────────
+
+    def _copy_option_row(self, label: str, opt: str) -> QHBoxLayout:
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        row.addWidget(_launch_opt_label(label))
+        row.addWidget(_launch_opt_value(opt))
+        cp = QPushButton("Copy")
+        cp.clicked.connect(lambda _=False, t=opt: _copy_text(t))
+        row.addWidget(cp)
+        row.addStretch()
+        return row
+
+    def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
+        bg, fg, label = {
+            "ok": ("#0f2a31", "#5ee6c1", "OK"),
+            "warn": ("#3a2a00", "#e8a838", "Check"),
+            "err": ("#3a1010", "#e96060", "Fix"),
+            "dim": ("#1e2d3e", "#6a7a8a", "Info"),
+        }.get(status, ("#1e2d3e", "#6a7a8a", "Info"))
+
+        row = QFrame()
+        row.setObjectName("hw-card-dim")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 8, 14, 8)
+        layout.setSpacing(10)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("card-summary")
+        title_lbl.setStyleSheet("font-size:13px; font-weight:700;")
+        layout.addWidget(title_lbl)
+
+        summary_lbl = QLabel(summary)
+        summary_lbl.setObjectName("card-copy")
+        summary_lbl.setWordWrap(True)
+        layout.addWidget(summary_lbl, 1)
+
+        badge = QLabel(f"  {label}  ")
+        badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        badge.setStyleSheet(
+            f"background:{bg}; color:{fg}; border:1px solid {fg}; "
+            "border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;"
+        )
+        layout.addWidget(badge)
+        return row
+
+    def _refresh_gaming_health(self):
+        while self._health_rows_layout.count():
+            item = self._health_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        for status, title, summary in _gaming_health_items():
+            self._health_rows_layout.addWidget(self._make_health_row(status, title, summary))
 
     def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
         card, layout = _make_card()
@@ -5786,6 +6009,13 @@ class GamingPage(Page):
             else "GE-Proton not found in compatibilitytools.d"
         )
 
+        pc_ver = _compat_tool_version("proton-cachyos")
+        _apply_install_badge(self._pc_badge, bool(pc_ver), ok_text=pc_ver or "Installed", warn_text="Optional")
+        self._pc_version_lbl.setText(
+            f"Installed: {pc_ver}" if pc_ver
+            else "Not installed. Optional fallback runner; GE-Proton remains the recommended default."
+        )
+
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
             refs["install"].setVisible(not installed)
@@ -5794,6 +6024,7 @@ class GamingPage(Page):
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
+        self._refresh_gaming_health()
         if not self._win_lib_probed:
             self._win_lib_probed = True
             self._win_lib_worker = WindowsLibraryWorker()
@@ -5858,6 +6089,15 @@ class GamingPage(Page):
         self._win_lib_card.show()
 
     # ── Tool install ───────────────────────────────────────────────────────────
+
+    def _open_protonupqt(self):
+        if _is_flatpak_installed("net.davidotek.pupgui2"):
+            subprocess.Popen(["flatpak", "run", "net.davidotek.pupgui2"])
+            return
+        _open_terminal_with_cmd(
+            ["flatpak", "install", "-y", "flathub", "net.davidotek.pupgui2"],
+            "Install ProtonUp-Qt",
+        )
 
     def _open_corectrl(self):
         if shutil.which("corectrl"):

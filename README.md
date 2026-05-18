@@ -50,6 +50,9 @@ KythOS is a personal, opinionated desktop OS built for performance, gaming, cont
 - Bottles, Prism Launcher (Minecraft), RetroArch (multi-system emulator), Itch.io, Piper, OpenRGB — optional Flatpaks from the helper app
 - GameMode, gamescope, MangoHud, vkBasalt, umu-launcher, winetricks, libFAudio
 - GE-Proton — pre-installed at build time, updated weekly via systemd timer
+- System Hub gaming health check — validates Steam, Proton runners, Vulkan, NTSYNC, launchers, overlays, controllers, Windows game-drive migration, and staged updates before play
+- Optional Proton-CachyOS SLR path via ProtonUp-Qt for per-game fallback testing; GE-Proton remains the default recommendation
+- Gaming validation matrix for release testing: [`docs/gaming-validation-matrix.md`](docs/gaming-validation-matrix.md)
 - obs-vkcapture runtime support; OBS Studio is an optional Flatpak from the helper app
 - scx schedulers (scx_lavd / scx_rusty / scx_bpfland via scxd, auto-mode) — prioritises latency-sensitive threads during gaming
 - system76-scheduler — dynamically adjusts process priorities based on focused window
