@@ -930,6 +930,16 @@ install-bottles:
     echo
     echo "Bottles installed. Launch it from the app menu to open .exe or .msi files."
 
+# Install Ludusavi — backup and restore game saves across launchers.
+[group('KythOS')]
+install-ludusavi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.github.mtkennerly.ludusavi
+    echo
+    echo "Ludusavi installed. Launch it from the app menu before migrating or modding games."
+
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
 install-obs:
