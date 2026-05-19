@@ -89,6 +89,7 @@ SOURCE_HASH="$(
         build_files/wallpaper/kyth-wallpaper.svg \
         build_files/branding/kyth-logo.svg \
         build_files/branding/kyth-logo-transparent.svg \
+        build_files/secureboot/kyth-secureboot.cer \
     | sha256sum \
     | awk '{print $1}'
 )"
@@ -149,6 +150,7 @@ command -v mksquashfs &>/dev/null || _missing_pkgs+=(squashfs-tools)
 command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
 command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
 command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
+command -v sbverify   &>/dev/null || _missing_pkgs+=(sbsigntools)
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
     echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
@@ -173,6 +175,45 @@ copy_efi_from_rootfs() {
     local src="$1"
     local dest="$2"
     sudo install -m 0644 "${src}" "${dest}"
+}
+
+efi_is_signed() {
+    local image="$1"
+    local verify_output
+
+    verify_output=$(sbverify --list "${image}" 2>&1) || return 1
+    ! grep -qi "no signature table" <<<"${verify_output}"
+}
+
+copy_signed_efi_from_candidates() {
+    local dest="$1"
+    local label="$2"
+    shift 2
+
+    local candidate
+    for candidate in "$@"; do
+        [[ -f "${candidate}" ]] || continue
+        if efi_is_signed "${candidate}"; then
+            copy_efi_from_rootfs "${candidate}" "${dest}"
+            echo "    ${label}: ${candidate} → ${dest##*/}"
+            return 0
+        fi
+        echo "    Skipping unsigned ${label} candidate: ${candidate}" >&2
+    done
+
+    return 1
+}
+
+find_signed_efi() {
+    local search_root="$1"
+    local filename="$2"
+    find "${search_root}" -name "${filename}" -type f 2>/dev/null \
+        | while IFS= read -r candidate; do
+            if efi_is_signed "${candidate}"; then
+                printf '%s\n' "${candidate}"
+                break
+            fi
+        done
 }
 
 # ── 1. Build live container ─────────────────────────────────────────
@@ -534,88 +575,74 @@ EMBEDEOF
     # (the shim embeds Fedora's UEFI signing key).
     echo "    EFI binary sources in rootfs:"
     ls -la "${ROOTFS}/usr/lib/kyth/efi/" 2>/dev/null || echo "    (no staged EFI binaries at /usr/lib/kyth/efi/)"
-    _SIGNED_GRUB_SRC=""
-    # Check staged location first (set by Containerfile.live EFI staging step)
-    for _grub_path in \
+    if ! copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/grubx64.efi" \
+        "Secure Boot GRUB" \
         "${ROOTFS}/usr/lib/kyth/efi/grubx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
-        "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi"; do
-        if [[ -f "${_grub_path}" ]]; then
-            _SIGNED_GRUB_SRC="${_grub_path}"
-            break
-        fi
-    done
-    # Versioned path from grub2-efi-x64 RPM: /usr/lib/efi/grub2/<ver>/EFI/fedora/grubx64.efi
-    if [[ -z "${_SIGNED_GRUB_SRC}" ]]; then
-        _SIGNED_GRUB_SRC=$(find "${ROOTFS}/usr/lib/efi/grub2" -name "grubx64.efi" 2>/dev/null | head -1)
+        "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/grub2" "grubx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/grub" "grubx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "grubx64.efi")"; then
+        echo "ERROR: signed grubx64.efi not found in rootfs." >&2
+        echo "       The ISO would not boot on machines with Secure Boot enabled." >&2
+        echo "       Ensure grub2-efi-x64 or grub2-efi-x64-cdboot provides a signed GRUB binary." >&2
+        exit 1
     fi
-    if [[ -z "${_SIGNED_GRUB_SRC}" ]]; then
-        _SIGNED_GRUB_SRC=$(find "${ROOTFS}" -path "*/EFI/fedora/grubx64.efi" 2>/dev/null | head -1)
-    fi
-    if [[ -n "${_SIGNED_GRUB_SRC}" ]]; then
-        copy_efi_from_rootfs "${_SIGNED_GRUB_SRC}" "${ISO_DIR}/EFI/BOOT/grubx64.efi"
-        echo "    Secure Boot GRUB: ${_SIGNED_GRUB_SRC} → grubx64.efi (Fedora-signed)"
-        # Fedora's signed grubx64.efi searches for /EFI/fedora/grub.cfg using
-        # search.file, then sets prefix=($root)/EFI/fedora and loads that config.
-        # Place a redirect there that locates the ISO by volume label and chains
-        # to our full menu config (which lives in boot/grub2/grub.cfg on the ISO).
-        # Note: unquoted heredoc so ${VOLID} expands; $root is a GRUB variable.
-        cat > "${ISO_DIR}/EFI/fedora/grub.cfg" << FEDGRUBEOF
+
+    # Fedora's signed grubx64.efi searches for /EFI/fedora/grub.cfg using
+    # search.file, then sets prefix=($root)/EFI/fedora and loads that config.
+    # Place a redirect there that locates the ISO by volume label and chains
+    # to our full menu config (which lives in boot/grub2/grub.cfg on the ISO).
+    # Note: unquoted heredoc so ${VOLID} expands; $root is a GRUB variable.
+    cat > "${ISO_DIR}/EFI/fedora/grub.cfg" << FEDGRUBEOF
 search --no-floppy --label --set=root ${VOLID}
 configfile (\$root)/boot/grub2/grub.cfg
 FEDGRUBEOF
-        echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
-    else
-        echo "ERROR: Fedora-signed grubx64.efi not found in rootfs." >&2
-        echo "       The ISO would not boot on machines with Secure Boot enabled." >&2
-        echo "       Ensure grub2-efi-x64 is installed in the live container." >&2
-        exit 1
-    fi
+    echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
 
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
     # The shim (Microsoft-signed) is what UEFI firmware loads first; it then
     # chainloads grubx64.efi (Fedora-signed) from the same directory.
-    SHIM_SRC=""
-    # Check staged location first (set by Containerfile.live EFI staging step)
-    for shim_path in \
+    if copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        "Secure Boot shim" \
         "${ROOTFS}/usr/lib/kyth/efi/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
-        "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi"; do
-        if [[ -f "${shim_path}" ]]; then
-            SHIM_SRC="${shim_path}"
-            break
-        fi
-    done
-    # Versioned path from shim-x64 RPM: /usr/lib/efi/shim/<ver>/EFI/fedora/shimx64.efi
-    if [[ -z "${SHIM_SRC}" ]]; then
-        SHIM_SRC=$(find "${ROOTFS}/usr/lib/efi/shim" -name "shimx64.efi" 2>/dev/null | head -1)
-    fi
-    # Last resort: any shimx64.efi anywhere in the rootfs
-    if [[ -z "${SHIM_SRC}" ]]; then
-        SHIM_SRC=$(find "${ROOTFS}" -name "shimx64.efi" 2>/dev/null | head -1)
-    fi
-
-    if [[ -n "${SHIM_SRC}" ]]; then
-        copy_efi_from_rootfs "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
-        echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
-        SHIM_DIR="$(dirname "${SHIM_SRC}")"
-        # mmx64.efi (MokManager) lives next to shim — copy it for MOK enrollment
-        if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
-            copy_efi_from_rootfs "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
-            echo "    MokManager: ${SHIM_DIR}/mmx64.efi → EFI/BOOT/mmx64.efi"
-        else
-            MMX=$(find "${ROOTFS}" -name "mmx64.efi" 2>/dev/null | head -1)
-            if [[ -n "${MMX}" ]]; then
-                copy_efi_from_rootfs "${MMX}" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
-                echo "    MokManager: ${MMX} → EFI/BOOT/mmx64.efi"
-            fi
-        fi
+        "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "shimx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "shimx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "shimx64.efi")"; then
+        :
     else
-        echo "ERROR: shimx64.efi not found anywhere in rootfs."
-        echo "       Ensure shim-x64 is installed in Containerfile.live."
-        echo "       Without shim, Secure Boot machines will reject the ISO."
+        echo "ERROR: signed shimx64.efi not found in rootfs." >&2
+        echo "       Ensure shim-x64 provides a Microsoft-signed shim binary." >&2
+        echo "       Without signed shim, firmware rejects the ISO before GRUB can start." >&2
         exit 1
     fi
+
+    if copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/mmx64.efi" \
+        "MokManager" \
+        "${ROOTFS}/usr/lib/kyth/efi/mmx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/fedora/mmx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/mmx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "mmx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "mmx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "mmx64.efi")"; then
+        :
+    else
+        echo "WARNING: signed mmx64.efi not found — the ISO can boot, but the GRUB enrollment entry will be unavailable." >&2
+    fi
+
+    efi_is_signed "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" || {
+        echo "ERROR: BOOTX64.EFI is not signed; firmware Secure Boot would reject it." >&2
+        exit 1
+    }
+    efi_is_signed "${ISO_DIR}/EFI/BOOT/grubx64.efi" || {
+        echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
+        exit 1
+    }
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
