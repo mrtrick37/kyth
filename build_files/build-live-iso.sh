@@ -422,9 +422,43 @@ menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-
     initrd /images/pxeboot/initrd.img
 }
 
+menuentry "Enroll KythOS Secure Boot Key" --class efi {
+    if [ -f /EFI/BOOT/mmx64.efi ]; then
+        echo ""
+        echo "KythOS uses a custom kernel that must be enrolled once for Secure Boot."
+        echo ""
+        echo "In MokManager (launching now):"
+        echo "  1. Select 'Enroll key from disk'"
+        echo "  2. Navigate: EFI -> BOOT -> kyth-secureboot.der"
+        echo "  3. Select the file, choose 'Continue', then 'Yes', then 'Reboot'"
+        echo "  4. After rebooting, select 'Try KythOS Live'"
+        echo ""
+        echo "Password prompt: type 'kyth' if asked (or leave blank)."
+        echo ""
+        sleep 6
+        chainloader /EFI/BOOT/mmx64.efi
+    else
+        echo "MokManager (mmx64.efi) is missing from this ISO."
+        echo "Reinstall shim-x64 in the live container and rebuild."
+        sleep 4
+    fi
+}
+
 GRUBEOF
 
 cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
+
+# ── Secure Boot: MOK cert for GRUB enrollment menu ────────────────────────────
+# Convert the PEM cert from the repo to DER format. MokManager (mmx64.efi) reads
+# DER when the user selects "Enroll key from disk" → EFI/BOOT/kyth-secureboot.der.
+_SB_CERT_PEM="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+_SB_CERT_DER="${ISO_DIR}/EFI/BOOT/kyth-secureboot.der"
+if [[ -f "${_SB_CERT_PEM}" ]] && command -v openssl &>/dev/null; then
+    openssl x509 -in "${_SB_CERT_PEM}" -outform DER -out "${_SB_CERT_DER}"
+    echo "==> Secure Boot: kyth-secureboot.der added to EFI/BOOT"
+else
+    echo "WARNING: ${_SB_CERT_PEM} not found — Secure Boot enrollment entry will not work" >&2
+fi
 
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
@@ -535,6 +569,9 @@ fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 if [[ -f "${ISO_DIR}/EFI/fedora/grub.cfg" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/fedora/grub.cfg" ::/EFI/fedora/grub.cfg
+fi
+if [[ -f "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ::/EFI/BOOT/kyth-secureboot.der
 fi
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
