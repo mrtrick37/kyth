@@ -250,6 +250,45 @@ sign_efi_with_kyth_key() {
     sbverify --cert "${cert}" "${image}" >/dev/null
 }
 
+verify_efi_image_boot_chain() {
+    local efi_img="$1"
+    local verify_dir="${WORK}/verify-efi"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local required_file
+
+    mkdir -p "${verify_dir}"
+    rm -f "${verify_dir}"/*.efi 2>/dev/null || true
+
+    for required_file in BOOTX64.EFI grubx64.efi; do
+        mcopy -n -i "${efi_img}" "::/EFI/BOOT/${required_file}" "${verify_dir}/${required_file}" >/dev/null
+        efi_is_signed "${verify_dir}/${required_file}" || {
+            echo "ERROR: embedded ${required_file} is not signed in ${efi_img}." >&2
+            exit 1
+        }
+        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+            sbverify --cert "${cert}" "${verify_dir}/${required_file}" >/dev/null || {
+                echo "ERROR: embedded ${required_file} is not signed by the Kyth Secure Boot cert." >&2
+                exit 1
+            }
+        fi
+    done
+
+    if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${verify_dir}/mmx64.efi" >/dev/null 2>&1; then
+        efi_is_signed "${verify_dir}/mmx64.efi" || {
+            echo "ERROR: embedded mmx64.efi is not signed in ${efi_img}." >&2
+            exit 1
+        }
+        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+            sbverify --cert "${cert}" "${verify_dir}/mmx64.efi" >/dev/null || {
+                echo "ERROR: embedded mmx64.efi is not signed by the Kyth Secure Boot cert." >&2
+                exit 1
+            }
+        fi
+    fi
+
+    echo "==> Secure Boot: embedded EFI boot chain verified"
+}
+
 # ── 1. Build live container ─────────────────────────────────────────
 _need_rebuild=0
 if [[ "${SKIP_REBUILD:-}" == "1" ]]; then
@@ -713,6 +752,7 @@ fi
 if [[ -f "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ::/EFI/BOOT/kyth-secureboot.der
 fi
+verify_efi_image_boot_chain "${EFI_IMG}"
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
@@ -828,6 +868,9 @@ XORRISO_ARGS+=("${ISO_DIR}")
 
 sudo xorriso "${XORRISO_ARGS[@]}"
 sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
+if [[ -f "${_SB_CERT_DER}" ]]; then
+    cp "${_SB_CERT_DER}" "${OUTPUT_DIR}/kyth-secureboot.der"
+fi
 
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
