@@ -34,6 +34,15 @@ echo "secureboot: installing sbsigntools"
 dnf5 install -y sbsigntools
 
 echo "secureboot: signing ${VMLINUZ} (kernel ${KVER})"
+KEY_MD5=$(openssl rsa -in "${MOK_KEY_FILE}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+CERT_MD5=$(openssl x509 -in "${CERT}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+echo "secureboot: key modulus md5=${KEY_MD5}"
+echo "secureboot: cert modulus md5=${CERT_MD5}"
+if [[ "${KEY_MD5}" != "${CERT_MD5}" ]]; then
+    echo "secureboot: ERROR — MOK_KEY secret does not match kyth-secureboot.cer in the repo." >&2
+    echo "secureboot: Update the MOK_KEY GitHub secret with the private key matching cert modulus ${CERT_MD5}." >&2
+    exit 1
+fi
 sbsign --key "${MOK_KEY_FILE}" \
        --cert "${CERT}" \
        --output "${VMLINUZ}.signed" \
