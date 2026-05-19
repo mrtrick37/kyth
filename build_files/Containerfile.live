@@ -41,7 +41,7 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
 # ── Desktop, ISO tooling, and utilities (tolerate Fedora package churn) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
 RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
-    syslinux grub2-efi-x64 grub2-efi-x64-modules grub2-pc shim-x64 \
+    syslinux grub2-efi-x64 grub2-efi-x64-cdboot grub2-efi-x64-modules grub2-pc shim-x64 \
     gparted gdisk podman \
     plymouth-plugin-script librsvg2-tools \
     spice-vdagent \
@@ -77,12 +77,12 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora || rpm -e --nodeps plasma-welcome plasma-welcome-fedora) 2>/dev/null || true \
     && dnf5 clean all \
     && mkdir -p /usr/lib/kyth/efi \
-    && (find /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
-    && (find /usr/lib/efi/shim -name "mmx64.efi"   2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   || true) \
-    && (find /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
-    && (find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
-    && (find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
-    && (find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
+    && (find /usr/share/shim /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
+    && (find /usr/share/shim /usr/lib/efi/shim -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   || true) \
+    && (find /usr/share/grub /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
+    && (test -f /usr/lib/kyth/efi/shimx64.efi || find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
+    && (test -f /usr/lib/kyth/efi/mmx64.efi   || find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
+    && (test -f /usr/lib/kyth/efi/grubx64.efi || find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
     && (chmod 0644 /usr/lib/kyth/efi/*.efi 2>/dev/null || true) \
     && echo "==> EFI staging:" \
     && ls -la /usr/lib/kyth/efi/ || echo "WARNING: no EFI binaries staged to /usr/lib/kyth/efi/"

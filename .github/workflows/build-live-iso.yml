@@ -98,6 +98,20 @@ jobs:
           BASE_IMAGE="ghcr.io/ublue-os/kinoite-main:44"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
+          SOURCE_HASH="$(
+            sha256sum \
+              build_files/Containerfile.live \
+              build_files/kyth-installer \
+              build_files/kyth-launch-installer \
+              build_files/plymouth/kyth.plymouth \
+              build_files/plymouth/kyth.script \
+              build_files/wallpaper/kyth-wallpaper.svg \
+              build_files/branding/kyth-logo.svg \
+              build_files/branding/kyth-logo-transparent.svg \
+              build_files/secureboot/kyth-secureboot.cer \
+            | sha256sum \
+            | awk '{print $1}'
+          )"
 
           MOK_SECRET_ARG=()
           SECUREBOOT_SIGNING_REQUESTED=0
@@ -110,6 +124,7 @@ jobs:
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${SOURCE_TAG}" \
+            --build-arg SOURCE_HASH="${SOURCE_HASH}" \
             --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${CACHE_REF}" \
             --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
@@ -209,7 +224,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso squashfs-tools mtools dosfstools git \
-            grub-common grub-pc-bin grub-efi-amd64-bin
+            grub-common grub-pc-bin grub-efi-amd64-bin sbsigntool
           # Install just from a pinned release with checksum verification.
           # To update: bump JUST_VER and JUST_SHA256 together.
           JUST_VER="1.49.0"
