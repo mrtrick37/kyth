@@ -116,10 +116,12 @@ jobs:
 
           MOK_SECRET_ARG=()
           SECUREBOOT_SIGNING_REQUESTED=0
-          if [[ -n "${MOK_KEY:-}" ]]; then
-            MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
-            SECUREBOOT_SIGNING_REQUESTED=1
+          if [[ -z "${MOK_KEY:-}" ]]; then
+            echo "ERROR: MOK_KEY repository secret is required for Secure Boot ISO builds." >&2
+            exit 1
           fi
+          MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+          SECUREBOOT_SIGNING_REQUESTED=1
 
           docker buildx build \
             --tag "${IMAGE}" \
@@ -133,6 +135,8 @@ jobs:
             -f build_files/Containerfile.live \
             --push \
             .
+
+          echo "==> Live container build requested Secure Boot signing"
 
       - name: Flatten live container to a single layer
         # The live image inherits 100+ layers from the kyth base image.
@@ -178,9 +182,19 @@ jobs:
 
           # Pull the multi-layer image, flatten to one layer locally, push back.
           retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified live container Secure Boot signing marker before flatten"
+          else
+            echo "WARNING: live container missing Secure Boot marker before flatten; ISO job will sign exported kernel"
+          fi
           CID=$(docker create "${IMAGE}" /bin/true)
           docker export "${CID}" | docker import - "${IMAGE}"
           docker rm "${CID}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified live container Secure Boot signing marker after flatten"
+          else
+            echo "WARNING: live container missing Secure Boot marker after flatten; ISO job will sign exported kernel"
+          fi
           retry "Docker push ${IMAGE}" 30 docker push "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
@@ -275,6 +289,11 @@ jobs:
 
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified pulled live container Secure Boot signing marker"
+          else
+            echo "WARNING: pulled live container missing Secure Boot marker; build-live-iso.sh will sign exported kernel"
+          fi
           docker tag "${IMAGE}" "${LIVE_TAG}"
           docker rmi "${IMAGE}" || true
 
@@ -294,6 +313,7 @@ jobs:
         env:
           SKIP_REBUILD: "1"
           MOK_KEY: ${{ secrets.MOK_KEY }}
+          REQUIRE_SECUREBOOT_SIGNING: "1"
           SECUREBOOT_SIGN_EFI: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
