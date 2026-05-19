@@ -52,6 +52,14 @@ if [[ -n "${MOK_KEY:-}" ]]; then
 fi
 SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-${SECUREBOOT_SIGNING_REQUESTED}}"
 
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+    if [[ -z "${MOK_KEY:-}" ]]; then
+        echo "ERROR: Secure Boot signing is required, but MOK_KEY is not set." >&2
+        echo "       Add the PEM private key as the GitHub MOK_KEY secret or export MOK_KEY locally." >&2
+        exit 1
+    fi
+fi
+
 # ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
 SUDO_KEEPALIVE_PID=""
 if ! command sudo -n true 2>/dev/null; then
@@ -152,8 +160,9 @@ command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
 command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
 command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
 command -v sbverify   &>/dev/null || _missing_pkgs+=(sbsigntools)
-if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
     command -v sbsign &>/dev/null || [[ " ${_missing_pkgs[*]} " == *sbsigntools* ]] || _missing_pkgs+=(sbsigntools)
+    command -v openssl &>/dev/null || _missing_pkgs+=(openssl)
 fi
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
@@ -228,26 +237,88 @@ sign_efi_with_kyth_key() {
 
     [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]] || return 0
 
-    if [[ -z "${MOK_KEY:-}" ]]; then
-        echo "ERROR: SECUREBOOT_SIGN_EFI=1 requires MOK_KEY to sign ${label}." >&2
-        exit 1
-    fi
     if [[ ! -f "${cert}" ]]; then
         echo "ERROR: Secure Boot cert not found at ${cert}; cannot sign ${label}." >&2
         exit 1
     fi
 
-    printf '%s\n' "${MOK_KEY}" > "${WORK}/kyth-secureboot.key"
-    chmod 0600 "${WORK}/kyth-secureboot.key"
+    local key_file
+    key_file="$(write_kyth_signing_key)"
+    verify_key_matches_cert "${key_file}" "${cert}"
 
     echo "    Kyth-signing ${label}: ${image##*/}"
     sbsign \
-        --key "${WORK}/kyth-secureboot.key" \
+        --key "${key_file}" \
         --cert "${cert}" \
         --output "${signed}" \
         "${image}"
     mv "${signed}" "${image}"
     sbverify --cert "${cert}" "${image}" >/dev/null
+}
+
+write_kyth_signing_key() {
+    local key_file="${WORK}/kyth-secureboot.key"
+
+    if [[ -z "${MOK_KEY:-}" ]]; then
+        echo "ERROR: MOK_KEY is required for Secure Boot signing." >&2
+        exit 1
+    fi
+
+    if [[ ! -f "${key_file}" ]]; then
+        printf '%s\n' "${MOK_KEY}" > "${key_file}"
+        chmod 0600 "${key_file}"
+    fi
+
+    printf '%s\n' "${key_file}"
+}
+
+verify_key_matches_cert() {
+    local key_file="$1"
+    local cert="$2"
+    local key_md5
+    local cert_md5
+
+    key_md5=$(openssl rsa -in "${key_file}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+    cert_md5=$(openssl x509 -in "${cert}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+    if [[ "${key_md5}" != "${cert_md5}" ]]; then
+        echo "ERROR: MOK_KEY does not match ${cert}." >&2
+        echo "       key modulus md5=${key_md5}" >&2
+        echo "       cert modulus md5=${cert_md5}" >&2
+        exit 1
+    fi
+}
+
+sign_live_kernel_from_export() {
+    local vmlinuz="$1"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local marker="${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed"
+    local signed="${WORK}/vmlinuz.kyth-signed"
+    local key_file
+
+    [[ -f "${vmlinuz}" ]] || {
+        echo "ERROR: live kernel not found at ${vmlinuz}" >&2
+        exit 1
+    }
+    [[ -f "${cert}" ]] || {
+        echo "ERROR: Secure Boot cert not found at ${cert}" >&2
+        exit 1
+    }
+
+    key_file="$(write_kyth_signing_key)"
+    verify_key_matches_cert "${key_file}" "${cert}"
+
+    echo "==> Secure Boot: signing exported live kernel ${vmlinuz}"
+    sbsign \
+        --key "${key_file}" \
+        --cert "${cert}" \
+        --output "${signed}" \
+        "${vmlinuz}"
+    sudo install -m 0644 "${signed}" "${vmlinuz}"
+    sbverify --cert "${cert}" "${vmlinuz}" >/dev/null
+
+    sudo install -Dm 0644 "${cert}" "${ROOTFS}/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    sudo install -Dm 0644 /dev/null "${marker}"
+    echo "==> Secure Boot: exported live kernel signed and marker written"
 }
 
 verify_efi_image_boot_chain() {
@@ -287,6 +358,22 @@ verify_efi_image_boot_chain() {
     fi
 
     echo "==> Secure Boot: embedded EFI boot chain verified"
+}
+
+verify_signed_with_kyth_cert() {
+    local image="$1"
+    local label="$2"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+
+    efi_is_signed "${image}" || {
+        echo "ERROR: ${label} is not Secure Boot signed: ${image}" >&2
+        exit 1
+    }
+    sbverify --cert "${cert}" "${image}" >/dev/null || {
+        echo "ERROR: ${label} is not signed by the Kyth Secure Boot cert: ${image}" >&2
+        exit 1
+    }
+    echo "    Secure Boot: ${label} signed by Kyth cert"
 }
 
 # ── 1. Build live container ─────────────────────────────────────────
@@ -441,10 +528,12 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 
 if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
     echo "    Secure Boot: live kernel signing marker present"
-elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
-    echo "ERROR: Secure Boot signing was requested, but the exported live kernel has no signing marker." >&2
-    echo "       Rebuild the live container with MOK_KEY available." >&2
-    exit 1
+    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+        verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
+    fi
+elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    echo "    Secure Boot: exported live kernel is unsigned — signing it before squashfs"
+    sign_live_kernel_from_export "${VMLINUZ}"
 else
     echo "WARNING: live kernel is not marked as Secure Boot signed." >&2
     echo "         Secure Boot machines will need signing enabled before booting this ISO." >&2
@@ -453,6 +542,10 @@ fi
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    verify_signed_with_kyth_cert "${ISO_DIR}/images/pxeboot/vmlinuz" "ISO live kernel"
+    echo "    Secure Boot: ISO live kernel signature verified"
+fi
 
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
 # No OCI bundle embedded — kyth-installer pulls from the registry at install time
