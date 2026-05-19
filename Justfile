@@ -325,9 +325,11 @@ build: build-base
         2>/dev/null || true)
     echo "GE-Proton: ${GE_PROTON_VER:-latest}"
     MOK_SECRET_ARG=()
+    SECUREBOOT_SIGNING_REQUESTED=0
     if [[ -n "${MOK_KEY:-}" ]]; then
         echo "Secure Boot: MOK_KEY set — vmlinuz will be signed"
         MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+        SECUREBOOT_SIGNING_REQUESTED=1
     else
         echo "Secure Boot: MOK_KEY not set — signing skipped (set MOK_KEY to enable)"
     fi
@@ -336,6 +338,7 @@ build: build-base
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
         --build-arg GE_PROTON_VER="${GE_PROTON_VER}" \
         --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
+        --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
         "${MOK_SECRET_ARG[@]}" \
         --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
         --tag localhost/kyth:latest \

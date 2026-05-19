@@ -100,14 +100,17 @@ jobs:
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
 
           MOK_SECRET_ARG=()
+          SECUREBOOT_SIGNING_REQUESTED=0
           if [[ -n "${MOK_KEY:-}" ]]; then
             MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+            SECUREBOOT_SIGNING_REQUESTED=1
           fi
 
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${SOURCE_TAG}" \
+            --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${CACHE_REF}" \
             --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
             "${MOK_SECRET_ARG[@]}" \
@@ -274,6 +277,7 @@ jobs:
         # overlay2 footprint before mksquashfs runs.
         env:
           SKIP_REBUILD: "1"
+          MOK_KEY: ${{ secrets.MOK_KEY }}
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then

@@ -46,6 +46,10 @@ if [[ "${SOURCE_TAG}" == "latest" ]]; then
 else
     LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
+SECUREBOOT_SIGNING_REQUESTED=0
+if [[ -n "${MOK_KEY:-}" ]]; then
+    SECUREBOOT_SIGNING_REQUESTED=1
+fi
 
 # ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
 SUDO_KEEPALIVE_PID=""
@@ -190,6 +194,14 @@ else
         _need_rebuild=1
     fi
 
+    _installed_secureboot_signing=$(docker image inspect "${LIVE_BUILD_TAG}" \
+        --format '{{ index .Config.Labels "org.kyth.live.secureboot-signing-requested" }}' \
+        2>/dev/null || echo "")
+    if [[ "${_installed_secureboot_signing}" != "${SECUREBOOT_SIGNING_REQUESTED}" ]]; then
+        echo "==> Secure Boot signing state changed — rebuilding ${LIVE_BUILD_TAG}..."
+        _need_rebuild=1
+    fi
+
     _base_ts=$(docker image inspect "${INSTALLER_BASE_IMAGE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     _live_ts=$(docker image inspect "${LIVE_BUILD_TAG}" \
@@ -211,6 +223,13 @@ if [[ "${_need_rebuild}" == "1" ]]; then
 
     echo "==> Building live container (this takes a while)..."
     BUILD_ARGS=()
+    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+        echo "==> Secure Boot: MOK_KEY set — live vmlinuz will be signed"
+        BUILD_ARGS+=(--secret id=mok_key,env=MOK_KEY --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
+    else
+        echo "==> Secure Boot: MOK_KEY not set — live vmlinuz signing skipped"
+        BUILD_ARGS+=(--build-arg SECUREBOOT_SIGNING_REQUESTED=0)
+    fi
     if [[ -n "${LIVE_BUILD_CACHE_FROM:-}" ]]; then
         echo "==> Using live build cache source: ${LIVE_BUILD_CACHE_FROM}"
         BUILD_ARGS+=(--cache-from "${LIVE_BUILD_CACHE_FROM}")
@@ -305,6 +324,17 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
+
+if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
+    echo "    Secure Boot: live kernel signing marker present"
+elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    echo "ERROR: Secure Boot signing was requested, but the exported live kernel has no signing marker." >&2
+    echo "       Rebuild the live container with MOK_KEY available." >&2
+    exit 1
+else
+    echo "WARNING: live kernel is not marked as Secure Boot signed." >&2
+    echo "         Secure Boot machines will need signing enabled before booting this ISO." >&2
+fi
 
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
@@ -536,9 +566,10 @@ configfile (\$root)/boot/grub2/grub.cfg
 FEDGRUBEOF
         echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
     else
-        echo "WARNING: Fedora-signed grubx64.efi not found in rootfs."
-        echo "         ISO will not boot on machines with Secure Boot enabled."
-        echo "         Ensure grub2-efi-x64 is installed in the live container."
+        echo "ERROR: Fedora-signed grubx64.efi not found in rootfs." >&2
+        echo "       The ISO would not boot on machines with Secure Boot enabled." >&2
+        echo "       Ensure grub2-efi-x64 is installed in the live container." >&2
+        exit 1
     fi
 
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
