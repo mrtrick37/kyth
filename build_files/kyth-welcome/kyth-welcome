@@ -5407,7 +5407,7 @@ class WindowsLibraryWorker(QThread):
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
 class GamingPage(Page):
-    def __init__(self):
+    def __init__(self, wizard_mode: bool = False):
         super().__init__()
         self._ge_update_worker = None
         self._win_lib_worker: WindowsLibraryWorker | None = None
@@ -5791,8 +5791,7 @@ class GamingPage(Page):
 
         launcher_card, launcher_layout = _make_card()
         launcher_note = QLabel(
-            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris (install above) for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone `.exe` / `.msi` installs. "
-            "CLI shortcuts: ujust install-steam / ujust install-lutris / ujust install-heroic / ujust install-bottles"
+            "Recommended pairing: Heroic for Epic/GOG/Amazon libraries, Lutris (install above) for Battle.net, EA App, and Ubisoft Connect, and Bottles for standalone .exe / .msi installers."
         )
         launcher_note.setObjectName("card-copy")
         launcher_note.setWordWrap(True)
@@ -5865,7 +5864,7 @@ class GamingPage(Page):
         mh_layout.addLayout(mh_top)
         mh_desc = QLabel(
             "Shows FPS, frame time, GPU/CPU load and temperature as an in-game overlay. "
-            "Toggle on/off at any time with Shift R + F12."
+            "Toggle on/off at any time with Right Shift + F12."
         )
         mh_desc.setObjectName("card-copy")
         mh_desc.setWordWrap(True)
@@ -5888,43 +5887,44 @@ class GamingPage(Page):
         mh_layout.addLayout(mh_cfg_row)
         self._add(mh_card)
 
-        # ── Gamescope ─────────────────────────────────────────────────────────
-        gs_card, gs_layout = _make_card()
-        gs_top = QHBoxLayout()
-        gs_title = QLabel("Gamescope — Game Compositor")
-        gs_title.setObjectName("card-title")
-        gs_top.addWidget(gs_title)
-        gs_top.addStretch()
-        self._gs_badge = QLabel()
-        self._gs_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        gs_top.addWidget(self._gs_badge)
-        gs_layout.addLayout(gs_top)
-        gs_desc = QLabel(
-            "Valve's micro-compositor for games: better frame pacing, VRR/adaptive sync, "
-            "FSR upscaling, and HDR. Runs the game inside its own compositor so the "
-            "desktop is unaffected. Using -e keeps Steam Input and overlay working."
-        )
-        gs_desc.setObjectName("card-copy")
-        gs_desc.setWordWrap(True)
-        gs_layout.addWidget(gs_desc)
+        if not wizard_mode:
+            # ── Gamescope ─────────────────────────────────────────────────────
+            gs_card, gs_layout = _make_card()
+            gs_top = QHBoxLayout()
+            gs_title = QLabel("Gamescope — Game Compositor")
+            gs_title.setObjectName("card-title")
+            gs_top.addWidget(gs_title)
+            gs_top.addStretch()
+            self._gs_badge = QLabel()
+            self._gs_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            gs_top.addWidget(self._gs_badge)
+            gs_layout.addLayout(gs_top)
+            gs_desc = QLabel(
+                "Valve's micro-compositor for games: better frame pacing, VRR/adaptive sync, "
+                "FSR upscaling, and HDR. Runs the game inside its own compositor so the "
+                "desktop is unaffected. Using -e keeps Steam Input and overlay working."
+            )
+            gs_desc.setObjectName("card-copy")
+            gs_desc.setWordWrap(True)
+            gs_layout.addWidget(gs_desc)
 
-        for label, opt in (
-            ("Quality preset:", "kyth-gamescope quality -- %command%"),
-            ("HDR display:", "kyth-gamescope hdr --fps 120 -- %command%"),
-            ("Sharp upscaling:", "kyth-gamescope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%"),
-            ("ujust recipe:", "ujust game-scope quality -- %command%"),
-        ):
-            row = QHBoxLayout()
-            row.setSpacing(10)
-            row.addWidget(_launch_opt_label(label))
-            row.addWidget(_launch_opt_value(opt))
-            cp = QPushButton("Copy")
-            captured = opt
-            cp.clicked.connect(lambda _=False, t=captured: _copy_text(t))
-            row.addWidget(cp)
-            row.addStretch()
-            gs_layout.addLayout(row)
-        self._add(gs_card)
+            for label, opt in (
+                ("Quality preset:", "kyth-gamescope quality -- %command%"),
+                ("HDR display:", "kyth-gamescope hdr --fps 120 -- %command%"),
+                ("Sharp upscaling:", "kyth-gamescope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%"),
+                ("ujust recipe:", "ujust game-scope quality -- %command%"),
+            ):
+                row = QHBoxLayout()
+                row.setSpacing(10)
+                row.addWidget(_launch_opt_label(label))
+                row.addWidget(_launch_opt_value(opt))
+                cp = QPushButton("Copy")
+                captured = opt
+                cp.clicked.connect(lambda _=False, t=captured: _copy_text(t))
+                row.addWidget(cp)
+                row.addStretch()
+                gs_layout.addLayout(row)
+            self._add(gs_card)
 
         # ── Per-game profile builder ─────────────────────────────────────────
         profile_card, profile_layout = _make_card()
@@ -5969,58 +5969,59 @@ class GamingPage(Page):
         self._profile_fps_combo.currentIndexChanged.connect(self._update_profile_builder)
         self._add(profile_card)
 
-        # ── sched-ext ────────────────────────────────────────────────────────
-        scx_card, scx_layout = _make_card()
-        scx_top = QHBoxLayout()
-        scx_title = QLabel("sched-ext — CPU Scheduler")
-        scx_title.setObjectName("card-title")
-        scx_top.addWidget(scx_title)
-        scx_top.addStretch()
-        self._scx_badge = QLabel()
-        self._scx_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        scx_top.addWidget(self._scx_badge)
-        scx_layout.addLayout(scx_top)
-        scx_desc = QLabel(
-            "KythOS uses CachyOS sched-ext support for latency-focused gaming. "
-            "lavd is the default all-rounder; rusty and bpfland are useful alternates for testing."
-        )
-        scx_desc.setObjectName("card-copy")
-        scx_desc.setWordWrap(True)
-        scx_layout.addWidget(scx_desc)
-        self._scx_status_lbl = QLabel()
-        self._scx_status_lbl.setObjectName("card-copy")
-        scx_layout.addWidget(self._scx_status_lbl)
-        scx_btns = QHBoxLayout()
-        scx_btns.setSpacing(8)
-        for label, scheduler in (
-            ("Use lavd", "lavd"),
-            ("Use rusty", "rusty"),
-            ("Use bpfland", "bpfland"),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, sched=scheduler: self._set_scx_scheduler(sched))
-            scx_btns.addWidget(btn)
-        self._scx_stop_btn = QPushButton("Stop scx")
-        self._scx_stop_btn.clicked.connect(lambda _=False: self._set_scx_scheduler("stop"))
-        scx_btns.addWidget(self._scx_stop_btn)
-        scx_btns.addStretch()
-        scx_layout.addLayout(scx_btns)
-        self._scx_progress = QProgressBar()
-        self._scx_progress.setRange(0, 0)
-        self._scx_progress.hide()
-        scx_layout.addWidget(self._scx_progress)
-        self._scx_log_toggle = QPushButton("Show details")
-        self._scx_log_toggle.setCheckable(True)
-        self._scx_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._scx_log_toggle, self._scx_log, checked))
-        self._scx_log_toggle.hide()
-        scx_layout.addWidget(self._scx_log_toggle)
-        self._scx_log = QTextEdit()
-        self._scx_log.setReadOnly(True)
-        self._scx_log.setMaximumHeight(100)
-        self._scx_log.hide()
-        scx_layout.addWidget(self._scx_log)
-        self._scx_worker = None
-        self._add(scx_card)
+        if not wizard_mode:
+            # ── sched-ext ─────────────────────────────────────────────────────
+            scx_card, scx_layout = _make_card()
+            scx_top = QHBoxLayout()
+            scx_title = QLabel("sched-ext — CPU Scheduler")
+            scx_title.setObjectName("card-title")
+            scx_top.addWidget(scx_title)
+            scx_top.addStretch()
+            self._scx_badge = QLabel()
+            self._scx_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            scx_top.addWidget(self._scx_badge)
+            scx_layout.addLayout(scx_top)
+            scx_desc = QLabel(
+                "KythOS uses CachyOS sched-ext support for latency-focused gaming. "
+                "lavd is the default all-rounder; rusty and bpfland are useful alternates for testing."
+            )
+            scx_desc.setObjectName("card-copy")
+            scx_desc.setWordWrap(True)
+            scx_layout.addWidget(scx_desc)
+            self._scx_status_lbl = QLabel()
+            self._scx_status_lbl.setObjectName("card-copy")
+            scx_layout.addWidget(self._scx_status_lbl)
+            scx_btns = QHBoxLayout()
+            scx_btns.setSpacing(8)
+            for label, scheduler in (
+                ("Use lavd", "lavd"),
+                ("Use rusty", "rusty"),
+                ("Use bpfland", "bpfland"),
+            ):
+                btn = QPushButton(label)
+                btn.clicked.connect(lambda _=False, sched=scheduler: self._set_scx_scheduler(sched))
+                scx_btns.addWidget(btn)
+            self._scx_stop_btn = QPushButton("Stop scx")
+            self._scx_stop_btn.clicked.connect(lambda _=False: self._set_scx_scheduler("stop"))
+            scx_btns.addWidget(self._scx_stop_btn)
+            scx_btns.addStretch()
+            scx_layout.addLayout(scx_btns)
+            self._scx_progress = QProgressBar()
+            self._scx_progress.setRange(0, 0)
+            self._scx_progress.hide()
+            scx_layout.addWidget(self._scx_progress)
+            self._scx_log_toggle = QPushButton("Show details")
+            self._scx_log_toggle.setCheckable(True)
+            self._scx_log_toggle.clicked.connect(lambda checked: _set_log_panel(self._scx_log_toggle, self._scx_log, checked))
+            self._scx_log_toggle.hide()
+            scx_layout.addWidget(self._scx_log_toggle)
+            self._scx_log = QTextEdit()
+            self._scx_log.setReadOnly(True)
+            self._scx_log.setMaximumHeight(100)
+            self._scx_log.hide()
+            scx_layout.addWidget(self._scx_log)
+            self._scx_worker = None
+            self._add(scx_card)
 
         # ── GE-Proton ─────────────────────────────────────────────────────────
         gp_card, gp_layout = _make_card()
@@ -6071,103 +6072,104 @@ class GamingPage(Page):
         self._gp_worker = None
         self._add(gp_card)
 
-        # ── Optional Proton-CachyOS SLR ──────────────────────────────────────
-        pc_card, pc_layout = _make_card()
-        pc_top = QHBoxLayout()
-        pc_title = QLabel("Optional Proton-CachyOS SLR")
-        pc_title.setObjectName("card-title")
-        pc_top.addWidget(pc_title)
-        pc_top.addStretch()
-        self._pc_badge = QLabel()
-        self._pc_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pc_top.addWidget(self._pc_badge)
-        pc_layout.addLayout(pc_top)
-        pc_desc = QLabel(
-            "Keep GE-Proton as the default. Proton-CachyOS SLR is worth having as "
-            "a second per-game runner for stubborn launchers, anti-cheat edge cases, "
-            "and games where ProtonDB reports Cachy-specific success."
-        )
-        pc_desc.setObjectName("card-copy")
-        pc_desc.setWordWrap(True)
-        pc_layout.addWidget(pc_desc)
-        self._pc_version_lbl = QLabel()
-        self._pc_version_lbl.setObjectName("card-copy")
-        pc_layout.addWidget(self._pc_version_lbl)
-        pc_btns = QHBoxLayout()
-        pc_btns.setSpacing(10)
-        pc_open = QPushButton("Open ProtonUp-Qt")
-        pc_open.clicked.connect(lambda _=False: self._open_protonupqt())
-        pc_btns.addWidget(pc_open)
-        pc_docs = QPushButton("Open CachyOS Guide")
-        pc_docs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://wiki.cachyos.org/configuration/gaming/")))
-        pc_btns.addWidget(pc_docs)
-        pc_btns.addStretch()
-        pc_layout.addLayout(pc_btns)
-        pc_note = QLabel(
-            "In ProtonUp-Qt, add a Steam compatibility tool and choose Proton-CachyOS SLR. "
-            "Restart Steam, then select it per-game under Properties -> Compatibility."
-        )
-        pc_note.setObjectName("card-copy")
-        pc_note.setWordWrap(True)
-        pc_layout.addWidget(pc_note)
-        self._add(pc_card)
+        if not wizard_mode:
+            # ── Optional Proton-CachyOS SLR ───────────────────────────────────
+            pc_card, pc_layout = _make_card()
+            pc_top = QHBoxLayout()
+            pc_title = QLabel("Optional Proton-CachyOS SLR")
+            pc_title.setObjectName("card-title")
+            pc_top.addWidget(pc_title)
+            pc_top.addStretch()
+            self._pc_badge = QLabel()
+            self._pc_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            pc_top.addWidget(self._pc_badge)
+            pc_layout.addLayout(pc_top)
+            pc_desc = QLabel(
+                "Keep GE-Proton as the default. Proton-CachyOS SLR is worth having as "
+                "a second per-game runner for stubborn launchers, anti-cheat edge cases, "
+                "and games where ProtonDB reports Cachy-specific success."
+            )
+            pc_desc.setObjectName("card-copy")
+            pc_desc.setWordWrap(True)
+            pc_layout.addWidget(pc_desc)
+            self._pc_version_lbl = QLabel()
+            self._pc_version_lbl.setObjectName("card-copy")
+            pc_layout.addWidget(self._pc_version_lbl)
+            pc_btns = QHBoxLayout()
+            pc_btns.setSpacing(10)
+            pc_open = QPushButton("Open ProtonUp-Qt")
+            pc_open.clicked.connect(lambda _=False: self._open_protonupqt())
+            pc_btns.addWidget(pc_open)
+            pc_docs = QPushButton("Open CachyOS Guide")
+            pc_docs.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://wiki.cachyos.org/configuration/gaming/")))
+            pc_btns.addWidget(pc_docs)
+            pc_btns.addStretch()
+            pc_layout.addLayout(pc_btns)
+            pc_note = QLabel(
+                "In ProtonUp-Qt, add a Steam compatibility tool and choose Proton-CachyOS SLR. "
+                "Restart Steam, then select it per-game under Properties -> Compatibility."
+            )
+            pc_note.setObjectName("card-copy")
+            pc_note.setWordWrap(True)
+            pc_layout.addWidget(pc_note)
+            self._add(pc_card)
 
-        # ── vkBasalt ──────────────────────────────────────────────────────────
-        vk_card, vk_layout = _make_card()
-        vk_top = QHBoxLayout()
-        vk_title = QLabel("vkBasalt — Vulkan Post-Processing")
-        vk_title.setObjectName("card-title")
-        vk_top.addWidget(vk_title)
-        vk_top.addStretch()
-        self._vk_badge = QLabel()
-        self._vk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        vk_top.addWidget(self._vk_badge)
-        vk_layout.addLayout(vk_top)
-        vk_desc = QLabel(
-            "Adds post-processing to any Vulkan game: CAS sharpening (default), SMAA, "
-            "FXAA, or debanding. Only active when explicitly enabled per-game. "
-            "Config: /etc/vkBasalt.conf  ·  toggle key: Home."
-        )
-        vk_desc.setObjectName("card-copy")
-        vk_desc.setWordWrap(True)
-        vk_layout.addWidget(vk_desc)
-        vk_opts = QHBoxLayout()
-        vk_opts.setSpacing(10)
-        vk_opts.addWidget(_launch_opt_label("Steam launch option:"))
-        vk_opts.addWidget(_launch_opt_value("ENABLE_VKBASALT=1 %command%"))
-        vk_copy = QPushButton("Copy")
-        vk_copy.clicked.connect(lambda: _copy_text("ENABLE_VKBASALT=1 %command%"))
-        vk_opts.addWidget(vk_copy)
-        vk_opts.addStretch()
-        vk_layout.addLayout(vk_opts)
-        self._add(vk_card)
+            # ── vkBasalt ──────────────────────────────────────────────────────
+            vk_card, vk_layout = _make_card()
+            vk_top = QHBoxLayout()
+            vk_title = QLabel("vkBasalt — Vulkan Post-Processing")
+            vk_title.setObjectName("card-title")
+            vk_top.addWidget(vk_title)
+            vk_top.addStretch()
+            self._vk_badge = QLabel()
+            self._vk_badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            vk_top.addWidget(self._vk_badge)
+            vk_layout.addLayout(vk_top)
+            vk_desc = QLabel(
+                "Adds post-processing to any Vulkan game: CAS sharpening (default), SMAA, "
+                "FXAA, or debanding. Only active when explicitly enabled per-game. "
+                "Config: /etc/vkBasalt.conf  ·  toggle key: Home."
+            )
+            vk_desc.setObjectName("card-copy")
+            vk_desc.setWordWrap(True)
+            vk_layout.addWidget(vk_desc)
+            vk_opts = QHBoxLayout()
+            vk_opts.setSpacing(10)
+            vk_opts.addWidget(_launch_opt_label("Steam launch option:"))
+            vk_opts.addWidget(_launch_opt_value("ENABLE_VKBASALT=1 %command%"))
+            vk_copy = QPushButton("Copy")
+            vk_copy.clicked.connect(lambda: _copy_text("ENABLE_VKBASALT=1 %command%"))
+            vk_opts.addWidget(vk_copy)
+            vk_opts.addStretch()
+            vk_layout.addLayout(vk_opts)
+            self._add(vk_card)
 
-        # ── Combos quick reference ────────────────────────────────────────────
-        self._divider()
-        combo_head = QLabel("Combining tools")
-        combo_head.setObjectName("card-title")
-        self._add(combo_head)
-        combo_sub = QLabel(
-            "These launch options can be stacked freely. "
-            "A good all-rounder for most games:"
-        )
-        combo_sub.setObjectName("card-copy")
-        combo_sub.setWordWrap(True)
-        self._add(combo_sub)
-        combo_txt = QTextEdit()
-        combo_txt.setReadOnly(True)
-        combo_txt.setMinimumHeight(160)
-        combo_txt.setPlainText(
-            "# All-rounder: MangoHud overlay + Gamescope compositor\n"
-            "kyth-gamescope quality -- %command%\n\n"
-            "# Same but with HDR (requires HDR display)\n"
-            "kyth-gamescope hdr -- %command%\n\n"
-            "# Add CAS sharpening via vkBasalt\n"
-            "kyth-gamescope sharp -- %command%\n\n"
-            "# GameMode + performance profile (CPU/GPU governors, renice)\n"
-            "ujust game-performance -- %command%"
-        )
-        self._add(combo_txt)
+            # ── Combos quick reference ─────────────────────────────────────────
+            self._divider()
+            combo_head = QLabel("Combining tools")
+            combo_head.setObjectName("card-title")
+            self._add(combo_head)
+            combo_sub = QLabel(
+                "These launch options can be stacked freely. "
+                "A good all-rounder for most games:"
+            )
+            combo_sub.setObjectName("card-copy")
+            combo_sub.setWordWrap(True)
+            self._add(combo_sub)
+            combo_txt = QTextEdit()
+            combo_txt.setReadOnly(True)
+            combo_txt.setMinimumHeight(160)
+            combo_txt.setPlainText(
+                "# All-rounder: MangoHud overlay + Gamescope compositor\n"
+                "kyth-gamescope quality -- %command%\n\n"
+                "# Same but with HDR (requires HDR display)\n"
+                "kyth-gamescope hdr -- %command%\n\n"
+                "# Add CAS sharpening via vkBasalt\n"
+                "kyth-gamescope sharp -- %command%\n\n"
+                "# GameMode + performance profile (CPU/GPU governors, renice)\n"
+                "ujust game-performance -- %command%"
+            )
+            self._add(combo_txt)
 
         # ── Steam Library Migration ────────────────────────────────────────────
         self._divider()
@@ -6744,20 +6746,23 @@ class GamingPage(Page):
 
     def _refresh_status(self):
         _apply_install_badge(self._mh_badge, _mangohud_installed())
-        _apply_install_badge(self._gs_badge, _gamescope_installed())
-        _apply_install_badge(self._vk_badge, _vkbasalt_installed())
-        scx_status = _command_stdout(["kyth-scx", "status"], timeout=5)
-        scx_active = "Service: active" in scx_status
-        _apply_install_badge(self._scx_badge, scx_active, ok_text="Active", warn_text="Inactive")
-        if scx_status:
-            configured = "unknown"
-            for line in scx_status.splitlines():
-                if line.startswith("Configured scheduler:"):
-                    configured = line.split(":", 1)[1].strip() or "unknown"
-                    break
-            self._scx_status_lbl.setText(f"Configured: {configured}")
-        else:
-            self._scx_status_lbl.setText("sched-ext status unavailable.")
+        if hasattr(self, "_gs_badge"):
+            _apply_install_badge(self._gs_badge, _gamescope_installed())
+        if hasattr(self, "_vk_badge"):
+            _apply_install_badge(self._vk_badge, _vkbasalt_installed())
+        if hasattr(self, "_scx_badge"):
+            scx_status = _command_stdout(["kyth-scx", "status"], timeout=5)
+            scx_active = "Service: active" in scx_status
+            _apply_install_badge(self._scx_badge, scx_active, ok_text="Active", warn_text="Inactive")
+            if scx_status:
+                configured = "unknown"
+                for line in scx_status.splitlines():
+                    if line.startswith("Configured scheduler:"):
+                        configured = line.split(":", 1)[1].strip() or "unknown"
+                        break
+                self._scx_status_lbl.setText(f"Configured: {configured}")
+            else:
+                self._scx_status_lbl.setText("sched-ext status unavailable.")
 
         gp_ver = _ge_proton_version()
         _apply_install_badge(self._gp_badge, bool(gp_ver), ok_text=gp_ver or "Installed")
@@ -6766,12 +6771,13 @@ class GamingPage(Page):
             else "GE-Proton not found in compatibilitytools.d"
         )
 
-        pc_ver = _compat_tool_version("proton-cachyos")
-        _apply_install_badge(self._pc_badge, bool(pc_ver), ok_text=pc_ver or "Installed", warn_text="Optional")
-        self._pc_version_lbl.setText(
-            f"Installed: {pc_ver}" if pc_ver
-            else "Not installed. Optional fallback runner; GE-Proton remains the recommended default."
-        )
+        if hasattr(self, "_pc_badge"):
+            pc_ver = _compat_tool_version("proton-cachyos")
+            _apply_install_badge(self._pc_badge, bool(pc_ver), ok_text=pc_ver or "Installed", warn_text="Optional")
+            self._pc_version_lbl.setText(
+                f"Installed: {pc_ver}" if pc_ver
+                else "Not installed. Optional fallback runner; GE-Proton remains the recommended default."
+            )
 
         for refs in self._tool_refs:
             installed = _is_flatpak_installed(refs["tool"]["flatpak"])
@@ -13067,7 +13073,7 @@ class WizardWindow(QMainWindow):
         self._update_page = UpdatePage()
         self._hw_page = HardwarePage(wizard_mode=True)
         self._hw_page.action_requested.connect(self._on_hw_action_requested)
-        self._gaming_page = GamingPage()
+        self._gaming_page = GamingPage(wizard_mode=True)
         self._first_run_apps_step = self._make_first_run_apps_step()
 
         self._steps = [
