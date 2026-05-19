@@ -102,6 +102,35 @@ RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
     && dnf5 copr disable -y bieszczaders/kernel-cachyos \
     && dnf5 clean all
 
+# ── Secure Boot: sign the CachyOS vmlinuz ────────────────────────────────────
+# Skipped gracefully when MOK_KEY is not set (local builds, forks without the secret).
+# The cert is bind-mounted from the build context so it never lands in an image layer.
+# Pass the private key via: --secret id=mok_key,env=MOK_KEY
+RUN --mount=type=secret,id=mok_key \
+    --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/tmp/kyth-secureboot.cer \
+    set -euo pipefail; \
+    if [[ ! -f "/run/secrets/mok_key" ]]; then \
+        echo "secureboot-live: no MOK key — vmlinuz not signed"; \
+        echo "secureboot-live: set MOK_KEY secret in CI to enable Secure Boot signing"; \
+        exit 0; \
+    fi; \
+    KVER=$(basename "$(ls -d /usr/lib/modules/*cachyos* 2>/dev/null | head -1)" 2>/dev/null || true); \
+    if [[ -z "${KVER}" ]]; then \
+        echo "secureboot-live: ERROR — no CachyOS kernel in /usr/lib/modules/" >&2; exit 1; \
+    fi; \
+    VMLINUZ="/usr/lib/modules/${KVER}/vmlinuz"; \
+    echo "secureboot-live: installing sbsigntools"; \
+    dnf5 install -y sbsigntools; \
+    echo "secureboot-live: signing ${VMLINUZ} (kernel ${KVER})"; \
+    sbsign --key "/run/secrets/mok_key" \
+           --cert "/tmp/kyth-secureboot.cer" \
+           --output "${VMLINUZ}.signed" \
+           "${VMLINUZ}"; \
+    mv "${VMLINUZ}.signed" "${VMLINUZ}"; \
+    dnf5 remove -y sbsigntools; \
+    dnf5 clean all; \
+    echo "secureboot-live: vmlinuz signed successfully"
+
 # ── System setup: live user, autologin, mask setup service ───────────────────
 # Autologin strategy — two independent layers so one backs up the other:
 #

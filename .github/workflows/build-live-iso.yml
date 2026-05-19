@@ -87,6 +87,9 @@ jobs:
         # BuildKit has no 128-layer limit and --push streams finished layers
         # straight to GHCR — nothing is written to local storage.
         # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
+        # MOK_KEY is optional — when set the CachyOS vmlinuz is signed for Secure Boot.
+        env:
+          MOK_KEY: ${{ secrets.MOK_KEY }}
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           # The live ISO is only an installer environment. Keep it based on
@@ -95,12 +98,19 @@ jobs:
           BASE_IMAGE="ghcr.io/ublue-os/kinoite-main:44"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
+
+          MOK_SECRET_ARG=()
+          if [[ -n "${MOK_KEY:-}" ]]; then
+            MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+          fi
+
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${SOURCE_TAG}" \
             --cache-from "type=registry,ref=${CACHE_REF}" \
             --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
+            "${MOK_SECRET_ARG[@]}" \
             -f build_files/Containerfile.live \
             --push \
             .
