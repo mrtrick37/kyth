@@ -389,3 +389,15 @@ jobs:
             --title "${TITLE}" \
             --notes "${NOTES}" \
             ${PRERELEASE}
+
+          # Upload the metadata artifacts as release assets so the Assets section
+          # shows the current build date (the auto-generated source archives always
+          # reflect the commit date, which lags behind the publish date).
+          # The ISO itself stays on R2 — at several GB it would hit GitHub's 2 GB
+          # per-asset limit on large builds.
+          ISO="output/live-iso/kyth-live-${SOURCE_TAG}.iso"
+          gh release upload "${TAG}" \
+            "${ISO}-CHECKSUM" \
+            "${ISO}.sig" \
+            "${ISO}.bundle" \
+            "${ISO}.json"
