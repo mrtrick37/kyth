@@ -496,8 +496,12 @@ EMBEDEOF
     # it — our grub2-mkimage output is unsigned and would be rejected with
     # "did not authenticate". Fedora's signed binary is trusted by Fedora's shim
     # (the shim embeds Fedora's UEFI signing key).
+    echo "    EFI binary sources in rootfs:"
+    ls -la "${ROOTFS}/usr/lib/kyth/efi/" 2>/dev/null || echo "    (no staged EFI binaries at /usr/lib/kyth/efi/)"
     _SIGNED_GRUB_SRC=""
+    # Check staged location first (set by Containerfile.live EFI staging step)
     for _grub_path in \
+        "${ROOTFS}/usr/lib/kyth/efi/grubx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
         "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi"; do
         if [[ -f "${_grub_path}" ]]; then
@@ -526,17 +530,18 @@ configfile (\$root)/boot/grub2/grub.cfg
 FEDGRUBEOF
         echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
     else
-        echo "WARNING: Fedora-signed grubx64.efi not found in rootfs." >&2
-        echo "         ISO will not boot on machines with Secure Boot enabled." >&2
-        echo "         Ensure grub2-efi-x64 is installed in the live container." >&2
+        echo "WARNING: Fedora-signed grubx64.efi not found in rootfs."
+        echo "         ISO will not boot on machines with Secure Boot enabled."
+        echo "         Ensure grub2-efi-x64 is installed in the live container."
     fi
 
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
     # The shim (Microsoft-signed) is what UEFI firmware loads first; it then
     # chainloads grubx64.efi (Fedora-signed) from the same directory.
     SHIM_SRC=""
-    # Check fixed paths first, then glob (must be unquoted for expansion)
+    # Check staged location first (set by Containerfile.live EFI staging step)
     for shim_path in \
+        "${ROOTFS}/usr/lib/kyth/efi/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi"; do
         if [[ -f "${shim_path}" ]]; then
@@ -569,9 +574,9 @@ FEDGRUBEOF
             fi
         fi
     else
-        echo "ERROR: shimx64.efi not found anywhere in rootfs." >&2
-        echo "       Ensure shim-x64 is installed in Containerfile.live." >&2
-        echo "       Without shim, Secure Boot machines will reject the ISO." >&2
+        echo "ERROR: shimx64.efi not found anywhere in rootfs."
+        echo "       Ensure shim-x64 is installed in Containerfile.live."
+        echo "       Without shim, Secure Boot machines will reject the ISO."
         exit 1
     fi
 else
