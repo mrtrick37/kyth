@@ -499,13 +499,19 @@ EMBEDEOF
     _SIGNED_GRUB_SRC=""
     for _grub_path in \
         "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
-        "${ROOTFS}/usr/share/grub2/grubx64.efi" \
-        "${ROOTFS}/usr/lib/grub2/grubx64.efi"; do
+        "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi"; do
         if [[ -f "${_grub_path}" ]]; then
             _SIGNED_GRUB_SRC="${_grub_path}"
             break
         fi
     done
+    # Versioned path from grub2-efi-x64 RPM: /usr/lib/efi/grub2/<ver>/EFI/fedora/grubx64.efi
+    if [[ -z "${_SIGNED_GRUB_SRC}" ]]; then
+        _SIGNED_GRUB_SRC=$(find "${ROOTFS}/usr/lib/efi/grub2" -name "grubx64.efi" 2>/dev/null | head -1)
+    fi
+    if [[ -z "${_SIGNED_GRUB_SRC}" ]]; then
+        _SIGNED_GRUB_SRC=$(find "${ROOTFS}" -path "*/EFI/fedora/grubx64.efi" 2>/dev/null | head -1)
+    fi
     if [[ -n "${_SIGNED_GRUB_SRC}" ]]; then
         cp "${_SIGNED_GRUB_SRC}" "${ISO_DIR}/EFI/BOOT/grubx64.efi"
         echo "    Secure Boot GRUB: ${_SIGNED_GRUB_SRC} → grubx64.efi (Fedora-signed)"
@@ -526,28 +532,47 @@ FEDGRUBEOF
     fi
 
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
-    # The shim chainloads grubx64.efi from the same directory.
+    # The shim (Microsoft-signed) is what UEFI firmware loads first; it then
+    # chainloads grubx64.efi (Fedora-signed) from the same directory.
     SHIM_SRC=""
+    # Check fixed paths first, then glob (must be unquoted for expansion)
     for shim_path in \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
-        "${ROOTFS}/usr/share/shim/*/shimx64.efi"; do
+        "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi"; do
         if [[ -f "${shim_path}" ]]; then
             SHIM_SRC="${shim_path}"
             break
         fi
     done
+    # Versioned path from shim-x64 RPM: /usr/lib/efi/shim/<ver>/EFI/fedora/shimx64.efi
+    if [[ -z "${SHIM_SRC}" ]]; then
+        SHIM_SRC=$(find "${ROOTFS}/usr/lib/efi/shim" -name "shimx64.efi" 2>/dev/null | head -1)
+    fi
+    # Last resort: any shimx64.efi anywhere in the rootfs
+    if [[ -z "${SHIM_SRC}" ]]; then
+        SHIM_SRC=$(find "${ROOTFS}" -name "shimx64.efi" 2>/dev/null | head -1)
+    fi
+
     if [[ -n "${SHIM_SRC}" ]]; then
         cp "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
         echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
-        # Also copy the Fedora CA fallback (mmx64.efi) if present
         SHIM_DIR="$(dirname "${SHIM_SRC}")"
+        # mmx64.efi (MokManager) lives next to shim — copy it for MOK enrollment
         if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
             cp "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+            echo "    MokManager: ${SHIM_DIR}/mmx64.efi → EFI/BOOT/mmx64.efi"
+        else
+            MMX=$(find "${ROOTFS}" -name "mmx64.efi" 2>/dev/null | head -1)
+            if [[ -n "${MMX}" ]]; then
+                cp "${MMX}" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+                echo "    MokManager: ${MMX} → EFI/BOOT/mmx64.efi"
+            fi
         fi
     else
-        echo "WARNING: shimx64.efi not found in rootfs — falling back to unsigned boot." >&2
-        echo "         Secure Boot must be disabled on the target machine." >&2
-        cp "${ISO_DIR}/EFI/BOOT/grubx64.efi" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+        echo "ERROR: shimx64.efi not found anywhere in rootfs." >&2
+        echo "       Ensure shim-x64 is installed in Containerfile.live." >&2
+        echo "       Without shim, Secure Boot machines will reject the ISO." >&2
+        exit 1
     fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
