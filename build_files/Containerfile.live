@@ -14,6 +14,8 @@ LABEL org.kyth.live.source-hash="${SOURCE_HASH}"
 
 # SOURCE_TAG controls which image URL is embedded in kyth-installer.env (:latest or :testing).
 ARG SOURCE_TAG=latest
+ARG SECUREBOOT_SIGNING_REQUESTED=0
+LABEL org.kyth.live.secureboot-signing-requested="${SECUREBOOT_SIGNING_REQUESTED}"
 
 # ── Installer + live boot packages ──────────────────────────────────────────
 RUN dnf5 -y versionlock clear 2>/dev/null || true \
@@ -119,7 +121,12 @@ RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
 RUN --mount=type=secret,id=mok_key \
     --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/tmp/kyth-secureboot.cer \
     set -euo pipefail; \
+    echo "secureboot-live: signing requested=${SECUREBOOT_SIGNING_REQUESTED}"; \
     if [[ ! -f "/run/secrets/mok_key" ]]; then \
+        if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then \
+            echo "secureboot-live: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2; \
+            exit 1; \
+        fi; \
         echo "secureboot-live: no MOK key — vmlinuz not signed"; \
         echo "secureboot-live: set MOK_KEY secret in CI to enable Secure Boot signing"; \
         exit 0; \
@@ -130,13 +137,24 @@ RUN --mount=type=secret,id=mok_key \
     fi; \
     VMLINUZ="/usr/lib/modules/${KVER}/vmlinuz"; \
     echo "secureboot-live: installing sbsigntools"; \
-    dnf5 install -y sbsigntools; \
+    dnf5 install -y sbsigntools openssl; \
     echo "secureboot-live: signing ${VMLINUZ} (kernel ${KVER})"; \
+    KEY_MD5=$(openssl rsa -in "/run/secrets/mok_key" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE"); \
+    CERT_MD5=$(openssl x509 -in "/tmp/kyth-secureboot.cer" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE"); \
+    echo "secureboot-live: key modulus md5=${KEY_MD5}"; \
+    echo "secureboot-live: cert modulus md5=${CERT_MD5}"; \
+    if [[ "${KEY_MD5}" != "${CERT_MD5}" ]]; then \
+        echo "secureboot-live: ERROR — MOK_KEY secret does not match kyth-secureboot.cer in the repo." >&2; \
+        exit 1; \
+    fi; \
     sbsign --key "/run/secrets/mok_key" \
            --cert "/tmp/kyth-secureboot.cer" \
            --output "${VMLINUZ}.signed" \
            "${VMLINUZ}"; \
     mv "${VMLINUZ}.signed" "${VMLINUZ}"; \
+    sbverify --cert "/tmp/kyth-secureboot.cer" "${VMLINUZ}"; \
+    install -Dm 0644 "/tmp/kyth-secureboot.cer" /usr/share/kyth/secureboot/kyth-secureboot.cer; \
+    install -Dm 0644 /dev/null /usr/share/kyth/secureboot/live-kernel-signed; \
     dnf5 remove -y sbsigntools; \
     dnf5 clean all; \
     echo "secureboot-live: vmlinuz signed successfully"

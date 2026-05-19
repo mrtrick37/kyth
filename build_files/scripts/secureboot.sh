@@ -7,8 +7,13 @@
 set -euo pipefail
 
 MOK_KEY_FILE="/run/secrets/mok_key"
+SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED:-0}"
 
 if [[ ! -f "${MOK_KEY_FILE}" ]]; then
+    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+        echo "secureboot: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2
+        exit 1
+    fi
     echo "secureboot: no MOK key provided — Secure Boot signing skipped"
     echo "secureboot: set MOK_KEY env var and pass --secret id=mok_key,env=MOK_KEY to enable"
     exit 0
@@ -31,7 +36,7 @@ fi
 
 # ── Install sbsigntools, sign, clean up ──────────────────────────────────────
 echo "secureboot: installing sbsigntools"
-dnf5 install -y sbsigntools
+dnf5 install -y sbsigntools openssl
 
 echo "secureboot: signing ${VMLINUZ} (kernel ${KVER})"
 KEY_MD5=$(openssl rsa -in "${MOK_KEY_FILE}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
@@ -48,6 +53,7 @@ sbsign --key "${MOK_KEY_FILE}" \
        --output "${VMLINUZ}.signed" \
        "${VMLINUZ}"
 mv "${VMLINUZ}.signed" "${VMLINUZ}"
+sbverify --cert "${CERT}" "${VMLINUZ}"
 
 dnf5 remove -y sbsigntools
 dnf5 clean all
