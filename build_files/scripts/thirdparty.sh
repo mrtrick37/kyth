@@ -291,14 +291,20 @@ TMPDIR_UMU=$(mktemp -d)
 release_json="${TMPDIR_UMU}/release.json"
 
 if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" -o "${release_json}" 2>/dev/null; then
-    # Match release assets (path contains /releases/download/) — arch suffix not
-    # required because umu-launcher tarballs (e.g. umu-launcher-1.1.4.tar.gz)
-    # carry no x86_64 indicator in the filename.
+    # Prefer the self-contained zipapp release asset. It ships umu-run directly
+    # and avoids depending on Fedora-specific RPM assets for the current Fedora
+    # release being published upstream.
     UMU_URL=$(
-        grep -oP 'https://[^"]+/releases/download/[^"]+\.tar\.(gz|zst)' "${release_json}" \
-        | grep -iv 'source\|src' \
+        grep -oP 'https://[^"]+/releases/download/[^"]+umu-launcher-[^"]+-zipapp\.tar' "${release_json}" \
         | head -n1
     ) || true
+    if [[ -z "${UMU_URL}" ]]; then
+        UMU_URL=$(
+            grep -oP 'https://[^"]+/releases/download/[^"]+\.tar(\.(gz|zst))?' "${release_json}" \
+            | grep -iv 'source\|src' \
+            | head -n1
+        ) || true
+    fi
     if [[ -n "${UMU_URL}" ]]; then
         UMU_TARBALL=$(basename "${UMU_URL}")
         echo "umu-launcher: downloading ${UMU_TARBALL}"
@@ -312,7 +318,7 @@ if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" 
             install -m 0755 "${UMU_BIN}" /usr/bin/umu-run
             # Install any bundled Python package files (umu/ directory)
             UMU_PKGDIR=$(find "${TMPDIR_UMU}" -maxdepth 3 -name 'umu' -type d | grep -v '__pycache__' | head -n1)
-            if [[ -n "${UMU_PKGDIR}" ]]; then
+            if [[ "${UMU_TARBALL}" != *-zipapp.tar && -n "${UMU_PKGDIR}" ]]; then
                 PY_SITEPKG=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
                 mkdir -p "${PY_SITEPKG}"
                 cp -r "${UMU_PKGDIR}" "${PY_SITEPKG}/"
@@ -322,7 +328,7 @@ if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${UMU_REPO_API}" 
             echo "umu-launcher: umu-run binary not found at expected path in archive; skipping." >&2
         fi
     else
-        echo "umu-launcher: no x86_64 tarball found in release assets; skipping."
+        echo "umu-launcher: no installable tarball found in release assets; skipping."
     fi
 else
     echo "umu-launcher: failed to fetch release info from GitHub; skipping."

@@ -44,7 +44,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
@@ -81,12 +81,16 @@ jobs:
           retry "GHCR login" 20 ghcr_login
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@b5ca514318bd6ebac0fb2aedd5d36ec1b5c232a2 # v3.10.0
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       - name: Build and push live container directly to GHCR
         # BuildKit has no 128-layer limit and --push streams finished layers
         # straight to GHCR — nothing is written to local storage.
         # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
+        # MOK_KEY is optional — when set the CachyOS vmlinuz is signed for Secure Boot.
+        env:
+          MOK_KEY: ${{ secrets.MOK_KEY }}
+          SECUREBOOT_SIGN_EFI: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           # The live ISO is only an installer environment. Keep it based on
@@ -95,15 +99,44 @@ jobs:
           BASE_IMAGE="ghcr.io/ublue-os/kinoite-main:44"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
+          SOURCE_HASH="$(
+            sha256sum \
+              build_files/Containerfile.live \
+              build_files/kyth-installer \
+              build_files/kyth-launch-installer \
+              build_files/plymouth/kyth.plymouth \
+              build_files/plymouth/kyth.script \
+              build_files/wallpaper/kyth-wallpaper.svg \
+              build_files/branding/kyth-logo.svg \
+              build_files/branding/kyth-logo-transparent.svg \
+              build_files/secureboot/kyth-secureboot.cer \
+            | sha256sum \
+            | awk '{print $1}'
+          )"
+
+          MOK_SECRET_ARG=()
+          SECUREBOOT_SIGNING_REQUESTED=0
+          if [[ -z "${MOK_KEY:-}" ]]; then
+            echo "ERROR: MOK_KEY repository secret is required for Secure Boot ISO builds." >&2
+            exit 1
+          fi
+          MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+          SECUREBOOT_SIGNING_REQUESTED=1
+
           docker buildx build \
             --tag "${IMAGE}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE}" \
             --build-arg SOURCE_TAG="${SOURCE_TAG}" \
+            --build-arg SOURCE_HASH="${SOURCE_HASH}" \
+            --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${CACHE_REF}" \
             --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
+            "${MOK_SECRET_ARG[@]}" \
             -f build_files/Containerfile.live \
             --push \
             .
+
+          echo "==> Live container build requested Secure Boot signing"
 
       - name: Flatten live container to a single layer
         # The live image inherits 100+ layers from the kyth base image.
@@ -149,9 +182,19 @@ jobs:
 
           # Pull the multi-layer image, flatten to one layer locally, push back.
           retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified live container Secure Boot signing marker before flatten"
+          else
+            echo "WARNING: live container missing Secure Boot marker before flatten; ISO job will sign exported kernel"
+          fi
           CID=$(docker create "${IMAGE}" /bin/true)
           docker export "${CID}" | docker import - "${IMAGE}"
           docker rm "${CID}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified live container Secure Boot signing marker after flatten"
+          else
+            echo "WARNING: live container missing Secure Boot marker after flatten; ISO job will sign exported kernel"
+          fi
           retry "Docker push ${IMAGE}" 30 docker push "${IMAGE}"
 
   # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
@@ -177,7 +220,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
@@ -196,7 +239,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y \
             xorriso squashfs-tools mtools dosfstools git \
-            grub-common grub-pc-bin grub-efi-amd64-bin
+            grub-common grub-pc-bin grub-efi-amd64-bin sbsigntool
           # Install just from a pinned release with checksum verification.
           # To update: bump JUST_VER and JUST_SHA256 together.
           JUST_VER="1.49.0"
@@ -246,6 +289,11 @@ jobs:
 
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
+          if docker run --rm "${IMAGE}" test -f /usr/share/kyth/secureboot/live-kernel-signed; then
+            echo "==> Verified pulled live container Secure Boot signing marker"
+          else
+            echo "WARNING: pulled live container missing Secure Boot marker; build-live-iso.sh will sign exported kernel"
+          fi
           docker tag "${IMAGE}" "${LIVE_TAG}"
           docker rmi "${IMAGE}" || true
 
@@ -264,6 +312,9 @@ jobs:
         # overlay2 footprint before mksquashfs runs.
         env:
           SKIP_REBUILD: "1"
+          MOK_KEY: ${{ secrets.MOK_KEY }}
+          REQUIRE_SECUREBOOT_SIGNING: "1"
+          SECUREBOOT_SIGN_EFI: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then
@@ -328,6 +379,7 @@ jobs:
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
               "checksum": iso.name + "-CHECKSUM",
+              "secureboot_cert": "kyth-secureboot.der",
               "attestation_url": os.environ.get("ATTESTATION_URL", ""),
               "source_image": f"ghcr.io/{os.environ['GITHUB_REPOSITORY']}:live-build-{os.environ['SOURCE_TAG']}",
               "source_tag": os.environ["SOURCE_TAG"],
@@ -343,7 +395,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kyth-live-iso-${{ matrix.source_tag }}
-          path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
+          path: |
+            output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
+            output/live-iso/kyth-secureboot.der
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -353,7 +407,7 @@ jobs:
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
-          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json" "output/live-iso/kyth-secureboot.der"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -371,14 +425,15 @@ jobs:
           SIG_URL="${ISO_URL}.sig"
           BUNDLE_URL="${ISO_URL}.bundle"
           META_URL="${ISO_URL}.json"
+          SECUREBOOT_CERT_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-secureboot.der"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)\n**Secure Boot cert:** [DER](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}" "${SECUREBOOT_CERT_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)\n**Secure Boot cert:** [DER](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}" "${SECUREBOOT_CERT_URL}")
             PRERELEASE="--latest"
           fi
 
@@ -389,3 +444,16 @@ jobs:
             --title "${TITLE}" \
             --notes "${NOTES}" \
             ${PRERELEASE}
+
+          # Upload the metadata artifacts as release assets so the Assets section
+          # shows the current build date (the auto-generated source archives always
+          # reflect the commit date, which lags behind the publish date).
+          # The ISO itself stays on R2 — at several GB it would hit GitHub's 2 GB
+          # per-asset limit on large builds.
+          ISO="output/live-iso/kyth-live-${SOURCE_TAG}.iso"
+          gh release upload "${TAG}" \
+            "${ISO}-CHECKSUM" \
+            "${ISO}.sig" \
+            "${ISO}.bundle" \
+            "${ISO}.json" \
+            "output/live-iso/kyth-secureboot.der"
