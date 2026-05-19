@@ -81,6 +81,7 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && (find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
     && (find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
     && (find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
+    && (chmod 0644 /usr/lib/kyth/efi/*.efi 2>/dev/null || true) \
     && echo "==> EFI staging:" \
     && ls -la /usr/lib/kyth/efi/ || echo "WARNING: no EFI binaries staged to /usr/lib/kyth/efi/"
 

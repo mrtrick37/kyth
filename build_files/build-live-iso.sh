@@ -165,6 +165,12 @@ mkdir -p \
     "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
 
+copy_efi_from_rootfs() {
+    local src="$1"
+    local dest="$2"
+    sudo install -m 0644 "${src}" "${dest}"
+}
+
 # ── 1. Build live container ─────────────────────────────────────────
 _need_rebuild=0
 if [[ "${SKIP_REBUILD:-}" == "1" ]]; then
@@ -517,7 +523,7 @@ EMBEDEOF
         _SIGNED_GRUB_SRC=$(find "${ROOTFS}" -path "*/EFI/fedora/grubx64.efi" 2>/dev/null | head -1)
     fi
     if [[ -n "${_SIGNED_GRUB_SRC}" ]]; then
-        cp "${_SIGNED_GRUB_SRC}" "${ISO_DIR}/EFI/BOOT/grubx64.efi"
+        copy_efi_from_rootfs "${_SIGNED_GRUB_SRC}" "${ISO_DIR}/EFI/BOOT/grubx64.efi"
         echo "    Secure Boot GRUB: ${_SIGNED_GRUB_SRC} → grubx64.efi (Fedora-signed)"
         # Fedora's signed grubx64.efi searches for /EFI/fedora/grub.cfg using
         # search.file, then sets prefix=($root)/EFI/fedora and loads that config.
@@ -559,17 +565,17 @@ FEDGRUBEOF
     fi
 
     if [[ -n "${SHIM_SRC}" ]]; then
-        cp "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+        copy_efi_from_rootfs "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
         echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
         SHIM_DIR="$(dirname "${SHIM_SRC}")"
         # mmx64.efi (MokManager) lives next to shim — copy it for MOK enrollment
         if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
-            cp "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+            copy_efi_from_rootfs "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
             echo "    MokManager: ${SHIM_DIR}/mmx64.efi → EFI/BOOT/mmx64.efi"
         else
             MMX=$(find "${ROOTFS}" -name "mmx64.efi" 2>/dev/null | head -1)
             if [[ -n "${MMX}" ]]; then
-                cp "${MMX}" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
+                copy_efi_from_rootfs "${MMX}" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
                 echo "    MokManager: ${MMX} → EFI/BOOT/mmx64.efi"
             fi
         fi
