@@ -97,11 +97,12 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # Layer 7: Secure Boot — sign the CachyOS vmlinuz and install the enrollment service.
 # Skipped gracefully when MOK_KEY is not set (local builds without a signing key).
 # Pass the private key via: --secret id=mok_key,env=MOK_KEY
+ARG SECUREBOOT_SIGNING_REQUESTED=0
 RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=mok_key \
-    /ctx/scripts/secureboot.sh
+    SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} /ctx/scripts/secureboot.sh
 
 # Layer 8: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-run on every daily build.

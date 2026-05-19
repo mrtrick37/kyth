@@ -82,6 +82,40 @@ kernel.perf_event_paranoid = 1
 # via a costly process-tree scan. Eliminates multi-second stutter spikes when
 # RAM fills up during shader compilation while a game is running.
 vm.oom_kill_allocating_task = 1
+
+# RT throttle — allow real-time threads ~98% of CPU time instead of the default
+# 95%. GameMode elevates game threads to SCHED_FIFO; the 5% headroom reserves
+# 50 ms/s for the kernel watchdog and IRQs. Raising to 2% headroom still protects
+# the system while letting audio and render threads hit their deadlines under load.
+kernel.sched_rt_runtime_us = 980000
+
+# Reduce VM statistics update interval — less overhead on CPUs pinned to gaming
+# workloads. Default is 1 s; 10 s cuts vm_stat_work CPU cost without hiding
+# meaningful memory pressure information.
+vm.stat_interval = 10
+
+# Disable cross-CPU timer migration — timers fire on the CPU that set them
+# rather than migrating to an "idle" core. Eliminates a class of inter-core
+# wakeup latency jitter that shows up as micro-stutter on NUMA and CCD-split
+# (Ryzen X3D) CPUs.
+kernel.timer_migration = 0
+
+# TIME_WAIT socket reuse — allow a new outgoing connection to reuse a socket
+# in TIME_WAIT if the remote endpoint differs. Prevents ephemeral port exhaustion
+# during matchmaking and launcher batch downloads (hundreds of short-lived
+# TCP connections to CDN servers).
+net.ipv4.tcp_tw_reuse = 1
+
+# UDP tuning for online gaming
+# netdev_max_backlog: how many packets the kernel queues per CPU before dropping.
+# Default 1000 is too low for high-frequency online games (Valorant, CS2, etc.)
+# sending and receiving hundreds of packets per second in burst.
+net.core.netdev_max_backlog = 16384
+# Raise the minimum UDP socket buffer floor so small-buffer sockets (game engines
+# that do not call setsockopt) still get a usable baseline. Default 4096 B can
+# cause silent packet loss on burst-heavy UDP game protocols.
+net.ipv4.udp_rmem_min = 8192
+net.ipv4.udp_wmem_min = 8192
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
@@ -277,6 +311,12 @@ DBUSBROKEREOF
 cat > /etc/modprobe.d/amdgpu-kyth.conf <<'AMDGPUEOF'
 options amdgpu ppfeaturemask=0xffffffff
 options amdgpu gttsize=4096
+# noretry=0: allow the GPU to retry faulting memory accesses instead of
+# immediately raising a fault signal. Prevents crashes in DX12 titles that
+# access partially-mapped resources (common in games using tiled/sparse
+# textures). The retry adds a small latency penalty on actual fault paths,
+# which are rare during normal rendering.
+options amdgpu noretry=0
 AMDGPUEOF
 
 # ── NVIDIA kernel module options ─────────────────────────────────────────────
@@ -310,6 +350,8 @@ I915EOF
 # CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
 # access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
 # (faster and lower-latency than esync/fsync for Windows game compatibility).
+mkdir -p /usr/lib/modules-load.d
+echo 'ntsync' > /usr/lib/modules-load.d/kyth-ntsync.conf
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
     > /usr/lib/udev/rules.d/99-ntsync.rules
 
@@ -361,6 +403,15 @@ amd_performance_level = high
 nv_perf_level = 5
 GAMEMODEEOF
 
+# ── Bluetooth — enable adapter on boot ───────────────────────────────────────
+# BlueZ ships with AutoEnable commented out (value is 'false' in modern versions).
+# Replace any commented AutoEnable line with the enabled form; append to [Policy]
+# if the line is missing entirely.
+sed -i 's/^#\s*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf
+grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
+    printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
+systemctl enable bluetooth.service 2>/dev/null || true
+
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
 # sensitivity and causing apparent "weak signal" even close to the AP.
@@ -398,8 +449,15 @@ mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
 # NVMe: bypass scheduler entirely (DEVTYPE==disk excludes partition nodes which lack queue/scheduler)
 ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
-# SATA SSDs (non-rotational): deadline with low latency
+# NVMe: 2 MB read-ahead — speeds up large sequential reads (shader cache warm,
+# game map loads) without noticeable cost on random-heavy workloads.
+ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/read_ahead_kb}="2048"
+# NVMe: disable write-back throttle — wbt was designed for HDDs; on NVMe it adds
+# latency for writes that the drive's own QoS already manages better.
+ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/wbt_lat_usec}="0"
+# SATA SSDs (non-rotational): deadline with low latency + 1 MB read-ahead
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
+ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/read_ahead_kb}="1024"
 # HDDs: BFQ to avoid seek storms
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="1", ATTR{queue/scheduler}="bfq"
 # VirtIO block (QEMU/KVM VMs): mq-deadline — BFQ can stall under heavy sequential I/O
@@ -460,6 +518,15 @@ mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
 # run at native resolution get AMD FidelityFX Super Resolution upscaling.
 # Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
+# Suppress the Windows-style crash/error dialog that pops up when a game
+# exits unexpectedly via Wine's built-in error handler. On Linux the crash is
+# already captured by the kernel and Proton's own logging; the dialog just
+# forces the user to click through a meaningless "Application Error" popup.
+PROTON_NO_WINDOWS_CRASH_DIALOG=1
+# Silence DXVK verbose debug output. The default "info" level writes to disk
+# on every DX9/10/11 draw call setup, adding measurable I/O overhead on
+# titles with high draw call counts. "none" keeps only fatal errors.
+DXVK_LOG_LEVEL=none
 PROTONEOF
 
 # obs-vkcapture: make game capture available by default for OBS users. The layer
@@ -542,6 +609,11 @@ round_corners=4
 
 # Frame metrics
 fps
+# Color-code FPS: green ≥60, yellow ≥30, red <30
+fps_color_change=1
+fps_value=60,30
+# Show when an FPS cap/limit is active (Steam, MangoHud, or driver limiter)
+show_fps_limit
 frametime=1
 frame_timing=1
 
@@ -551,14 +623,21 @@ gpu_temp
 gpu_core_clock
 gpu_mem_clock
 vram
+# GPU power draw — a sustained drop toward TDP indicates thermal throttling
+gpu_power
 
 # CPU
 cpu_stats
 cpu_temp
 cpu_mhz
+# CPU package power — useful for spotting frequency boosts and throttle events
+cpu_power
 
 # System RAM
 ram
+
+# Battery (shown only on systems where a battery is present)
+battery
 
 # Show Wine/Proton version when running Windows games
 wine

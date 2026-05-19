@@ -318,22 +318,6 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
 
-# Remove Waydroid desktop/menu entries and related files if present
-# (some base images include a Waydroid helper that we don't ship in KythOS)
-rm -f /usr/share/applications/*waydroid*.desktop || true
-rm -f /usr/local/share/applications/*waydroid*.desktop || true
-rm -f /usr/share/kservices5/*waydroid* || true
-rm -rf /usr/share/waydroid /var/lib/waydroid || true
-# Also remove common capitalized filenames
-rm -f /usr/share/applications/Waydroid.desktop || true
-
-# QA check: fail the build if any Waydroid desktop/menu files remain
-if find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print -quit 2>/dev/null | grep -q .; then
-	echo "ERROR: Waydroid desktop/menu files remain after cleanup:" >&2
-	find /usr/share/applications /usr/local/share/applications /usr/share/kservices5 -maxdepth 2 -type f -iname '*waydroid*' -print >&2 || true
-	exit 1
-fi
-
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
@@ -399,10 +383,8 @@ install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
     /usr/share/applications/kyth-vpn-connect.desktop
+install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
-mkdir -p /etc/xdg/autostart
-install -m 0644 /ctx/kyth-vpn-status/kyth-vpn-status.desktop \
-    /etc/xdg/autostart/kyth-vpn-status.desktop
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service

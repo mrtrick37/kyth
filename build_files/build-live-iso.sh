@@ -46,6 +46,19 @@ if [[ "${SOURCE_TAG}" == "latest" ]]; then
 else
     LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
+SECUREBOOT_SIGNING_REQUESTED=0
+if [[ -n "${MOK_KEY:-}" ]]; then
+    SECUREBOOT_SIGNING_REQUESTED=1
+fi
+SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-${SECUREBOOT_SIGNING_REQUESTED}}"
+
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+    if [[ -z "${MOK_KEY:-}" ]]; then
+        echo "ERROR: Secure Boot signing is required, but MOK_KEY is not set." >&2
+        echo "       Add the PEM private key as the GitHub MOK_KEY secret or export MOK_KEY locally." >&2
+        exit 1
+    fi
+fi
 
 # ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
 SUDO_KEEPALIVE_PID=""
@@ -85,6 +98,7 @@ SOURCE_HASH="$(
         build_files/wallpaper/kyth-wallpaper.svg \
         build_files/branding/kyth-logo.svg \
         build_files/branding/kyth-logo-transparent.svg \
+        build_files/secureboot/kyth-secureboot.cer \
     | sha256sum \
     | awk '{print $1}'
 )"
@@ -145,6 +159,11 @@ command -v mksquashfs &>/dev/null || _missing_pkgs+=(squashfs-tools)
 command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
 command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
 command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
+command -v sbverify   &>/dev/null || _missing_pkgs+=(sbsigntools)
+if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
+    command -v sbsign &>/dev/null || [[ " ${_missing_pkgs[*]} " == *sbsigntools* ]] || _missing_pkgs+=(sbsigntools)
+    command -v openssl &>/dev/null || _missing_pkgs+=(openssl)
+fi
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
     echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
@@ -161,8 +180,201 @@ mkdir -p \
     "${ISO_DIR}/LiveOS" \
     "${ISO_DIR}/images/pxeboot" \
     "${ISO_DIR}/EFI/BOOT" \
+    "${ISO_DIR}/EFI/fedora" \
     "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
+
+copy_efi_from_rootfs() {
+    local src="$1"
+    local dest="$2"
+    sudo install -m 0644 "${src}" "${dest}"
+}
+
+efi_is_signed() {
+    local image="$1"
+    local verify_output
+
+    verify_output=$(sbverify --list "${image}" 2>&1) || return 1
+    ! grep -qi "no signature table" <<<"${verify_output}"
+}
+
+copy_signed_efi_from_candidates() {
+    local dest="$1"
+    local label="$2"
+    shift 2
+
+    local candidate
+    for candidate in "$@"; do
+        [[ -f "${candidate}" ]] || continue
+        if efi_is_signed "${candidate}"; then
+            copy_efi_from_rootfs "${candidate}" "${dest}"
+            echo "    ${label}: ${candidate} → ${dest##*/}"
+            return 0
+        fi
+        echo "    Skipping unsigned ${label} candidate: ${candidate}" >&2
+    done
+
+    return 1
+}
+
+find_signed_efi() {
+    local search_root="$1"
+    local filename="$2"
+    find "${search_root}" -name "${filename}" -type f 2>/dev/null \
+        | while IFS= read -r candidate; do
+            if efi_is_signed "${candidate}"; then
+                printf '%s\n' "${candidate}"
+                break
+            fi
+        done
+}
+
+sign_efi_with_kyth_key() {
+    local image="$1"
+    local label="$2"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local signed="${image}.kyth-signed"
+
+    [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]] || return 0
+
+    if [[ ! -f "${cert}" ]]; then
+        echo "ERROR: Secure Boot cert not found at ${cert}; cannot sign ${label}." >&2
+        exit 1
+    fi
+
+    local key_file
+    key_file="$(write_kyth_signing_key)"
+    verify_key_matches_cert "${key_file}" "${cert}"
+
+    echo "    Kyth-signing ${label}: ${image##*/}"
+    sbsign \
+        --key "${key_file}" \
+        --cert "${cert}" \
+        --output "${signed}" \
+        "${image}"
+    mv "${signed}" "${image}"
+    sbverify --cert "${cert}" "${image}" >/dev/null
+}
+
+write_kyth_signing_key() {
+    local key_file="${WORK}/kyth-secureboot.key"
+
+    if [[ -z "${MOK_KEY:-}" ]]; then
+        echo "ERROR: MOK_KEY is required for Secure Boot signing." >&2
+        exit 1
+    fi
+
+    if [[ ! -f "${key_file}" ]]; then
+        printf '%s\n' "${MOK_KEY}" > "${key_file}"
+        chmod 0600 "${key_file}"
+    fi
+
+    printf '%s\n' "${key_file}"
+}
+
+verify_key_matches_cert() {
+    local key_file="$1"
+    local cert="$2"
+    local key_md5
+    local cert_md5
+
+    key_md5=$(openssl rsa -in "${key_file}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+    cert_md5=$(openssl x509 -in "${cert}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
+    if [[ "${key_md5}" != "${cert_md5}" ]]; then
+        echo "ERROR: MOK_KEY does not match ${cert}." >&2
+        echo "       key modulus md5=${key_md5}" >&2
+        echo "       cert modulus md5=${cert_md5}" >&2
+        exit 1
+    fi
+}
+
+sign_live_kernel_from_export() {
+    local vmlinuz="$1"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local marker="${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed"
+    local signed="${WORK}/vmlinuz.kyth-signed"
+    local key_file
+
+    [[ -f "${vmlinuz}" ]] || {
+        echo "ERROR: live kernel not found at ${vmlinuz}" >&2
+        exit 1
+    }
+    [[ -f "${cert}" ]] || {
+        echo "ERROR: Secure Boot cert not found at ${cert}" >&2
+        exit 1
+    }
+
+    key_file="$(write_kyth_signing_key)"
+    verify_key_matches_cert "${key_file}" "${cert}"
+
+    echo "==> Secure Boot: signing exported live kernel ${vmlinuz}"
+    sbsign \
+        --key "${key_file}" \
+        --cert "${cert}" \
+        --output "${signed}" \
+        "${vmlinuz}"
+    sudo install -m 0644 "${signed}" "${vmlinuz}"
+    sbverify --cert "${cert}" "${vmlinuz}" >/dev/null
+
+    sudo install -Dm 0644 "${cert}" "${ROOTFS}/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    sudo install -Dm 0644 /dev/null "${marker}"
+    echo "==> Secure Boot: exported live kernel signed and marker written"
+}
+
+verify_efi_image_boot_chain() {
+    local efi_img="$1"
+    local verify_dir="${WORK}/verify-efi"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local required_file
+
+    mkdir -p "${verify_dir}"
+    rm -f "${verify_dir}"/*.efi 2>/dev/null || true
+
+    for required_file in BOOTX64.EFI grubx64.efi; do
+        mcopy -n -i "${efi_img}" "::/EFI/BOOT/${required_file}" "${verify_dir}/${required_file}" >/dev/null
+        efi_is_signed "${verify_dir}/${required_file}" || {
+            echo "ERROR: embedded ${required_file} is not signed in ${efi_img}." >&2
+            exit 1
+        }
+        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+            sbverify --cert "${cert}" "${verify_dir}/${required_file}" >/dev/null || {
+                echo "ERROR: embedded ${required_file} is not signed by the Kyth Secure Boot cert." >&2
+                exit 1
+            }
+        fi
+    done
+
+    if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${verify_dir}/mmx64.efi" >/dev/null 2>&1; then
+        efi_is_signed "${verify_dir}/mmx64.efi" || {
+            echo "ERROR: embedded mmx64.efi is not signed in ${efi_img}." >&2
+            exit 1
+        }
+        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+            sbverify --cert "${cert}" "${verify_dir}/mmx64.efi" >/dev/null || {
+                echo "ERROR: embedded mmx64.efi is not signed by the Kyth Secure Boot cert." >&2
+                exit 1
+            }
+        fi
+    fi
+
+    echo "==> Secure Boot: embedded EFI boot chain verified"
+}
+
+verify_signed_with_kyth_cert() {
+    local image="$1"
+    local label="$2"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+
+    efi_is_signed "${image}" || {
+        echo "ERROR: ${label} is not Secure Boot signed: ${image}" >&2
+        exit 1
+    }
+    sbverify --cert "${cert}" "${image}" >/dev/null || {
+        echo "ERROR: ${label} is not signed by the Kyth Secure Boot cert: ${image}" >&2
+        exit 1
+    }
+    echo "    Secure Boot: ${label} signed by Kyth cert"
+}
 
 # ── 1. Build live container ─────────────────────────────────────────
 _need_rebuild=0
@@ -180,6 +392,14 @@ else
         2>/dev/null || echo "")
     if [[ "${_installed_hash}" != "${SOURCE_HASH}" ]]; then
         echo "==> Installer sources changed — rebuilding ${LIVE_BUILD_TAG}..."
+        _need_rebuild=1
+    fi
+
+    _installed_secureboot_signing=$(docker image inspect "${LIVE_BUILD_TAG}" \
+        --format '{{ index .Config.Labels "org.kyth.live.secureboot-signing-requested" }}' \
+        2>/dev/null || echo "")
+    if [[ "${_installed_secureboot_signing}" != "${SECUREBOOT_SIGNING_REQUESTED}" ]]; then
+        echo "==> Secure Boot signing state changed — rebuilding ${LIVE_BUILD_TAG}..."
         _need_rebuild=1
     fi
 
@@ -204,6 +424,13 @@ if [[ "${_need_rebuild}" == "1" ]]; then
 
     echo "==> Building live container (this takes a while)..."
     BUILD_ARGS=()
+    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+        echo "==> Secure Boot: MOK_KEY set — live vmlinuz will be signed"
+        BUILD_ARGS+=(--secret id=mok_key,env=MOK_KEY --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
+    else
+        echo "==> Secure Boot: MOK_KEY not set — live vmlinuz signing skipped"
+        BUILD_ARGS+=(--build-arg SECUREBOOT_SIGNING_REQUESTED=0)
+    fi
     if [[ -n "${LIVE_BUILD_CACHE_FROM:-}" ]]; then
         echo "==> Using live build cache source: ${LIVE_BUILD_CACHE_FROM}"
         BUILD_ARGS+=(--cache-from "${LIVE_BUILD_CACHE_FROM}")
@@ -299,9 +526,26 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
+if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
+    echo "    Secure Boot: live kernel signing marker present"
+    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+        verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
+    fi
+elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    echo "    Secure Boot: exported live kernel is unsigned — signing it before squashfs"
+    sign_live_kernel_from_export "${VMLINUZ}"
+else
+    echo "WARNING: live kernel is not marked as Secure Boot signed." >&2
+    echo "         Secure Boot machines will need signing enabled before booting this ISO." >&2
+fi
+
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    verify_signed_with_kyth_cert "${ISO_DIR}/images/pxeboot/vmlinuz" "ISO live kernel"
+    echo "    Secure Boot: ISO live kernel signature verified"
+fi
 
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
 # No OCI bundle embedded — kyth-installer pulls from the registry at install time
@@ -421,9 +665,43 @@ menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-
     initrd /images/pxeboot/initrd.img
 }
 
+menuentry "Enroll KythOS Secure Boot Key" --class efi {
+    if [ -f /EFI/BOOT/mmx64.efi ]; then
+        echo ""
+        echo "KythOS uses a custom kernel that must be enrolled once for Secure Boot."
+        echo ""
+        echo "In MokManager (launching now):"
+        echo "  1. Select 'Enroll key from disk'"
+        echo "  2. Navigate: EFI -> BOOT -> kyth-secureboot.der"
+        echo "  3. Select the file, choose 'Continue', then 'Yes', then 'Reboot'"
+        echo "  4. After rebooting, select 'Try KythOS Live'"
+        echo ""
+        echo "Password prompt: type 'kyth' if asked (or leave blank)."
+        echo ""
+        sleep 6
+        chainloader /EFI/BOOT/mmx64.efi
+    else
+        echo "MokManager (mmx64.efi) is missing from this ISO."
+        echo "Reinstall shim-x64 in the live container and rebuild."
+        sleep 4
+    fi
+}
+
 GRUBEOF
 
 cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
+
+# ── Secure Boot: MOK cert for GRUB enrollment menu ────────────────────────────
+# Convert the PEM cert from the repo to DER format. MokManager (mmx64.efi) reads
+# DER when the user selects "Enroll key from disk" → EFI/BOOT/kyth-secureboot.der.
+_SB_CERT_PEM="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+_SB_CERT_DER="${ISO_DIR}/EFI/BOOT/kyth-secureboot.der"
+if [[ -f "${_SB_CERT_PEM}" ]] && command -v openssl &>/dev/null; then
+    openssl x509 -in "${_SB_CERT_PEM}" -outform DER -out "${_SB_CERT_DER}"
+    echo "==> Secure Boot: kyth-secureboot.der added to EFI/BOOT"
+else
+    echo "WARNING: ${_SB_CERT_PEM} not found — Secure Boot enrollment entry will not work" >&2
+fi
 
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
@@ -456,29 +734,92 @@ EMBEDEOF
     GRUB_EFI_BUILT=true
     echo "    UEFI GRUB binary: built with grub2-mkimage (x86_64-efi) → grubx64.efi"
 
+    # Override with Fedora's pre-signed grubx64.efi when available.
+    # The shim (BOOTX64.EFI) verifies grubx64.efi's signature before chainloading
+    # it — our grub2-mkimage output is unsigned and would be rejected with
+    # "did not authenticate". Fedora's signed binary is trusted by Fedora's shim
+    # (the shim embeds Fedora's UEFI signing key).
+    echo "    EFI binary sources in rootfs:"
+    ls -la "${ROOTFS}/usr/lib/kyth/efi/" 2>/dev/null || echo "    (no staged EFI binaries at /usr/lib/kyth/efi/)"
+    if ! copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/grubx64.efi" \
+        "Secure Boot GRUB" \
+        "${ROOTFS}/usr/lib/kyth/efi/grubx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/grub2" "grubx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/grub" "grubx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "grubx64.efi")"; then
+        echo "ERROR: signed grubx64.efi not found in rootfs." >&2
+        echo "       The ISO would not boot on machines with Secure Boot enabled." >&2
+        echo "       Ensure grub2-efi-x64 or grub2-efi-x64-cdboot provides a signed GRUB binary." >&2
+        exit 1
+    fi
+
+    # Fedora's signed grubx64.efi searches for /EFI/fedora/grub.cfg using
+    # search.file, then sets prefix=($root)/EFI/fedora and loads that config.
+    # Place a redirect there that locates the ISO by volume label and chains
+    # to our full menu config (which lives in boot/grub2/grub.cfg on the ISO).
+    # Note: unquoted heredoc so ${VOLID} expands; $root is a GRUB variable.
+    cat > "${ISO_DIR}/EFI/fedora/grub.cfg" << FEDGRUBEOF
+search --no-floppy --label --set=root ${VOLID}
+configfile (\$root)/boot/grub2/grub.cfg
+FEDGRUBEOF
+    echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
+
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
-    # The shim chainloads grubx64.efi from the same directory.
-    SHIM_SRC=""
-    for shim_path in \
+    # The shim (Microsoft-signed) is what UEFI firmware loads first; it then
+    # chainloads grubx64.efi (Fedora-signed) from the same directory.
+    if copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
+        "Secure Boot shim" \
+        "${ROOTFS}/usr/lib/kyth/efi/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
-        "${ROOTFS}/usr/share/shim/*/shimx64.efi"; do
-        if [[ -f "${shim_path}" ]]; then
-            SHIM_SRC="${shim_path}"
-            break
-        fi
-    done
-    if [[ -n "${SHIM_SRC}" ]]; then
-        cp "${SHIM_SRC}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
-        echo "    Secure Boot shim: ${SHIM_SRC} → BOOTX64.EFI"
-        # Also copy the Fedora CA fallback (mmx64.efi) if present
-        SHIM_DIR="$(dirname "${SHIM_SRC}")"
-        if [[ -f "${SHIM_DIR}/mmx64.efi" ]]; then
-            cp "${SHIM_DIR}/mmx64.efi" "${ISO_DIR}/EFI/BOOT/mmx64.efi"
-        fi
+        "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "shimx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "shimx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "shimx64.efi")"; then
+        :
     else
-        echo "WARNING: shimx64.efi not found in rootfs — falling back to unsigned boot." >&2
-        echo "         Secure Boot must be disabled on the target machine." >&2
-        cp "${ISO_DIR}/EFI/BOOT/grubx64.efi" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI"
+        echo "ERROR: signed shimx64.efi not found in rootfs." >&2
+        echo "       Ensure shim-x64 provides a Microsoft-signed shim binary." >&2
+        echo "       Without signed shim, firmware rejects the ISO before GRUB can start." >&2
+        exit 1
+    fi
+
+    if copy_signed_efi_from_candidates \
+        "${ISO_DIR}/EFI/BOOT/mmx64.efi" \
+        "MokManager" \
+        "${ROOTFS}/usr/lib/kyth/efi/mmx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/fedora/mmx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/mmx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "mmx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "mmx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "mmx64.efi")"; then
+        :
+    else
+        echo "WARNING: signed mmx64.efi not found — the ISO can boot, but the GRUB enrollment entry will be unavailable." >&2
+    fi
+
+    efi_is_signed "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" || {
+        echo "ERROR: BOOTX64.EFI is not signed; firmware Secure Boot would reject it." >&2
+        exit 1
+    }
+    efi_is_signed "${ISO_DIR}/EFI/BOOT/grubx64.efi" || {
+        echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
+        exit 1
+    }
+
+    # Optional direct firmware trust path:
+    # Some machines ship with Microsoft 3rd-party UEFI CA disabled or absent,
+    # so they reject Fedora shim before MOK can run. Re-sign the removable-media
+    # EFI binaries with the Kyth key too; this works when kyth-secureboot.cer is
+    # enrolled directly into firmware db. The existing Microsoft/Fedora
+    # signatures remain useful on machines that trust the normal shim path.
+    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" "BOOTX64.EFI"
+    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/grubx64.efi" "grubx64.efi"
+    if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
+        sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/mmx64.efi" "mmx64.efi"
     fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
@@ -489,7 +830,7 @@ fi
 EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
-mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
+mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT ::/EFI/fedora
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 if [[ "${GRUB_EFI_BUILT}" == "true" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grubx64.efi" ::/EFI/BOOT/grubx64.efi
@@ -498,6 +839,13 @@ if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/mmx64.efi" ::/EFI/BOOT/mmx64.efi
 fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
+if [[ -f "${ISO_DIR}/EFI/fedora/grub.cfg" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/fedora/grub.cfg" ::/EFI/fedora/grub.cfg
+fi
+if [[ -f "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ::/EFI/BOOT/kyth-secureboot.der
+fi
+verify_efi_image_boot_chain "${EFI_IMG}"
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
@@ -613,6 +961,9 @@ XORRISO_ARGS+=("${ISO_DIR}")
 
 sudo xorriso "${XORRISO_ARGS[@]}"
 sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
+if [[ -f "${_SB_CERT_DER}" ]]; then
+    cp "${_SB_CERT_DER}" "${OUTPUT_DIR}/kyth-secureboot.der"
+fi
 
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")

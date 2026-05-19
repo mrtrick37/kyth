@@ -814,12 +814,18 @@ install-umu:
     echo "Fetching latest umu-launcher release info…"
     curl -fsSL "${UMU_REPO_API}" -o "${release_json}"
     UMU_URL=$(
-        grep -oP 'https://[^"]+/releases/download/[^"]+\.tar\.(gz|zst)' "${release_json}" \
-        | grep -iv 'source\|src' \
+        grep -oP 'https://[^"]+/releases/download/[^"]+umu-launcher-[^"]+-zipapp\.tar' "${release_json}" \
         | head -n1
     ) || true
     if [[ -z "${UMU_URL}" ]]; then
-        echo "Could not find a release tarball. Check https://github.com/Open-Wine-Components/umu-launcher/releases" >&2
+        UMU_URL=$(
+            grep -oP 'https://[^"]+/releases/download/[^"]+\.tar(\.(gz|zst))?' "${release_json}" \
+            | grep -iv 'source\|src' \
+            | head -n1
+        ) || true
+    fi
+    if [[ -z "${UMU_URL}" ]]; then
+        echo "Could not find an installable release tarball. Check https://github.com/Open-Wine-Components/umu-launcher/releases" >&2
         exit 1
     fi
     UMU_TARBALL=$(basename "${UMU_URL}")
@@ -833,7 +839,7 @@ install-umu:
     fi
     sudo install -m 0755 "${UMU_BIN}" /usr/local/bin/umu-run
     UMU_PKGDIR=$(find "${TMPDIR_UMU}" -maxdepth 3 -name 'umu' -type d | grep -v '__pycache__' | head -n1)
-    if [[ -n "${UMU_PKGDIR}" ]]; then
+    if [[ "${UMU_TARBALL}" != *-zipapp.tar && -n "${UMU_PKGDIR}" ]]; then
         PY_SITEPKG=$(python3 -c "import sysconfig; print(sysconfig.get_paths()['purelib'])")
         sudo mkdir -p "${PY_SITEPKG}"
         sudo cp -r "${UMU_PKGDIR}" "${PY_SITEPKG}/"
@@ -923,6 +929,16 @@ install-bottles:
     flatpak install -y flathub com.usebottles.bottles
     echo
     echo "Bottles installed. Launch it from the app menu to open .exe or .msi files."
+
+# Install Ludusavi — backup and restore game saves across launchers.
+[group('KythOS')]
+install-ludusavi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.github.mtkennerly.ludusavi
+    echo
+    echo "Ludusavi installed. Launch it from the app menu before migrating or modding games."
 
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
