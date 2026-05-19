@@ -50,6 +50,7 @@ SECUREBOOT_SIGNING_REQUESTED=0
 if [[ -n "${MOK_KEY:-}" ]]; then
     SECUREBOOT_SIGNING_REQUESTED=1
 fi
+SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-${SECUREBOOT_SIGNING_REQUESTED}}"
 
 # ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
 SUDO_KEEPALIVE_PID=""
@@ -151,6 +152,9 @@ command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
 command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
 command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
 command -v sbverify   &>/dev/null || _missing_pkgs+=(sbsigntools)
+if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+    command -v sbsign &>/dev/null || [[ " ${_missing_pkgs[*]} " == *sbsigntools* ]] || _missing_pkgs+=(sbsigntools)
+fi
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
     echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
@@ -214,6 +218,36 @@ find_signed_efi() {
                 break
             fi
         done
+}
+
+sign_efi_with_kyth_key() {
+    local image="$1"
+    local label="$2"
+    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
+    local signed="${image}.kyth-signed"
+
+    [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]] || return 0
+
+    if [[ -z "${MOK_KEY:-}" ]]; then
+        echo "ERROR: SECUREBOOT_SIGN_EFI=1 requires MOK_KEY to sign ${label}." >&2
+        exit 1
+    fi
+    if [[ ! -f "${cert}" ]]; then
+        echo "ERROR: Secure Boot cert not found at ${cert}; cannot sign ${label}." >&2
+        exit 1
+    fi
+
+    printf '%s\n' "${MOK_KEY}" > "${WORK}/kyth-secureboot.key"
+    chmod 0600 "${WORK}/kyth-secureboot.key"
+
+    echo "    Kyth-signing ${label}: ${image##*/}"
+    sbsign \
+        --key "${WORK}/kyth-secureboot.key" \
+        --cert "${cert}" \
+        --output "${signed}" \
+        "${image}"
+    mv "${signed}" "${image}"
+    sbverify --cert "${cert}" "${image}" >/dev/null
 }
 
 # ── 1. Build live container ─────────────────────────────────────────
@@ -643,6 +677,18 @@ FEDGRUBEOF
         echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
         exit 1
     }
+
+    # Optional direct firmware trust path:
+    # Some machines ship with Microsoft 3rd-party UEFI CA disabled or absent,
+    # so they reject Fedora shim before MOK can run. Re-sign the removable-media
+    # EFI binaries with the Kyth key too; this works when kyth-secureboot.cer is
+    # enrolled directly into firmware db. The existing Microsoft/Fedora
+    # signatures remain useful on machines that trust the normal shim path.
+    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" "BOOTX64.EFI"
+    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/grubx64.efi" "grubx64.efi"
+    if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
+        sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/mmx64.efi" "mmx64.efi"
+    fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
