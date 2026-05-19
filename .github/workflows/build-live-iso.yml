@@ -359,6 +359,7 @@ jobs:
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
               "checksum": iso.name + "-CHECKSUM",
+              "secureboot_cert": "kyth-secureboot.der",
               "attestation_url": os.environ.get("ATTESTATION_URL", ""),
               "source_image": f"ghcr.io/{os.environ['GITHUB_REPOSITORY']}:live-build-{os.environ['SOURCE_TAG']}",
               "source_tag": os.environ["SOURCE_TAG"],
@@ -374,7 +375,9 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kyth-live-iso-${{ matrix.source_tag }}
-          path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
+          path: |
+            output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
+            output/live-iso/kyth-secureboot.der
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -384,7 +387,7 @@ jobs:
           R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
-          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json" "output/live-iso/kyth-secureboot.der"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -402,14 +405,15 @@ jobs:
           SIG_URL="${ISO_URL}.sig"
           BUNDLE_URL="${ISO_URL}.bundle"
           META_URL="${ISO_URL}.json"
+          SECUREBOOT_CERT_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-secureboot.der"
 
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)\n**Secure Boot cert:** [DER](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}" "${SECUREBOOT_CERT_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)\n**Secure Boot cert:** [DER](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}" "${SECUREBOOT_CERT_URL}")
             PRERELEASE="--latest"
           fi
 
@@ -431,4 +435,5 @@ jobs:
             "${ISO}-CHECKSUM" \
             "${ISO}.sig" \
             "${ISO}.bundle" \
-            "${ISO}.json"
+            "${ISO}.json" \
+            "output/live-iso/kyth-secureboot.der"
