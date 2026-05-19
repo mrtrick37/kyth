@@ -161,6 +161,7 @@ mkdir -p \
     "${ISO_DIR}/LiveOS" \
     "${ISO_DIR}/images/pxeboot" \
     "${ISO_DIR}/EFI/BOOT" \
+    "${ISO_DIR}/EFI/fedora" \
     "${ISO_DIR}/boot/grub2/themes/kyth" \
     "${ISO_DIR}/isolinux"
 
@@ -456,6 +457,40 @@ EMBEDEOF
     GRUB_EFI_BUILT=true
     echo "    UEFI GRUB binary: built with grub2-mkimage (x86_64-efi) → grubx64.efi"
 
+    # Override with Fedora's pre-signed grubx64.efi when available.
+    # The shim (BOOTX64.EFI) verifies grubx64.efi's signature before chainloading
+    # it — our grub2-mkimage output is unsigned and would be rejected with
+    # "did not authenticate". Fedora's signed binary is trusted by Fedora's shim
+    # (the shim embeds Fedora's UEFI signing key).
+    _SIGNED_GRUB_SRC=""
+    for _grub_path in \
+        "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
+        "${ROOTFS}/usr/share/grub2/grubx64.efi" \
+        "${ROOTFS}/usr/lib/grub2/grubx64.efi"; do
+        if [[ -f "${_grub_path}" ]]; then
+            _SIGNED_GRUB_SRC="${_grub_path}"
+            break
+        fi
+    done
+    if [[ -n "${_SIGNED_GRUB_SRC}" ]]; then
+        cp "${_SIGNED_GRUB_SRC}" "${ISO_DIR}/EFI/BOOT/grubx64.efi"
+        echo "    Secure Boot GRUB: ${_SIGNED_GRUB_SRC} → grubx64.efi (Fedora-signed)"
+        # Fedora's signed grubx64.efi searches for /EFI/fedora/grub.cfg using
+        # search.file, then sets prefix=($root)/EFI/fedora and loads that config.
+        # Place a redirect there that locates the ISO by volume label and chains
+        # to our full menu config (which lives in boot/grub2/grub.cfg on the ISO).
+        # Note: unquoted heredoc so ${VOLID} expands; $root is a GRUB variable.
+        cat > "${ISO_DIR}/EFI/fedora/grub.cfg" << FEDGRUBEOF
+search --no-floppy --label --set=root ${VOLID}
+configfile (\$root)/boot/grub2/grub.cfg
+FEDGRUBEOF
+        echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
+    else
+        echo "WARNING: Fedora-signed grubx64.efi not found in rootfs." >&2
+        echo "         ISO will not boot on machines with Secure Boot enabled." >&2
+        echo "         Ensure grub2-efi-x64 is installed in the live container." >&2
+    fi
+
     # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
     # The shim chainloads grubx64.efi from the same directory.
     SHIM_SRC=""
@@ -489,7 +524,7 @@ fi
 EFI_IMG="${ISO_DIR}/images/efiboot.img"
 truncate -s 15M "${EFI_IMG}"
 mkfs.fat -n "EFIBOOT" "${EFI_IMG}"
-mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT
+mmd  -i "${EFI_IMG}" ::/EFI ::/EFI/BOOT ::/EFI/fedora
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" ::/EFI/BOOT/BOOTX64.EFI
 if [[ "${GRUB_EFI_BUILT}" == "true" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grubx64.efi" ::/EFI/BOOT/grubx64.efi
@@ -498,6 +533,9 @@ if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/mmx64.efi" ::/EFI/BOOT/mmx64.efi
 fi
 mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
+if [[ -f "${ISO_DIR}/EFI/fedora/grub.cfg" ]]; then
+    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/fedora/grub.cfg" ::/EFI/fedora/grub.cfg
+fi
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
 @echo -off
