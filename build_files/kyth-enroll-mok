@@ -13,15 +13,22 @@
 set -euo pipefail
 
 FLAG="${KYTH_MOK_FLAG:-/var/lib/kyth/mok-enrolled}"
-CERT="${KYTH_MOK_CERT:-/usr/share/kyth/secureboot/kyth-secureboot.cer}"
+CERT_PEM="${KYTH_MOK_CERT_PEM:-/usr/share/kyth/secureboot/kyth-secureboot.cer}"
+CERT_DER="${KYTH_MOK_CERT_DER:-/usr/share/kyth/secureboot/kyth-secureboot.der}"
 MOKUTIL="${KYTH_MOKUTIL:-mokutil}"
 
 mkdir -p "$(dirname "${FLAG}")"
 
-if [[ ! -f "${CERT}" ]]; then
+if [[ ! -f "${CERT_PEM}" && ! -f "${CERT_DER}" ]]; then
     echo "kyth-enroll-mok: cert not found — image built without Secure Boot support"
     touch "${FLAG}"
     exit 0
+fi
+
+if [[ ! -f "${CERT_DER}" ]]; then
+    echo "kyth-enroll-mok: DER cert not found — converting PEM cert for mokutil"
+    CERT_DER="$(dirname "${FLAG}")/kyth-secureboot.der"
+    openssl x509 -in "${CERT_PEM}" -outform DER -out "${CERT_DER}"
 fi
 
 # Check if Secure Boot is active in the firmware
@@ -42,7 +49,7 @@ fi
 
 # Stage the enrollment — user confirms with password "kyth" in MokManager
 echo "kyth-enroll-mok: staging Secure Boot MOK enrollment"
-if echo "kyth" | "${MOKUTIL}" --import "${CERT}" --stdin-passwd; then
+if echo "kyth" | "${MOKUTIL}" --import "${CERT_DER}" --stdin-passwd; then
     echo "kyth-enroll-mok: enrollment staged — reboot and enter password 'kyth' at the MokManager screen"
 else
     echo "kyth-enroll-mok: mokutil import failed (non-fatal)" >&2

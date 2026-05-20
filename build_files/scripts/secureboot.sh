@@ -61,8 +61,11 @@ dnf5 clean all
 echo "secureboot: vmlinuz signed successfully"
 
 # ── Install runtime artifacts ─────────────────────────────────────────────────
-# Public cert — needed by mokutil --import and readable by any user/tool
+# Public certs: PEM is useful for verification/signing, DER is required by
+# mokutil --import and MokManager.
 install -Dm 0644 "${CERT}" /usr/share/kyth/secureboot/kyth-secureboot.cer
+openssl x509 -in "${CERT}" -outform DER -out /tmp/kyth-secureboot.der
+install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der
 
 # Enrollment script and first-boot service
 install -Dm 0755 /ctx/kyth-enroll-mok        /usr/bin/kyth-enroll-mok

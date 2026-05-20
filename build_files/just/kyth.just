@@ -1012,14 +1012,17 @@ secureboot-status:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_PEM="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_DER="/usr/share/kyth/secureboot/kyth-secureboot.der"
     FLAG="/var/lib/kyth/mok-enrolled"
 
     echo "━━━ KythOS Secure Boot Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 
-    if [[ -f "${CERT}" ]]; then
-        echo "  Certificate: present at ${CERT}"
+    if [[ -f "${CERT_DER}" ]]; then
+        echo "  Certificate: present at ${CERT_DER}"
+    elif [[ -f "${CERT_PEM}" ]]; then
+        echo "  Certificate: present as PEM at ${CERT_PEM}"
     else
         echo "  Certificate: missing — this image was built without Secure Boot support"
     fi
@@ -1062,12 +1065,18 @@ enroll-secureboot:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_PEM="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_DER="/usr/share/kyth/secureboot/kyth-secureboot.der"
 
-    if [[ ! -f "${CERT}" ]]; then
+    if [[ ! -f "${CERT_PEM}" && ! -f "${CERT_DER}" ]]; then
         echo "KythOS Secure Boot certificate not found." >&2
         echo "This image was built without Secure Boot support." >&2
         exit 1
+    fi
+
+    if [[ ! -f "${CERT_DER}" ]]; then
+        CERT_DER="$(mktemp --tmpdir kyth-secureboot.XXXXXX.der)"
+        openssl x509 -in "${CERT_PEM}" -outform DER -out "${CERT_DER}"
     fi
 
     echo "━━━ KythOS Secure Boot Enrollment ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1108,7 +1117,7 @@ enroll-secureboot:
         exit 1
     fi
 
-    echo "${MOK_PASS}" | sudo mokutil --import "${CERT}" --stdin-passwd
+    echo "${MOK_PASS}" | sudo mokutil --import "${CERT_DER}" --stdin-passwd
 
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
