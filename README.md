@@ -4,7 +4,13 @@
 
 # KythOS
 
-### A gaming-first Linux desktop for people who want to play, mod, stream, tinker, and still have a way back when experiments get spicy.
+### A fast, atomic image for gaming, creating, hacking, and everyday desktop life.
+
+[![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
+[![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
+[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
+[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
+[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
 
 [Download Stable ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
 [Try Testing ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
@@ -21,9 +27,10 @@ It comes as a live USB image with a graphical installer, a polished KDE Plasma d
 
 ## Why Gamers Should Care
 
-| If you are coming from Windows | If you already game on Linux |
-|---|---|
-| You get Steam, Lutris, Heroic, Proton helpers, save migration notes, game-readiness checks, and a friendly place to start. | You get a Fedora KDE base, CachyOS kernel, GE-Proton support, Gamescope, MangoHud, vkBasalt, GameMode, NTSYNC, sched-ext tools, and rollback-friendly updates. |
+| Channel | Best for | Download |
+|---|---|---|
+| `latest` | Daily use | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
+| `testing` | New features, active development, helping catch breakage | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
 
 KythOS is not trying to pretend every game works on Linux. It is trying to make the games that can work feel easier to set up, easier to tune, and easier to recover from when launchers, drivers, shaders, mods, or anti-cheat updates decide to be difficult.
 
