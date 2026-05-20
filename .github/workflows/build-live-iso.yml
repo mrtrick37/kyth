@@ -90,7 +90,6 @@ jobs:
         # MOK_KEY is optional — when set the CachyOS vmlinuz is signed for Secure Boot.
         env:
           MOK_KEY: ${{ secrets.MOK_KEY }}
-          SECUREBOOT_SIGN_EFI: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           # The live ISO is only an installer environment. Keep it based on
@@ -314,7 +313,6 @@ jobs:
           SKIP_REBUILD: "1"
           MOK_KEY: ${{ secrets.MOK_KEY }}
           REQUIRE_SECUREBOOT_SIGNING: "1"
-          SECUREBOOT_SIGN_EFI: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           if [[ "${SOURCE_TAG}" == "latest" ]]; then

@@ -788,6 +788,11 @@ FEDGRUBEOF
     if copy_signed_efi_from_candidates \
         "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
         "Secure Boot shim" \
+        "${ROOTFS}/usr/lib/kyth/efi/BOOTX64.EFI" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "BOOTX64.EFI")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "BOOTX64.EFI")" \
+        "$(find_signed_efi "${ROOTFS}" "BOOTX64.EFI")" \
         "${ROOTFS}/usr/lib/kyth/efi/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi" \
@@ -824,6 +829,14 @@ FEDGRUBEOF
         echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
         exit 1
     }
+    if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" != "1" ]]; then
+        if sbverify --cert "${SCRIPT_DIR}/secureboot/kyth-secureboot.cer" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" >/dev/null 2>&1; then
+            echo "ERROR: BOOTX64.EFI is signed by the Kyth MOK on public removable media." >&2
+            echo "       Fresh Secure Boot firmware will reject it before MokManager can run." >&2
+            echo "       Unset SECUREBOOT_SIGN_EFI and rebuild the live container/ISO." >&2
+            exit 1
+        fi
+    fi
 
     # Optional direct firmware trust path:
     # Some machines ship with Microsoft 3rd-party UEFI CA disabled or absent,
