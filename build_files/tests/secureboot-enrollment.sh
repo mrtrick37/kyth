@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT="$(mktemp -d)"
 trap 'rm -rf "${ROOT}"' EXIT
 
-CERT="${ROOT}/kyth-secureboot.cer"
+CERT="${ROOT}/kyth-secureboot.der"
 FLAG="${ROOT}/mok-enrolled"
 LOG="${ROOT}/mokutil.log"
 MOKUTIL="${ROOT}/mokutil"
@@ -44,7 +44,7 @@ run_enroller() {
     MOCK_LOG="${LOG}" \
     MOCK_SB_ENABLED="${1}" \
     MOCK_ENROLLED="${2}" \
-    KYTH_MOK_CERT="${CERT}" \
+    KYTH_MOK_CERT_DER="${CERT}" \
     KYTH_MOK_FLAG="${FLAG}" \
     KYTH_MOKUTIL="${MOKUTIL}" \
         "$(dirname "${BASH_SOURCE[0]}")/../kyth-enroll-mok" >"${ROOT}/out" 2>"${ROOT}/err"

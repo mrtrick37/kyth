@@ -139,6 +139,18 @@ For an existing KythOS install, use this order:
    ujust enroll-secureboot
    ```
 
+   If your current image does not have that recipe yet and prints
+   `Justfile does not contain recipe enroll-secureboot`, run the direct
+   enrollment command instead:
+
+   ```bash
+   openssl x509 -in /usr/share/kyth/secureboot/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der
+   sudo mokutil --import /tmp/kyth-secureboot.der
+   ```
+
+   Choose a one-time password when `mokutil` asks for it. You will enter that
+   same password at the MokManager screen after reboot.
+
 3. Reboot. At the blue MokManager screen, choose **Enroll MOK**, then
    **Continue**, then **Yes**. Enter the one-time password you chose in the
    previous step, then reboot.
