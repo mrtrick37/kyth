@@ -30,10 +30,14 @@ LOCAL_INSTALL_IMAGE="${LOCAL_INSTALL_IMAGE:-localhost/kyth:latest}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
     LIVE_BUILD_TAG="kyth-live:build"
 else
-    LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
+LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
 SECUREBOOT_SIGNING_REQUESTED=0
-if [[ -n "${MOK_KEY:-}" ]]; then
+if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
+    echo "ERROR: MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}" >&2
+    exit 1
+fi
+if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
     SECUREBOOT_SIGNING_REQUESTED=1
 fi
 # The removable-media EFI boot chain must stay Microsoft/Fedora-signed so fresh
@@ -45,9 +49,9 @@ if [[ -n "${SECUREBOOT_SIGN_EFI:-}" && "${SECUREBOOT_SIGN_EFI}" != "0" ]]; then
 fi
 
 if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
-    if [[ -z "${MOK_KEY:-}" ]]; then
+    if [[ -z "${MOK_KEY:-}" && -z "${MOK_KEY_FILE:-}" ]]; then
         echo "ERROR: Secure Boot signing is required, but MOK_KEY is not set." >&2
-        echo "       Add the PEM private key as the GitHub MOK_KEY secret or export MOK_KEY locally." >&2
+        echo "       Add the PEM private key as the GitHub MOK_KEY secret or set MOK_KEY_FILE locally." >&2
         exit 1
     fi
 fi
@@ -282,8 +286,13 @@ find_microsoft_signed_efi() {
 write_kyth_signing_key() {
     local key_file="${WORK}/kyth-secureboot.key"
 
+    if [[ -n "${MOK_KEY_FILE:-}" ]]; then
+        printf '%s\n' "${MOK_KEY_FILE}"
+        return 0
+    fi
+
     if [[ -z "${MOK_KEY:-}" ]]; then
-        echo "ERROR: MOK_KEY is required for Secure Boot signing." >&2
+        echo "ERROR: MOK_KEY or MOK_KEY_FILE is required for Secure Boot signing." >&2
         exit 1
     fi
 
@@ -443,10 +452,14 @@ if [[ "${_need_rebuild}" == "1" ]]; then
     echo "==> Building live container (this takes a while)..."
     BUILD_ARGS=()
     if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
-        echo "==> Secure Boot: MOK_KEY set — live vmlinuz will be signed"
-        BUILD_ARGS+=(--secret id=mok_key,env=MOK_KEY --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
+        echo "==> Secure Boot: MOK key set — live vmlinuz will be signed"
+        if [[ -n "${MOK_KEY_FILE:-}" ]]; then
+            BUILD_ARGS+=(--secret "id=mok_key,src=${MOK_KEY_FILE}" --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
+        else
+            BUILD_ARGS+=(--secret id=mok_key,env=MOK_KEY --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
+        fi
     else
-        echo "==> Secure Boot: MOK_KEY not set — live vmlinuz signing skipped"
+        echo "==> Secure Boot: MOK key not set — live vmlinuz signing skipped"
         BUILD_ARGS+=(--build-arg SECUREBOOT_SIGNING_REQUESTED=0)
     fi
     if [[ -n "${LIVE_BUILD_CACHE_FROM:-}" ]]; then
