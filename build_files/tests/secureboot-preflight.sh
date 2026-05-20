@@ -56,9 +56,9 @@ check_static_sources() {
     "${REPO_ROOT}/build_files/tests/secureboot-enrollment.sh" >/dev/null
     pass "MOK enrollment state machine test passed"
 
-    grep -q 'SECUREBOOT_SIGN_EFI is not supported for live installer media' \
+    grep -q 'ignoring SECUREBOOT_SIGN_EFI' \
         "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "live ISO builder must reject Kyth-signing removable EFI binaries"
+        || fail "live ISO builder must ignore attempts to Kyth-sign removable EFI binaries"
     ! grep -q 'sign_efi_with_kyth_key' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "live ISO builder must not Kyth-sign BOOTX64.EFI/grubx64.efi/mmx64.efi"
     ! grep -q 'SECUREBOOT_SIGN_EFI: "1"' "${REPO_ROOT}/.github/workflows/build-live-iso.yml" \

@@ -40,9 +40,8 @@ fi
 # Secure Boot firmware can load shim and reach MokManager before the Kyth MOK is
 # enrolled. The Kyth key signs the kernel only.
 if [[ -n "${SECUREBOOT_SIGN_EFI:-}" && "${SECUREBOOT_SIGN_EFI}" != "0" ]]; then
-    echo "ERROR: SECUREBOOT_SIGN_EFI is not supported for live installer media." >&2
-    echo "       Signing BOOTX64.EFI/grubx64.efi with the Kyth MOK makes fresh Secure Boot firmware reject the USB before MokManager can run." >&2
-    exit 1
+    echo "WARNING: ignoring SECUREBOOT_SIGN_EFI=${SECUREBOOT_SIGN_EFI}; live installer EFI binaries must stay distro-signed." >&2
+    SECUREBOOT_SIGN_EFI=0
 fi
 
 if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
