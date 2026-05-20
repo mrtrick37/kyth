@@ -77,9 +77,11 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora || rpm -e --nodeps plasma-welcome plasma-welcome-fedora) 2>/dev/null || true \
     && dnf5 clean all \
     && mkdir -p /usr/lib/kyth/efi \
+    && (find /usr/share/shim /usr/lib/efi/shim -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI || true) \
     && (find /usr/share/shim /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
     && (find /usr/share/shim /usr/lib/efi/shim -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   || true) \
     && (find /usr/share/grub /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
+    && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || find /boot/efi/EFI/BOOT -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/shimx64.efi || find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/mmx64.efi   || find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/grubx64.efi || find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \

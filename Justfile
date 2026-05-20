@@ -525,6 +525,15 @@ build-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
+# Fast Secure Boot validation that does not build a new ISO.
+# Checks source policy, MOK enrollment behavior, certificate material, the
+# cached live image when present, and any existing output/live-iso ISO.
+[group('Build Virtual Machine Image')]
+secureboot-preflight source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} bash build_files/tests/secureboot-preflight.sh
+
 # Force a full rebuild of the live ISO, ignoring the cached container layer.
 # Use after changing Containerfile.live or any file it COPYs.
 [group('Build Virtual Machine Image')]

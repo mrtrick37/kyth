@@ -299,12 +299,27 @@ just build-live-iso
 just run-live-iso-native
 ```
 
+Fast Secure Boot preflight, without waiting for a new ISO:
+
+```bash
+just secureboot-preflight
+MOK_KEY="$(cat ~/path/to/kyth-mok-PRIVATE.key)" just secureboot-preflight
+```
+
+The preflight checks the Secure Boot source policy, MOK enrollment script,
+certificate conversion, optional private-key/certificate match, cached live
+image artifacts, and any existing `output/live-iso/kyth-live-*.iso`. It is meant
+to catch signing and boot-chain mistakes before spending time on a full ISO
+build. For deeper ISO inspection, install `xorriso`, `mtools`, and
+`sbsigntools`.
+
 Useful recipes:
 
 ```bash
 just build-base
 just build
 just build-live-iso
+just secureboot-preflight
 just build-live-iso testing
 just rebuild-live-iso
 just run-live-iso
