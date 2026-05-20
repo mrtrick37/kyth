@@ -29,7 +29,7 @@ It is for people who want a Linux desktop that feels ready to play, stream, tink
 
 | Channel | Best for | Download |
 |---|---|---|
-| `latest` | Daily use, showing friends, installing on your main machine when you accept project-level risk | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
+| `latest` | Daily use | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
 | `testing` | New features, active development, helping catch breakage | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
 
 Direct ISO links:
