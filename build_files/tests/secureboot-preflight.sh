@@ -71,6 +71,10 @@ check_static_sources() {
         || fail "signed live media should default to the MOK enrollment menu"
     grep -q 'GRUB_TIMEOUT=-1' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "signed live media should wait at GRUB for MOK enrollment"
+    grep -q '^search --no-floppy --label --set=root' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "main GRUB menu must force root to the ISO volume before loading vmlinuz"
+    grep -q '^configfile (\\$root)/boot/grub2/grub.cfg' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "EFI GRUB stubs must redirect to the ISO GRUB menu"
     pass "live ISO Secure Boot policy checks passed"
 }
 
@@ -188,6 +192,15 @@ check_existing_iso_artifacts() {
     [[ -s "${tmp_dir}/vmlinuz" && -s "${tmp_dir}/initrd.img" ]] \
         || fail "ISO missing live kernel or initramfs under /images/pxeboot"
     pass "ISO contains live kernel and initramfs under /images/pxeboot"
+    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
+        sbverify --cert "${CERT_PEM}" "${tmp_dir}/vmlinuz" >/dev/null \
+            || fail "ISO live kernel is not signed by the Kyth Secure Boot certificate"
+        pass "ISO live kernel is signed by the Kyth Secure Boot certificate"
+    elif sbverify --cert "${CERT_PEM}" "${tmp_dir}/vmlinuz" >/dev/null 2>&1; then
+        pass "ISO live kernel is signed by the Kyth Secure Boot certificate"
+    else
+        warn "ISO live kernel signature was not verified; set REQUIRE_SECUREBOOT_SIGNING=1 to make this a hard gate"
+    fi
 
     mcopy -n -i "${efi_img}" "::/EFI/BOOT/BOOTX64.EFI" "${tmp_dir}/BOOTX64.EFI" >/dev/null
     boot_sig="$(sbverify --list "${tmp_dir}/BOOTX64.EFI" 2>&1)"
@@ -202,7 +215,16 @@ check_existing_iso_artifacts() {
     mcopy -n -i "${efi_img}" "::/EFI/BOOT/grub.cfg" "${tmp_dir}/efi-boot-grub.cfg" >/dev/null
     grep -q 'configfile .*boot/grub2/grub.cfg' "${tmp_dir}/efi-boot-grub.cfg" \
         || fail "EFI/BOOT/grub.cfg must redirect to the ISO GRUB config, not contain the live menu"
+    ! grep -q '^menuentry ' "${tmp_dir}/efi-boot-grub.cfg" \
+        || fail "EFI/BOOT/grub.cfg contains live menu entries; GRUB would look for vmlinuz inside the FAT image"
     pass "EFI/BOOT/grub.cfg redirects to ISO GRUB config"
+
+    xorriso -osirrox on -indev "${ISO_PATH}" -extract /boot/grub2/grub.cfg "${tmp_dir}/iso-grub.cfg" >/dev/null 2>&1
+    grep -q '^search --no-floppy --label --set=root' "${tmp_dir}/iso-grub.cfg" \
+        || fail "ISO GRUB menu does not force root to the ISO volume"
+    grep -q '/images/pxeboot/vmlinuz' "${tmp_dir}/iso-grub.cfg" \
+        || fail "ISO GRUB menu does not reference the live kernel"
+    pass "ISO GRUB menu roots itself on the ISO and references the live kernel"
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${tmp_dir}/mmx64.efi" >/dev/null 2>&1; then
         sbverify --list "${tmp_dir}/mmx64.efi" >/dev/null
