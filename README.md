@@ -115,6 +115,47 @@ You will need at least 8 GB RAM for the live session, a USB drive, and an intern
 6. Start the install and wait for the OS image to download.
 7. Reboot, open System Hub, and finish setup.
 
+## Secure Boot
+
+KythOS uses a custom kernel, so Secure Boot needs the KythOS Machine Owner Key
+(MOK) enrolled once before the firmware will trust the signed kernel.
+
+For a new install with Secure Boot already enabled, KythOS stages enrollment on
+first boot. Reboot when prompted, then use the blue MokManager screen to enroll
+the key.
+
+For an existing KythOS install, use this order:
+
+1. Update to the latest KythOS image while Secure Boot is still disabled:
+
+   ```bash
+   sudo bootc upgrade
+   systemctl reboot
+   ```
+
+2. Stage the KythOS key before enabling Secure Boot:
+
+   ```bash
+   ujust enroll-secureboot
+   ```
+
+3. Reboot. At the blue MokManager screen, choose **Enroll MOK**, then
+   **Continue**, then **Yes**. Enter the one-time password you chose in the
+   previous step, then reboot.
+
+4. Enable Secure Boot in your UEFI/BIOS firmware settings.
+
+5. Boot KythOS and validate the result:
+
+   ```bash
+   ujust secureboot-status
+   mokutil --sb-state
+   ```
+
+If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
+Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
+MokManager enrollment reboot, then enable Secure Boot again.
+
 ## Gaming Reality Check
 
 KythOS focuses on making Linux gaming smoother, not making impossible promises.
