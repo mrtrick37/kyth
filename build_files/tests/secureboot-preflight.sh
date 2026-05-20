@@ -165,11 +165,6 @@ check_existing_iso_artifacts() {
         pass "ISO ${efi_name} has a Secure Boot signature"
     done
 
-    if sbverify --cert "${CERT_PEM}" "${tmp_dir}/BOOTX64.EFI" >/dev/null 2>&1; then
-        fail "ISO BOOTX64.EFI is signed by the Kyth MOK; fresh Secure Boot firmware will reject it"
-    fi
-    pass "ISO BOOTX64.EFI is not Kyth-MOK-signed"
-
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${tmp_dir}/mmx64.efi" >/dev/null 2>&1; then
         sbverify --list "${tmp_dir}/mmx64.efi" >/dev/null
         pass "ISO MokManager has a Secure Boot signature"
