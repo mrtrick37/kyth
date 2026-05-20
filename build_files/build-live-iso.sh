@@ -23,20 +23,6 @@ set -euo pipefail
 
 SECONDS=0
 
-# ── Docker group bootstrap ─────────────────────────────────────────────────────
-# If docker is inaccessible, add the user to the docker group (if needed) and
-# re-exec under `sg docker` to activate it — no logout required.
-if ! docker info &>/dev/null 2>&1; then
-    if ! id -nG "$USER" | grep -qw docker; then
-        echo "==> Adding ${USER} to the docker group (requires sudo)..."
-        command sudo usermod -aG docker "$USER"
-    fi
-    echo "==> Activating docker group for this session via sg — restarting build..."
-    exec sg docker -c "bash $(printf '%q' "${BASH_SOURCE[0]}")"
-    echo "ERROR: Could not activate the docker group. Try: newgrp docker" >&2
-    exit 1
-fi
-
 SOURCE_TAG="${SOURCE_TAG:-latest}"
 INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:44}"
 EMBED_LOCAL_IMAGE="${EMBED_LOCAL_IMAGE:-0}"
@@ -50,18 +36,35 @@ SECUREBOOT_SIGNING_REQUESTED=0
 if [[ -n "${MOK_KEY:-}" ]]; then
     SECUREBOOT_SIGNING_REQUESTED=1
 fi
-# Keep the removable-media EFI boot chain Microsoft/Fedora-signed by default so
-# a fresh Secure Boot machine can reach GRUB/MokManager before the Kyth MOK is
-# enrolled. SECUREBOOT_SIGN_EFI=1 is only for systems that already trust the
-# Kyth cert directly in firmware db.
-SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-0}"
+# The removable-media EFI boot chain must stay Microsoft/Fedora-signed so fresh
+# Secure Boot firmware can load shim and reach MokManager before the Kyth MOK is
+# enrolled. The Kyth key signs the kernel only.
+if [[ -n "${SECUREBOOT_SIGN_EFI:-}" && "${SECUREBOOT_SIGN_EFI}" != "0" ]]; then
+    echo "ERROR: SECUREBOOT_SIGN_EFI is not supported for live installer media." >&2
+    echo "       Signing BOOTX64.EFI/grubx64.efi with the Kyth MOK makes fresh Secure Boot firmware reject the USB before MokManager can run." >&2
+    exit 1
+fi
 
-if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
     if [[ -z "${MOK_KEY:-}" ]]; then
         echo "ERROR: Secure Boot signing is required, but MOK_KEY is not set." >&2
         echo "       Add the PEM private key as the GitHub MOK_KEY secret or export MOK_KEY locally." >&2
         exit 1
     fi
+fi
+
+# ── Docker group bootstrap ─────────────────────────────────────────────────────
+# If docker is inaccessible, add the user to the docker group (if needed) and
+# re-exec under `sg docker` to activate it — no logout required.
+if ! docker info &>/dev/null 2>&1; then
+    if ! id -nG "$USER" | grep -qw docker; then
+        echo "==> Adding ${USER} to the docker group (requires sudo)..."
+        command sudo usermod -aG docker "$USER"
+    fi
+    echo "==> Activating docker group for this session via sg — restarting build..."
+    exec sg docker -c "bash $(printf '%q' "${BASH_SOURCE[0]}")"
+    echo "ERROR: Could not activate the docker group. Try: newgrp docker" >&2
+    exit 1
 fi
 
 # ── Sudo setup: ask once, then keep sudo's timestamp alive ────────────────────
@@ -164,7 +167,7 @@ command -v mkfs.fat   &>/dev/null || _missing_pkgs+=(dosfstools)
 command -v mcopy      &>/dev/null || _missing_pkgs+=(mtools)
 command -v mmd        &>/dev/null || [[ " ${_missing_pkgs[*]} " == *mtools* ]] || _missing_pkgs+=(mtools)
 command -v sbverify   &>/dev/null || _missing_pkgs+=(sbsigntools)
-if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
     command -v sbsign &>/dev/null || [[ " ${_missing_pkgs[*]} " == *sbsigntools* ]] || _missing_pkgs+=(sbsigntools)
     command -v openssl &>/dev/null || _missing_pkgs+=(openssl)
 fi
@@ -231,33 +234,6 @@ find_signed_efi() {
                 break
             fi
         done
-}
-
-sign_efi_with_kyth_key() {
-    local image="$1"
-    local label="$2"
-    local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
-    local signed="${image}.kyth-signed"
-
-    [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]] || return 0
-
-    if [[ ! -f "${cert}" ]]; then
-        echo "ERROR: Secure Boot cert not found at ${cert}; cannot sign ${label}." >&2
-        exit 1
-    fi
-
-    local key_file
-    key_file="$(write_kyth_signing_key)"
-    verify_key_matches_cert "${key_file}" "${cert}"
-
-    echo "    Kyth-signing ${label}: ${image##*/}"
-    sbsign \
-        --key "${key_file}" \
-        --cert "${cert}" \
-        --output "${signed}" \
-        "${image}"
-    mv "${signed}" "${image}"
-    sbverify --cert "${cert}" "${image}" >/dev/null
 }
 
 write_kyth_signing_key() {
@@ -342,12 +318,6 @@ verify_efi_image_boot_chain() {
             echo "ERROR: embedded ${required_file} is not signed in ${efi_img}." >&2
             exit 1
         }
-        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
-            sbverify --cert "${cert}" "${verify_dir}/${required_file}" >/dev/null || {
-                echo "ERROR: embedded ${required_file} is not signed by the Kyth Secure Boot cert." >&2
-                exit 1
-            }
-        fi
     done
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${verify_dir}/mmx64.efi" >/dev/null 2>&1; then
@@ -355,12 +325,6 @@ verify_efi_image_boot_chain() {
             echo "ERROR: embedded mmx64.efi is not signed in ${efi_img}." >&2
             exit 1
         }
-        if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
-            sbverify --cert "${cert}" "${verify_dir}/mmx64.efi" >/dev/null || {
-                echo "ERROR: embedded mmx64.efi is not signed by the Kyth Secure Boot cert." >&2
-                exit 1
-            }
-        fi
     fi
 
     echo "==> Secure Boot: embedded EFI boot chain verified"
@@ -534,10 +498,10 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 
 if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
     echo "    Secure Boot: live kernel signing marker present"
-    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
         verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
     fi
-elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
     echo "    Secure Boot: exported live kernel is unsigned — signing it before squashfs"
     sign_live_kernel_from_export "${VMLINUZ}"
 else
@@ -548,7 +512,7 @@ fi
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
-if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" || -n "${MOK_KEY:-}" ]]; then
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
     verify_signed_with_kyth_cert "${ISO_DIR}/images/pxeboot/vmlinuz" "ISO live kernel"
     echo "    Secure Boot: ISO live kernel signature verified"
 fi
@@ -829,27 +793,13 @@ FEDGRUBEOF
         echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
         exit 1
     }
-    if [[ "${SECUREBOOT_SIGN_EFI_REQUESTED}" != "1" ]]; then
-        if sbverify --cert "${SCRIPT_DIR}/secureboot/kyth-secureboot.cer" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" >/dev/null 2>&1; then
-            echo "ERROR: BOOTX64.EFI is signed by the Kyth MOK on public removable media." >&2
-            echo "       Fresh Secure Boot firmware will reject it before MokManager can run." >&2
-            echo "       Unset SECUREBOOT_SIGN_EFI and rebuild the live container/ISO." >&2
-            exit 1
-        fi
+    if sbverify --cert "${SCRIPT_DIR}/secureboot/kyth-secureboot.cer" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" >/dev/null 2>&1; then
+        echo "ERROR: BOOTX64.EFI is signed by the Kyth MOK on live installer media." >&2
+        echo "       Fresh Secure Boot firmware will reject it before MokManager can run." >&2
+        echo "       Rebuild the live container/ISO with distro-signed shim-x64 artifacts." >&2
+        exit 1
     fi
 
-    # Optional direct firmware trust path:
-    # Some machines ship with Microsoft 3rd-party UEFI CA disabled or absent,
-    # so they reject Fedora shim before MOK can run. Re-sign the removable-media
-    # EFI binaries with the Kyth key too; this works when kyth-secureboot.cer is
-    # already enrolled directly into firmware db. Do not enable this for public
-    # first-boot media: fresh machines need the normal Microsoft/Fedora shim path
-    # to reach MokManager.
-    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" "BOOTX64.EFI"
-    sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/grubx64.efi" "grubx64.efi"
-    if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
-        sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/mmx64.efi" "mmx64.efi"
-    fi
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
     echo "       Install on host: sudo dnf install grub2-tools-minimal" >&2
