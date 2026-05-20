@@ -204,6 +204,15 @@ efi_is_signed() {
     ! grep -qi "no signature table" <<<"${verify_output}"
 }
 
+efi_is_microsoft_signed() {
+    local image="$1"
+    local verify_output
+
+    verify_output=$(sbverify --list "${image}" 2>&1) || return 1
+    ! grep -qi "no signature table" <<<"${verify_output}" || return 1
+    grep -Eqi 'Microsoft (Corporation|Windows|UEFI)' <<<"${verify_output}"
+}
+
 copy_signed_efi_from_candidates() {
     local dest="$1"
     local label="$2"
@@ -223,12 +232,47 @@ copy_signed_efi_from_candidates() {
     return 1
 }
 
+copy_microsoft_signed_efi_from_candidates() {
+    local dest="$1"
+    local label="$2"
+    shift 2
+
+    local candidate
+    for candidate in "$@"; do
+        [[ -f "${candidate}" ]] || continue
+        if efi_is_microsoft_signed "${candidate}"; then
+            copy_efi_from_rootfs "${candidate}" "${dest}"
+            echo "    ${label}: ${candidate} → ${dest##*/} (Microsoft UEFI-signed)"
+            return 0
+        fi
+        if efi_is_signed "${candidate}"; then
+            echo "    Skipping non-Microsoft ${label} candidate: ${candidate}" >&2
+        else
+            echo "    Skipping unsigned ${label} candidate: ${candidate}" >&2
+        fi
+    done
+
+    return 1
+}
+
 find_signed_efi() {
     local search_root="$1"
     local filename="$2"
     find "${search_root}" -name "${filename}" -type f 2>/dev/null \
         | while IFS= read -r candidate; do
             if efi_is_signed "${candidate}"; then
+                printf '%s\n' "${candidate}"
+                break
+            fi
+        done
+}
+
+find_microsoft_signed_efi() {
+    local search_root="$1"
+    local filename="$2"
+    find "${search_root}" -name "${filename}" -type f 2>/dev/null \
+        | while IFS= read -r candidate; do
+            if efi_is_microsoft_signed "${candidate}"; then
                 printf '%s\n' "${candidate}"
                 break
             fi
@@ -311,13 +355,18 @@ verify_efi_image_boot_chain() {
     mkdir -p "${verify_dir}"
     rm -f "${verify_dir}"/*.efi 2>/dev/null || true
 
-    for required_file in BOOTX64.EFI grubx64.efi; do
-        mcopy -n -i "${efi_img}" "::/EFI/BOOT/${required_file}" "${verify_dir}/${required_file}" >/dev/null
-        efi_is_signed "${verify_dir}/${required_file}" || {
-            echo "ERROR: embedded ${required_file} is not signed in ${efi_img}." >&2
-            exit 1
-        }
-    done
+    mcopy -n -i "${efi_img}" "::/EFI/BOOT/BOOTX64.EFI" "${verify_dir}/BOOTX64.EFI" >/dev/null
+    efi_is_microsoft_signed "${verify_dir}/BOOTX64.EFI" || {
+        echo "ERROR: embedded BOOTX64.EFI is not Microsoft UEFI-signed in ${efi_img}." >&2
+        echo "       Fresh Secure Boot firmware will reject the USB before GRUB or MokManager can run." >&2
+        exit 1
+    }
+
+    mcopy -n -i "${efi_img}" "::/EFI/BOOT/grubx64.efi" "${verify_dir}/grubx64.efi" >/dev/null
+    efi_is_signed "${verify_dir}/grubx64.efi" || {
+        echo "ERROR: embedded grubx64.efi is not signed in ${efi_img}." >&2
+        exit 1
+    }
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${verify_dir}/mmx64.efi" >/dev/null 2>&1; then
         efi_is_signed "${verify_dir}/mmx64.efi" || {
@@ -745,27 +794,32 @@ configfile (\$root)/boot/grub2/grub.cfg
 FEDGRUBEOF
     echo "    EFI/fedora/grub.cfg: search-by-label redirect written"
 
-    # Secure Boot: use Fedora-signed shim as BOOTX64.EFI.
-    # The shim (Microsoft-signed) is what UEFI firmware loads first; it then
+    # Secure Boot: use Microsoft-signed shim as BOOTX64.EFI.
+    # The shim is what UEFI firmware loads first; it then
     # chainloads grubx64.efi (Fedora-signed) from the same directory.
-    if copy_signed_efi_from_candidates \
+    #
+    # Do not accept "any signed" binary here. Fresh Secure Boot firmware only
+    # trusts Microsoft UEFI-signed removable-media shims before any MOK can be
+    # enrolled. A distro- or Kyth-signed BOOTX64.EFI produces the firmware error
+    # "selected boot image did not authenticate".
+    if copy_microsoft_signed_efi_from_candidates \
         "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" \
-        "Secure Boot shim" \
-        "${ROOTFS}/usr/lib/kyth/efi/BOOTX64.EFI" \
-        "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
-        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "BOOTX64.EFI")" \
-        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "BOOTX64.EFI")" \
-        "$(find_signed_efi "${ROOTFS}" "BOOTX64.EFI")" \
+        "Secure Boot first-stage shim" \
         "${ROOTFS}/usr/lib/kyth/efi/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/fedora/shimx64.efi" \
         "${ROOTFS}/boot/efi/EFI/BOOT/shimx64.efi" \
-        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/shim" "shimx64.efi")" \
-        "$(find_signed_efi "${ROOTFS}/usr/share/shim" "shimx64.efi")" \
-        "$(find_signed_efi "${ROOTFS}" "shimx64.efi")"; then
+        "$(find_microsoft_signed_efi "${ROOTFS}/usr/lib/efi/shim" "shimx64.efi")" \
+        "$(find_microsoft_signed_efi "${ROOTFS}/usr/share/shim" "shimx64.efi")" \
+        "$(find_microsoft_signed_efi "${ROOTFS}" "shimx64.efi")" \
+        "${ROOTFS}/usr/lib/kyth/efi/BOOTX64.EFI" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/BOOTX64.EFI" \
+        "$(find_microsoft_signed_efi "${ROOTFS}/usr/lib/efi/shim" "BOOTX64.EFI")" \
+        "$(find_microsoft_signed_efi "${ROOTFS}/usr/share/shim" "BOOTX64.EFI")" \
+        "$(find_microsoft_signed_efi "${ROOTFS}" "BOOTX64.EFI")"; then
         :
     else
-        echo "ERROR: signed shimx64.efi not found in rootfs." >&2
-        echo "       Ensure shim-x64 provides a Microsoft-signed shim binary." >&2
+        echo "ERROR: Microsoft-signed shimx64.efi not found in rootfs." >&2
+        echo "       Ensure shim-x64 provides the Microsoft UEFI-signed Fedora shim binary." >&2
         echo "       Without signed shim, firmware rejects the ISO before GRUB can start." >&2
         exit 1
     fi
@@ -784,8 +838,8 @@ FEDGRUBEOF
         echo "WARNING: signed mmx64.efi not found — the ISO can boot, but the GRUB enrollment entry will be unavailable." >&2
     fi
 
-    efi_is_signed "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" || {
-        echo "ERROR: BOOTX64.EFI is not signed; firmware Secure Boot would reject it." >&2
+    efi_is_microsoft_signed "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" || {
+        echo "ERROR: BOOTX64.EFI is not Microsoft UEFI-signed; firmware Secure Boot would reject it." >&2
         exit 1
     }
     efi_is_signed "${ISO_DIR}/EFI/BOOT/grubx64.efi" || {

@@ -63,10 +63,10 @@ check_static_sources() {
         || fail "live ISO builder must not Kyth-sign BOOTX64.EFI/grubx64.efi/mmx64.efi"
     ! grep -q 'SECUREBOOT_SIGN_EFI: "1"' "${REPO_ROOT}/.github/workflows/build-live-iso.yml" \
         || fail "CI must not re-sign removable EFI boot binaries with the Kyth MOK"
-    grep -q 'usr/lib/kyth/efi/BOOTX64.EFI' "${REPO_ROOT}/build_files/Containerfile.live" \
-        || fail "live image must stage shim package removable-media BOOTX64.EFI"
-    grep -q 'usr/lib/kyth/efi/BOOTX64.EFI' "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "ISO assembler must prefer packaged BOOTX64.EFI for removable media"
+    grep -q 'cp /usr/lib/kyth/efi/shimx64.efi /usr/lib/kyth/efi/BOOTX64.EFI' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live image must stage shimx64.efi as removable-media BOOTX64.EFI"
+    grep -q 'BOOTX64.EFI is not Microsoft UEFI-signed' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "ISO assembler must require Microsoft-signed BOOTX64.EFI for removable media"
     grep -q 'GRUB_DEFAULT=3' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "signed live media should default to the MOK enrollment menu"
     grep -q 'GRUB_TIMEOUT=-1' "${REPO_ROOT}/build_files/build-live-iso.sh" \
@@ -159,11 +159,15 @@ check_existing_iso_artifacts() {
     xorriso -osirrox on -indev "${ISO_PATH}" -extract /images/efiboot.img "${efi_img}" >/dev/null 2>&1
     need_file "${efi_img}" "ISO embedded EFI image"
 
-    for efi_name in BOOTX64.EFI grubx64.efi; do
-        mcopy -n -i "${efi_img}" "::/EFI/BOOT/${efi_name}" "${tmp_dir}/${efi_name}" >/dev/null
-        sbverify --list "${tmp_dir}/${efi_name}" >/dev/null
-        pass "ISO ${efi_name} has a Secure Boot signature"
-    done
+    mcopy -n -i "${efi_img}" "::/EFI/BOOT/BOOTX64.EFI" "${tmp_dir}/BOOTX64.EFI" >/dev/null
+    boot_sig="$(sbverify --list "${tmp_dir}/BOOTX64.EFI" 2>&1)"
+    grep -Eqi 'Microsoft (Corporation|Windows|UEFI)' <<<"${boot_sig}" \
+        || fail "ISO BOOTX64.EFI is signed, but not by a Microsoft UEFI trust chain"
+    pass "ISO BOOTX64.EFI has a Microsoft UEFI Secure Boot signature"
+
+    mcopy -n -i "${efi_img}" "::/EFI/BOOT/grubx64.efi" "${tmp_dir}/grubx64.efi" >/dev/null
+    sbverify --list "${tmp_dir}/grubx64.efi" >/dev/null
+    pass "ISO grubx64.efi has a Secure Boot signature"
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${tmp_dir}/mmx64.efi" >/dev/null 2>&1; then
         sbverify --list "${tmp_dir}/mmx64.efi" >/dev/null
