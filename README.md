@@ -4,7 +4,7 @@
 
 # KythOS
 
-### A fast, atomic Fedora KDE image for gaming, creating, hacking, and everyday desktop life.
+### A fast, atomic image for gaming, creating, hacking, and everyday desktop life.
 
 [![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
 [![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
