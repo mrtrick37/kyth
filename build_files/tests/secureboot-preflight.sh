@@ -133,6 +133,30 @@ check_cached_live_image() {
     pass "cached live image contains EFI binaries and kernel signing artifacts"
 }
 
+check_host_secureboot_db() {
+    if ! command -v mokutil >/dev/null 2>&1; then
+        warn "mokutil not found; skipping host firmware trust database hint"
+        return 0
+    fi
+
+    local db
+    db="$(mokutil --db 2>/dev/null || true)"
+    if [[ -z "${db}" ]]; then
+        warn "host Secure Boot db unavailable; boot in UEFI mode to inspect firmware trust anchors"
+        return 0
+    fi
+
+    if grep -q 'Microsoft Corporation UEFI CA 2011' <<<"${db}"; then
+        pass "host firmware db includes Microsoft Corporation UEFI CA 2011 for current Linux shim media"
+    elif grep -q 'Microsoft UEFI CA 2023' <<<"${db}"; then
+        warn "host firmware db has Microsoft UEFI CA 2023 but not Microsoft Corporation UEFI CA 2011"
+        warn "current Fedora shim media may still be 2011-signed; firmware can reject it with 'selected boot image did not authenticate'"
+    else
+        warn "host firmware db does not include Microsoft third-party UEFI CA trust"
+        warn "HP/Secured-core systems can reject Linux shim USB media until 'Enable MS UEFI CA key' is enabled or factory keys are restored"
+    fi
+}
+
 check_existing_iso_artifacts() {
     if [[ -f "${CERT_DER}" ]]; then
         need_file "${CERT_DER}" "exported MOK DER certificate"
@@ -158,6 +182,12 @@ check_existing_iso_artifacts() {
 
     xorriso -osirrox on -indev "${ISO_PATH}" -extract /images/efiboot.img "${efi_img}" >/dev/null 2>&1
     need_file "${efi_img}" "ISO embedded EFI image"
+    xorriso -osirrox on -indev "${ISO_PATH}" \
+        -extract /images/pxeboot/vmlinuz "${tmp_dir}/vmlinuz" \
+        -extract /images/pxeboot/initrd.img "${tmp_dir}/initrd.img" >/dev/null 2>&1
+    [[ -s "${tmp_dir}/vmlinuz" && -s "${tmp_dir}/initrd.img" ]] \
+        || fail "ISO missing live kernel or initramfs under /images/pxeboot"
+    pass "ISO contains live kernel and initramfs under /images/pxeboot"
 
     mcopy -n -i "${efi_img}" "::/EFI/BOOT/BOOTX64.EFI" "${tmp_dir}/BOOTX64.EFI" >/dev/null
     boot_sig="$(sbverify --list "${tmp_dir}/BOOTX64.EFI" 2>&1)"
@@ -168,6 +198,11 @@ check_existing_iso_artifacts() {
     mcopy -n -i "${efi_img}" "::/EFI/BOOT/grubx64.efi" "${tmp_dir}/grubx64.efi" >/dev/null
     sbverify --list "${tmp_dir}/grubx64.efi" >/dev/null
     pass "ISO grubx64.efi has a Secure Boot signature"
+
+    mcopy -n -i "${efi_img}" "::/EFI/BOOT/grub.cfg" "${tmp_dir}/efi-boot-grub.cfg" >/dev/null
+    grep -q 'configfile .*boot/grub2/grub.cfg' "${tmp_dir}/efi-boot-grub.cfg" \
+        || fail "EFI/BOOT/grub.cfg must redirect to the ISO GRUB config, not contain the live menu"
+    pass "EFI/BOOT/grub.cfg redirects to ISO GRUB config"
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/mmx64.efi" "${tmp_dir}/mmx64.efi" >/dev/null 2>&1; then
         sbverify --list "${tmp_dir}/mmx64.efi" >/dev/null
@@ -186,6 +221,7 @@ check_existing_iso_artifacts() {
 check_static_sources
 check_cert_material
 check_cached_live_image
+check_host_secureboot_db
 check_existing_iso_artifacts
 
 echo "secureboot preflight passed"

@@ -175,6 +175,20 @@ If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
 Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
 MokManager enrollment reboot, then enable Secure Boot again.
 
+### Firmware rejects the live USB before GRUB
+
+If firmware shows `Selected boot image did not authenticate`, it rejected
+`EFI/BOOT/BOOTX64.EFI` before GRUB, MokManager, or the Linux kernel started.
+For current Fedora-based live media, `BOOTX64.EFI` is a Microsoft-signed shim
+using the Microsoft third-party UEFI CA trust chain. Some HP and Secured-core
+systems ship with that trust anchor disabled.
+
+Check the firmware setup for a setting named **Enable MS UEFI CA key**,
+**Microsoft 3rd Party UEFI CA**, or **Restore factory Secure Boot keys**. Enable
+the Microsoft third-party UEFI CA, then boot the USB again. Without that
+firmware trust anchor, a normal Linux shim cannot be authenticated by Secure
+Boot firmware, regardless of the KythOS MOK.
+
 ## Gaming Reality Check
 
 KythOS focuses on making Linux gaming smoother, not making impossible promises.
@@ -303,6 +317,7 @@ Fast Secure Boot preflight, without waiting for a new ISO:
 
 ```bash
 just secureboot-preflight
+SOURCE_TAG=testing just secureboot-preflight testing
 MOK_KEY="$(cat ~/path/to/kyth-mok-PRIVATE.key)" just secureboot-preflight
 ```
 
