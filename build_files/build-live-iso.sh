@@ -50,7 +50,11 @@ SECUREBOOT_SIGNING_REQUESTED=0
 if [[ -n "${MOK_KEY:-}" ]]; then
     SECUREBOOT_SIGNING_REQUESTED=1
 fi
-SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-${SECUREBOOT_SIGNING_REQUESTED}}"
+# Keep the removable-media EFI boot chain Microsoft/Fedora-signed by default so
+# a fresh Secure Boot machine can reach GRUB/MokManager before the Kyth MOK is
+# enrolled. SECUREBOOT_SIGN_EFI=1 is only for systems that already trust the
+# Kyth cert directly in firmware db.
+SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-0}"
 
 if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || "${SECUREBOOT_SIGN_EFI_REQUESTED}" == "1" ]]; then
     if [[ -z "${MOK_KEY:-}" ]]; then
@@ -569,6 +573,15 @@ echo "==> Writing GRUB config and theme"
 # rd.live.overlay=tmpfs: dracut treats rd.live.overlay as a persistent overlay
 # location, then prints an interactive warning when it cannot find one.
 LIVE_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on"
+GRUB_DEFAULT=0
+GRUB_TIMEOUT=10
+if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+    # The CachyOS live kernel is signed with the Kyth MOK. On a new Secure Boot
+    # machine that key is not trusted yet, so default to MokManager and wait for
+    # a deliberate selection instead of timing out into a rejected kernel.
+    GRUB_DEFAULT=3
+    GRUB_TIMEOUT=-1
+fi
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme
@@ -629,8 +642,8 @@ for unicode_src in \
 done
 
 cat > "${ISO_DIR}/boot/grub2/grub.cfg" << GRUBEOF
-set default=0
-set timeout=10
+set default=${GRUB_DEFAULT}
+set timeout=${GRUB_TIMEOUT}
 
 # ── Graphical terminal + dark theme ───────────────────────────────────────────
 insmod all_video
@@ -816,8 +829,9 @@ FEDGRUBEOF
     # Some machines ship with Microsoft 3rd-party UEFI CA disabled or absent,
     # so they reject Fedora shim before MOK can run. Re-sign the removable-media
     # EFI binaries with the Kyth key too; this works when kyth-secureboot.cer is
-    # enrolled directly into firmware db. The existing Microsoft/Fedora
-    # signatures remain useful on machines that trust the normal shim path.
+    # already enrolled directly into firmware db. Do not enable this for public
+    # first-boot media: fresh machines need the normal Microsoft/Fedora shim path
+    # to reach MokManager.
     sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" "BOOTX64.EFI"
     sign_efi_with_kyth_key "${ISO_DIR}/EFI/BOOT/grubx64.efi" "grubx64.efi"
     if [[ -f "${ISO_DIR}/EFI/BOOT/mmx64.efi" ]]; then
