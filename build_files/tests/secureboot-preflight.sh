@@ -92,19 +92,27 @@ check_cert_material() {
         [[ -s "${tmp_der}" ]] || fail "DER conversion produced an empty file"
         pass "PEM certificate converts to DER for MokManager"
 
-        if [[ -n "${MOK_KEY:-}" ]]; then
+        if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
+            fail "MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}"
+        fi
+
+        if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
             local key_file key_md5 cert_md5
-            key_file="$(mktemp)"
-            trap 'rm -f "${tmp_der}" "${key_file}"' RETURN
-            printf '%s\n' "${MOK_KEY}" > "${key_file}"
-            chmod 0600 "${key_file}"
+            if [[ -n "${MOK_KEY_FILE:-}" ]]; then
+                key_file="${MOK_KEY_FILE}"
+            else
+                key_file="$(mktemp)"
+                trap 'rm -f "${tmp_der}" "${key_file}"' RETURN
+                printf '%s\n' "${MOK_KEY}" > "${key_file}"
+                chmod 0600 "${key_file}"
+            fi
             key_md5=$(openssl rsa -in "${key_file}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || true)
             cert_md5=$(openssl x509 -in "${CERT_PEM}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || true)
             [[ -n "${key_md5}" && "${key_md5}" == "${cert_md5}" ]] \
-                || fail "MOK_KEY does not match ${CERT_PEM}"
-            pass "MOK_KEY matches Kyth Secure Boot certificate"
+                || fail "MOK key does not match ${CERT_PEM}"
+            pass "MOK key matches Kyth Secure Boot certificate"
         else
-            warn "MOK_KEY not set; skipping private-key match check"
+            warn "MOK key not set; skipping private-key match check"
         fi
     fi
 }

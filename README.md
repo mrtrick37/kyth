@@ -124,14 +124,39 @@ You will need at least 8 GB RAM for the live session, a USB drive, and an intern
 
 ## Secure Boot
 
-KythOS uses a custom kernel, so Secure Boot needs the KythOS Machine Owner Key
-(MOK) enrolled once before the firmware will trust the signed kernel.
+Secure Boot is picky because the boot happens in layers. In plain language:
 
-For a new install with Secure Boot already enabled, KythOS stages enrollment on
-first boot. Reboot when prompted, then use the blue MokManager screen to enroll
-the key.
+1. Your firmware must trust the USB bootloader.
+2. The bootloader must find GRUB.
+3. GRUB must find `vmlinuz` and `initrd.img` on the ISO.
+4. Secure Boot must trust the KythOS kernel signature.
 
-For an existing KythOS install, use this order:
+KythOS handles this with a Microsoft-signed Fedora shim for the USB bootloader
+and a KythOS Machine Owner Key (MOK) for the custom kernel. The MOK is enrolled
+once; after that, the same machine can boot KythOS with Secure Boot enabled.
+
+### Fresh install from the live USB
+
+Use this path for a new machine or a clean install:
+
+1. In firmware setup, keep Secure Boot enabled.
+2. Make sure firmware allows Linux shims:
+   **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
+   **Restore factory Secure Boot keys**.
+3. Boot the KythOS live USB.
+4. If the GRUB menu opens on **Enroll KythOS Secure Boot Key**, choose it.
+5. In the blue MokManager screen:
+   - choose **Enroll key from disk**
+   - open `EFI`
+   - open `BOOT`
+   - choose `kyth-secureboot.der`
+   - choose **Continue**, **Yes**, then reboot
+6. Boot the USB again and choose **Try KythOS Live**.
+7. Run the installer from the desktop.
+
+### Existing KythOS install
+
+If KythOS is already installed, use this order:
 
 1. Update to the latest KythOS image while Secure Boot is still disabled:
 
@@ -175,19 +200,36 @@ If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
 Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
 MokManager enrollment reboot, then enable Secure Boot again.
 
-### Firmware rejects the live USB before GRUB
+### What the common errors mean
 
-If firmware shows `Selected boot image did not authenticate`, it rejected
-`EFI/BOOT/BOOTX64.EFI` before GRUB, MokManager, or the Linux kernel started.
-For current Fedora-based live media, `BOOTX64.EFI` is a Microsoft-signed shim
-using the Microsoft third-party UEFI CA trust chain. Some HP and Secured-core
-systems ship with that trust anchor disabled.
+- `Selected boot image did not authenticate`
 
-Check the firmware setup for a setting named **Enable MS UEFI CA key**,
-**Microsoft 3rd Party UEFI CA**, or **Restore factory Secure Boot keys**. Enable
-the Microsoft third-party UEFI CA, then boot the USB again. Without that
-firmware trust anchor, a normal Linux shim cannot be authenticated by Secure
-Boot firmware, regardless of the KythOS MOK.
+  Firmware rejected the USB before GRUB, MokManager, or Linux started. Check
+  firmware setup for **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**,
+  or **Restore factory Secure Boot keys**. Without that trust anchor, normal
+  Linux shim USB media cannot start.
+
+- `vmlinuz not found` or `you need to load the kernel first`
+
+  GRUB started, but it is looking in the wrong place for the live kernel. Use a
+  current ISO and run the Secure Boot preflight below before flashing it.
+
+- `bad shim signature`, `verification failed`, or a return to GRUB when choosing
+  **Try KythOS Live**
+
+  The KythOS MOK has not been enrolled yet, or the ISO kernel was not signed with
+  the key you enrolled. Enroll `EFI/BOOT/kyth-secureboot.der`, then boot again.
+
+### Check an ISO before flashing
+
+Before you write a locally built ISO to USB, run:
+
+```bash
+SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
+```
+
+Only flash the ISO if preflight passes. It checks the shim signature, GRUB
+handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 
 ## Gaming Reality Check
 
@@ -313,20 +355,46 @@ just build-live-iso
 just run-live-iso-native
 ```
 
+#### Local Secure Boot ISO build
+
+If you want the local ISO to boot with Secure Boot enabled, you need the private
+key that matches `build_files/secureboot/kyth-secureboot.cer`. The easiest local
+setup is:
+
+```bash
+export MOK_KEY_FILE="$HOME/.config/kyth/secureboot/kyth-secureboot.key"
+```
+
+Then build and verify:
+
+```bash
+SOURCE_TAG=testing REBUILD_IMAGE=1 REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/build-live-iso.sh
+SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
+```
+
+Do not flash the ISO unless preflight passes.
+
 Fast Secure Boot preflight, without waiting for a new ISO:
 
 ```bash
 just secureboot-preflight
 SOURCE_TAG=testing just secureboot-preflight testing
+MOK_KEY_FILE="$HOME/.config/kyth/secureboot/kyth-secureboot.key" just secureboot-preflight
 MOK_KEY="$(cat ~/path/to/kyth-mok-PRIVATE.key)" just secureboot-preflight
 ```
 
 The preflight checks the Secure Boot source policy, MOK enrollment script,
 certificate conversion, optional private-key/certificate match, cached live
 image artifacts, and any existing `output/live-iso/kyth-live-*.iso`. It is meant
-to catch signing and boot-chain mistakes before spending time on a full ISO
-build. For deeper ISO inspection, install `xorriso`, `mtools`, and
-`sbsigntools`.
+to catch signing and boot-chain mistakes before flashing another USB. For deeper
+ISO inspection, install `xorriso`, `mtools`, and `sbsigntools`.
+
+If Docker says permission denied after you added yourself to the `docker` group,
+open a new terminal or run:
+
+```bash
+newgrp docker
+```
 
 Useful recipes:
 

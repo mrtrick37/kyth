@@ -307,8 +307,10 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
 # Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
 #
 # Secure Boot signing (optional):
-#   Export MOK_KEY with the PEM private key contents before building:
-#     export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
+#   Export MOK_KEY with the PEM private key contents, or point MOK_KEY_FILE at
+#   the key file, before building:
+#     export MOK_KEY_FILE=~/.config/kyth/secureboot/kyth-secureboot.key
+#     # or: export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
 #     just build
 [group('Build')]
 build: build-base
@@ -326,12 +328,20 @@ build: build-base
     echo "GE-Proton: ${GE_PROTON_VER:-latest}"
     MOK_SECRET_ARG=()
     SECUREBOOT_SIGNING_REQUESTED=0
-    if [[ -n "${MOK_KEY:-}" ]]; then
-        echo "Secure Boot: MOK_KEY set — vmlinuz will be signed"
-        MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+    if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
+        echo "ERROR: MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}" >&2
+        exit 1
+    fi
+    if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
+        echo "Secure Boot: MOK key set — vmlinuz will be signed"
+        if [[ -n "${MOK_KEY_FILE:-}" ]]; then
+            MOK_SECRET_ARG=(--secret "id=mok_key,src=${MOK_KEY_FILE}")
+        else
+            MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+        fi
         SECUREBOOT_SIGNING_REQUESTED=1
     else
-        echo "Secure Boot: MOK_KEY not set — signing skipped (set MOK_KEY to enable)"
+        echo "Secure Boot: MOK key not set — signing skipped (set MOK_KEY_FILE to enable)"
     fi
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
