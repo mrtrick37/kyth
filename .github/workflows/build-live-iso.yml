@@ -337,6 +337,10 @@ jobs:
 
           wait $BUILD_PID
 
+      - name: Secure Boot preflight
+        run: |
+          SOURCE_TAG="${{ matrix.source_tag }}" bash build_files/tests/secureboot-preflight.sh
+
       - name: Generate ISO checksum
         run: |
           ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"

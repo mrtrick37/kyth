@@ -56,9 +56,11 @@ check_static_sources() {
     "${REPO_ROOT}/build_files/tests/secureboot-enrollment.sh" >/dev/null
     pass "MOK enrollment state machine test passed"
 
-    grep -q 'SECUREBOOT_SIGN_EFI_REQUESTED="${SECUREBOOT_SIGN_EFI:-0}"' \
+    grep -q 'SECUREBOOT_SIGN_EFI is not supported for live installer media' \
         "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "removable EFI chain must stay Microsoft/Fedora-signed by default"
+        || fail "live ISO builder must reject Kyth-signing removable EFI binaries"
+    ! grep -q 'sign_efi_with_kyth_key' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO builder must not Kyth-sign BOOTX64.EFI/grubx64.efi/mmx64.efi"
     ! grep -q 'SECUREBOOT_SIGN_EFI: "1"' "${REPO_ROOT}/.github/workflows/build-live-iso.yml" \
         || fail "CI must not re-sign removable EFI boot binaries with the Kyth MOK"
     grep -q 'usr/lib/kyth/efi/BOOTX64.EFI' "${REPO_ROOT}/build_files/Containerfile.live" \
