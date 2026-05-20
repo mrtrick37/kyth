@@ -338,6 +338,8 @@ jobs:
           wait $BUILD_PID
 
       - name: Secure Boot preflight
+        env:
+          REQUIRE_SECUREBOOT_SIGNING: "1"
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}" bash build_files/tests/secureboot-preflight.sh
 
