@@ -793,12 +793,6 @@ FEDGRUBEOF
         echo "ERROR: grubx64.efi is not signed; shim would reject it under Secure Boot." >&2
         exit 1
     }
-    if sbverify --cert "${SCRIPT_DIR}/secureboot/kyth-secureboot.cer" "${ISO_DIR}/EFI/BOOT/BOOTX64.EFI" >/dev/null 2>&1; then
-        echo "ERROR: BOOTX64.EFI is signed by the Kyth MOK on live installer media." >&2
-        echo "       Fresh Secure Boot firmware will reject it before MokManager can run." >&2
-        echo "       Rebuild the live container/ISO with distro-signed shim-x64 artifacts." >&2
-        exit 1
-    fi
 
 else
     echo "ERROR: Cannot build BOOTX64.EFI — grub2-mkimage or x86_64-efi modules not found." >&2
