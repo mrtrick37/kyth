@@ -4,53 +4,47 @@
 
 # KythOS
 
-### A fast, atomic Fedora KDE image for gaming, creating, hacking, and everyday desktop life.
-
-[![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
-[![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
-[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
-[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
-[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
+### A friendly Linux desktop image for games, creative work, tinkering, and daily use.
 
 [Download Stable ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
 [Try Testing ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
-[Read The Docs](#deep-dive) |
+[How It Works](#under-the-hood) |
 [Report A Bug](https://github.com/mrtrick37/kyth/issues)
 
 <img src="build_files/wallpaper/kyth-wallpaper.svg" alt="KythOS desktop wallpaper with glowing bloom mark" width="100%">
 
 </div>
 
-KythOS is an opinionated desktop operating system built from a container image and installed from a live ISO. It starts with Fedora Kinoite and KDE Plasma, adds the CachyOS kernel, gaming and creator tooling, a custom installer, a first-run System Hub, and the kind of rollback story that makes experimenting less scary.
+KythOS is a ready-to-try desktop OS with a polished KDE Plasma experience, a custom installer, and a first-run System Hub that helps you set up the stuff people actually care about: games, launchers, drivers, updates, creative apps, VPN, cloud storage, and repair tools.
 
-It is for people who want a Linux desktop that feels ready to play, stream, tinker, build, and recover without rebuilding their life every time a driver or game launcher gets dramatic.
+It is for people who want Linux to feel less like a weekend project and more like a machine they can boot, explore, and enjoy.
 
 ## Try It
 
 | Channel | Best for | Download |
 |---|---|---|
-| `latest` | Daily use, showing friends, installing on your main machine when you accept project-level risk | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
-| `testing` | New features, active development, helping catch breakage | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
+| Stable | Trying KythOS, showing friends, or installing when you want the calmest option | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
+| Testing | New features, active development, and helping catch rough edges | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
 
 Direct ISO links:
 
 - Stable: [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso)
 - Testing: [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso)
-- Checksums, signatures, bundles, and metadata are linked from each GitHub release.
+- Extra verification files are linked from each GitHub release.
 
-**Live ISO requirements:** 8 GB RAM minimum and an active network connection. The installer pulls the OS image from GitHub Container Registry during install.
+**You will need:** 8 GB RAM minimum, a USB drive, and an active internet connection during install.
 
-## The Pitch
+## Why Try It
 
-| Play | Create | Build | Recover |
+| Play | Create | Tinker | Relax |
 |---|---|---|---|
-| Steam, Lutris, Heroic, GE-Proton, Gamescope, MangoHud, vkBasalt, GameMode, NTSYNC, sched-ext, controller rules, and Windows game migration helpers. | OBS, Kdenlive, Audacity, GIMP, OpenDeck, DaVinci Resolve helper, codec stack, PipeWire low-latency defaults, and vkcapture support. | VS Code, GitHub CLI, Docker, Homebrew, Distrobox, libvirt/QEMU, Incus/LXC, and a ready-made KythOS dev box. | Immutable base, atomic updates, GRUB fallback deployments, one-command rollback, signed images, SBOMs, and provenance. |
+| Steam, Lutris, Heroic, Proton helpers, overlays, controller support, and game migration guidance are ready to go. | Recording, video editing, audio work, image editing, media codecs, and a DaVinci Resolve helper are close at hand. | Developer tools, virtual machines, containers, and optional security toolboxes are built into the workflow. | Updates are staged safely, older system versions stay available, and the System Hub gives you repair tools when something feels off. |
 
 ## First Boot
 
-The live ISO drops you into KDE Plasma as `liveuser`. Click **Install KythOS**, choose whether to erase a disk or install alongside another OS, set your user account, and let `bootc install to-disk` write the image.
+The live ISO drops you into a KDE Plasma desktop. Click **Install KythOS**, choose whether to erase a disk or install alongside another OS, set your user account, and let the installer do the heavy lifting.
 
-After reboot, **KythOS System Hub** opens automatically. It is the control room for updates, hardware checks, firmware, gaming setup, creator apps, VPN, cloud storage, repair tools, NVIDIA setup, Kali toolbox containers, and optional extras.
+After reboot, **KythOS System Hub** opens automatically. It is the control room for updates, hardware checks, firmware, gaming setup, creator apps, VPN, cloud storage, repair tools, NVIDIA setup, security toolboxes, and optional extras.
 
 ```text
 Boot USB
@@ -62,13 +56,11 @@ Boot USB
 
 ## What Makes It Feel Different
 
-- **Atomic by default:** system updates stage as a new deployment, while the previous one remains bootable from GRUB.
-- **Gaming-biased tuning:** CachyOS kernel, BORE scheduler, sched-ext controls, NTSYNC, GameMode profiles, MangoHud defaults, vkBasalt sharpening, FSR variables, and reduced desktop stutter paths.
-- **Friendly to Windows refugees:** game readiness checks, save backup guidance, game-drive migration notes, ProtonDB and anti-cheat references, and non-destructive "Fix My Game" style actions in System Hub.
-- **Creator-ready:** OBS capture paths, DaVinci Resolve packaging helper, media codecs, thumbnails, low-latency audio, and common creative apps a click away.
-- **Mutable where it matters:** Flatpak, Homebrew, Distrobox, and containers handle apps and tools without polluting the base OS image.
-- **Security tools without clutter:** Kali Linux lives in an optional Distrobox, not baked into the immutable desktop.
-- **No surprise reboots:** automatic OS updates are disabled. You decide when to stage and reboot.
+- **Games feel first-class:** launchers, Proton helpers, overlays, controller support, save tools, and game-readiness checks are all part of the experience.
+- **Creative work is invited:** recording, editing, audio, image work, thumbnails, codecs, and DaVinci Resolve setup all get attention.
+- **It is kind to curious people:** install apps, create dev containers, try security tools, switch branches, and still have a way back if an experiment goes sideways.
+- **It helps Windows users find their footing:** game migration notes, save backup guidance, ProtonDB and anti-cheat references, and guided checks live in System Hub.
+- **It avoids surprise maintenance:** no forced reboot rhythm. Update when you are ready.
 
 ## System Hub
 
@@ -80,65 +72,37 @@ KythOS System Hub is the thing you open when you do not want to remember a dozen
 
 | Section | What it helps with |
 |---|---|
-| Home | First-run wizard, branch selection, hardware check, firmware check, gaming setup |
-| Update | Run `bootc upgrade`, view staged deployment status, switch branches |
+| Home | First-run wizard, channel selection, hardware check, firmware check, gaming setup |
+| Update | Check for system updates, view pending changes, switch channels |
 | Hardware | GPU probe, system info, firmware and driver status |
-| Gaming | Launchers, GE-Proton, MangoHud, vkBasalt, game checks, save tools, migration helpers |
+| Gaming | Launchers, Proton tools, overlays, game checks, save tools, migration helpers |
 | Creation | OBS, Kdenlive, Audacity, GIMP, OpenDeck, DaVinci Resolve helper |
-| Security | Kali Distrobox tiers and optional security Flatpaks |
-| Software | Flatpak, Homebrew, Distrobox, and common installs |
+| Security | Optional security toolboxes and network analysis apps |
+| Software | App installs, developer tools, and container workspaces |
 | Network | VPN Connect, GlobalProtect SAML flow, SMB shares, cloud storage through rclone |
 | Repair | SELinux relabel, Flatpak repair, diagnostics |
 
-## Install Paths
+## Install From USB
 
-### Live ISO
-
-1. Flash the ISO with `dd`, Balena Etcher, Ventoy, or your favorite USB writer.
-2. Boot it. KDE Plasma autologins as `liveuser`.
+1. Flash the ISO with Balena Etcher, Ventoy, `dd`, or your favorite USB writer.
+2. Boot it. KythOS opens straight into the live desktop.
 3. Click **Install KythOS**.
 4. Pick an install mode:
    - **Erase disk:** wipe the selected disk and install KythOS.
    - **Install alongside:** shrink the largest existing partition and install KythOS in the freed space.
 5. Configure disk, timezone, hostname, and user account.
-6. Click **Install**. The installer pulls the OS image and writes it with `bootc install to-disk`.
+6. Click **Install** and wait for the image to download and write to disk.
 7. Reboot into KythOS.
 
-### Existing Blank Partition
+## Under The Hood
 
-From the live ISO, install into a partition you already created:
+[![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
+[![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
+[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
+[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
+[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
 
-```bash
-sudo kyth-partition-install /dev/nvme0n1p5
-```
-
-Pass an EFI System Partition explicitly if needed:
-
-```bash
-sudo kyth-partition-install /dev/nvme0n1p5 /dev/nvme0n1p1
-```
-
-### Existing Fedora Atomic System
-
-```bash
-sudo bootc switch ghcr.io/mrtrick37/kyth:latest
-```
-
-Switch to testing later:
-
-```bash
-sudo bootc switch ghcr.io/mrtrick37/kyth:testing
-```
-
-## Updates And Rollback
-
-```bash
-sudo bootc upgrade
-```
-
-Updates are atomic. The running system is not mutated in place, and the previous deployment remains available from GRUB. Applications should generally come from Flatpak, Homebrew, Distrobox, or project containers.
-
-## Deep Dive
+The friendly version is above. This section is for the people who want the wiring diagram.
 
 <details>
 <summary><strong>Core stack</strong></summary>
@@ -153,6 +117,43 @@ Updates are atomic. The running system is not mutated in place, and the previous
 | Theme | Breeze Dark with KythOS branding, wallpaper, icon mark, and Plymouth splash |
 | Security | SELinux enforcing, relabel services for bootc/ostree deployments |
 | Image | `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing` |
+
+</details>
+
+<details>
+<summary><strong>Advanced install, update, and rollback commands</strong></summary>
+
+Install into a partition you already created from the live ISO:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5
+```
+
+Pass an EFI System Partition explicitly if needed:
+
+```bash
+sudo kyth-partition-install /dev/nvme0n1p5 /dev/nvme0n1p1
+```
+
+Rebase from an existing Fedora atomic system:
+
+```bash
+sudo bootc switch ghcr.io/mrtrick37/kyth:latest
+```
+
+Switch to testing later:
+
+```bash
+sudo bootc switch ghcr.io/mrtrick37/kyth:testing
+```
+
+Update an installed system:
+
+```bash
+sudo bootc upgrade
+```
+
+Updates are atomic. The running system is not mutated in place, and the previous deployment remains available from GRUB. Applications should generally come from Flatpak, Homebrew, Distrobox, or project containers.
 
 </details>
 
@@ -256,9 +257,14 @@ docs/                             Gaming, migration, modding, validation docs
 
 </details>
 
-## Verification
+<details>
+<summary><strong>Verification and release files</strong></summary>
 
-Container images are signed with keyless Sigstore/Cosign, include attached Syft SBOMs in GHCR, and publish GitHub build provenance attestations. Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bundle, JSON metadata, and provenance.
+Container images are signed with keyless Sigstore/Cosign, include attached Syft SBOMs in GHCR, and publish GitHub build provenance attestations.
+
+Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bundle, JSON metadata, and provenance.
+
+</details>
 
 ## Links
 
@@ -276,11 +282,11 @@ Container images are signed with keyless Sigstore/Cosign, include attached Syft 
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-05-19 23:50:14 UTC
+- Last refreshed (UTC): 2026-05-20 00:19:54 UTC
 - Current branch: testing
-- HEAD commit: 536d2f5
-- Last commit title: once again around the secure boot bush
-- Last commit date: 2026-05-19T15:24:35-04:00
+- HEAD commit: f9062f1
+- Last commit title: f
+- Last commit date: 2026-05-19T19:50:59-04:00
 - CI workflow files: 5
 - Build script files: 8
 
