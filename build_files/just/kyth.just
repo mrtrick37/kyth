@@ -1004,10 +1004,58 @@ install-openrgb:
     echo "If RGB RAM or motherboard headers are missing, load i2c kernel modules:"
     echo "  sudo modprobe i2c-dev i2c-piix4"
 
+# Show the current KythOS Secure Boot enrollment state.
+#
+# This is safe to run any time. It does not change firmware settings.
+[group('KythOS')]
+secureboot-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    CERT_PEM="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_DER="/usr/share/kyth/secureboot/kyth-secureboot.der"
+    FLAG="/var/lib/kyth/mok-enrolled"
+
+    echo "━━━ KythOS Secure Boot Status ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    if [[ -f "${CERT_DER}" ]]; then
+        echo "  Certificate: present at ${CERT_DER}"
+    elif [[ -f "${CERT_PEM}" ]]; then
+        echo "  Certificate: present as PEM at ${CERT_PEM}"
+    else
+        echo "  Certificate: missing — this image was built without Secure Boot support"
+    fi
+
+    if mokutil --sb-state 2>/dev/null; then
+        :
+    else
+        echo "  Firmware state: unavailable — boot this system in UEFI mode to use MOK enrollment"
+    fi
+
+    if mokutil --list-enrolled 2>/dev/null | grep -q "KythOS Secure Boot"; then
+        echo "  KythOS MOK: enrolled"
+    else
+        echo "  KythOS MOK: not enrolled"
+    fi
+
+    if mokutil --list-new 2>/dev/null | grep -q "KythOS Secure Boot"; then
+        echo "  Pending enrollment: staged for next reboot"
+    else
+        echo "  Pending enrollment: none detected"
+    fi
+
+    if [[ -f "${FLAG}" ]]; then
+        echo "  First-boot service marker: ${FLAG}"
+    else
+        echo "  First-boot service marker: not set"
+    fi
+
 # Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
 #
 # The first-boot service (kyth-enroll-mok.service) handles this automatically
-# when Secure Boot is active at install time. Use this recipe if you:
+# when Secure Boot is active at install time. Existing users should run this
+# before enabling Secure Boot in firmware. Use this recipe if you:
 #   - enabled Secure Boot after installing KythOS
 #   - need to re-enroll after a firmware reset
 #
@@ -1017,25 +1065,42 @@ enroll-secureboot:
     #!/usr/bin/env bash
     set -euo pipefail
 
-    CERT="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_PEM="/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    CERT_DER="/usr/share/kyth/secureboot/kyth-secureboot.der"
 
-    if [[ ! -f "${CERT}" ]]; then
+    if [[ ! -f "${CERT_PEM}" && ! -f "${CERT_DER}" ]]; then
         echo "KythOS Secure Boot certificate not found." >&2
         echo "This image was built without Secure Boot support." >&2
         exit 1
     fi
 
+    if [[ ! -f "${CERT_DER}" ]]; then
+        CERT_DER="$(mktemp --tmpdir kyth-secureboot.XXXXXX.der)"
+        openssl x509 -in "${CERT_PEM}" -outform DER -out "${CERT_DER}"
+    fi
+
     echo "━━━ KythOS Secure Boot Enrollment ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo
 
-    if ! mokutil --sb-state 2>/dev/null | grep -q "SecureBoot enabled"; then
-        echo "  Secure Boot is not currently enabled in your firmware."
-        echo "  Enable it in your UEFI/BIOS settings, reboot, then run this again."
-        exit 0
+    SB_STATE="$(mokutil --sb-state 2>/dev/null || true)"
+    if echo "${SB_STATE}" | grep -q "SecureBoot enabled"; then
+        echo "  Secure Boot is currently enabled."
+    else
+        echo "  Secure Boot is currently disabled or unavailable."
+        echo "  That is OK — for existing installs, staging the key before enabling"
+        echo "  Secure Boot is the safest path."
     fi
+    echo
 
     if mokutil --list-enrolled 2>/dev/null | grep -q "KythOS Secure Boot"; then
         echo "  KythOS Secure Boot key is already enrolled. Nothing to do."
+        exit 0
+    fi
+
+    if mokutil --list-new 2>/dev/null | grep -q "KythOS Secure Boot"; then
+        echo "  KythOS Secure Boot key is already staged for enrollment."
+        echo "  Reboot, complete the blue MokManager prompt, then enable Secure Boot"
+        echo "  in firmware if it is not enabled already."
         exit 0
     fi
 
@@ -1052,13 +1117,17 @@ enroll-secureboot:
         exit 1
     fi
 
-    echo "${MOK_PASS}" | sudo mokutil --import "${CERT}" --stdin-passwd
+    echo "${MOK_PASS}" | sudo mokutil --import "${CERT_DER}" --stdin-passwd
 
     echo
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     echo "  MOK enrollment staged."
-    echo "  Reboot and enter your password at the blue MokManager screen."
-    echo "    systemctl reboot"
+    echo "  Next steps:"
+    echo "    1. Reboot."
+    echo "    2. At the blue MokManager screen, choose Enroll MOK / Continue / Yes."
+    echo "    3. Enter the password you just chose, then reboot."
+    echo "    4. Enable Secure Boot in UEFI/BIOS if it is not enabled already."
+    echo "    5. Boot KythOS and run: ujust secureboot-status"
 
 # Install NVIDIA proprietary drivers on KythOS.
 #

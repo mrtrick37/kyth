@@ -317,6 +317,8 @@ sign_live_kernel_from_export() {
     sbverify --cert "${cert}" "${vmlinuz}" >/dev/null
 
     sudo install -Dm 0644 "${cert}" "${ROOTFS}/usr/share/kyth/secureboot/kyth-secureboot.cer"
+    openssl x509 -in "${cert}" -outform DER -out "${WORK}/kyth-secureboot.der"
+    sudo install -Dm 0644 "${WORK}/kyth-secureboot.der" "${ROOTFS}/usr/share/kyth/secureboot/kyth-secureboot.der"
     sudo install -Dm 0644 /dev/null "${marker}"
     echo "==> Secure Boot: exported live kernel signed and marker written"
 }

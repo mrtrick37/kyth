@@ -154,6 +154,8 @@ RUN --mount=type=secret,id=mok_key \
     mv "${VMLINUZ}.signed" "${VMLINUZ}"; \
     sbverify --cert "/tmp/kyth-secureboot.cer" "${VMLINUZ}"; \
     install -Dm 0644 "/tmp/kyth-secureboot.cer" /usr/share/kyth/secureboot/kyth-secureboot.cer; \
+    openssl x509 -in "/tmp/kyth-secureboot.cer" -outform DER -out /tmp/kyth-secureboot.der; \
+    install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der; \
     install -Dm 0644 /dev/null /usr/share/kyth/secureboot/live-kernel-signed; \
     dnf5 remove -y sbsigntools; \
     dnf5 clean all; \
