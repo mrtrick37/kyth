@@ -654,6 +654,7 @@ for unicode_src in \
 done
 
 cat > "${ISO_DIR}/boot/grub2/grub.cfg" << GRUBEOF
+search --no-floppy --label --set=root ${VOLID}
 set default=${GRUB_DEFAULT}
 set timeout=${GRUB_TIMEOUT}
 
@@ -716,7 +717,10 @@ menuentry "Enroll KythOS Secure Boot Key" --class efi {
 
 GRUBEOF
 
-cp "${ISO_DIR}/boot/grub2/grub.cfg" "${ISO_DIR}/EFI/BOOT/grub.cfg" 2>/dev/null
+cat > "${ISO_DIR}/EFI/BOOT/grub.cfg" << BOOTGRUBEOF
+search --no-floppy --label --set=root ${VOLID}
+configfile (\$root)/boot/grub2/grub.cfg
+BOOTGRUBEOF
 
 # ── Secure Boot: MOK cert for GRUB enrollment menu ────────────────────────────
 # Convert the PEM cert from the repo to DER format. MokManager (mmx64.efi) reads
