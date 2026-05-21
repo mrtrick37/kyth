@@ -331,12 +331,16 @@ dnf5 install -y --skip-unavailable \
     brcmfmac-firmware \
     cirrus-audio-firmware || true
 
-if ! find /usr/lib/firmware -maxdepth 1 \
-        \( -name 'iwlwifi-*.ucode' -o -name 'iwlwifi-*.pnvm' \) \
-        -print -quit | grep -q .; then
+iwlwifi_firmware_probe="$(
+    find /usr/lib/firmware \
+        \( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
+        -print -quit
+)"
+if [[ -z "${iwlwifi_firmware_probe}" ]]; then
     echo "ERROR: Intel iwlwifi firmware blobs are missing from the image." >&2
     exit 1
 fi
+echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 
 # ── Intel GPU ─────────────────────────────────────────────────────────────────
 # mesa-dri-drivers already ships iris (Gen 9+) and crocus (Gen 4–8) Gallium
