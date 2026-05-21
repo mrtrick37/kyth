@@ -239,6 +239,63 @@ def get_root_partition(disk: str) -> str:
     )
 
 
+def _lsblk_target_mounts(disk: str) -> list[tuple[str, str]]:
+    """Return (device, mountpoint) pairs for mounted devices under disk."""
+    out = subprocess.check_output(
+        ["lsblk", "--json", "--paths", "--output", "NAME,TYPE,MOUNTPOINTS", disk],
+        text=True, stderr=subprocess.DEVNULL,
+    )
+    mounts: list[tuple[str, str]] = []
+
+    def walk(dev: dict) -> None:
+        name = dev.get("name") or ""
+        for mount in dev.get("mountpoints") or []:
+            if mount:
+                mounts.append((name, mount))
+        for child in dev.get("children") or []:
+            walk(child)
+
+    for dev in json.loads(out).get("blockdevices", []):
+        walk(dev)
+    mounts.sort(key=lambda item: item[1].count("/"), reverse=True)
+    return mounts
+
+
+def unmount_target_disk(disk: str, log) -> None:
+    """Unmount any live-session mounts that would block wiping disk."""
+    log(f"Unmounting any existing mounts on {disk} ...")
+    for mount in ("/mnt", "/sysroot", "/target"):
+        subprocess.run(_as_root(["umount", "-R", mount]), check=False)
+
+    try:
+        mounts = _lsblk_target_mounts(disk)
+    except Exception as exc:
+        log(f"Warning: could not inspect target mounts with lsblk: {exc}")
+        mounts = []
+
+    for dev, mount in mounts:
+        log(f"Unmounting {dev} from {mount}")
+        result = subprocess.run(
+            _as_root(["umount", "-R", mount]),
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            log(f"Normal unmount failed for {mount}: {err}")
+            subprocess.run(_as_root(["umount", "-l", mount]), check=False)
+
+    try:
+        remaining = _lsblk_target_mounts(disk)
+    except Exception:
+        remaining = []
+    if remaining:
+        details = ", ".join(f"{dev} at {mount}" for dev, mount in remaining)
+        raise RuntimeError(
+            f"Target disk {disk} still has mounted partitions: {details}. "
+            "Close any file manager or terminal using those paths and retry."
+        )
+
+
 def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
 
@@ -396,18 +453,7 @@ def _run_install() -> None:
         log(f"Disk         : {disk}")
         log("")
 
-        # Refuse to wipe a disk that has mounted partitions.
-        try:
-            mounts = subprocess.check_output(["cat", "/proc/mounts"], text=True)
-            for mline in mounts.splitlines():
-                dev = mline.split()[0]
-                if dev.startswith(disk) or dev == disk:
-                    raise RuntimeError(
-                        f"Target disk {disk} has a mounted partition ({dev}). "
-                        "Unmount all partitions on the target disk before installing."
-                    )
-        except subprocess.CalledProcessError:
-            pass
+        unmount_target_disk(disk, log)
 
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
         install_cmd = [
