@@ -56,8 +56,8 @@ RUN dnf5 install -y --skip-unavailable \
     brcmfmac-firmware \
     cirrus-audio-firmware \
     && dnf5 clean all \
-    && find /usr/lib/firmware -maxdepth 1 \
-        \( -name 'iwlwifi-*.ucode' -o -name 'iwlwifi-*.pnvm' \) \
+    && find /usr/lib/firmware \
+        \( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
         -print -quit | grep -q . \
     && echo "==> Intel iwlwifi firmware present in live ISO"
 
