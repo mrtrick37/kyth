@@ -282,7 +282,7 @@ This is the part for builders, testers, and people who want to know exactly what
 | Display | Wayland-first desktop, with X11 live-session compatibility where needed |
 | Image model | Container-built OS image distributed through GitHub Container Registry |
 | Deployment | Installed and updated atomically with bootc |
-| Installer | Custom PySide6 + Chromium kiosk using `bootc install to-disk` |
+| Installer | Live KythOS desktop with a custom PySide6 + Chromium kiosk using `bootc install to-disk` |
 | Theme | Breeze Dark with KythOS branding, wallpaper, icon mark, and Plymouth splash |
 | Security | SELinux enforcing, relabel services for bootc/ostree deployments |
 | Images | `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing` |
@@ -414,7 +414,7 @@ just clean-docker
 just lint && just format
 ```
 
-`just build` produces `localhost/kyth:latest`. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
+`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest` and embeds that same image as the install payload. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
 
 Optional build flags:
 

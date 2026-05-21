@@ -109,7 +109,7 @@ clean-output:
         | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
 
 # Prune Docker build cache and dangling (unreferenced) image layers.
-# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:44).
+# Keeps named images such as localhost/kyth:latest and kyth-live:build.
 # Run after a build to recover the reclaimable space shown in 'just disk-usage'.
 [group('Utility')]
 clean-docker:
@@ -156,7 +156,7 @@ prune-live-dev:
     docker system df || true
 
 # Full local cleanup: stale outputs + Docker cache.
-# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:44
+# Does NOT remove localhost/kyth:latest or named upstream/base images
 # since those are needed to build.
 [group('Utility')]
 clean-all: clean-output clean-docker
@@ -526,8 +526,9 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a live ISO with the KythOS web installer (netinstall — pulls OS from
-# the registry at install time via bootc install to-disk).
+# Build a live ISO with the KythOS web installer. The live desktop is based on
+# the same KythOS image that will be installed, then pulls that image from the
+# registry at install time via bootc install to-disk.
 # Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]
 build-live-iso source_tag="latest":
@@ -560,7 +561,7 @@ rebuild-live-iso-local:
     #!/usr/bin/env bash
     set -euo pipefail
     just build
-    SOURCE_TAG=local REBUILD_IMAGE=1 EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+    SOURCE_TAG=local REBUILD_IMAGE=1 INSTALLER_BASE_IMAGE=localhost/kyth:latest EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
 
 # Build the local embedded ISO and boot it in native QEMU with a fresh disk.
 [group('Run Virtual Machine')]
