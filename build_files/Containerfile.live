@@ -1,12 +1,11 @@
-# Live ISO variant of KythOS — Python web installer edition
-# Built as a separate stable installer product.
-# Uses a conservative desktop/runtime base image; installed target OS is still
-# pulled from KythOS's ostreecontainer image.
+# Live ISO variant of KythOS — Python web installer edition.
+# This is built on top of the same KythOS image the installer writes to disk,
+# with only live-session and installer-specific changes layered above it.
 # Installation is handled by kyth-installer (embedded Python HTTP server + Chromium kiosk),
 # which calls 'bootc install to-disk' and configures hostname, timezone, and user account.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44
+ARG BASE_IMAGE=ghcr.io/mrtrick37/kyth:latest
 FROM ${BASE_IMAGE}
 
 ARG SOURCE_HASH=unknown
@@ -37,6 +36,30 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && (command -v bootc >/dev/null 2>&1 || { echo "ERROR: bootc not found in image"; exit 1; }) \
     && (command -v btrfs >/dev/null 2>&1 || { echo "ERROR: btrfs not found"; exit 1; }) \
     && echo "==> All critical installer packages present"
+
+# ── Hardware firmware for live installation sessions ────────────────────────
+# Keep laptop firmware explicit in the ISO too. The live environment must be
+# able to join Wi-Fi before the installed target image is pulled.
+RUN dnf5 install -y --skip-unavailable \
+    linux-firmware \
+    amd-gpu-firmware \
+    amd-ucode-firmware \
+    iwlwifi-mvm-firmware \
+    iwlwifi-mld-firmware \
+    iwlwifi-dvm-firmware \
+    iwlegacy-firmware \
+    intel-vsc-firmware \
+    alsa-sof-firmware \
+    realtek-firmware \
+    mediatek-firmware \
+    atheros-firmware \
+    brcmfmac-firmware \
+    cirrus-audio-firmware \
+    && dnf5 clean all \
+    && find /usr/lib/firmware -maxdepth 1 \
+        \( -name 'iwlwifi-*.ucode' -o -name 'iwlwifi-*.pnvm' \) \
+        -print -quit | grep -q . \
+    && echo "==> Intel iwlwifi firmware present in live ISO"
 
 # ── Desktop, ISO tooling, and utilities (tolerate Fedora package churn) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
@@ -428,29 +451,18 @@ DIAGEOF
 RUN chmod +x /usr/bin/kyth-plasma-welcome-diag
 
 # ── WiFi: disable power-save and BT coexistence ──────────────────────────────
-# Symptom: can see networks but associations never complete.
-#
-# iwlwifi power_save=1 allows passive scanning but drops associations during the
-# connect handshake.  iwlmvm is the upper-layer driver for modern Intel WiFi
-# (AX200/AX201/AX210/AX211) and owns the actual power-save state — setting
-# iwlwifi alone is not enough.  iwlmvm power_scheme=1 = CAM (Constantly Awake
-# Mode) and is the correct fix.
-# disable_11ax=1 forces 802.11ac on chipsets/APs where Wi-Fi 6 association
-# is unreliable (common on HP EliteBook with AX211).
-# bt_coex_active=1 causes retransmit storms on the 2.4 GHz band when BT is
-# also active.
-# mt7921/mt7921e ASPM causes PCIe link state transitions mid-association.
-# rtw89 ASPM options fix similar link-state drop issues on Realtek adapters
-# (HP EliteBook 845/865 G9/G10 with AMD CPU often ship with RTL8852).
-# NM wifi.powersave=2 is belt-and-suspenders at the connection level.
+# iwlwifi defaults to power_save=1 which allows passive scanning but drops
+# associations during the connect handshake — the symptom is scan works but
+# connect never completes.  bt_coex_active=1 causes retransmit storms on the
+# 2.4 GHz band when Bluetooth is also active.  mt7921e ASPM causes PCIe
+# link state transitions mid-association on some boards.
+# NM wifi.powersave=2 (disable) is belt-and-suspenders at the connection level.
 RUN mkdir -p /etc/NetworkManager/conf.d /etc/modprobe.d \
     && printf '[connection]\nwifi.powersave = 2\n' \
         > /etc/NetworkManager/conf.d/wifi-powersave-off.conf \
-    && printf 'options iwlwifi power_save=0 bt_coex_active=0 disable_11ax=1\n' \
+    && printf 'options iwlwifi power_save=0 bt_coex_active=0\n' \
         > /etc/modprobe.d/iwlwifi-kyth.conf \
-    && printf 'options iwlmvm power_scheme=1\n' \
-        > /etc/modprobe.d/iwlmvm-kyth.conf \
-    && printf 'options mt7921e disable_aspm=1\noptions mt7921 disable_aspm=1\n' \
+    && printf 'options mt7921e disable_aspm=1\n' \
         > /etc/modprobe.d/mt7921-kyth.conf \
     && printf 'options rtw89_pci disable_clkreq=1 disable_aspm_l1=1 disable_aspm_l1ss=1\n' \
         > /etc/modprobe.d/rtw89-kyth.conf

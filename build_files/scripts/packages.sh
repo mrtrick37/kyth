@@ -309,6 +309,35 @@ dnf5 install -y --skip-unavailable \
     libclc \
     qemu-guest-agent
 
+# ── Platform and wireless firmware ───────────────────────────────────────────
+# Fedora has been splitting linux-firmware into smaller subpackages. Keep the
+# hardware-critical families explicit so workstation laptops do not depend on
+# whichever subset the base image happened to include:
+#   - iwlwifi-mvm: Intel Wi-Fi 4/5/6/6E families common in EliteBook systems
+#   - iwlwifi-mld: newer Intel Wi-Fi 7 / BE-series devices
+#   - iwlwifi-dvm + iwlegacy: older Intel adapters still seen in business fleets
+#   - realtek/mediatek/atheros/brcmfmac: common USB/PCIe/Bluetooth companion HW
+#   - cirrus/sof/intel-vsc: HP laptop audio, DSP, camera, and sensor firmware
+dnf5 install -y --skip-unavailable \
+    iwlwifi-mvm-firmware \
+    iwlwifi-mld-firmware \
+    iwlwifi-dvm-firmware \
+    iwlegacy-firmware \
+    intel-vsc-firmware \
+    alsa-sof-firmware \
+    realtek-firmware \
+    mediatek-firmware \
+    atheros-firmware \
+    brcmfmac-firmware \
+    cirrus-audio-firmware || true
+
+if ! find /usr/lib/firmware -maxdepth 1 \
+        \( -name 'iwlwifi-*.ucode' -o -name 'iwlwifi-*.pnvm' \) \
+        -print -quit | grep -q .; then
+    echo "ERROR: Intel iwlwifi firmware blobs are missing from the image." >&2
+    exit 1
+fi
+
 # ── Intel GPU ─────────────────────────────────────────────────────────────────
 # mesa-dri-drivers already ships iris (Gen 9+) and crocus (Gen 4–8) Gallium
 # drivers, and mesa-vulkan-drivers includes ANV (Intel Vulkan). The gap is

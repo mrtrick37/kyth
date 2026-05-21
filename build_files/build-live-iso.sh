@@ -3,17 +3,17 @@
 # build-live-iso.sh — Build a live desktop ISO for KythOS with the web installer.
 #
 # Flow:
-#   1. Build Containerfile.live (stable live environment + Chromium + kyth-installer)
+#   1. Build Containerfile.live on top of the same KythOS image users install
 #   2. Export the container filesystem to a temporary rootfs
 #   3. Copy kernel + live initramfs out of the rootfs
 #   4. mksquashfs the rootfs → LiveOS/squashfs.img
 #   5. Assemble bootable ISO: UEFI (GRUB2) + BIOS (syslinux) via xorriso
 #
-# By default the OS is pulled from the registry at install time by
-# kyth-installer via bootc install to-disk. For local QEMU development,
-# EMBED_LOCAL_IMAGE=1 embeds localhost/kyth:latest into the ISO and points the
-# installer at that exact image so install tests cannot accidentally use stale
-# GHCR builds.
+# By default the live desktop is based on the same registry image that the
+# installer writes to disk, so the live ISO is a real preview of KythOS instead
+# of a separate Kinoite-based installer shell. For local QEMU development,
+# set INSTALLER_BASE_IMAGE=localhost/kyth:latest and EMBED_LOCAL_IMAGE=1 to
+# preview and install the image that was just built on this workstation.
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
@@ -24,7 +24,8 @@ set -euo pipefail
 SECONDS=0
 
 SOURCE_TAG="${SOURCE_TAG:-latest}"
-INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-ghcr.io/ublue-os/kinoite-main:44}"
+KYTH_SOURCE_IMAGE="${KYTH_SOURCE_IMAGE:-ghcr.io/mrtrick37/kyth:${SOURCE_TAG}}"
+INSTALLER_BASE_IMAGE="${INSTALLER_BASE_IMAGE:-${KYTH_SOURCE_IMAGE}}"
 EMBED_LOCAL_IMAGE="${EMBED_LOCAL_IMAGE:-0}"
 LOCAL_INSTALL_IMAGE="${LOCAL_INSTALL_IMAGE:-localhost/kyth:latest}"
 if [[ "${SOURCE_TAG}" == "latest" ]]; then
@@ -32,6 +33,7 @@ if [[ "${SOURCE_TAG}" == "latest" ]]; then
 else
 LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
+BASE_IMAGE_PULLED=0
 SECUREBOOT_SIGNING_REQUESTED=0
 if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
     echo "ERROR: MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}" >&2
@@ -147,7 +149,8 @@ if ! command -v docker &>/dev/null; then
     exit 1
 fi
 echo "==> Using container engine: docker"
-echo "==> Installer runtime base image: ${INSTALLER_BASE_IMAGE}"
+echo "==> Kyth source image: ${KYTH_SOURCE_IMAGE}"
+echo "==> Live runtime base image: ${INSTALLER_BASE_IMAGE}"
 if [[ "${EMBED_LOCAL_IMAGE}" == "1" ]]; then
     echo "==> Local install image: ${LOCAL_INSTALL_IMAGE} (will be embedded)"
 fi
@@ -430,6 +433,15 @@ else
         _need_rebuild=1
     fi
 
+    if [[ "${INSTALLER_BASE_IMAGE}" != localhost/* && "${INSTALLER_BASE_IMAGE}" != localhost:* ]]; then
+        echo "==> Refreshing live runtime base image metadata..."
+        if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
+            echo "ERROR: Failed to pull live runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
+            exit 1
+        fi
+        BASE_IMAGE_PULLED=1
+    fi
+
     _base_ts=$(docker image inspect "${INSTALLER_BASE_IMAGE}" \
         --format '{{.Created}}' 2>/dev/null || echo "")
     _live_ts=$(docker image inspect "${LIVE_BUILD_TAG}" \
@@ -443,10 +455,24 @@ else
 fi
 
 if [[ "${_need_rebuild}" == "1" ]]; then
-    echo "==> Pulling installer runtime base image for rebuild..."
-    if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
-        echo "ERROR: Failed to pull installer runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
-        exit 1
+    if [[ "${INSTALLER_BASE_IMAGE}" == localhost/* || "${INSTALLER_BASE_IMAGE}" == localhost:* ]]; then
+        if docker image inspect "${INSTALLER_BASE_IMAGE}" >/dev/null 2>&1; then
+            echo "==> Using local live runtime base image: ${INSTALLER_BASE_IMAGE}"
+        else
+            echo "ERROR: Local live runtime base image not found: ${INSTALLER_BASE_IMAGE}" >&2
+            echo "       Build it first with: just build" >&2
+            exit 1
+        fi
+    else
+        if [[ "${BASE_IMAGE_PULLED}" == "1" ]]; then
+            echo "==> Live runtime base image already refreshed"
+        else
+            echo "==> Pulling live runtime base image for rebuild..."
+            if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
+                echo "ERROR: Failed to pull live runtime base image: ${INSTALLER_BASE_IMAGE}" >&2
+                exit 1
+            fi
+        fi
     fi
 
     echo "==> Building live container (this takes a while)..."

@@ -92,10 +92,9 @@ jobs:
           MOK_KEY: ${{ secrets.MOK_KEY }}
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
-          # The live ISO is only an installer environment. Keep it based on
-          # Kinoite instead of the full target image so GE-Proton, gaming apps,
-          # creator tools, and target-only tuning are not duplicated into the ISO.
-          BASE_IMAGE="ghcr.io/ublue-os/kinoite-main:44"
+          # The live ISO should be a true preview of KythOS, so build the live
+          # environment from the same image that the installer writes to disk.
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
           IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
           CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
           SOURCE_HASH="$(
