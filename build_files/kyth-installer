@@ -305,6 +305,10 @@ def _try_stage_mok_enrollment(log) -> str:
 
     Returns one of: skipped, enrolled, pending, staged, failed.
     """
+    if os.environ.get("KYTH_STAGE_MOK", "0").lower() not in ("1", "true", "yes", "on"):
+        log("Secure Boot: Fedora kernel is default — custom-kernel MOK enrollment not staged")
+        return "skipped"
+
     cert_der = Path("/usr/share/kyth/secureboot/kyth-secureboot.der")
     if not cert_der.exists():
         log("Secure Boot: cert not found in live image — skipping enrollment staging")
@@ -943,7 +947,7 @@ select{cursor:pointer}
   <div class="page active" id="page-welcome">
     <div class="card">
       <div class="card-title">Welcome to KythOS</div>
-      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + CachyOS kernel</div>
+      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + Fedora kernel</div>
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>

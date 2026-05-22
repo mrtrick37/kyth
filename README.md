@@ -129,11 +129,12 @@ Secure Boot is picky because the boot happens in layers. In plain language:
 1. Your firmware must trust the USB bootloader.
 2. The bootloader must find GRUB.
 3. GRUB must find `vmlinuz` and `initrd.img` on the ISO.
-4. Secure Boot must trust the KythOS kernel signature.
+4. Secure Boot must trust the selected kernel signature.
 
-KythOS handles this with a Microsoft-signed Fedora shim for the USB bootloader
-and a KythOS Machine Owner Key (MOK) for the custom kernel. The MOK is enrolled
-once; after that, the same machine can boot KythOS with Secure Boot enabled.
+The default install uses Fedora-signed kernel artifacts with Fedora's
+Microsoft-signed shim. Advanced CachyOS and OGC kernel images use the KythOS
+Machine Owner Key (MOK); enroll it once before enabling Secure Boot for those
+custom kernel variants.
 
 ### Fresh install from the live USB
 
@@ -144,19 +145,17 @@ Use this path for a new machine or a clean install:
    **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
    **Restore factory Secure Boot keys**.
 3. Boot the KythOS live USB.
-4. If the GRUB menu opens on **Enroll KythOS Secure Boot Key**, choose it.
-5. In the blue MokManager screen:
-   - choose **Enroll key from disk**
-   - open `EFI`
-   - open `BOOT`
-   - choose `kyth-secureboot.der`
-   - choose **Continue**, **Yes**, then reboot
-6. Boot the USB again and choose **Try KythOS Live**.
-7. Run the installer from the desktop.
+4. Choose **Try KythOS Live**.
+5. Run the installer from the desktop.
+
+Only enroll the KythOS MOK if you later switch to the advanced CachyOS or OGC
+kernel image and want Secure Boot enabled for that custom kernel.
 
 ### Existing KythOS install
 
-If KythOS is already installed, use this order:
+If KythOS is already installed and you are using the default Fedora kernel,
+Secure Boot should work through Fedora's signed shim and kernel. If you switch
+to a CachyOS or OGC kernel image, use this order:
 
 1. Update to the latest KythOS image while Secure Boot is still disabled:
 
@@ -277,7 +276,7 @@ This is the part for builders, testers, and people who want to know exactly what
 | Layer | Detail |
 |---|---|
 | Base | Fedora 44 KDE Plasma, `ublue-os/kinoite-main:44` |
-| Kernel | CachyOS kernel with BORE scheduler, sched-ext, BBRv3, NTSYNC, and latency-oriented tuning |
+| Kernel | Fedora kernel by default; optional CachyOS and OGC bootc image variants for advanced users |
 | Desktop | KDE Plasma 6 |
 | Display | Wayland-first desktop, with X11 live-session compatibility where needed |
 | Image model | Container-built OS image distributed through GitHub Container Registry |
@@ -434,7 +433,7 @@ Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bun
 Dockerfile                        Main OS image
 Justfile                          Build orchestration
 
-build_base/                       Fedora Kinoite base plus CachyOS kernel
+build_base/                       Fedora Kinoite base plus optional kernel flavor selection
 build_files/
   build-live-iso.sh               Live ISO assembler
   Containerfile.live              Live session image

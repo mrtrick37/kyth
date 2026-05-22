@@ -274,7 +274,7 @@ dnf5 copr disable -y ycollet/audinux
 
 
 # ── AMD GPU ───────────────────────────────────────────────────────────────────
-# amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
+# amdgpu is in the kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the baseline firmware set.  The AMD subpackages are
 # listed explicitly so future Fedora packaging splits cannot accidentally drop
 # GPU firmware or CPU microcode from AMD bare-metal installs.

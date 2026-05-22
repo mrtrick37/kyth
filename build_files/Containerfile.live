@@ -173,38 +173,12 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && echo "==> EFI staging:" \
     && ls -la /usr/lib/kyth/efi/ || echo "WARNING: no EFI binaries staged to /usr/lib/kyth/efi/"
 
-# ── CachyOS kernel payload ───────────────────────────────────────────────────
-# Keep the CachyOS kernel artifacts in the live rootfs because the installed
-# KythOS image uses them after bootc writes the system to disk. The ISO boot
-# entries below deliberately use a Fedora-signed kernel instead, so Secure Boot
-# users can reach the live installer before the KythOS MOK has been enrolled.
-# --setopt=tsflags=noscripts skips %posttrans scriptlets that call rpm-ostree
-# kernel-install, which fails in Docker builds with EXDEV errors.
-RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
-    && dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules \
-    && CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)") \
-    && depmod -a "${CACHYOS_KVER}" \
-    && dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
-        kernel-cachyos \
-        kernel-cachyos-core \
-    && depmod -a "${CACHYOS_KVER}" \
-    && if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then \
-           cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" \
-               "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null || true; \
-       fi \
-    && for kdir in /usr/lib/modules/*/; do \
-           kver=$(basename "$kdir"); \
-           if [[ "$kver" != *cachyos* ]]; then rm -rf "$kdir"; fi; \
-       done \
-    && rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true \
-    && dnf5 copr disable -y bieszczaders/kernel-cachyos \
-    && dnf5 clean all
-
 # ── Fedora stock kernel for live boot ────────────────────────────────────────
 # Fedora's kernel vmlinuz is signed by Red Hat's production key, which is
 # embedded in Fedora's shim. Booting it requires zero MOK interaction — the
-# shim trusts it out of the box. build-live-iso.sh picks the non-CachyOS
-# vmlinuz and its matching initramfs for the ISO's boot entries.
+# shim trusts it out of the box. The installed default image now uses Fedora's
+# kernel too; CachyOS and OGC are advanced bootc image variants users can switch
+# to after install.
 # --setopt=tsflags=noscripts skips %posttrans scriptlets (same as CachyOS above).
 RUN dnf5 install -y --setopt=tsflags=noscripts \
         kernel-core \
@@ -221,15 +195,15 @@ RUN dnf5 install -y --setopt=tsflags=noscripts \
     && dnf5 clean all
 
 # ── Secure Boot: stage cert for post-install enrollment ──────────────────────
-# The live session boots the Fedora-signed kernel (no MOK needed). The Kyth cert
-# is staged here so the installer can call mokutil --import after bootc writes the
-# OS to disk, enrolling the key before first boot of the installed CachyOS kernel.
+# The live session and default install boot Fedora-signed kernels (no MOK needed).
+# The Kyth cert is still staged so advanced custom-kernel variants can enroll the
+# project key when needed.
 RUN --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/tmp/kyth-secureboot.cer \
     set -euo pipefail; \
     install -Dm 0644 /tmp/kyth-secureboot.cer /usr/share/kyth/secureboot/kyth-secureboot.cer; \
     openssl x509 -in /tmp/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der; \
     install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der; \
-    echo "secureboot-live: cert staged for installer MOK enrollment"
+    echo "secureboot-live: cert staged for optional custom-kernel MOK enrollment"
 
 # ── System setup: live user, autologin, mask setup service ───────────────────
 # Autologin strategy — two independent layers so one backs up the other:
