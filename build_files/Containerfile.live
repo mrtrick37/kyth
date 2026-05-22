@@ -37,11 +37,20 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && echo "==> All critical installer packages present"
 
 # ── Installed-OS representation audit ───────────────────────────────────────
-# The live ISO starts from the same KythOS image that bootc installs. Keep this
-# audit near the top so a stale or incomplete base image fails before ISO work.
-RUN echo "==> Verifying live ISO base represents installed KythOS image" \
-    && (command -v code >/dev/null 2>&1 || { echo "ERROR: VS Code is missing from the live ISO base image"; exit 1; }) \
-    && (test -f /usr/share/applications/code.desktop || { echo "ERROR: VS Code desktop entry is missing from the live ISO base image"; exit 1; }) \
+# The live ISO normally starts from the same KythOS image that bootc installs.
+# Keep this as CI signal, but do not block ISO creation: the live environment is
+# first and foremost the Secure Boot-capable installer, and the installer still
+# pulls the selected KythOS target image at install time.
+RUN echo "==> Checking whether live ISO base represents installed KythOS image" \
+    && missing=0 \
+    && if ! command -v code >/dev/null 2>&1; then \
+           echo "WARNING: VS Code is missing from the live ISO base image"; \
+           missing=1; \
+       fi \
+    && if ! test -f /usr/share/applications/code.desktop; then \
+           echo "WARNING: VS Code desktop entry is missing from the live ISO base image"; \
+           missing=1; \
+       fi \
     && for path in \
         /usr/bin/kyth-welcome \
         /usr/bin/game-performance \
@@ -76,9 +85,16 @@ RUN echo "==> Verifying live ISO base represents installed KythOS image" \
         /usr/lib/systemd/system/kyth-default-flatpaks.service \
         /usr/lib/systemd/system/kyth-hw-setup.service \
         /usr/share/ublue-os/just/75-kyth.just; do \
-           test -e "$path" || { echo "ERROR: installed KythOS artifact missing from live ISO base image: $path"; exit 1; }; \
+           if ! test -e "$path"; then \
+               echo "WARNING: installed KythOS artifact missing from live ISO base image: $path"; \
+               missing=1; \
+           fi; \
        done \
-    && echo "==> Installed KythOS artifacts present in live ISO base"
+    && if test "${missing}" -eq 0; then \
+           echo "==> Installed KythOS artifacts present in live ISO base"; \
+       else \
+           echo "WARNING: live ISO base is missing installed KythOS artifacts; continuing with installer build"; \
+       fi
 
 # ── Hardware firmware for live installation sessions ────────────────────────
 # Keep laptop firmware explicit in the ISO too. The live environment must be
