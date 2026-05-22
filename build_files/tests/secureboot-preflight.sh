@@ -56,9 +56,9 @@ check_static_sources() {
     "${REPO_ROOT}/build_files/tests/secureboot-enrollment.sh" >/dev/null
     pass "MOK enrollment state machine test passed"
 
-    grep -q 'ignoring SECUREBOOT_SIGN_EFI' \
+    ! grep -q 'SECUREBOOT_SIGN_EFI' \
         "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "live ISO builder must ignore attempts to Kyth-sign removable EFI binaries"
+        || fail "live ISO builder must not expose EFI re-signing knobs"
     ! grep -q 'sign_efi_with_kyth_key' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "live ISO builder must not Kyth-sign BOOTX64.EFI/grubx64.efi/mmx64.efi"
     ! grep -q 'SECUREBOOT_SIGN_EFI: "1"' "${REPO_ROOT}/.github/workflows/build-live-iso.yml" \
@@ -67,10 +67,16 @@ check_static_sources() {
         || fail "live image must stage shimx64.efi as removable-media BOOTX64.EFI"
     grep -q 'BOOTX64.EFI is not Microsoft UEFI-signed' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "ISO assembler must require Microsoft-signed BOOTX64.EFI for removable media"
-    grep -q 'GRUB_DEFAULT=3' "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "signed live media should default to the MOK enrollment menu"
-    grep -q 'GRUB_TIMEOUT=-1' "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "signed live media should wait at GRUB for MOK enrollment"
+    grep -q 'grep -v cachyos' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "ISO assembler must prefer the Fedora-signed live kernel"
+    grep -q 'GRUB_DEFAULT=0' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "Fedora-signed live media should default to the live desktop"
+    grep -q 'GRUB_TIMEOUT=10' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "Fedora-signed live media should not wait indefinitely for MOK enrollment"
+    grep -q 'mok_state' "${REPO_ROOT}/build_files/kyth-installer" \
+        || fail "installer must report MOK enrollment state to the UI"
+    grep -q -- '--list-new' "${REPO_ROOT}/build_files/kyth-installer" \
+        || fail "installer must detect already-pending MOK enrollment"
     grep -q '^search --no-floppy --label --set=root' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "main GRUB menu must force root to the ISO volume before loading vmlinuz"
     grep -q '^configfile (\\$root)/boot/grub2/grub.cfg' "${REPO_ROOT}/build_files/build-live-iso.sh" \
@@ -134,15 +140,19 @@ check_cached_live_image() {
         test -s /usr/lib/kyth/efi/mmx64.efi
         test -s /usr/share/kyth/secureboot/kyth-secureboot.cer || true
         test -s /usr/share/kyth/secureboot/kyth-secureboot.der || true
-        kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | sort -V | tail -n 1)
-        test -n "${kver}"
-        test -s "/usr/lib/modules/${kver}/vmlinuz"
+        fedora_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -v cachyos | sort -V | tail -n 1)
+        test -n "${fedora_kver}"
+        test -s "/usr/lib/modules/${fedora_kver}/vmlinuz"
+        test -s "/usr/lib/modules/${fedora_kver}/initramfs-live"
+        cachy_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep cachyos | sort -V | tail -n 1)
+        test -n "${cachy_kver}"
+        test -s "/usr/lib/modules/${cachy_kver}/vmlinuz"
         if test -f /usr/share/kyth/secureboot/live-kernel-signed; then
             command -v sbverify >/dev/null
-            sbverify --cert /usr/share/kyth/secureboot/kyth-secureboot.cer "/usr/lib/modules/${kver}/vmlinuz" >/dev/null
+            sbverify --cert /usr/share/kyth/secureboot/kyth-secureboot.cer "/usr/lib/modules/${cachy_kver}/vmlinuz" >/dev/null
         fi
     '
-    pass "cached live image contains EFI binaries and kernel signing artifacts"
+    pass "cached live image contains EFI binaries, Fedora live kernel, and CachyOS install kernel"
 }
 
 check_host_secureboot_db() {
@@ -200,14 +210,10 @@ check_existing_iso_artifacts() {
     [[ -s "${tmp_dir}/vmlinuz" && -s "${tmp_dir}/initrd.img" ]] \
         || fail "ISO missing live kernel or initramfs under /images/pxeboot"
     pass "ISO contains live kernel and initramfs under /images/pxeboot"
-    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
-        sbverify --cert "${CERT_PEM}" "${tmp_dir}/vmlinuz" >/dev/null \
-            || fail "ISO live kernel is not signed by the Kyth Secure Boot certificate"
-        pass "ISO live kernel is signed by the Kyth Secure Boot certificate"
-    elif sbverify --cert "${CERT_PEM}" "${tmp_dir}/vmlinuz" >/dev/null 2>&1; then
-        pass "ISO live kernel is signed by the Kyth Secure Boot certificate"
+    if sbverify --cert "${CERT_PEM}" "${tmp_dir}/vmlinuz" >/dev/null 2>&1; then
+        warn "ISO live kernel is still Kyth-signed; expected Fedora-signed live kernel path"
     else
-        warn "ISO live kernel signature was not verified; set REQUIRE_SECUREBOOT_SIGNING=1 to make this a hard gate"
+        pass "ISO live kernel is not Kyth-signed; Fedora shim should trust the Fedora-signed kernel"
     fi
 
     mcopy -n -i "${efi_img}" "::/EFI/BOOT/BOOTX64.EFI" "${tmp_dir}/BOOTX64.EFI" >/dev/null

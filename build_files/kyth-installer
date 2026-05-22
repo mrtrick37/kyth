@@ -300,6 +300,71 @@ def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
 
 
+def _try_stage_mok_enrollment(log) -> str:
+    """Stage Kyth Secure Boot MOK enrollment via mokutil.
+
+    Returns one of: skipped, enrolled, pending, staged, failed.
+    """
+    cert_der = Path("/usr/share/kyth/secureboot/kyth-secureboot.der")
+    if not cert_der.exists():
+        log("Secure Boot: cert not found in live image — skipping enrollment staging")
+        return "skipped"
+
+    mokutil = shutil.which("mokutil")
+    if not mokutil:
+        log("Secure Boot: mokutil not found — skipping enrollment staging")
+        return "skipped"
+
+    try:
+        result = subprocess.run(
+            _as_root([mokutil, "--sb-state"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "SecureBoot enabled" not in result.stdout:
+            log("Secure Boot: not currently enabled — enrollment staging skipped")
+            log("Secure Boot: if you enable it later, run 'ujust enroll-secureboot'")
+            return "skipped"
+    except Exception as exc:
+        log(f"Secure Boot: could not check state ({exc}) — skipping enrollment staging")
+        return "skipped"
+
+    try:
+        enrolled = subprocess.run(
+            _as_root([mokutil, "--list-enrolled"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "KythOS Secure Boot" in enrolled.stdout:
+            log("Secure Boot: KythOS key already enrolled")
+            return "enrolled"
+    except Exception:
+        pass
+
+    try:
+        pending = subprocess.run(
+            _as_root([mokutil, "--list-new"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "KythOS Secure Boot" in pending.stdout:
+            log("Secure Boot: enrollment already staged — confirm it on next boot")
+            return "pending"
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            _as_root([mokutil, "--import", str(cert_der), "--stdin-passwd"]),
+            input="kyth\n", text=True, capture_output=True, timeout=15,
+        )
+        if result.returncode == 0:
+            log("Secure Boot: enrollment staged — you will confirm it on first boot")
+            return "staged"
+        log(f"Secure Boot: mokutil import failed (exit {result.returncode}): {result.stderr.strip()}")
+        return "failed"
+    except Exception as exc:
+        log(f"Secure Boot: enrollment staging failed: {exc}")
+        return "failed"
+
+
 def _source_imgref(image: str) -> str:
     # Allow installer env to pass an explicit containers/image transport, e.g.
     # oci:/usr/share/kyth/image:latest for local QEMU test ISOs. Plain image
@@ -591,8 +656,11 @@ def _run_install() -> None:
             progress(99)
             subprocess.run(_as_root(["umount", mount]), check=False)
 
+        log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
+        mok_state = _try_stage_mok_enrollment(log)
+
         progress(100)
-        _push({"type": "done"})
+        _push({"type": "done", "mok_state": mok_state})
 
     except Exception as exc:
         try:
@@ -980,6 +1048,19 @@ select{cursor:pointer}
         KythOS has been installed successfully.<br>
         Remove the installation media and reboot to start your new system.
       </p>
+      <div id="done-sb-notice" style="display:none;text-align:left;margin-top:28px">
+        <div class="status-box status-info">
+          <strong>One more step: Secure Boot key enrollment</strong><br><br>
+          On your first reboot, a blue screen will appear before KythOS loads.
+          This is normal — it is a one-time security setup:<br><br>
+          &nbsp;&nbsp;1. Press any key when prompted<br>
+          &nbsp;&nbsp;2. Select <strong>Enroll MOK</strong><br>
+          &nbsp;&nbsp;3. Select <strong>Continue</strong><br>
+          &nbsp;&nbsp;4. Enter password: <strong style="font-family:var(--mono);letter-spacing:.05em">kyth</strong><br>
+          &nbsp;&nbsp;5. Select <strong>Yes</strong>, then <strong>Reboot</strong><br><br>
+          After this, KythOS will boot normally every time.
+        </div>
+      </div>
       <div class="btn-row" style="justify-content:center;margin-top:32px">
         <button class="primary" onclick="reboot()" style="padding:11px 32px;font-size:15px">Reboot Now</button>
       </div>
@@ -1165,7 +1246,7 @@ function listenSSE() {
     if (ev.type === 'log')      appendLog(ev.text);
     else if (ev.type === 'progress') setProgress(ev.value);
     else if (ev.type === 'stats')    showStats(ev);
-    else if (ev.type === 'done') { src.close(); onDone(); }
+    else if (ev.type === 'done') { src.close(); onDone(ev.mok_state); }
     else if (ev.type === 'error'){ src.close(); showError(ev.message); }
   };
   src.onerror = () => { src.close(); showError('Lost connection to installer backend.'); };
@@ -1217,8 +1298,11 @@ function toggleLog() {
   arrow.classList.toggle('open', open);
 }
 
-function onDone() {
+function onDone(mokState) {
   clearInterval(_elapsedTimer);
+  if (mokState === 'staged' || mokState === 'pending') {
+    document.getElementById('done-sb-notice').style.display = '';
+  }
   goto('done');
 }
 
