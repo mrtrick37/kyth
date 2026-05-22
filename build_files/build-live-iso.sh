@@ -34,29 +34,6 @@ else
 LIVE_BUILD_TAG="kyth-live:build-${SOURCE_TAG}"
 fi
 BASE_IMAGE_PULLED=0
-SECUREBOOT_SIGNING_REQUESTED=0
-if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
-    echo "ERROR: MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}" >&2
-    exit 1
-fi
-if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
-    SECUREBOOT_SIGNING_REQUESTED=1
-fi
-# The removable-media EFI boot chain must stay Microsoft/Fedora-signed so fresh
-# Secure Boot firmware can load shim and reach MokManager before the Kyth MOK is
-# enrolled. The Kyth key signs the kernel only.
-if [[ -n "${SECUREBOOT_SIGN_EFI:-}" && "${SECUREBOOT_SIGN_EFI}" != "0" ]]; then
-    echo "WARNING: ignoring SECUREBOOT_SIGN_EFI=${SECUREBOOT_SIGN_EFI}; live installer EFI binaries must stay distro-signed." >&2
-    SECUREBOOT_SIGN_EFI=0
-fi
-
-if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
-    if [[ -z "${MOK_KEY:-}" && -z "${MOK_KEY_FILE:-}" ]]; then
-        echo "ERROR: Secure Boot signing is required, but MOK_KEY is not set." >&2
-        echo "       Add the PEM private key as the GitHub MOK_KEY secret or set MOK_KEY_FILE locally." >&2
-        exit 1
-    fi
-fi
 
 # ── Docker group bootstrap ─────────────────────────────────────────────────────
 # If docker is inaccessible, add the user to the docker group (if needed) and
@@ -425,14 +402,6 @@ else
         _need_rebuild=1
     fi
 
-    _installed_secureboot_signing=$(docker image inspect "${LIVE_BUILD_TAG}" \
-        --format '{{ index .Config.Labels "org.kyth.live.secureboot-signing-requested" }}' \
-        2>/dev/null || echo "")
-    if [[ "${_installed_secureboot_signing}" != "${SECUREBOOT_SIGNING_REQUESTED}" ]]; then
-        echo "==> Secure Boot signing state changed — rebuilding ${LIVE_BUILD_TAG}..."
-        _need_rebuild=1
-    fi
-
     if [[ "${INSTALLER_BASE_IMAGE}" != localhost/* && "${INSTALLER_BASE_IMAGE}" != localhost:* ]]; then
         echo "==> Refreshing live runtime base image metadata..."
         if ! docker pull "${INSTALLER_BASE_IMAGE}"; then
@@ -477,17 +446,6 @@ if [[ "${_need_rebuild}" == "1" ]]; then
 
     echo "==> Building live container (this takes a while)..."
     BUILD_ARGS=()
-    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
-        echo "==> Secure Boot: MOK key set — live vmlinuz will be signed"
-        if [[ -n "${MOK_KEY_FILE:-}" ]]; then
-            BUILD_ARGS+=(--secret "id=mok_key,src=${MOK_KEY_FILE}" --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
-        else
-            BUILD_ARGS+=(--secret id=mok_key,env=MOK_KEY --build-arg SECUREBOOT_SIGNING_REQUESTED=1)
-        fi
-    else
-        echo "==> Secure Boot: MOK key not set — live vmlinuz signing skipped"
-        BUILD_ARGS+=(--build-arg SECUREBOOT_SIGNING_REQUESTED=0)
-    fi
     if [[ -n "${LIVE_BUILD_CACHE_FROM:-}" ]]; then
         echo "==> Using live build cache source: ${LIVE_BUILD_CACHE_FROM}"
         BUILD_ARGS+=(--cache-from "${LIVE_BUILD_CACHE_FROM}")
@@ -569,12 +527,24 @@ INSTALLEOF
 fi
 
 # Step 3: Kernel and live initramfs
+# Prefer the Fedora-signed (non-CachyOS) kernel: it is trusted by Fedora's shim
+# without MOK enrollment, so Secure Boot users reach the live desktop immediately.
 echo "==> Locating kernel and live initramfs"
 KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+        | grep -v cachyos \
         | sort -V \
         | tail -n 1
 )
+if [[ -z "${KVER}" ]]; then
+    echo "WARNING: no Fedora-signed kernel found in rootfs — falling back to CachyOS kernel" >&2
+    echo "         Secure Boot users will need MOK enrollment before the live desktop loads" >&2
+    KVER=$(
+        find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+            | sort -V \
+            | tail -n 1
+    )
+fi
 echo "    Kernel: ${KVER}"
 
 VMLINUZ="${ROOTFS}/usr/lib/modules/${KVER}/vmlinuz"
@@ -583,26 +553,26 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
-if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
-    echo "    Secure Boot: live kernel signing marker present"
-    if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
-        verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
+if [[ "${KVER}" == *cachyos* ]]; then
+    # CachyOS fallback: apply Kyth signing if the key is available
+    if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
+        echo "    Secure Boot: CachyOS live kernel signing marker present"
+        if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
+            verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
+        fi
+    elif [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
+        echo "    Secure Boot: CachyOS live kernel unsigned — signing before squashfs"
+        sign_live_kernel_from_export "${VMLINUZ}"
+    else
+        echo "WARNING: live kernel is CachyOS and not Kyth-signed; Secure Boot users will need MOK enrollment before the live desktop loads." >&2
     fi
-elif [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
-    echo "    Secure Boot: exported live kernel is unsigned — signing it before squashfs"
-    sign_live_kernel_from_export "${VMLINUZ}"
 else
-    echo "WARNING: live kernel is not marked as Secure Boot signed." >&2
-    echo "         Secure Boot machines will need signing enabled before booting this ISO." >&2
+    echo "    Secure Boot: using Fedora-signed kernel — no additional signing needed"
 fi
 
 sudo cp "${VMLINUZ}" "${ISO_DIR}/images/pxeboot/vmlinuz" 2>/dev/null
 sudo cp "${INITRD}"  "${ISO_DIR}/images/pxeboot/initrd.img" 2>/dev/null
 sudo chmod 644 "${ISO_DIR}/images/pxeboot/"*
-if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" || -n "${MOK_KEY:-}" ]]; then
-    verify_signed_with_kyth_cert "${ISO_DIR}/images/pxeboot/vmlinuz" "ISO live kernel"
-    echo "    Secure Boot: ISO live kernel signature verified"
-fi
 
 # ── 4. Squashfs ───────────────────────────────────────────────────────────────
 # No OCI bundle embedded — kyth-installer pulls from the registry at install time
@@ -626,13 +596,6 @@ echo "==> Writing GRUB config and theme"
 LIVE_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=10
-if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
-    # The CachyOS live kernel is signed with the Kyth MOK. On a new Secure Boot
-    # machine that key is not trusted yet, so default to MokManager and wait for
-    # a deliberate selection instead of timing out into a rejected kernel.
-    GRUB_DEFAULT=3
-    GRUB_TIMEOUT=-1
-fi
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme
@@ -732,10 +695,11 @@ menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Enroll KythOS Secure Boot Key" --class efi {
+menuentry "Enroll KythOS Secure Boot Key (advanced)" --class efi {
     if [ -f /EFI/BOOT/mmx64.efi ]; then
         echo ""
-        echo "KythOS uses a custom kernel that must be enrolled once for Secure Boot."
+        echo "The KythOS installer handles Secure Boot enrollment automatically."
+        echo "Use this entry only if you need to pre-enroll before running the installer."
         echo ""
         echo "In MokManager (launching now):"
         echo "  1. Select 'Enroll key from disk'"
