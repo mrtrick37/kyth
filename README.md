@@ -216,8 +216,9 @@ MokManager enrollment reboot, then enable Secure Boot again.
 - `bad shim signature`, `verification failed`, or a return to GRUB when choosing
   **Try KythOS Live**
 
-  The KythOS MOK has not been enrolled yet, or the ISO kernel was not signed with
-  the key you enrolled. Enroll `EFI/BOOT/kyth-secureboot.der`, then boot again.
+  The live ISO should be using Fedora-signed boot artifacts and should not need
+  the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
+  Boot preflight below before flashing it again.
 
 ### Check an ISO before flashing
 
@@ -378,12 +379,9 @@ Fast Secure Boot preflight, without waiting for a new ISO:
 ```bash
 just secureboot-preflight
 SOURCE_TAG=testing just secureboot-preflight testing
-MOK_KEY_FILE="$HOME/.config/kyth/secureboot/kyth-secureboot.key" just secureboot-preflight
-MOK_KEY="$(cat ~/path/to/kyth-mok-PRIVATE.key)" just secureboot-preflight
 ```
 
-The preflight checks the Secure Boot source policy, MOK enrollment script,
-certificate conversion, optional private-key/certificate match, cached live
+The preflight checks the Secure Boot source policy, cached Fedora-kernel live
 image artifacts, and any existing `output/live-iso/kyth-live-*.iso`. It is meant
 to catch signing and boot-chain mistakes before flashing another USB. For deeper
 ISO inspection, install `xorriso`, `mtools`, and `sbsigntools`.

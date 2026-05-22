@@ -67,7 +67,7 @@ check_static_sources() {
         || fail "live image must stage shimx64.efi as removable-media BOOTX64.EFI"
     grep -q 'BOOTX64.EFI is not Microsoft UEFI-signed' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "ISO assembler must require Microsoft-signed BOOTX64.EFI for removable media"
-    grep -q 'grep -v cachyos' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+    grep -q "grep -Ev 'cachyos|ogc'" "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "ISO assembler must prefer the Fedora-signed live kernel"
     grep -q 'GRUB_DEFAULT=0' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "Fedora-signed live media should default to the live desktop"
@@ -140,19 +140,13 @@ check_cached_live_image() {
         test -s /usr/lib/kyth/efi/mmx64.efi
         test -s /usr/share/kyth/secureboot/kyth-secureboot.cer || true
         test -s /usr/share/kyth/secureboot/kyth-secureboot.der || true
-        fedora_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -v cachyos | sort -V | tail -n 1)
+        fedora_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -Ev "cachyos|ogc" | sort -V | tail -n 1)
         test -n "${fedora_kver}"
         test -s "/usr/lib/modules/${fedora_kver}/vmlinuz"
         test -s "/usr/lib/modules/${fedora_kver}/initramfs-live"
-        cachy_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep cachyos | sort -V | tail -n 1)
-        test -n "${cachy_kver}"
-        test -s "/usr/lib/modules/${cachy_kver}/vmlinuz"
-        if test -f /usr/share/kyth/secureboot/live-kernel-signed; then
-            command -v sbverify >/dev/null
-            sbverify --cert /usr/share/kyth/secureboot/kyth-secureboot.cer "/usr/lib/modules/${cachy_kver}/vmlinuz" >/dev/null
-        fi
+        ! find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -Eq "cachyos|ogc"
     '
-    pass "cached live image contains EFI binaries and Fedora live kernel"
+    pass "cached live image contains EFI binaries and only the Fedora live kernel"
 }
 
 check_host_secureboot_db() {
@@ -180,12 +174,6 @@ check_host_secureboot_db() {
 }
 
 check_existing_iso_artifacts() {
-    if [[ -f "${CERT_DER}" ]]; then
-        need_file "${CERT_DER}" "exported MOK DER certificate"
-    else
-        warn "no exported DER certificate found yet: ${CERT_DER}"
-    fi
-
     if [[ ! -f "${ISO_PATH}" ]]; then
         warn "no existing ISO found to inspect: ${ISO_PATH}"
         return 0
@@ -248,9 +236,7 @@ check_existing_iso_artifacts() {
     fi
 
     if mcopy -n -i "${efi_img}" "::/EFI/BOOT/kyth-secureboot.der" "${tmp_dir}/kyth-secureboot.der" >/dev/null 2>&1; then
-        need_file "${tmp_dir}/kyth-secureboot.der" "ISO embedded Kyth MOK DER"
-    else
-        fail "ISO missing EFI/BOOT/kyth-secureboot.der for MokManager enrollment"
+        fail "ISO should not expose Kyth MOK enrollment material on the normal live media"
     fi
 }
 

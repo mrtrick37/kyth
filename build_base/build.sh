@@ -85,7 +85,9 @@ install_ogc_kernel() {
     done
     rm -rf /usr/lib/modules/*
 
-    dnf5 install -y --setopt=tsflags=noscripts \
+    local kernel_rpms=()
+    local pattern rpm_path
+    for pattern in \
         /tmp/kernel-rpms/kernel-[0-9]*.rpm \
         /tmp/kernel-rpms/kernel-core-*.rpm \
         /tmp/kernel-rpms/kernel-modules-*.rpm \
@@ -93,13 +95,22 @@ install_ogc_kernel() {
         /tmp/kernel-rpms/kernel-modules-extra-*.rpm \
         /tmp/kernel-rpms/kernel-tools-*.rpm \
         /tmp/kernel-rpms/kernel-tools-libs-*.rpm \
-        /tmp/kernel-rpms/kernel-common-*.rpm || \
-    dnf5 install -y --setopt=tsflags=noscripts \
-        /tmp/kernel-rpms/kernel-[0-9]*.rpm \
-        /tmp/kernel-rpms/kernel-core-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-core-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-extra-*.rpm
+        /tmp/kernel-rpms/kernel-common-*.rpm; do
+        for rpm_path in ${pattern}; do
+            [[ -e "${rpm_path}" ]] || continue
+            kernel_rpms+=("${rpm_path}")
+        done
+    done
+
+    if [[ ${#kernel_rpms[@]} -eq 0 ]]; then
+        echo "ERROR: no kernel RPMs found in OGC akmods payload" >&2
+        find /tmp/kernel-rpms -maxdepth 2 -type f -print >&2 || true
+        exit 1
+    fi
+
+    printf 'OGC kernel RPMs:\n'
+    printf '  %s\n' "${kernel_rpms[@]}"
+    dnf5 install -y --setopt=tsflags=noscripts "${kernel_rpms[@]}"
 
     local kver
     kver=$(latest_kernel_version)

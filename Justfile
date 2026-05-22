@@ -544,8 +544,8 @@ build-live-iso source_tag="latest":
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
 # Fast Secure Boot validation that does not build a new ISO.
-# Checks source policy, MOK enrollment behavior, certificate material, the
-# cached live image when present, and any existing output/live-iso ISO.
+# Checks source policy, the cached Fedora-kernel live image when present, and
+# any existing output/live-iso ISO.
 [group('Build Virtual Machine Image')]
 secureboot-preflight source_tag="latest":
     #!/usr/bin/env bash
