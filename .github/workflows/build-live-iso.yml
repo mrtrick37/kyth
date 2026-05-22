@@ -404,14 +404,6 @@ jobs:
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
               --no-progress
           done
-          if [[ -f output/live-iso/kyth-secureboot.der ]]; then
-            aws s3 cp output/live-iso/kyth-secureboot.der \
-              "s3://kyth-releases/kyth-secureboot.der" \
-              --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
-              --no-progress
-          else
-            echo "==> No Kyth MOK certificate generated; Fedora-signed ISO path does not need kyth-secureboot.der"
-          fi
 
       - name: Publish release notes to GitHub Releases
         env:
