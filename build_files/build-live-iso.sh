@@ -527,12 +527,12 @@ INSTALLEOF
 fi
 
 # Step 3: Kernel and live initramfs
-# Prefer the Fedora-signed (non-CachyOS) kernel: it is trusted by Fedora's shim
+# Prefer the Fedora-signed kernel: it is trusted by Fedora's shim
 # without MOK enrollment, so Secure Boot users reach the live desktop immediately.
 echo "==> Locating kernel and live initramfs"
 KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-        | grep -v cachyos \
+        | grep -Ev 'cachyos|ogc' \
         | sort -V \
         | tail -n 1
 )
@@ -695,47 +695,12 @@ menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Enroll KythOS Secure Boot Key (advanced)" --class efi {
-    if [ -f /EFI/BOOT/mmx64.efi ]; then
-        echo ""
-        echo "The KythOS installer handles Secure Boot enrollment automatically."
-        echo "Use this entry only if you need to pre-enroll before running the installer."
-        echo ""
-        echo "In MokManager (launching now):"
-        echo "  1. Select 'Enroll key from disk'"
-        echo "  2. Navigate: EFI -> BOOT -> kyth-secureboot.der"
-        echo "  3. Select the file, choose 'Continue', then 'Yes', then 'Reboot'"
-        echo "  4. After rebooting, select 'Try KythOS Live'"
-        echo ""
-        echo "Password prompt: type 'kyth' if asked (or leave blank)."
-        echo ""
-        sleep 6
-        chainloader /EFI/BOOT/mmx64.efi
-    else
-        echo "MokManager (mmx64.efi) is missing from this ISO."
-        echo "Reinstall shim-x64 in the live container and rebuild."
-        sleep 4
-    fi
-}
-
 GRUBEOF
 
 cat > "${ISO_DIR}/EFI/BOOT/grub.cfg" << BOOTGRUBEOF
 search --no-floppy --label --set=root ${VOLID}
 configfile (\$root)/boot/grub2/grub.cfg
 BOOTGRUBEOF
-
-# ── Secure Boot: MOK cert for GRUB enrollment menu ────────────────────────────
-# Convert the PEM cert from the repo to DER format. MokManager (mmx64.efi) reads
-# DER when the user selects "Enroll key from disk" → EFI/BOOT/kyth-secureboot.der.
-_SB_CERT_PEM="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
-_SB_CERT_DER="${ISO_DIR}/EFI/BOOT/kyth-secureboot.der"
-if [[ -f "${_SB_CERT_PEM}" ]] && command -v openssl &>/dev/null; then
-    openssl x509 -in "${_SB_CERT_PEM}" -outform DER -out "${_SB_CERT_DER}"
-    echo "==> Secure Boot: kyth-secureboot.der added to EFI/BOOT"
-else
-    echo "WARNING: ${_SB_CERT_PEM} not found — Secure Boot enrollment entry will not work" >&2
-fi
 
 # ── 5b. UEFI EFI boot image (FAT) ────────────────────────────────────────────
 echo "==> Creating UEFI EFI boot image"
@@ -875,9 +840,6 @@ mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/grub.cfg" ::/EFI/BOOT/grub.cfg
 if [[ -f "${ISO_DIR}/EFI/fedora/grub.cfg" ]]; then
     mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/fedora/grub.cfg" ::/EFI/fedora/grub.cfg
 fi
-if [[ -f "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ]]; then
-    mcopy -i "${EFI_IMG}" "${ISO_DIR}/EFI/BOOT/kyth-secureboot.der" ::/EFI/BOOT/kyth-secureboot.der
-fi
 verify_efi_image_boot_chain "${EFI_IMG}"
 
 cat > "${ISO_DIR}/startup.nsh" << 'NSHEOF'
@@ -994,9 +956,6 @@ XORRISO_ARGS+=("${ISO_DIR}")
 
 sudo xorriso "${XORRISO_ARGS[@]}"
 sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
-if [[ -f "${_SB_CERT_DER}" ]]; then
-    cp "${_SB_CERT_DER}" "${OUTPUT_DIR}/kyth-secureboot.der"
-fi
 
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")

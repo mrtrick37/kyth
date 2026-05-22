@@ -20,6 +20,10 @@ jobs:
   build_push:
     name: Build and push (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
     runs-on: ubuntu-24.04
+    # The live ISO is built from the Fedora-kernel image only. Keep advanced
+    # kernel variants visible, but do not let them block the beginner-friendly
+    # ISO pipeline.
+    continue-on-error: ${{ matrix.kernel_flavor != 'fedora' }}
     env:
       DOCKER_CONFIG: /tmp/kyth-docker-config
 
