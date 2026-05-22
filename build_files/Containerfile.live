@@ -275,7 +275,7 @@ RUN mkdir -p \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=KythOS Welcome\nHidden=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Helper\nExec=/usr/bin/kyth-welcome-launch\nX-KDE-autostart-after=panel\nHidden=false\nNoDisplay=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Accessibility\nHidden=true\n' \
         > /home/liveuser/.config/autostart/org.kde.kaccess.desktop \
