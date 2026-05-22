@@ -117,6 +117,9 @@ jobs:
             | sha256sum \
             | awk '{print $1}'
           )"
+          echo "==> Live container base image: ${BASE_IMAGE}"
+          docker buildx imagetools inspect "${BASE_IMAGE}" --format '==> Base digest: {{ .Manifest.Digest }}'
+          echo "==> Live container source hash: ${SOURCE_HASH}"
 
           docker buildx build \
             --tag "${IMAGE}" \
