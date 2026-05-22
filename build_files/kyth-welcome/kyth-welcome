@@ -65,6 +65,17 @@ _SMB_CONFIG = os.path.expanduser("~/.config/kyth-smb-shares.json")
 _SMB_CREDS_DIR = "/etc/kyth-smb-creds"
 
 
+def _is_live_session() -> bool:
+    try:
+        with open("/proc/cmdline") as _f:
+            return "kyth.live" in _f.read()
+    except OSError:
+        return False
+
+
+_IS_LIVE = _is_live_session()
+
+
 def _prefer_xwayland_if_wayland_plugin_missing() -> None:
     # KDE Wayland sessions usually expose both WAYLAND_DISPLAY and DISPLAY.
     # If qt6-qtwayland is missing in the image, Qt aborts before showing any
@@ -766,6 +777,28 @@ QFrame#hw-card-dim {
     border: 1px solid #3c3c3c;
     border-left: 3px solid #505050;
     border-radius: 4px;
+}
+
+/* ── Live session banner ─────────────────────────────────────────────────── */
+QWidget#live-banner {
+    background: #1a1200;
+    border-bottom: 1px solid #4a3800;
+}
+
+QLabel#live-banner-badge {
+    background: #3a2a00;
+    color: #cca700;
+    border: 1px solid #5a4400;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+QLabel#live-banner-text {
+    color: #9a8650;
+    font-size: 11px;
 }
 """
 
@@ -12859,12 +12892,49 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(920, 640)
         self.resize(1100, 740)
 
+        # Outer wrapper: live banner (if running from live ISO) + main content
+        central = QWidget()
+        central.setObjectName("content-area")
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        self.setCentralWidget(central)
+
+        if _IS_LIVE:
+            banner = QWidget()
+            banner.setObjectName("live-banner")
+            banner_layout = QHBoxLayout(banner)
+            banner_layout.setContentsMargins(16, 9, 16, 9)
+            banner_layout.setSpacing(0)
+
+            badge = QLabel("  LIVE SESSION  ")
+            badge.setObjectName("live-banner-badge")
+            banner_layout.addWidget(badge)
+            banner_layout.addSpacing(12)
+
+            notice = QLabel(
+                "You're running from a live ISO — performance is reduced (no CachyOS kernel, "
+                "SCX scheduler, or ananicy-cpp tuning) and some features are unavailable."
+            )
+            notice.setObjectName("live-banner-text")
+            banner_layout.addWidget(notice, 1)
+            banner_layout.addSpacing(16)
+
+            install_btn = QPushButton("Install KythOS")
+            install_btn.setObjectName("primary")
+            install_btn.setFixedWidth(148)
+            install_btn.clicked.connect(
+                lambda: subprocess.Popen(["/usr/bin/kyth-launch-installer"])
+            )
+            banner_layout.addWidget(install_btn)
+            central_layout.addWidget(banner)
+
         root = QWidget()
         root.setObjectName("content-area")
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
-        self.setCentralWidget(root)
+        central_layout.addWidget(root, 1)
 
         # ── Sidebar ──────────────────────────────────────────────────────────
         sidebar = QWidget()
@@ -13680,7 +13750,12 @@ def main():
     app.setWindowIcon(QIcon.fromTheme("kyth"))
     app.setStyleSheet(QSS)
 
-    win = WizardWindow() if _is_first_run() else MainWindow()
+    if _IS_LIVE:
+        win = MainWindow()
+    elif _is_first_run():
+        win = WizardWindow()
+    else:
+        win = MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
     if start_page and isinstance(win, MainWindow):
