@@ -387,7 +387,7 @@ fi
 rm -rf "${TMPDIR_LFX}"
 
 # ── scx userspace schedulers ──────────────────────────────────────────────────
-# sched-ext (scx) is a BPF-based scheduler framework in the CachyOS kernel.
+# sched-ext (scx) is a BPF-based scheduler framework available on supporting kernels.
 # scx_lavd is optimised for interactive + gaming — it prioritises latency-
 # sensitive threads (audio, input, render) while keeping throughput tasks warm.
 #

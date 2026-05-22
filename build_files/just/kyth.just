@@ -116,17 +116,62 @@ switch-channel channel="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ channel }}" in
-        stable|latest) tag="latest" ;;
-        testing)       tag="testing" ;;
+        stable|latest) base_tag="latest" ;;
+        testing)       base_tag="testing" ;;
         *)
             echo "Unknown channel: {{ channel }}" >&2
             echo "Valid channels: stable (default), testing" >&2
             exit 1
             ;;
     esac
+    flavor="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
+    case "${flavor}" in
+        cachy) suffix="-cachy" ;;
+        ogc) suffix="-ogc" ;;
+        *) suffix="" ;;
+    esac
+    tag="${base_tag}${suffix}"
     echo "Switching to KythOS :${tag}..."
     sudo bootc switch "ghcr.io/mrtrick37/kyth:${tag}"
     echo "Channel switch staged. Reboot to activate."
+
+# Switch to a kernel-flavored KythOS image.
+# Default Fedora is recommended. CachyOS and OGC are advanced variants that keep
+# rollback support by switching the whole bootc image instead of layering kernels.
+# Usage:
+#   ujust switch-kernel fedora
+#   ujust switch-kernel cachy
+#   ujust switch-kernel ogc
+[group('KythOS')]
+switch-kernel flavor="fedora":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    flavor="$(printf '%s' "{{ flavor }}" | tr '[:upper:]' '[:lower:]')"
+    case "${flavor}" in
+        fedora|stock) suffix="" ; label="Fedora" ;;
+        cachy|cachyos) suffix="-cachy" ; label="CachyOS" ;;
+        ogc) suffix="-ogc" ; label="OGC" ;;
+        *)
+            echo "Unknown kernel flavor: {{ flavor }}" >&2
+            echo "Valid flavors: fedora, cachy, ogc" >&2
+            exit 1
+            ;;
+    esac
+
+    ref="$(bootc status --format json 2>/dev/null \
+        | python3 -c 'import json,sys,re; d=json.load(sys.stdin); text=json.dumps(d); m=re.search(r"ghcr.io/mrtrick37/kyth:([A-Za-z0-9._-]+)", text); print(m.group(1) if m else "latest")' \
+        2>/dev/null || echo latest)"
+    case "${ref}" in
+        testing*) channel="testing" ;;
+        *) channel="latest" ;;
+    esac
+
+    target="ghcr.io/mrtrick37/kyth:${channel}${suffix}"
+    echo "Switching to ${label} kernel image: ${target}"
+    echo "This stages a new deployment and keeps rollback available from the boot menu."
+    sudo bootc switch "${target}"
+    echo "Kernel switch staged. Reboot to activate."
 
 # Run a game or app with the temporary performance profile wrapper.
 [group('KythOS')]
@@ -732,7 +777,7 @@ setup-waydroid image="vanilla":
         echo "Loading binder_linux kernel module..." >&2
         sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || {
             echo "ERROR: Could not load binder_linux. Waydroid requires binder support." >&2
-            echo "The CachyOS kernel ships binder_linux — if you see this, please report it." >&2
+            echo "Try the CachyOS or OGC kernel from System Hub -> Advanced -> Kernel, then reboot." >&2
             exit 1
         }
     fi
@@ -1053,11 +1098,9 @@ secureboot-status:
 
 # Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
 #
-# The first-boot service (kyth-enroll-mok.service) handles this automatically
-# when Secure Boot is active at install time. Existing users should run this
-# before enabling Secure Boot in firmware. Use this recipe if you:
-#   - enabled Secure Boot after installing KythOS
-#   - need to re-enroll after a firmware reset
+# The default Fedora kernel path does not need this key. Run this before
+# enabling Secure Boot for advanced CachyOS or OGC kernel images, or after a
+# firmware reset if the KythOS MOK was removed.
 #
 # After running, reboot and enter the password you chose at the MokManager screen.
 [group('KythOS')]

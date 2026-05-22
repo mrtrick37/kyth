@@ -41,7 +41,7 @@ vm.max_map_count = 16777216
 vm.dirty_expire_centisecs = 500
 vm.dirty_writeback_centisecs = 500
 
-# Network — activate BBRv3 (built into CachyOS kernel)
+# Network — use BBR when available; Fedora falls back if the module is absent.
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
@@ -347,9 +347,9 @@ options i915 enable_guc=3 enable_huc=2
 I915EOF
 
 # ── NTSYNC ───────────────────────────────────────────────────────────
-# CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
-# access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
-# (faster and lower-latency than esync/fsync for Windows game compatibility).
+# Custom kernels may ship ntsync. The udev rule gives the 'users' group access
+# to /dev/ntsync so Wine/Proton can use NT synchronization primitives when the
+# module is available.
 mkdir -p /usr/lib/modules-load.d
 echo 'ntsync' > /usr/lib/modules-load.d/kyth-ntsync.conf
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
@@ -825,7 +825,7 @@ systemctl enable kyth-first-boot-message.service 2>/dev/null || true
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
-# On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
+# On amd_pstate=active systems, EPP is the primary
 # frequency/voltage scaling knob — more direct than powerprofilesctl alone.
 # Valid values: performance, balance_performance, balance_power, power, default
 install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'

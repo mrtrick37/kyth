@@ -537,8 +537,8 @@ KVER=$(
         | tail -n 1
 )
 if [[ -z "${KVER}" ]]; then
-    echo "WARNING: no Fedora-signed kernel found in rootfs — falling back to CachyOS kernel" >&2
-    echo "         Secure Boot users will need MOK enrollment before the live desktop loads" >&2
+    echo "WARNING: no Fedora-signed kernel found in rootfs — falling back to the newest available kernel" >&2
+    echo "         Secure Boot users may need MOK enrollment before the live desktop loads" >&2
     KVER=$(
         find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
             | sort -V \
@@ -553,18 +553,18 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
-if [[ "${KVER}" == *cachyos* ]]; then
-    # CachyOS fallback: apply Kyth signing if the key is available
+if [[ "${KVER}" != *".fc"* || "${KVER}" == *cachyos* || "${KVER}" == *ogc* ]]; then
+    # Custom fallback: apply Kyth signing if the key is available
     if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
-        echo "    Secure Boot: CachyOS live kernel signing marker present"
+        echo "    Secure Boot: custom live kernel signing marker present"
         if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
             verify_signed_with_kyth_cert "${VMLINUZ}" "exported live kernel"
         fi
     elif [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
-        echo "    Secure Boot: CachyOS live kernel unsigned — signing before squashfs"
+        echo "    Secure Boot: custom live kernel unsigned — signing before squashfs"
         sign_live_kernel_from_export "${VMLINUZ}"
     else
-        echo "WARNING: live kernel is CachyOS and not Kyth-signed; Secure Boot users will need MOK enrollment before the live desktop loads." >&2
+        echo "WARNING: live kernel is custom and not Kyth-signed; Secure Boot users may need MOK enrollment before the live desktop loads." >&2
     fi
 else
     echo "    Secure Boot: using Fedora-signed kernel — no additional signing needed"

@@ -1,5 +1,5 @@
 #!/bin/bash
-# secureboot.sh — sign the CachyOS vmlinuz with the KythOS MOK key.
+# secureboot.sh — sign custom-kernel vmlinuz files with the KythOS MOK key.
 #
 # Skipped gracefully when no MOK key is provided (local builds without
 # a secret configured). CI passes --secret id=mok_key,env=MOK_KEY.
@@ -9,6 +9,25 @@ set -euo pipefail
 MOK_KEY_FILE="/run/secrets/mok_key"
 SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED:-0}"
 
+CERT="/ctx/secureboot/kyth-secureboot.cer"
+KERNEL_FLAVOR="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
+
+# ── Install runtime enrollment artifacts in every image ─────────────────────
+# Fedora is trusted by Fedora shim without Kyth signing, but users may switch to
+# a custom kernel image later and need the public cert available beforehand.
+dnf5 install -y openssl
+install -Dm 0644 "${CERT}" /usr/share/kyth/secureboot/kyth-secureboot.cer
+openssl x509 -in "${CERT}" -outform DER -out /tmp/kyth-secureboot.der
+install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der
+install -Dm 0755 /ctx/kyth-enroll-mok         /usr/bin/kyth-enroll-mok
+install -Dm 0644 /ctx/kyth-enroll-mok.service /usr/lib/systemd/system/kyth-enroll-mok.service
+
+if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
+    echo "secureboot: Fedora kernel flavor uses Fedora-signed boot artifacts — Kyth MOK signing skipped"
+    dnf5 clean all
+    exit 0
+fi
+
 if [[ ! -f "${MOK_KEY_FILE}" ]]; then
     if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
         echo "secureboot: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2
@@ -16,15 +35,14 @@ if [[ ! -f "${MOK_KEY_FILE}" ]]; then
     fi
     echo "secureboot: no MOK key provided — Secure Boot signing skipped"
     echo "secureboot: set MOK_KEY env var and pass --secret id=mok_key,env=MOK_KEY to enable"
+    dnf5 clean all
     exit 0
 fi
 
-CERT="/ctx/secureboot/kyth-secureboot.cer"
-
-# ── Find the installed CachyOS kernel ────────────────────────────────────────
-KVER=$(basename "$(ls -d /usr/lib/modules/*cachyos* 2>/dev/null | head -1)" 2>/dev/null || true)
+# ── Find the installed custom kernel ─────────────────────────────────────────
+KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)
 if [[ -z "${KVER}" ]]; then
-    echo "secureboot: ERROR — no CachyOS kernel found in /usr/lib/modules/" >&2
+    echo "secureboot: ERROR — no kernel found in /usr/lib/modules/" >&2
     exit 1
 fi
 
@@ -36,7 +54,7 @@ fi
 
 # ── Install sbsigntools, sign, clean up ──────────────────────────────────────
 echo "secureboot: installing sbsigntools"
-dnf5 install -y sbsigntools openssl
+dnf5 install -y sbsigntools
 
 echo "secureboot: signing ${VMLINUZ} (kernel ${KVER})"
 KEY_MD5=$(openssl rsa -in "${MOK_KEY_FILE}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
@@ -65,16 +83,6 @@ dnf5 clean all
 
 echo "secureboot: vmlinuz signed successfully"
 
-# ── Install runtime artifacts ─────────────────────────────────────────────────
-# Public certs: PEM is useful for verification/signing, DER is required by
-# mokutil --import and MokManager.
-install -Dm 0644 "${CERT}" /usr/share/kyth/secureboot/kyth-secureboot.cer
-openssl x509 -in "${CERT}" -outform DER -out /tmp/kyth-secureboot.der
-install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der
-
-# Enrollment script and first-boot service
-install -Dm 0755 /ctx/kyth-enroll-mok        /usr/bin/kyth-enroll-mok
-install -Dm 0644 /ctx/kyth-enroll-mok.service /usr/lib/systemd/system/kyth-enroll-mok.service
 systemctl enable kyth-enroll-mok.service
 
 echo "secureboot: Secure Boot support configured"

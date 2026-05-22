@@ -1293,10 +1293,9 @@ def _branch_from_ref(ref: str | None) -> str | None:
     ref = ref.strip()
     if not ref:
         return None
-    if f"{REGISTRY}:latest" in ref:
-        return "latest"
-    if f"{REGISTRY}:testing" in ref:
-        return "testing"
+    for tag in ("latest-cachy", "testing-cachy", "latest-ogc", "testing-ogc", "latest", "testing"):
+        if f"{REGISTRY}:{tag}" in ref:
+            return tag
     if "@" in ref:
         return ref.split("@", 1)[0].rsplit(":", 1)[-1]
     if ":" in ref:
@@ -1309,11 +1308,42 @@ def _branch_display_name(tag: str | None) -> str:
         return "Stable (latest)"
     if tag == "testing":
         return "Testing"
+    if tag == "latest-cachy":
+        return "Stable + CachyOS kernel"
+    if tag == "testing-cachy":
+        return "Testing + CachyOS kernel"
+    if tag == "latest-ogc":
+        return "Stable + OGC kernel"
+    if tag == "testing-ogc":
+        return "Testing + OGC kernel"
     return tag or "unknown"
 
 
 def _current_branch() -> str | None:
     return _branch_from_ref(_bootc_image_reference())
+
+
+def _current_kernel_flavor() -> str:
+    try:
+        with open("/usr/share/kyth/kernel-flavor") as fh:
+            flavor = fh.read().strip().lower()
+            if flavor in {"fedora", "cachy", "ogc"}:
+                return flavor
+    except OSError:
+        pass
+    kernel = _command_stdout(["uname", "-r"]).lower()
+    if "cachy" in kernel:
+        return "cachy"
+    if "ogc" in kernel:
+        return "ogc"
+    return "fedora"
+
+
+def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
+    base = "testing" if channel == "testing" else "latest"
+    flavor = flavor or _current_kernel_flavor()
+    suffix = {"cachy": "-cachy", "ogc": "-ogc"}.get(flavor, "")
+    return f"{base}{suffix}"
 
 
 def _has_staged_update() -> bool:
@@ -4183,7 +4213,7 @@ class UpdatePage(Page):
         self._stable_build_lbl.hide()
         stable_layout.addWidget(self._stable_build_lbl)
         self._stable_btn = QPushButton("Switch to Stable")
-        self._stable_btn.clicked.connect(lambda: self._run_branch_switch("latest"))
+        self._stable_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("latest")))
         stable_layout.addWidget(self._stable_btn)
         channel_row.addWidget(stable_card, 1)
 
@@ -4204,7 +4234,7 @@ class UpdatePage(Page):
         self._testing_build_lbl.hide()
         testing_layout.addWidget(self._testing_build_lbl)
         self._testing_btn = QPushButton("Switch to Testing")
-        self._testing_btn.clicked.connect(lambda: self._run_branch_switch("testing"))
+        self._testing_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("testing")))
         testing_layout.addWidget(self._testing_btn)
         channel_row.addWidget(testing_card, 1)
 
@@ -4514,7 +4544,7 @@ class UpdatePage(Page):
 
         # Branch channel cards
         is_idle = self._worker is None
-        if tag == "latest":
+        if tag in ("latest", "latest-cachy", "latest-ogc"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_btn.setEnabled(False)
@@ -4524,7 +4554,7 @@ class UpdatePage(Page):
             self._testing_btn.setText("Switch to Testing")
             self._testing_btn.setEnabled(is_idle)
             self._testing_build_lbl.hide()
-        elif tag == "testing":
+        elif tag in ("testing", "testing-cachy", "testing-ogc"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_btn.setEnabled(is_idle)
@@ -4674,7 +4704,7 @@ class BranchesPage(Page):
         self._stable_build_lbl.hide()
         stable_layout.addWidget(self._stable_build_lbl)
         self._stable_btn = QPushButton("Switch to Stable")
-        self._stable_btn.clicked.connect(lambda: self._switch("latest"))
+        self._stable_btn.clicked.connect(lambda: self._switch(_image_tag_for_channel("latest")))
         stable_layout.addWidget(self._stable_btn)
         selector_row.addWidget(stable_card, 1)
 
@@ -4695,7 +4725,7 @@ class BranchesPage(Page):
         self._testing_build_lbl.hide()
         testing_layout.addWidget(self._testing_build_lbl)
         self._testing_btn = QPushButton("Switch to Testing")
-        self._testing_btn.clicked.connect(lambda: self._switch("testing"))
+        self._testing_btn.clicked.connect(lambda: self._switch(_image_tag_for_channel("testing")))
         testing_layout.addWidget(self._testing_btn)
         selector_row.addWidget(testing_card, 1)
 
@@ -4759,7 +4789,7 @@ class BranchesPage(Page):
             self._state_copy_btn.hide()
 
         # Branch cards
-        if tag == "latest":
+        if tag in ("latest", "latest-cachy", "latest-ogc"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
@@ -4767,7 +4797,7 @@ class BranchesPage(Page):
             self._testing_btn.setObjectName("branch-inactive")
             self._testing_btn.setText("Switch to Testing")
             self._testing_build_lbl.hide()
-        elif tag == "testing":
+        elif tag in ("testing", "testing-cachy", "testing-ogc"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_build_lbl.hide()
@@ -5355,6 +5385,171 @@ class RepairPage(Page):
             _restyle(self._status_lbl)
             self._confirm_edit.setEnabled(True)
             self._confirm_edit.clear()
+
+
+# ── Page: Kernel ──────────────────────────────────────────────────────────────
+class KernelPage(Page):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        self._page_header(
+            "Advanced",
+            "Kernel",
+            "Fedora is the recommended default. CachyOS and OGC are opt-in image variants for advanced gaming and hardware testing.",
+        )
+
+        state_card, state_layout = _make_card()
+        state_layout.setSpacing(6)
+        state_title = QLabel("Current kernel")
+        state_title.setObjectName("card-title")
+        state_layout.addWidget(state_title)
+        self._current_lbl = QLabel()
+        self._current_lbl.setObjectName("card-copy")
+        self._current_lbl.setWordWrap(True)
+        state_layout.addWidget(self._current_lbl)
+        self._add(state_card)
+
+        picker_row = QHBoxLayout()
+        picker_row.setSpacing(14)
+        self._kernel_buttons: dict[str, QPushButton] = {}
+        for flavor, title, copy, button_text in (
+            (
+                "fedora",
+                "Fedora Kernel",
+                "Recommended for new users. Best supported by Fedora updates, Secure Boot, NVIDIA akmods, and general troubleshooting.",
+                "Use Fedora Kernel",
+            ),
+            (
+                "cachy",
+                "CachyOS Kernel",
+                "Advanced performance option with CachyOS tuning. Good for users chasing latency or benchmark wins.",
+                "Switch to CachyOS",
+            ),
+            (
+                "ogc",
+                "OGC Kernel",
+                "Advanced gaming option aligned with Open Gaming Collective-style hardware and controller support.",
+                "Switch to OGC",
+            ),
+        ):
+            card, layout = _make_card()
+            title_lbl = QLabel(title)
+            title_lbl.setObjectName("card-title")
+            layout.addWidget(title_lbl)
+            body = QLabel(copy)
+            body.setObjectName("card-copy")
+            body.setWordWrap(True)
+            layout.addWidget(body)
+            btn = QPushButton(button_text)
+            btn.clicked.connect(lambda _=False, f=flavor: self._switch_kernel(f))
+            layout.addWidget(btn)
+            self._kernel_buttons[flavor] = btn
+            picker_row.addWidget(card, 1)
+        self._add_layout(picker_row)
+
+        warn, warn_layout = _make_card("card-accent-warn")
+        warn_title = QLabel("Advanced users only")
+        warn_title.setStyleSheet("color: #cca700; font-size: 14px; font-weight: 700;")
+        warn_layout.addWidget(warn_title)
+        warn_body = QLabel(
+            "Kernel switches download a different KythOS image and apply after reboot. "
+            "Roll Back remains available from the boot menu and the Update page if a custom kernel causes trouble."
+        )
+        warn_body.setObjectName("card-copy")
+        warn_body.setWordWrap(True)
+        warn_layout.addWidget(warn_body)
+        self._add(warn)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        self._add(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        self._add(self._progress)
+
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(140)
+        self._log.hide()
+        self._add(self._log)
+
+        self._reboot_btn = QPushButton("Reboot to Apply")
+        self._reboot_btn.setObjectName("primary")
+        self._reboot_btn.hide()
+        self._reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+        self._add(self._reboot_btn)
+        self._stretch()
+        self._refresh()
+
+    def _refresh(self):
+        flavor = _current_kernel_flavor()
+        kernel = _command_stdout(["uname", "-r"]) or "unknown"
+        channel = _branch_display_name(_current_branch())
+        names = {"fedora": "Fedora", "cachy": "CachyOS", "ogc": "OGC"}
+        self._current_lbl.setText(f"{names.get(flavor, flavor)} kernel  ·  {kernel}  ·  {channel}")
+        idle = self._worker is None
+        for key, btn in self._kernel_buttons.items():
+            if key == flavor:
+                btn.setObjectName("branch-active")
+                btn.setText("Current")
+                btn.setEnabled(False)
+            else:
+                btn.setObjectName("branch-inactive")
+                btn.setText({
+                    "fedora": "Use Fedora Kernel",
+                    "cachy": "Switch to CachyOS",
+                    "ogc": "Switch to OGC",
+                }[key])
+                btn.setEnabled(idle)
+            _restyle(btn)
+
+    def _switch_kernel(self, flavor: str):
+        self._log.clear()
+        self._log.append(f"-> ujust switch-kernel {flavor}\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Switching kernel image…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._reboot_btn.hide()
+        for btn in self._kernel_buttons.values():
+            btn.setEnabled(False)
+
+        self._worker = Worker(_with_idle_inhibit(["ujust", "switch-kernel", flavor], "KythOS is switching kernel image"))
+        _set_session_inhibit(self, "KythOS is switching kernel image")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+        if code == 0:
+            self._status_lbl.setText("Kernel image staged — reboot to apply it.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Reboot to activate the selected kernel.")
+            self._reboot_btn.show()
+        else:
+            self._status_lbl.setText(f"Kernel switch failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+        _restyle(self._status_lbl)
+        self._refresh()
 
 
 # ── Windows NTFS library detection ───────────────────────────────────────────
@@ -12913,8 +13108,8 @@ class MainWindow(QMainWindow):
             banner_layout.addSpacing(12)
 
             notice = QLabel(
-                "You're running from a live ISO — performance is reduced (no CachyOS kernel, "
-                "SCX scheduler, or ananicy-cpp tuning) and some features are unavailable."
+                "You're running from a live ISO — performance is reduced and some features "
+                "are unavailable until KythOS is installed."
             )
             notice.setObjectName("live-banner-text")
             banner_layout.addWidget(notice, 1)
@@ -12995,6 +13190,7 @@ class MainWindow(QMainWindow):
         advanced_items: list[tuple[str, str, str, object]] = []
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
         advanced_items.append(("⚠", "Repair", "Repair", RepairPage))
         nav_groups.append(("Advanced", advanced_items))
 
@@ -13264,7 +13460,8 @@ class WizardWindow(QMainWindow):
             "KythOS runs your Steam library, Epic games, and GOG titles through Proton — "
             "with no extra setup required. "
             "Xbox and PlayStation controllers connect automatically. "
-            "The kernel is tuned for gaming performance before you install a single game."
+            "It uses Fedora's smooth default kernel, with CachyOS and OGC kernel images "
+            "available later for advanced users."
         )
         desc.setObjectName("wizard-desc")
         desc.setWordWrap(True)
@@ -13283,7 +13480,7 @@ class WizardWindow(QMainWindow):
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         ge_ver = _ge_proton_version() or "included"
 
-        scx_sched = "BORE"
+        scx_sched = "Fedora"
         try:
             with open("/etc/scx/scx_loader.conf") as _scx_fh:
                 for _scx_line in _scx_fh:

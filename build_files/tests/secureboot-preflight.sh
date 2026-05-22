@@ -152,7 +152,7 @@ check_cached_live_image() {
             sbverify --cert /usr/share/kyth/secureboot/kyth-secureboot.cer "/usr/lib/modules/${cachy_kver}/vmlinuz" >/dev/null
         fi
     '
-    pass "cached live image contains EFI binaries, Fedora live kernel, and CachyOS install kernel"
+    pass "cached live image contains EFI binaries and Fedora live kernel"
 }
 
 check_host_secureboot_db() {
