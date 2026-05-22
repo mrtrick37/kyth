@@ -30,9 +30,7 @@ jobs:
     name: Build live container (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
     env:
-      DOCKER_CONFIG: /tmp/kyth-docker-config
-      GNUPGHOME: /tmp/kyth-docker-gnupg
-      PASSWORD_STORE_DIR: /tmp/kyth-docker-pass
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -62,27 +60,10 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Configure Docker credential helper
+      - name: Prepare Docker auth config
         run: |
-          sudo apt-get update
-          sudo apt-get install -y pass gnupg2 golang-docker-credential-helpers
-
-          mkdir -p "${DOCKER_CONFIG}" "${GNUPGHOME}" "${PASSWORD_STORE_DIR}"
-          chmod 700 "${DOCKER_CONFIG}" "${GNUPGHOME}" "${PASSWORD_STORE_DIR}"
-
-          cat > /tmp/docker-gpg-key.conf <<'EOF'
-          %no-protection
-          Key-Type: default
-          Subkey-Type: default
-          Name-Real: Kyth Docker Credential Helper
-          Name-Email: kyth-docker@example.invalid
-          Expire-Date: 1d
-          EOF
-
-          gpg --batch --generate-key /tmp/docker-gpg-key.conf
-          KEY_ID="$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^sec:/ { print $5; exit }')"
-          pass init "${KEY_ID}"
-          printf '{"credsStore":"pass"}\n' > "${DOCKER_CONFIG}/config.json"
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
 
       - name: Log in to GHCR
         run: |
@@ -229,9 +210,7 @@ jobs:
     needs: build-live-container
     runs-on: ubuntu-24.04
     env:
-      DOCKER_CONFIG: /tmp/kyth-docker-config
-      GNUPGHOME: /tmp/kyth-docker-gnupg
-      PASSWORD_STORE_DIR: /tmp/kyth-docker-pass
+      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
     concurrency:
       group: build-live-iso-${{ matrix.source_tag }}
       cancel-in-progress: true
@@ -283,26 +262,10 @@ jobs:
           sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
           sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
 
-      - name: Configure Docker credential helper
+      - name: Prepare Docker auth config
         run: |
-          sudo apt-get install -y pass gnupg2 golang-docker-credential-helpers
-
-          mkdir -p "${DOCKER_CONFIG}" "${GNUPGHOME}" "${PASSWORD_STORE_DIR}"
-          chmod 700 "${DOCKER_CONFIG}" "${GNUPGHOME}" "${PASSWORD_STORE_DIR}"
-
-          cat > /tmp/docker-gpg-key.conf <<'EOF'
-          %no-protection
-          Key-Type: default
-          Subkey-Type: default
-          Name-Real: Kyth Docker Credential Helper
-          Name-Email: kyth-docker@example.invalid
-          Expire-Date: 1d
-          EOF
-
-          gpg --batch --generate-key /tmp/docker-gpg-key.conf
-          KEY_ID="$(gpg --batch --list-secret-keys --with-colons | awk -F: '/^sec:/ { print $5; exit }')"
-          pass init "${KEY_ID}"
-          printf '{"credsStore":"pass"}\n' > "${DOCKER_CONFIG}/config.json"
+          mkdir -p "${DOCKER_CONFIG}"
+          printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
 
       - name: Pull pre-built live container
         # Import with the tag name build-live-iso.sh expects:
