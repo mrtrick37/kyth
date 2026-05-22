@@ -36,6 +36,50 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && (command -v btrfs >/dev/null 2>&1 || { echo "ERROR: btrfs not found"; exit 1; }) \
     && echo "==> All critical installer packages present"
 
+# ── Installed-OS representation audit ───────────────────────────────────────
+# The live ISO starts from the same KythOS image that bootc installs. Keep this
+# audit near the top so a stale or incomplete base image fails before ISO work.
+RUN echo "==> Verifying live ISO base represents installed KythOS image" \
+    && (command -v code >/dev/null 2>&1 || { echo "ERROR: VS Code is missing from the live ISO base image"; exit 1; }) \
+    && (test -f /usr/share/applications/code.desktop || { echo "ERROR: VS Code desktop entry is missing from the live ISO base image"; exit 1; }) \
+    && for path in \
+        /usr/bin/kyth-welcome \
+        /usr/bin/game-performance \
+        /usr/bin/kyth-gamescope \
+        /usr/bin/kyth-performance-mode \
+        /usr/bin/kyth-scx \
+        /usr/bin/zink-run \
+        /usr/bin/kyth-kerver \
+        /usr/bin/kyth-device-info \
+        /usr/bin/kyth-creator-check \
+        /usr/bin/kyth-davinci-install \
+        /usr/bin/kyth-duperemove \
+        /usr/bin/kyth-distrobox-root-launch \
+        /usr/bin/kyth-local-bin-migrate \
+        /usr/bin/kyth-topgrade-migrate \
+        /usr/bin/kyth-vscode-wallet \
+        /usr/bin/kyth-vpn-connect \
+        /usr/bin/kyth-vpn-status \
+        /usr/bin/kyth-rclone-update \
+        /usr/bin/kyth-ge-proton-update \
+        /usr/bin/kyth-hw-setup \
+        /usr/libexec/kyth-vpnc-script \
+        /usr/share/applications/kyth-welcome.desktop \
+        /usr/share/applications/kyth-vpn-connect.desktop \
+        /usr/lib/systemd/system/kyth-duperemove.service \
+        /usr/lib/systemd/system/kyth-duperemove.timer \
+        /usr/lib/systemd/system/kyth-local-bin-migrate.service \
+        /usr/lib/systemd/system/kyth-topgrade-migrate.service \
+        /usr/lib/systemd/system/kyth-ge-proton-update.service \
+        /usr/lib/systemd/system/kyth-ge-proton-update.timer \
+        /usr/lib/systemd/system/kyth-flathub-setup.service \
+        /usr/lib/systemd/system/kyth-default-flatpaks.service \
+        /usr/lib/systemd/system/kyth-hw-setup.service \
+        /usr/share/ublue-os/just/75-kyth.just; do \
+           test -e "$path" || { echo "ERROR: installed KythOS artifact missing from live ISO base image: $path"; exit 1; }; \
+       done \
+    && echo "==> Installed KythOS artifacts present in live ISO base"
+
 # ── Hardware firmware for live installation sessions ────────────────────────
 # Keep laptop firmware explicit in the ISO too. The live environment must be
 # able to join Wi-Fi before the installed target image is pulled.
@@ -266,7 +310,7 @@ RUN mkdir -p \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
-    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
