@@ -21,7 +21,7 @@ jobs:
     name: Build and push (${{ matrix.branch }})
     runs-on: ubuntu-24.04
     env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+      DOCKER_CONFIG: /tmp/kyth-docker-config
 
     # One slot per branch — prevents a scheduled run and a push from racing on the same tag.
     concurrency:
