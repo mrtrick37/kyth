@@ -30,7 +30,7 @@ jobs:
     name: Build live container (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
     env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+      DOCKER_CONFIG: /tmp/kyth-docker-config
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion == 'success'
@@ -210,7 +210,7 @@ jobs:
     needs: build-live-container
     runs-on: ubuntu-24.04
     env:
-      DOCKER_CONFIG: ${{ runner.temp }}/docker-config
+      DOCKER_CONFIG: /tmp/kyth-docker-config
     concurrency:
       group: build-live-iso-${{ matrix.source_tag }}
       cancel-in-progress: true
