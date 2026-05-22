@@ -12,7 +12,6 @@ if [[ -z "${LIVE_BUILD_TAG:-}" ]]; then
     fi
 fi
 CERT_PEM="${REPO_ROOT}/build_files/secureboot/kyth-secureboot.cer"
-CERT_DER="${SECUREBOOT_PREFLIGHT_DER:-${REPO_ROOT}/output/live-iso/kyth-secureboot.der}"
 ISO_PATH="${SECUREBOOT_PREFLIGHT_ISO:-${REPO_ROOT}/output/live-iso/kyth-live-${SOURCE_TAG}.iso}"
 
 pass() {
