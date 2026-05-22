@@ -90,9 +90,9 @@ def _prefer_xwayland_if_wayland_plugin_missing() -> None:
 def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
                          warn_text: str = "Not Installed") -> None:
     if ok:
-        bg = "#0f2a31"
-        fg = "#5ee6c1"
-        border = "#1f6b63"
+        bg = "#1f2a24"
+        fg = "#89d185"
+        border = "#2f5d45"
         text = ok_text
     else:
         bg = "#171d27"
@@ -111,11 +111,11 @@ QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
     font-size: 13px;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QMainWindow {
-    background: #1b2838;
+    background: #1e1e1e;
 }
 
 QWidget {
@@ -128,14 +128,14 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #171a21;
-    border-right: 1px solid #0d1117;
+    background: #181818;
+    border-right: 1px solid #2b2b2b;
 }
 
 QWidget#sidebar-header {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1e2d3e, stop:1 #171a21);
-    border-bottom: 1px solid #0d1117;
+                                stop:0 #252526, stop:1 #181818);
+    border-bottom: 1px solid #2b2b2b;
 }
 
 QLabel#sidebar-logo {
@@ -148,7 +148,7 @@ QLabel#sidebar-logo {
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #66c0f4;
+    color: #a6a6a6;
     font-weight: 600;
     padding: 0;
 }
@@ -156,14 +156,14 @@ QLabel#sidebar-ver {
 QLabel#nav-section {
     font-size: 10px;
     font-weight: 700;
-    color: #4a5a6a;
+    color: #858585;
     letter-spacing: 1.4px;
     padding: 0 0 2px 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #8f98a0;
+    color: #cccccc;
     border: none;
     border-left: 3px solid transparent;
     border-radius: 0;
@@ -175,15 +175,15 @@ QPushButton#nav-item {
 
 QPushButton#nav-item:hover {
     background: rgba(255, 255, 255, 0.04);
-    color: #c6d4df;
-    border-left: 3px solid #2a475e;
+    color: #ffffff;
+    border-left: 3px solid #505050;
 }
 
 QPushButton#nav-item-active {
-    background: rgba(102, 192, 244, 0.12);
-    color: #66c0f4;
+    background: #2a2d2e;
+    color: #ffffff;
     border: none;
-    border-left: 3px solid #66c0f4;
+    border-left: 3px solid #c586c0;
     border-radius: 0;
     padding: 10px 16px 10px 13px;
     text-align: left;
@@ -193,7 +193,7 @@ QPushButton#nav-item-active {
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
-    background: #1b2838;
+    background: #1e1e1e;
 }
 
 QScrollArea {
@@ -204,14 +204,14 @@ QScrollArea {
 /* ── Page header band ────────────────────────────────────────────────────── */
 QWidget#page-header {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1f2d3e, stop:1 #1b2838);
-    border-bottom: 1px solid #2a3f5a;
+                                stop:0 #252526, stop:1 #1e1e1e);
+    border-bottom: 1px solid #3c3c3c;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
     background: transparent;
-    color: #66c0f4;
+    color: #c586c0;
     border: none;
     font-size: 10px;
     font-weight: 700;
@@ -222,41 +222,41 @@ QLabel#eyebrow {
 QLabel#heading {
     font-size: 26px;
     font-weight: 700;
-    color: #ffffff;
-    letter-spacing: -0.5px;
+    color: #f3f3f3;
+    letter-spacing: 0;
 }
 
 QLabel#subheading {
     font-size: 13px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.5;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #57cbde;
+    color: #89d185;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #e8a838;
+    color: #cca700;
     font-weight: 600;
 }
 
 QLabel#status-err {
-    color: #e96060;
+    color: #f48771;
     font-weight: 600;
 }
 
 QLabel#status-dim {
-    color: #6a7a8a;
+    color: #858585;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #2a475e;
-    color: #c6d4df;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 9px 20px;
     font-size: 13px;
@@ -264,25 +264,41 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background: #3d6680;
+    background: #3a3d41;
     color: #ffffff;
-    border-color: #2a5a80;
+    border-color: #505050;
 }
 
 QPushButton:pressed {
-    background: #1e3448;
-    color: #c6d4df;
+    background: #252526;
+    color: #cccccc;
 }
 
 QPushButton:disabled {
-    background: #1b2838;
-    color: #4a6070;
-    border-color: #1e3448;
+    background: #252526;
+    color: #6f6f6f;
+    border-color: #333333;
+}
+
+QPushButton#primary {
+    background: #3a2d3a;
+    color: #ffffff;
+    border: 1px solid #5f4b5f;
+    font-weight: 700;
+}
+
+QPushButton#primary:hover {
+    background: #4a394a;
+    border-color: #c586c0;
+}
+
+QPushButton#primary:pressed {
+    background: #2d242d;
 }
 
 QPushButton#primary:disabled {
-    background: #1b3a52;
-    color: #3a5a6a;
+    background: #252526;
+    color: #6f6f6f;
     border: none;
 }
 
@@ -312,8 +328,8 @@ QPushButton#danger:disabled {
 
 QPushButton#branch-active {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #4cb8f5, stop:1 #1a9fe8);
-    color: #051625;
+                                stop:0 #4d4d4d, stop:1 #3a3a3a);
+    color: #ffffff;
     font-weight: 700;
     border: none;
     border-radius: 3px;
@@ -321,56 +337,56 @@ QPushButton#branch-active {
 }
 
 QPushButton#branch-inactive {
-    background: #2a475e;
-    color: #8f98a0;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #a6a6a6;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 10px 24px;
 }
 
 QPushButton#branch-inactive:hover {
-    background: #3d6680;
-    color: #c6d4df;
-    border-color: #2a5a80;
+    background: #3a3d41;
+    color: #cccccc;
+    border-color: #505050;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
-    color: #ffffff;
+    color: #f3f3f3;
 }
 
 QLabel#section-heading {
     font-size: 15px;
     font-weight: 700;
-    color: #c6d4df;
+    color: #cccccc;
     letter-spacing: 0.1px;
 }
 
 QLabel#card-summary {
-    color: #c6d4df;
+    color: #cccccc;
     font-weight: 600;
 }
 
 QLabel#card-action {
-    color: #66c0f4;
+    color: #c586c0;
 }
 
 QLabel#card-copy {
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
 QFrame#card-accent-ok {
-    background: #12231e;
-    border: 1px solid #1e4a3a;
+    background: #1f2a24;
+    border: 1px solid #2f5d45;
     border-radius: 4px;
 }
 
@@ -388,63 +404,63 @@ QFrame#card-accent-err {
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QFrame#stat-tile:hover {
-    border-color: #3d6680;
-    background: #1b2940;
+    border-color: #505050;
+    background: #2d2d30;
 }
 
 QLabel#stat-label {
     font-size: 10px;
     font-weight: 700;
-    color: #6a7a8a;
+    color: #858585;
     letter-spacing: 1.4px;
 }
 
 QLabel#stat-value {
     font-size: 14px;
     font-weight: 700;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QLabel#stat-value-ok {
     font-size: 14px;
     font-weight: 700;
-    color: #57cbde;
+    color: #89d185;
 }
 
 QLabel#stat-value-warn {
     font-size: 14px;
     font-weight: 700;
-    color: #e8a838;
+    color: #cca700;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #2a3f5a;
+    background: #3c3c3c;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #0d1520;
-    color: #acbdd3;
-    border: 1px solid #2a3f5a;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
     font-family: "Cascadia Code", "Noto Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 12px 14px;
-    selection-background-color: #2a5a80;
+    selection-background-color: #264f78;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #0d1520;
+    background: #181818;
     border: none;
     border-radius: 3px;
     max-height: 6px;
@@ -454,7 +470,7 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #1a9fe8, stop:1 #57cbde);
+                                stop:0 #c586c0, stop:1 #89d185);
     border-radius: 3px;
 }
 
@@ -467,13 +483,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: #2a3f5a;
+    background: #424242;
     border-radius: 4px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #3d6680;
+    background: #5a5a5a;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -489,13 +505,13 @@ QScrollBar:horizontal {
 }
 
 QScrollBar::handle:horizontal {
-    background: #2a3f5a;
+    background: #424242;
     border-radius: 4px;
     min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #3d6680;
+    background: #5a5a5a;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -505,55 +521,55 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #0d1520;
-    border: 1px solid #2a3f5a;
+    background: #181818;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 9px 12px;
-    color: #c6d4df;
-    selection-background-color: #2a5a80;
+    color: #cccccc;
+    selection-background-color: #5f3f5c;
 }
 
 QLineEdit:focus {
-    border-color: #66c0f4;
-    background: #101d2e;
+    border-color: #c586c0;
+    background: #1e1e1e;
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #c6d4df;
+    color: #cccccc;
     spacing: 9px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #0d1520;
-    border: 1px solid #2a3f5a;
+    background: #1e1e1e;
+    border: 1px solid #6a6a6a;
     border-radius: 3px;
 }
 
 QCheckBox::indicator:checked {
-    background: #1a9fe8;
-    border-color: #4cb8f5;
+    background: #c586c0;
+    border-color: #d7a8d3;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #66c0f4;
+    border-color: #d7a8d3;
 }
 
 /* ── ComboBox ────────────────────────────────────────────────────────────── */
 QComboBox {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 8px 12px;
-    color: #c6d4df;
+    color: #cccccc;
     min-width: 80px;
 }
 
 QComboBox:hover {
-    border-color: #66c0f4;
-    background: #1b2940;
+    border-color: #c586c0;
+    background: #2d2d30;
 }
 
 QComboBox::drop-down {
@@ -562,28 +578,28 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
-    color: #c6d4df;
-    selection-background-color: #2a475e;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    color: #cccccc;
+    selection-background-color: #3a3d41;
     outline: none;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
 QFrame#step-item {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QFrame#step-item:hover {
-    background: #1b2940;
-    border-color: #3d6680;
+    background: #2d2d30;
+    border-color: #505050;
 }
 
 QLabel#step-number {
-    background: #2a475e;
-    color: #66c0f4;
+    background: #3a3d41;
+    color: #ffffff;
     border: none;
     border-radius: 14px;
     font-size: 12px;
@@ -593,19 +609,19 @@ QLabel#step-number {
 QLabel#step-title {
     font-size: 13px;
     font-weight: 600;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QLabel#step-desc {
-    color: #6a7a8a;
+    color: #858585;
     font-size: 12px;
     line-height: 1.5;
 }
 
 QPushButton#step-action {
-    background: #2a475e;
-    color: #c6d4df;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 7px 16px;
     font-weight: 500;
@@ -613,49 +629,49 @@ QPushButton#step-action {
 }
 
 QPushButton#step-action:hover {
-    background: #3d6680;
+    background: #3a3d41;
     color: #ffffff;
-    border-color: #2a5a80;
+    border-color: #505050;
 }
 
 /* ── Update alert card ───────────────────────────────────────────────────── */
 QFrame#card-update {
-    background: #0f1e30;
-    border: 1px solid #1a5a8a;
+    background: #2a2518;
+    border: 1px solid #5f4f24;
     border-radius: 4px;
 }
 
 QLabel#card-title-update {
     font-size: 14px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #dcdcaa;
 }
 
 /* ── Wizard header ───────────────────────────────────────────────────────── */
 QWidget#wizard-header {
-    background: #171a21;
-    border-bottom: 1px solid #0d1117;
+    background: #181818;
+    border-bottom: 1px solid #2b2b2b;
 }
 
 QLabel#wizard-step-label {
     font-size: 10px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #c586c0;
     letter-spacing: 1.4px;
 }
 
 QLabel#step-dot-active {
-    background: #66c0f4;
+    background: #c586c0;
     border-radius: 5px;
 }
 
 QLabel#step-dot-done {
-    background: #57cbde;
+    background: #89d185;
     border-radius: 5px;
 }
 
 QLabel#step-dot-inactive {
-    background: #2a3f5a;
+    background: #505050;
     border-radius: 5px;
 }
 
@@ -663,31 +679,31 @@ QLabel#step-dot-inactive {
 QLabel#wizard-progress-step {
     font-size: 11px;
     font-weight: 600;
-    color: #4a6070;
+    color: #858585;
 }
 
 QLabel#wizard-progress-step-active {
     font-size: 11px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #ffffff;
 }
 
 QLabel#wizard-progress-step-done {
     font-size: 11px;
     font-weight: 600;
-    color: #57cbde;
+    color: #89d185;
 }
 
 /* ── Wizard footer ───────────────────────────────────────────────────────── */
 QWidget#wizard-footer {
-    background: #171a21;
-    border-top: 1px solid #0d1117;
+    background: #181818;
+    border-top: 1px solid #2b2b2b;
 }
 
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #1b2d42, stop:0.5 #1b2838, stop:1 #16202d);
+                                stop:0 #252526, stop:0.5 #1e1e1e, stop:1 #181818);
 }
 
 QLabel#wizard-logo {
@@ -699,14 +715,14 @@ QLabel#wizard-logo {
 
 QLabel#wizard-tagline {
     font-size: 17px;
-    color: #66c0f4;
+    color: #c586c0;
     font-weight: 600;
     letter-spacing: 0.3px;
 }
 
 QLabel#wizard-desc {
     font-size: 13px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
@@ -719,36 +735,36 @@ QLabel#finish-title {
 
 QLabel#finish-subtitle {
     font-size: 14px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
 /* ── Hardware card ────────────────────────────────────────────────────────── */
 QFrame#hw-card-ok {
-    background: #12231e;
-    border: 1px solid #1e4a3a;
-    border-left: 3px solid #57cbde;
+    background: #1f2a24;
+    border: 1px solid #2f5d45;
+    border-left: 3px solid #89d185;
     border-radius: 4px;
 }
 
 QFrame#hw-card-warn {
     background: #221a0a;
     border: 1px solid #4a3a10;
-    border-left: 3px solid #e8a838;
+    border-left: 3px solid #cca700;
     border-radius: 4px;
 }
 
 QFrame#hw-card-err {
     background: #221010;
     border: 1px solid #4a1a1a;
-    border-left: 3px solid #e96060;
+    border-left: 3px solid #f48771;
     border-radius: 4px;
 }
 
 QFrame#hw-card-dim {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
-    border-left: 3px solid #2a475e;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-left: 3px solid #505050;
     border-radius: 4px;
 }
 """
@@ -1943,7 +1959,7 @@ def _hw_setup_done() -> bool:
 
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
-        return ("#0f2a31", "#5ee6c1", "OK")
+        return ("#1f2a24", "#89d185", "OK")
     if status == "warn":
         return ("#152030", "#e0af68", "Warning")
     if status == "err":
@@ -3193,10 +3209,10 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #1a4a3a; color: #57cbde; border: 1px solid #2a6a5a;",  "OK"),
-        "warn": ("background: #3a2a00; color: #e8a838; border: 1px solid #5a4010;",  "Warning"),
-        "err":  ("background: #3a1010; color: #e96060; border: 1px solid #5a1a1a;",  "Issue"),
-        "dim":  ("background: #1e2d3e; color: #6a7a8a; border: 1px solid #2a3f5a;",  "Info"),
+        "ok":   ("background: #1f2a24; color: #89d185; border: 1px solid #2f5d45;",  "OK"),
+        "warn": ("background: #3a2a00; color: #cca700; border: 1px solid #5a4010;",  "Warning"),
+        "err":  ("background: #3a1010; color: #f48771; border: 1px solid #5a1a1a;",  "Issue"),
+        "dim":  ("background: #252526; color: #858585; border: 1px solid #3c3c3c;",  "Info"),
     }
 
     def __init__(self, probe: HardwareProbe):
@@ -3442,7 +3458,7 @@ class WelcomePage(Page):
             alert_header = QHBoxLayout()
             alert_icon = QLabel("↑")
             alert_icon.setStyleSheet(
-                "font-size: 18px; color: #66c0f4; font-weight: 700; background: transparent;"
+                "font-size: 18px; color: #c586c0; font-weight: 700; background: transparent;"
             )
             alert_header.addWidget(alert_icon)
             alert_title = QLabel("OS update staged — reboot to apply")
@@ -3552,7 +3568,7 @@ class WelcomePage(Page):
         icon_lbl.setFixedSize(32, 32)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_lbl.setStyleSheet(
-            "background: #2a475e; color: #66c0f4; border-radius: 16px; "
+            "background: #3a3d41; color: #c586c0; border-radius: 16px; "
             "font-size: 14px; font-weight: 700;"
         )
         row.addWidget(icon_lbl)
@@ -4522,7 +4538,7 @@ class UpdatePage(Page):
         ts_hint = f"  ·  Checked at {self._check_ts}"
 
         if state == "available":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #e8a838;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #cca700;")
             self._avail_title.setText("Update available")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(
@@ -4531,7 +4547,7 @@ class UpdatePage(Page):
             )
             self._update_now_btn.show()
         elif state == "uptodate":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #57cbde;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #89d185;")
             self._avail_title.setText("Up to date")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
@@ -6390,11 +6406,11 @@ class GamingPage(Page):
 
     def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
         bg, fg, label = {
-            "ok": ("#0f2a31", "#5ee6c1", "OK"),
-            "warn": ("#3a2a00", "#e8a838", "Check"),
-            "err": ("#3a1010", "#e96060", "Fix"),
-            "dim": ("#1e2d3e", "#6a7a8a", "Info"),
-        }.get(status, ("#1e2d3e", "#6a7a8a", "Info"))
+            "ok": ("#1f2a24", "#89d185", "OK"),
+            "warn": ("#3a2a00", "#cca700", "Check"),
+            "err": ("#3a1010", "#f48771", "Fix"),
+            "dim": ("#252526", "#858585", "Info"),
+        }.get(status, ("#252526", "#858585", "Info"))
 
         row = QFrame()
         row.setObjectName("hw-card-dim")
@@ -6505,15 +6521,15 @@ class GamingPage(Page):
         name_lbl.setStyleSheet("font-size:13px; font-weight:700;")
         top.addWidget(name_lbl, 1)
         launcher_lbl = QLabel(f"  {game_info.get('launcher', 'Unknown')}  ")
-        launcher_lbl.setStyleSheet("font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; background:#1e2d3e; color:#8aaac8; border:1px solid #2a3f5a;")
+        launcher_lbl.setStyleSheet("font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; background:#252526; color:#cccccc; border:1px solid #3c3c3c;")
         top.addWidget(launcher_lbl)
         badge = QLabel(f"  {status_text}  ")
         badge_bg, badge_fg = {
-            "ok": ("#0f2a31", "#5ee6c1"),
-            "warn": ("#3a2a00", "#e8a838"),
-            "err": ("#3a1010", "#e96060"),
-            "dim": ("#1e2d3e", "#6a7a8a"),
-        }.get(status, ("#1e2d3e", "#6a7a8a"))
+            "ok": ("#1f2a24", "#89d185"),
+            "warn": ("#3a2a00", "#cca700"),
+            "err": ("#3a1010", "#f48771"),
+            "dim": ("#252526", "#858585"),
+        }.get(status, ("#252526", "#858585"))
         badge.setStyleSheet(f"background:{badge_bg}; color:{badge_fg}; border:1px solid {badge_fg}; border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
         top.addWidget(badge)
         layout.addLayout(top)
@@ -6831,7 +6847,7 @@ class GamingPage(Page):
             )
             warn.setObjectName("card-copy")
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #e8a838;")
+            warn.setStyleSheet("color: #cca700;")
             self._win_lib_layout.addWidget(warn)
 
         if any_clean:
@@ -7536,14 +7552,14 @@ class CompatibilityPage(Page):
 
     _STATUS_STYLE: dict[str, tuple[str, str, str]] = {
         # status → (badge_text, badge_css, row_left_border_color)
-        "native":  ("Native",       "background:#1a4a3a; color:#57cbde; border:1px solid #2a6a5a;",  "#57cbde"),
-        "proton":  ("Works",        "background:#1a4a3a; color:#57cbde; border:1px solid #2a6a5a;",  "#57cbde"),
-        "tweaks":  ("Tweaks",       "background:#3a2a00; color:#e8a838; border:1px solid #5a4010;",  "#e8a838"),
-        "blocked": ("Blocked",      "background:#3a1010; color:#e96060; border:1px solid #5a1a1a;",  "#e96060"),
+        "native":  ("Native",       "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
+        "proton":  ("Works",        "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
+        "tweaks":  ("Tweaks",       "background:#3a2a00; color:#cca700; border:1px solid #5a4010;",  "#cca700"),
+        "blocked": ("Blocked",      "background:#3a1010; color:#f48771; border:1px solid #5a1a1a;",  "#f48771"),
     }
     _AC_BADGE_CSS = (
         "font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; "
-        "background:#1e2d3e; color:#6a8aaa; border:1px solid #2a3f5a;"
+        "background:#252526; color:#a6a6a6; border:1px solid #3c3c3c;"
     )
 
     def __init__(self):
@@ -7595,7 +7611,7 @@ class CompatibilityPage(Page):
             cl.setSpacing(14)
             dot = QLabel("✓" if ac_status == "ok" else "✗")
             dot.setStyleSheet(
-                f"font-size:18px; font-weight:700; color:{'#57cbde' if ac_status == 'ok' else '#e96060'};"
+                f"font-size:18px; font-weight:700; color:{'#89d185' if ac_status == 'ok' else '#f48771'};"
                 " background:transparent; border:none;"
             )
             dot.setFixedWidth(20)
@@ -7669,8 +7685,8 @@ class CompatibilityPage(Page):
         btn.setFixedHeight(28)
         btn.setStyleSheet(
             "QPushButton { border-radius:4px; padding:2px 14px; font-size:12px; "
-            "background:#1e2d3e; color:#8aaac8; border:1px solid #2a3f5a; }"
-            "QPushButton:checked { background:#1a4a5a; color:#57cbde; border-color:#57cbde; }"
+            "background:#252526; color:#cccccc; border:1px solid #3c3c3c; }"
+            "QPushButton:checked { background:#3a2d3a; color:#89d185; border-color:#89d185; }"
         )
         btn.clicked.connect(lambda _=False, s=statuses: self._apply_filter(s))
         return btn
@@ -7723,7 +7739,7 @@ class CompatibilityPage(Page):
         rl.addWidget(ac_lbl)
 
         checked_lbl = QLabel(game.checked)
-        checked_lbl.setStyleSheet("font-size:10px; color:#6a7a8a;")
+        checked_lbl.setStyleSheet("font-size:10px; color:#858585;")
         checked_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rl.addWidget(checked_lbl)
 
@@ -7980,7 +7996,7 @@ class ControllerPage(Page):
         )
         self._sb_warn_lbl.setObjectName("card-copy")
         self._sb_warn_lbl.setWordWrap(True)
-        self._sb_warn_lbl.setStyleSheet("color: #e8a838; padding: 6px 0;")
+        self._sb_warn_lbl.setStyleSheet("color: #cca700; padding: 6px 0;")
         self._sb_warn_lbl.hide()
         self._add(self._sb_warn_lbl)
 
@@ -8030,14 +8046,14 @@ class ControllerPage(Page):
                 "Xbox Wireless Adapter detected — firmware not yet flashed. "
                 "Click the button below to complete setup (requires password)."
             )
-            self._xone_status_lbl.setStyleSheet("color: #e8a838;")
+            self._xone_status_lbl.setStyleSheet("color: #cca700;")
             self._xone_btn.show()
         elif info["xone_dongle"] and info["xone_loaded"]:
             self._xone_status_lbl.setText(
                 "✓  Xbox Wireless Adapter is ready. Press the sync button on the "
                 "adapter and controller together to pair."
             )
-            self._xone_status_lbl.setStyleSheet("color: #57cbde;")
+            self._xone_status_lbl.setStyleSheet("color: #89d185;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(
@@ -8083,11 +8099,11 @@ class ControllerPage(Page):
         self._xone_btn.setEnabled(True)
         if code == 0:
             self._xone_status_lbl.setText("✓  Firmware flashed. Unplug and re-plug the adapter, then press Refresh.")
-            self._xone_status_lbl.setStyleSheet("color: #57cbde;")
+            self._xone_status_lbl.setStyleSheet("color: #89d185;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(f"Firmware flash failed (exit {code}). Check that xone is installed.")
-            self._xone_status_lbl.setStyleSheet("color: #e96060;")
+            self._xone_status_lbl.setStyleSheet("color: #f48771;")
 
 
 class SteamCopyWorker(QThread):
@@ -8276,7 +8292,7 @@ class RcloneSetupWizard(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(640, 540)
         self.setModal(True)
-        self.setStyleSheet("background: #1b2838;")
+        self.setStyleSheet("background: #1e1e1e;")
 
         self._auth_worker: RcloneAuthorizeWorker | None = None
         self._token = ""
@@ -8291,7 +8307,7 @@ class RcloneSetupWizard(QDialog):
         header = QWidget()
         header.setStyleSheet(
             "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            " stop:0 #1f2d3e, stop:1 #1b2838); border-bottom: 1px solid #2a3f5a; }"
+            " stop:0 #252526, stop:1 #1e1e1e); border-bottom: 1px solid #3c3c3c; }"
         )
         hdr_layout = QHBoxLayout(header)
         hdr_layout.setContentsMargins(28, 16, 28, 16)
@@ -8300,7 +8316,7 @@ class RcloneSetupWizard(QDialog):
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
         self._step_label = QLabel()
-        self._step_label.setStyleSheet("font-size: 12px; color: #4a5a6a;")
+        self._step_label.setStyleSheet("font-size: 12px; color: #858585;")
         hdr_layout.addWidget(self._step_label)
         root.addWidget(header)
 
@@ -8315,7 +8331,7 @@ class RcloneSetupWizard(QDialog):
         # ── Footer ─────────────────────────────────────────────────────────────
         footer = QWidget()
         footer.setStyleSheet(
-            "QWidget { background: #171a21; border-top: 1px solid #0d1117; }"
+            "QWidget { background: #181818; border-top: 1px solid #2b2b2b; }"
         )
         ftr_layout = QHBoxLayout(footer)
         ftr_layout.setContentsMargins(28, 14, 28, 14)
@@ -8379,7 +8395,7 @@ class RcloneSetupWizard(QDialog):
             desc_lbl = QLabel(info["description"])
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet(
-                "font-size: 12px; color: #8f98a0; background: transparent; border: none;"
+                "font-size: 12px; color: #a6a6a6; background: transparent; border: none;"
             )
             inner.addWidget(desc_lbl)
             btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
@@ -8410,7 +8426,7 @@ class RcloneSetupWizard(QDialog):
         form_layout.setSpacing(10)
 
         name_lbl = QLabel("Remote name")
-        name_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
+        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
         form_layout.addWidget(name_lbl)
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("e.g. gdrive")
@@ -8421,11 +8437,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #3c3c3c; max-height: 1px; border: none;")
         form_layout.addWidget(sep)
 
         folder_lbl = QLabel("Local sync folder")
-        folder_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
         form_layout.addWidget(folder_lbl)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
@@ -8517,11 +8533,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #3c3c3c; max-height: 1px; border: none;")
         done_card_layout.addWidget(sep)
 
         cmds_lbl = QLabel("Useful commands:")
-        cmds_lbl.setStyleSheet("font-weight: 600; color: #c6d4df; font-size: 13px;")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
         done_card_layout.addWidget(cmds_lbl)
 
         self._done_cmds = QTextEdit()
@@ -8597,14 +8613,14 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(102, 192, 244, 0.12); "
-                    "border: 2px solid #66c0f4; "
+                    "QPushButton { background: rgba(197, 134, 192, 0.16); "
+                    "border: 2px solid #c586c0; "
                     "border-radius: 8px; text-align: left; }"
                 )
             else:
                 btn.setChecked(False)
                 btn.setStyleSheet(
-                    "QPushButton { background: #16202d; border: 1px solid #2a3f5a; "
+                    "QPushButton { background: #252526; border: 1px solid #3c3c3c; "
                     "border-radius: 8px; text-align: left; }"
                 )
 
@@ -10144,7 +10160,7 @@ class SecurityPage(Page):
             "and a very long install time. Only choose this if you need every available tool."
         )
         self._everything_warn.setObjectName("card-copy")
-        self._everything_warn.setStyleSheet("color: #e8a838; background: #3a2a00; "
+        self._everything_warn.setStyleSheet("color: #cca700; background: #3a2a00; "
                                             "border: 1px solid #5a4010; border-radius: 6px; "
                                             "padding: 6px 10px;")
         self._everything_warn.setWordWrap(True)
@@ -13030,7 +13046,7 @@ class WizardWindow(QMainWindow):
             if i > 0:
                 connector = QFrame()
                 connector.setFixedSize(28, 2)
-                connector.setStyleSheet("background: #2a3f5a; border: none;")
+                connector.setStyleSheet("background: #505050; border: none;")
                 progress_layout.addWidget(connector)
 
             step_col = QWidget()
@@ -13061,7 +13077,7 @@ class WizardWindow(QMainWindow):
         accent.setFixedHeight(2)
         accent.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #1a9fe8, stop:0.5 #57cbde, stop:1 #1b2838);"
+            "stop:0 #c586c0, stop:0.5 #89d185, stop:1 #3c3c3c);"
         )
         root_layout.addWidget(accent)
 
@@ -13217,7 +13233,7 @@ class WizardWindow(QMainWindow):
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
                 sep.setFixedWidth(1)
-                sep.setStyleSheet("background: #2a3f5a; border: none; max-width: 1px;")
+                sep.setStyleSheet("background: #3c3c3c; border: none; max-width: 1px;")
                 stats_layout.addSpacing(28)
                 stats_layout.addWidget(sep)
                 stats_layout.addSpacing(28)
@@ -13239,8 +13255,8 @@ class WizardWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("content-area")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(56, 38, 56, 32)
-        layout.setSpacing(18)
+        layout.setContentsMargins(56, 34, 56, 28)
+        layout.setSpacing(16)
 
         title = QLabel("Choose Your Extras")
         title.setObjectName("heading")
@@ -13259,7 +13275,7 @@ class WizardWindow(QMainWindow):
         core_title.setObjectName("card-title")
         core_layout.addWidget(core_title)
         core_copy = QLabel(
-            "Steam, Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
+            "Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
             "as soon as networking is available."
         )
         core_copy.setObjectName("card-copy")
@@ -13268,6 +13284,7 @@ class WizardWindow(QMainWindow):
         layout.addWidget(core_card)
 
         self._wizard_extra_apps = [
+            ("com.valvesoftware.Steam",      "Steam",         "Valve's game store and Proton launcher for your Steam library."),
             ("com.discordapp.Discord",       "Discord",       "Voice, text, and community chat — used by almost every gaming community."),
             ("com.brave.Browser",            "Brave Browser", "Fast, privacy-friendly browser with good media support."),
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
@@ -13280,16 +13297,28 @@ class WizardWindow(QMainWindow):
         extras_title.setObjectName("card-title")
         extras_layout.addWidget(extras_title)
 
+        apps_view = QScrollArea()
+        apps_view.setWidgetResizable(True)
+        apps_view.setMinimumHeight(230)
+        apps_view.setFrameShape(QFrame.Shape.NoFrame)
+        apps_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        apps_widget = QWidget()
+        apps_layout = QVBoxLayout(apps_widget)
+        apps_layout.setContentsMargins(0, 0, 8, 0)
+        apps_layout.setSpacing(10)
+
         self._wizard_extra_checks = []
         for app_id, name, desc in self._wizard_extra_apps:
             row = QWidget()
+            row.setMinimumHeight(48)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(12)
 
             already_installed = _is_flatpak_installed(app_id)
             check = QCheckBox()
-            check.setChecked(not already_installed and app_id == "com.discordapp.Discord")
+            check.setChecked(not already_installed and app_id in {"com.valvesoftware.Steam", "com.discordapp.Discord"})
             check.setEnabled(not already_installed)
             self._wizard_extra_checks.append((check, app_id, name))
             row_layout.addWidget(check, 0, Qt.AlignmentFlag.AlignTop)
@@ -13298,14 +13327,18 @@ class WizardWindow(QMainWindow):
             text_col.setSpacing(2)
             name_lbl = QLabel(name)
             name_lbl.setObjectName("card-title")
-            name_lbl.setStyleSheet("font-size: 14px;")
+            name_lbl.setStyleSheet("font-size: 13px;")
             desc_lbl = QLabel("Already installed." if already_installed else desc)
             desc_lbl.setObjectName("card-copy")
             desc_lbl.setWordWrap(True)
             text_col.addWidget(name_lbl)
             text_col.addWidget(desc_lbl)
             row_layout.addLayout(text_col, 1)
-            extras_layout.addWidget(row)
+            apps_layout.addWidget(row)
+
+        apps_layout.addStretch()
+        apps_view.setWidget(apps_widget)
+        extras_layout.addWidget(apps_view, 1)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -13342,8 +13375,7 @@ class WizardWindow(QMainWindow):
             lambda checked: _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, checked)
         )
 
-        layout.addWidget(extras_card)
-        layout.addStretch()
+        layout.addWidget(extras_card, 1)
         self._wizard_extra_worker = None
         return page
 
@@ -13471,7 +13503,7 @@ class WizardWindow(QMainWindow):
         )
         tip.setObjectName("card-copy")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #57cbde; margin-top: 6px;")
+        tip.setStyleSheet("color: #c586c0; margin-top: 6px;")
         pc_layout.addWidget(tip)
         ps_layout.addWidget(proton_card)
         outer.addWidget(proton_section)
@@ -13523,7 +13555,7 @@ class WizardWindow(QMainWindow):
 
         check = QLabel("✓")
         check.setStyleSheet(
-            "font-size: 52px; color: #57cbde; font-weight: 300; background: transparent;"
+            "font-size: 52px; color: #89d185; font-weight: 300; background: transparent;"
         )
         layout.addWidget(check)
         layout.addSpacing(18)
