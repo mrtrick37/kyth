@@ -300,13 +300,14 @@ def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
 
 
-def _try_stage_mok_enrollment(log) -> str:
+def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
     """Stage Kyth Secure Boot MOK enrollment via mokutil.
 
     Returns one of: skipped, enrolled, pending, staged, failed.
     """
-    if os.environ.get("KYTH_STAGE_MOK", "0").lower() not in ("1", "true", "yes", "on"):
-        log("Secure Boot: Fedora kernel is default — custom-kernel MOK enrollment not staged")
+    force_stage = os.environ.get("KYTH_STAGE_MOK", "0").lower() in ("1", "true", "yes", "on")
+    if kernel != "cachy" and not force_stage:
+        log("Secure Boot: Fedora kernel selected — custom-kernel MOK enrollment not staged")
         return "skipped"
 
     cert_der = Path("/usr/share/kyth/secureboot/kyth-secureboot.der")
@@ -360,7 +361,7 @@ def _try_stage_mok_enrollment(log) -> str:
             input="kyth\n", text=True, capture_output=True, timeout=15,
         )
         if result.returncode == 0:
-            log("Secure Boot: enrollment staged — you will confirm it on first boot")
+            log("Secure Boot: enrollment staged — confirm it on first boot before the CachyOS kernel starts")
             return "staged"
         log(f"Secure Boot: mokutil import failed (exit {result.returncode}): {result.stderr.strip()}")
         return "failed"
@@ -685,7 +686,7 @@ def _run_install() -> None:
             subprocess.run(_as_root(["umount", mount]), check=False)
 
         log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
-        mok_state = _try_stage_mok_enrollment(log)
+        mok_state = _try_stage_mok_enrollment(log, kernel)
 
         progress(100)
         _push({"type": "done", "mok_state": mok_state})
@@ -1221,7 +1222,7 @@ const KERNELS = [
     badge: 'Default' },
   { id: 'cachy',  icon: '⚡', name: 'CachyOS',
     desc: 'BORE scheduler &middot; sched-ext &middot; BBRv3 &middot; NTSYNC &middot; Optimized for gaming &amp; low-latency workloads',
-    note: 'Secure Boot: enroll the KythOS signing key after first boot with <code style="font-family:var(--mono)">ujust enroll-secureboot</code>' },
+    note: 'Secure Boot: the installer stages the KythOS signing key and you confirm enrollment on first boot' },
 ];
 
 function initKernel() {

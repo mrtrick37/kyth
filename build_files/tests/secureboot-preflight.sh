@@ -74,8 +74,16 @@ check_static_sources() {
         || fail "Fedora-signed live media should not wait indefinitely for MOK enrollment"
     grep -q 'mok_state' "${REPO_ROOT}/build_files/kyth-installer" \
         || fail "installer must report MOK enrollment state to the UI"
+    grep -q '_try_stage_mok_enrollment(log, kernel)' "${REPO_ROOT}/build_files/kyth-installer" \
+        || fail "installer must stage MOK enrollment based on the selected kernel"
     grep -q -- '--list-new' "${REPO_ROOT}/build_files/kyth-installer" \
         || fail "installer must detect already-pending MOK enrollment"
+    grep -q 'advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))' "${REPO_ROOT}/build_files/kyth-welcome/kyth-welcome" \
+        || fail "welcome app must expose the Kernel page in Advanced"
+    grep -q 'ujust", "switch-kernel"' "${REPO_ROOT}/build_files/kyth-welcome/kyth-welcome" \
+        || fail "welcome Kernel page must call the switch-kernel backend"
+    grep -q '^switch-kernel flavor="fedora":' "${REPO_ROOT}/build_files/just/kyth.just" \
+        || fail "ujust switch-kernel recipe must be shipped"
     grep -q '^search --no-floppy --label --set=root' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "main GRUB menu must force root to the ISO volume before loading vmlinuz"
     grep -q '^configfile (\\$root)/boot/grub2/grub.cfg' "${REPO_ROOT}/build_files/build-live-iso.sh" \

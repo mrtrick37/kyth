@@ -3,7 +3,7 @@
 
 # The OS update is staged — a reboot is required to activate it.
 [group('KythOS')]
-upgrade:
+kyth-upgrade:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -22,7 +22,7 @@ upgrade:
         echo >&2
         echo "  These conflict with bootc upgrades. To fix:" >&2
         echo "    rpm-ostree reset     # removes all layered packages" >&2
-        echo "    ujust upgrade        # then retry" >&2
+        echo "    ujust kyth-upgrade   # then retry" >&2
         echo >&2
         echo "  If you still need those packages, install them via Flatpak instead." >&2
         exit 1
@@ -156,10 +156,10 @@ switch-kernel flavor="fedora":
             ;;
     esac
 
-    ref="$(bootc status --format json 2>/dev/null \
-        | python3 -c 'import json,sys,re; d=json.load(sys.stdin); text=json.dumps(d); m=re.search(r"ghcr.io/mrtrick37/kyth:([A-Za-z0-9._-]+)", text); print(m.group(1) if m else "latest")' \
+    current_tag="$(bootc status --format json 2>/dev/null \
+        | python3 -c 'import json,re,sys; text=json.dumps(json.load(sys.stdin)); tags=re.findall(r"ghcr\.io/mrtrick37/kyth:([A-Za-z0-9._-]+)", text); print(tags[0] if tags else "latest")' \
         2>/dev/null || echo latest)"
-    case "${ref}" in
+    case "${current_tag}" in
         testing*) channel="testing" ;;
         *) channel="latest" ;;
     esac
