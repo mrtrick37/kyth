@@ -297,6 +297,39 @@ Hidden=false
 NoDisplay=true
 AUTOSTARTEOF
 
+# ── Windows-friendly KDE defaults ─────────────────────────────────────────────
+# KDE stores application launch shortcuts per-user, so seed familiar defaults
+# through a tiny one-shot first-login helper.
+cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.plasma-systemmonitor.desktop \
+        --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+rm -f "${autostart}"
+WINDEFAULTEOF
+chmod +x /usr/bin/kyth-windows-friendly-defaults
+
+cat > /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop <<'WINDEFAULTDESKTOPEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS: Windows-Friendly Defaults
+Exec=/usr/bin/kyth-windows-friendly-defaults
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+WINDEFAULTDESKTOPEOF
+
 cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
 wallpaperplugin=org.kde.image

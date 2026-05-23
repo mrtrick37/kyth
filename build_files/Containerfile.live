@@ -308,6 +308,10 @@ RUN mkdir -p \
            cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
               /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
        fi \
+    && if [ -f /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop ]; then \
+           cp /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop \
+              /home/liveuser/.config/autostart/kyth-windows-friendly-defaults.desktop; \
+       fi \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
     && chown -R liveuser:liveuser /home/liveuser/ \

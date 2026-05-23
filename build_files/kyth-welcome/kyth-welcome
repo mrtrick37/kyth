@@ -3545,12 +3545,43 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
+        # ── First-run chooser ────────────────────────────────────────────────
+        chooser, chooser_layout = _make_card("card-accent-ok")
+        chooser_title = QLabel("What do you want to do first?")
+        chooser_title.setObjectName("card-title")
+        chooser_layout.addWidget(chooser_title)
+        chooser_body = QLabel(
+            "Pick the path that matches why you booted KythOS today. You can come "
+            "back here anytime from the application menu."
+        )
+        chooser_body.setObjectName("card-copy")
+        chooser_body.setWordWrap(True)
+        chooser_layout.addWidget(chooser_body)
+        chooser_btns = QHBoxLayout()
+        chooser_btns.setSpacing(8)
+        for label, page_key in (
+            ("Move From Windows", "Move From Windows"),
+            ("Install Familiar Apps", "Software"),
+            ("Set Up Games", "Gaming"),
+            ("Check Hardware", "Hardware"),
+            ("Learn Updates", "Update"),
+        ):
+            btn = QPushButton(label)
+            if page_key == "Move From Windows":
+                btn.setObjectName("primary")
+            btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
+            chooser_btns.addWidget(btn)
+        chooser_btns.addStretch()
+        chooser_layout.addLayout(chooser_btns)
+        self._add(chooser)
+
         # ── Getting started section ──────────────────────────────────────────
         section_lbl = QLabel("Getting Started")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
         steps = [
+            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
             ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
             ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
             ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
@@ -5278,6 +5309,38 @@ class RepairPage(Page):
         info_layout.addWidget(info_body)
         self._add(info)
 
+        # Quick fixes
+        quick, quick_layout = _make_card("card-accent-ok")
+        quick_title = QLabel("Quick fixes")
+        quick_title.setObjectName("card-title")
+        quick_layout.addWidget(quick_title)
+        quick_body = QLabel(
+            "Try these first. They are non-destructive and aimed at the common "
+            "Windows-switcher moments: app menu entries missing, Flatpaks acting odd, "
+            "audio disappearing, or needing a familiar Task Manager."
+        )
+        quick_body.setObjectName("card-copy")
+        quick_body.setWordWrap(True)
+        quick_layout.addWidget(quick_body)
+        quick_btns = QHBoxLayout()
+        quick_btns.setSpacing(8)
+        for label, cmd in (
+            ("Refresh App Menu", ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
+            ("Fix Flatpak Apps", ["flatpak", "repair", "--user"]),
+            ("Restart Audio", ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"]),
+            ("Restart Bluetooth", ["sudo", "-A", "systemctl", "restart", "bluetooth"]),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, c=cmd, l=label: self._run_quick_fix(l, c))
+            quick_btns.addWidget(btn)
+        task_btn = QPushButton("Open Task Manager")
+        task_btn.setObjectName("primary")
+        task_btn.clicked.connect(self._open_task_manager)
+        quick_btns.addWidget(task_btn)
+        quick_btns.addStretch()
+        quick_layout.addLayout(quick_btns)
+        self._add(quick)
+
         # Warning card
         warn, warn_layout = _make_card("card-accent-err")
         warn_title = QLabel("This action cannot be undone")
@@ -5340,6 +5403,47 @@ class RepairPage(Page):
         self._log.hide()
         self._add(self._log)
         self._stretch()
+
+    def _open_task_manager(self):
+        for cmd in (["plasma-systemmonitor"], ["ksysguard"], ["konsole", "-e", "btop"], ["konsole", "-e", "top"]):
+            if shutil.which(cmd[0]):
+                subprocess.Popen(cmd)
+                return
+        QMessageBox.warning(self, "Task Manager not found", "Could not find System Monitor or a terminal task viewer.")
+
+    def _run_quick_fix(self, label: str, cmd: list[str]):
+        if self._worker and self._worker.isRunning():
+            return
+        self._confirm_edit.setEnabled(False)
+        self._reset_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText(f"{label}…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._worker = Worker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(lambda code, name=label: self._on_quick_fix_done(code, name))
+        self._worker.start()
+
+    def _on_quick_fix_done(self, code: int, label: str):
+        self._progress.hide()
+        _finish_worker(self)
+        self._confirm_edit.setEnabled(True)
+        self._on_confirm_text(self._confirm_edit.text())
+        if code == 0:
+            self._status_lbl.setText(f"{label} complete.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone.")
+        else:
+            self._status_lbl.setText(f"{label} failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            _set_log_panel(self._log_toggle, self._log, True)
+        _restyle(self._status_lbl)
 
     def _on_confirm_text(self, text: str):
         self._reset_btn.setEnabled(text.strip() == "RESET")
@@ -5642,6 +5746,200 @@ class WindowsLibraryWorker(QThread):
             print(f"Windows library probe failed: {exc}", file=sys.stderr)
             partitions = []
         self.result.emit(partitions)
+
+
+# ── Page: Move From Windows ──────────────────────────────────────────────────
+class WindowsMigrationPage(Page):
+    def __init__(self, navigate=None):
+        super().__init__()
+        self._navigate = navigate or (lambda _: None)
+        self._worker: WindowsLibraryWorker | None = None
+
+        self._page_header(
+            "System",
+            "Move From Windows",
+            "Bring your files, games, and familiar habits over without touching the Windows install.",
+        )
+
+        intro, intro_layout = _make_card("card-accent-ok")
+        intro_title = QLabel("Start here if this is your first week on KythOS")
+        intro_title.setObjectName("card-title")
+        intro_layout.addWidget(intro_title)
+        intro_body = QLabel(
+            "KythOS can read Windows drives, copy personal files, import Steam libraries, "
+            "and point you toward the right app path for Windows installers. Windows drives "
+            "are treated carefully: migration tools read from them and copy into your home folder."
+        )
+        intro_body.setObjectName("card-copy")
+        intro_body.setWordWrap(True)
+        intro_layout.addWidget(intro_body)
+        intro_btns = QHBoxLayout()
+        intro_btns.setSpacing(8)
+        for label, page in (
+            ("Install Familiar Apps", "Software"),
+            ("Move Steam Games", "Gaming"),
+            ("Back Up Saves", "Gaming"),
+            ("Open File Manager", None),
+        ):
+            btn = QPushButton(label)
+            if page:
+                btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
+            else:
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["dolphin", os.path.expanduser("~")]) if shutil.which("dolphin") else QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+            intro_btns.addWidget(btn)
+        intro_btns.addStretch()
+        intro_layout.addLayout(intro_btns)
+        self._add(intro)
+
+        checklist, checklist_layout = _make_card()
+        checklist_title = QLabel("Windows switch checklist")
+        checklist_title.setObjectName("card-title")
+        checklist_layout.addWidget(checklist_title)
+        for status, title, text in (
+            ("ok", "Apps", "Use Software > Starter Packs for Discord, VLC, Spotify, OBS, Bitwarden, and game launchers."),
+            ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random Windows installers directly."),
+            ("warn", "Files", "Copy Documents, Downloads, Pictures, Music, and Videos into your KythOS home folder."),
+            ("warn", "Saves", "Install Ludusavi before moving large libraries or experimenting with mods."),
+            ("dim", "Updates", "KythOS updates stage a new OS image. Reboot when ready; rollbacks stay available."),
+        ):
+            checklist_layout.addWidget(self._make_migration_row(status, title, text))
+        self._add(checklist)
+
+        drives, drives_layout = _make_card()
+        drives_top = QHBoxLayout()
+        drives_title = QLabel("Windows drives")
+        drives_title.setObjectName("card-title")
+        drives_top.addWidget(drives_title)
+        drives_top.addStretch()
+        refresh_btn = QPushButton("Scan Drives")
+        refresh_btn.setObjectName("primary")
+        refresh_btn.clicked.connect(self._scan_windows_drives)
+        drives_top.addWidget(refresh_btn)
+        drives_layout.addLayout(drives_top)
+        drives_desc = QLabel(
+            "Looks for NTFS partitions, hibernation/dirty flags, mount points, and Steam folders. "
+            "If a drive is hibernated, boot Windows once and choose full Shut Down before copying from it."
+        )
+        drives_desc.setObjectName("card-copy")
+        drives_desc.setWordWrap(True)
+        drives_layout.addWidget(drives_desc)
+        self._drive_status = QLabel("Click Scan Drives to look for Windows partitions.")
+        self._drive_status.setObjectName("card-copy")
+        self._drive_status.setWordWrap(True)
+        drives_layout.addWidget(self._drive_status)
+        self._drive_progress = QProgressBar()
+        self._drive_progress.setRange(0, 0)
+        self._drive_progress.hide()
+        drives_layout.addWidget(self._drive_progress)
+        self._drive_rows = QVBoxLayout()
+        self._drive_rows.setSpacing(8)
+        drives_layout.addLayout(self._drive_rows)
+        self._add(drives)
+
+        exe_card, exe_layout = _make_card()
+        exe_title = QLabel("What about .exe installers?")
+        exe_title.setObjectName("card-title")
+        exe_layout.addWidget(exe_title)
+        exe_body = QLabel(
+            "For games, start with Steam, Heroic, or Lutris. For standalone Windows apps, "
+            "use Bottles so each app gets its own isolated Windows-like environment. "
+            "If a native Linux or Flatpak version exists, prefer that first."
+        )
+        exe_body.setObjectName("card-copy")
+        exe_body.setWordWrap(True)
+        exe_layout.addWidget(exe_body)
+        exe_btns = QHBoxLayout()
+        exe_btns.setSpacing(8)
+        bottles_btn = QPushButton("Install Bottles")
+        bottles_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-bottles"], "Install Bottles"))
+        exe_btns.addWidget(bottles_btn)
+        software_btn = QPushButton("Open Software")
+        software_btn.clicked.connect(lambda _=False: self._navigate("Software"))
+        exe_btns.addWidget(software_btn)
+        exe_btns.addStretch()
+        exe_layout.addLayout(exe_btns)
+        self._add(exe_card)
+
+        self._stretch()
+
+    def _make_migration_row(self, status: str, title: str, summary: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName({
+            "ok": "hw-card-ok",
+            "warn": "hw-card-warn",
+            "err": "hw-card-err",
+            "dim": "hw-card-dim",
+        }.get(status, "hw-card-dim"))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 9, 14, 9)
+        layout.setSpacing(10)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("card-summary")
+        title_lbl.setMinimumWidth(110)
+        layout.addWidget(title_lbl)
+        summary_lbl = QLabel(summary)
+        summary_lbl.setObjectName("card-copy")
+        summary_lbl.setWordWrap(True)
+        layout.addWidget(summary_lbl, 1)
+        return row
+
+    def _clear_drive_rows(self):
+        while self._drive_rows.count():
+            item = self._drive_rows.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _scan_windows_drives(self):
+        if self._worker and self._worker.isRunning():
+            return
+        self._clear_drive_rows()
+        self._drive_progress.show()
+        self._drive_status.setText("Scanning NTFS partitions…")
+        self._drive_status.setObjectName("subheading")
+        _restyle(self._drive_status)
+        self._worker = WindowsLibraryWorker()
+        self._worker.result.connect(self._on_windows_drives)
+        self._worker.start()
+
+    def _on_windows_drives(self, partitions: list):
+        self._drive_progress.hide()
+        _finish_worker(self)
+        if not partitions:
+            self._drive_status.setText("No Windows/NTFS partitions found.")
+            self._drive_status.setObjectName("status-warn")
+            _restyle(self._drive_status)
+            return
+        self._drive_status.setText(f"Found {len(partitions)} Windows-style partition{'s' if len(partitions) != 1 else ''}.")
+        self._drive_status.setObjectName("status-ok")
+        _restyle(self._drive_status)
+        for part in partitions:
+            self._drive_rows.addWidget(self._make_drive_row(part))
+
+    def _make_drive_row(self, part: dict) -> QFrame:
+        status = "warn" if part.get("is_dirty") or part.get("is_hibernated") else "ok"
+        label = part.get("label") or part.get("device") or "Windows drive"
+        mount = part.get("mountpoint") or "not mounted"
+        steam_count = len(part.get("steam_paths") or [])
+        summary = (
+            f"{part.get('device', '')} · {part.get('size', '')} · {mount} · "
+            f"{steam_count} Steam folder{'s' if steam_count != 1 else ''}"
+        )
+        if part.get("is_hibernated"):
+            summary += " · hibernated"
+        elif part.get("is_dirty"):
+            summary += " · needs Windows shutdown"
+        row = self._make_migration_row(status, label, summary)
+        layout = row.layout()
+        if part.get("mountpoint"):
+            open_btn = QPushButton("Open Drive")
+            open_btn.clicked.connect(
+                lambda _=False, path=part["mountpoint"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            )
+            layout.addWidget(open_btn)
+        gaming_btn = QPushButton("Move Steam")
+        gaming_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
+        layout.addWidget(gaming_btn)
+        return row
 
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
@@ -11551,6 +11849,9 @@ class SoftwarePage(Page):
     def __init__(self):
         super().__init__()
         self._dev_worker: Worker | None = None
+        self._starter_worker: Worker | None = None
+        self._uninstall_worker: Worker | None = None
+        self._uninstall_buttons: list[QPushButton] = []
 
         self._page_header(
             "Apps",
@@ -11635,6 +11936,97 @@ class SoftwarePage(Page):
         )
         self._add(dev_card)
 
+        # Starter packs
+        starter_card, starter_layout = _make_card("card-accent-ok")
+        starter_title = QLabel("Starter Packs")
+        starter_title.setObjectName("card-title")
+        starter_layout.addWidget(starter_title)
+        starter_body = QLabel(
+            "Install familiar app sets in one pass. These are Flatpak desktop apps, "
+            "so they stay separate from the base OS and are easy to remove later."
+        )
+        starter_body.setObjectName("card-copy")
+        starter_body.setWordWrap(True)
+        starter_layout.addWidget(starter_body)
+        self._STARTER_PACKS = [
+            (
+                "Everyday",
+                "Browser, chat, media, passwords, and local file sharing.",
+                [
+                    "com.brave.Browser",
+                    "com.discordapp.Discord",
+                    "org.videolan.VLC",
+                    "com.spotify.Client",
+                    "com.bitwarden.desktop",
+                    "org.localsend.localsend_app",
+                ],
+            ),
+            (
+                "Gaming",
+                "Steam, Epic/GOG, Windows launchers, saves, and standalone .exe support.",
+                [
+                    "com.valvesoftware.Steam",
+                    "com.heroicgameslauncher.hgl",
+                    "net.lutris.Lutris",
+                    "com.usebottles.bottles",
+                    "com.github.mtkennerly.ludusavi",
+                    "net.davidotek.pupgui2",
+                ],
+            ),
+            (
+                "Creator",
+                "Streaming, editing, audio, images, and 3D creation.",
+                [
+                    "com.obsproject.Studio",
+                    "org.kde.kdenlive",
+                    "org.audacityteam.Audacity",
+                    "org.gimp.GIMP",
+                    "org.inkscape.Inkscape",
+                    "org.blender.Blender",
+                ],
+            ),
+        ]
+        for name, desc, app_ids in self._STARTER_PACKS:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            name_lbl = QLabel(name)
+            name_lbl.setObjectName("card-summary")
+            text_col.addWidget(name_lbl)
+            desc_lbl = QLabel(desc)
+            desc_lbl.setObjectName("card-copy")
+            desc_lbl.setWordWrap(True)
+            text_col.addWidget(desc_lbl)
+            row.addLayout(text_col, 1)
+            install_btn = QPushButton(f"Install {name}")
+            install_btn.setObjectName("primary" if name == "Everyday" else "")
+            install_btn.clicked.connect(lambda _=False, n=name, ids=app_ids: self._install_starter_pack(n, ids))
+            row.addWidget(install_btn)
+            starter_layout.addLayout(row)
+
+        self._starter_status = QLabel()
+        self._starter_status.setObjectName("subheading")
+        self._starter_status.hide()
+        starter_layout.addWidget(self._starter_status)
+        self._starter_progress = QProgressBar()
+        self._starter_progress.setRange(0, 0)
+        self._starter_progress.hide()
+        starter_layout.addWidget(self._starter_progress)
+        self._starter_log_toggle = QPushButton("Show details")
+        self._starter_log_toggle.setCheckable(True)
+        self._starter_log_toggle.hide()
+        starter_layout.addWidget(self._starter_log_toggle)
+        self._starter_log = QTextEdit()
+        self._starter_log.setReadOnly(True)
+        self._starter_log.setMaximumHeight(130)
+        self._starter_log.hide()
+        starter_layout.addWidget(self._starter_log)
+        self._starter_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._starter_log_toggle, self._starter_log, checked)
+        )
+        self._add(starter_card)
+
         # Flatpak
         fp_card, fp_layout = _make_card()
         fp_top = QHBoxLayout()
@@ -11661,6 +12053,56 @@ class SoftwarePage(Page):
         fp_btn_row.addStretch()
         fp_layout.addLayout(fp_btn_row)
         self._add(fp_card)
+
+        # Uninstall apps
+        uninstall_card, uninstall_layout = _make_card()
+        uninstall_top = QHBoxLayout()
+        uninstall_title = QLabel("Uninstall Apps")
+        uninstall_title.setObjectName("card-title")
+        uninstall_top.addWidget(uninstall_title)
+        uninstall_top.addStretch()
+        self._uninstall_refresh_btn = QPushButton("Refresh")
+        self._uninstall_refresh_btn.clicked.connect(self._refresh_uninstall_apps)
+        uninstall_top.addWidget(self._uninstall_refresh_btn)
+        uninstall_layout.addLayout(uninstall_top)
+
+        uninstall_body = QLabel(
+            "Remove installed Flatpak desktop apps and user-owned AppImages without "
+            "hunting through terminal commands. System components and command-line "
+            "tools stay out of this list."
+        )
+        uninstall_body.setObjectName("card-copy")
+        uninstall_body.setWordWrap(True)
+        uninstall_layout.addWidget(uninstall_body)
+
+        self._uninstall_status = QLabel()
+        self._uninstall_status.setObjectName("subheading")
+        uninstall_layout.addWidget(self._uninstall_status)
+
+        self._uninstall_progress = QProgressBar()
+        self._uninstall_progress.setRange(0, 0)
+        self._uninstall_progress.hide()
+        uninstall_layout.addWidget(self._uninstall_progress)
+
+        self._uninstall_log_toggle = QPushButton("Show details")
+        self._uninstall_log_toggle.setCheckable(True)
+        self._uninstall_log_toggle.hide()
+        uninstall_layout.addWidget(self._uninstall_log_toggle)
+
+        self._uninstall_log = QTextEdit()
+        self._uninstall_log.setReadOnly(True)
+        self._uninstall_log.setMaximumHeight(130)
+        self._uninstall_log.hide()
+        uninstall_layout.addWidget(self._uninstall_log)
+        self._uninstall_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, checked)
+        )
+
+        self._uninstall_list = QVBoxLayout()
+        self._uninstall_list.setSpacing(8)
+        uninstall_layout.addLayout(self._uninstall_list)
+        self._add(uninstall_card)
+        self._refresh_uninstall_apps()
 
         # Homebrew
         brew_card, brew_layout = _make_card()
@@ -11711,6 +12153,377 @@ class SoftwarePage(Page):
         self._add(dbox_card)
 
         self._stretch()
+
+    def _clear_uninstall_list(self):
+        while self._uninstall_list.count():
+            item = self._uninstall_list.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._uninstall_buttons.clear()
+
+    def _install_starter_pack(self, name: str, app_ids: list[str]):
+        if self._starter_worker and self._starter_worker.isRunning():
+            return
+        missing = [app_id for app_id in app_ids if not _is_flatpak_installed(app_id)]
+        if not missing:
+            self._starter_status.setText(f"{name} pack is already installed.")
+            self._starter_status.setObjectName("status-ok")
+            self._starter_status.show()
+            _restyle(self._starter_status)
+            return
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            " && flatpak install -y flathub " + " ".join(shlex.quote(app_id) for app_id in missing),
+        ]
+        self._starter_log.clear()
+        self._starter_log.append(f"→ install {name} starter pack\n")
+        for app_id in missing:
+            self._starter_log.append(f"  {app_id}")
+        self._starter_log_toggle.show()
+        _set_log_panel(self._starter_log_toggle, self._starter_log, False)
+        self._starter_progress.show()
+        self._starter_status.setText(f"Installing {name} starter pack…")
+        self._starter_status.setObjectName("subheading")
+        self._starter_status.show()
+        _restyle(self._starter_status)
+        self._starter_worker = Worker(cmd)
+        self._starter_worker.line.connect(self._on_starter_line)
+        self._starter_worker.done.connect(lambda code, n=name: self._on_starter_done(code, n))
+        self._starter_worker.start()
+
+    def _on_starter_line(self, ln: str):
+        self._starter_log.append(ln)
+        self._starter_log.ensureCursorVisible()
+
+    def _on_starter_done(self, code: int, name: str):
+        self._starter_progress.hide()
+        _finish_worker(self, attr="_starter_worker")
+        if code == 0:
+            self._starter_status.setText(f"{name} starter pack installed.")
+            self._starter_status.setObjectName("status-ok")
+            self._starter_log.append("\nDone.")
+            self._refresh_uninstall_apps()
+        else:
+            self._starter_status.setText(f"{name} starter pack failed (exit {code}).")
+            self._starter_status.setObjectName("status-err")
+            _set_log_panel(self._starter_log_toggle, self._starter_log, True)
+        _restyle(self._starter_status)
+
+    def _installed_flatpak_apps(self) -> list[dict[str, str]]:
+        if not shutil.which("flatpak"):
+            return []
+        try:
+            result = subprocess.run(
+                ["flatpak", "list", "--app", "--columns=application,name,origin,installation"],
+                capture_output=True,
+                text=True,
+                timeout=12,
+                check=False,
+            )
+        except Exception:
+            return []
+        apps: list[dict[str, str]] = []
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 4:
+                continue
+            app_id, name, origin, installation = (part.strip() for part in parts[:4])
+            if not app_id:
+                continue
+            apps.append({
+                "kind": "flatpak",
+                "app_id": app_id,
+                "name": name or app_id,
+                "origin": origin or "unknown",
+                "installation": installation or "default",
+            })
+        return sorted(apps, key=lambda app: app["name"].casefold())
+
+    def _appimage_search_dirs(self) -> list[str]:
+        home = os.path.expanduser("~")
+        return [
+            os.path.join(home, "Applications"),
+            os.path.join(home, ".local", "bin"),
+            os.path.join(home, "bin"),
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "Downloads"),
+        ]
+
+    def _path_is_user_appimage(self, path: str) -> bool:
+        if not path:
+            return False
+        try:
+            real = os.path.realpath(os.path.expanduser(path))
+            home = os.path.realpath(os.path.expanduser("~"))
+        except OSError:
+            return False
+        return (
+            real.startswith(home + os.sep)
+            and os.path.isfile(real)
+            and os.path.basename(real).lower().endswith(".appimage")
+        )
+
+    def _desktop_entry_for_appimage(self, desktop_path: str) -> dict[str, str] | None:
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        parser.optionxform = str
+        try:
+            parser.read(desktop_path, encoding="utf-8")
+        except Exception:
+            return None
+        if not parser.has_section("Desktop Entry"):
+            return None
+        entry = parser["Desktop Entry"]
+        exec_line = entry.get("Exec", "")
+        try_exec = entry.get("TryExec", "")
+        candidates: list[str] = []
+        for line in (exec_line, try_exec):
+            if not line:
+                continue
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                parts = line.split()
+            candidates.extend(part for part in parts if ".AppImage" in part or ".appimage" in part)
+        appimage_path = next((part for part in candidates if self._path_is_user_appimage(part)), "")
+        if not appimage_path:
+            return None
+        appimage_path = os.path.realpath(os.path.expanduser(appimage_path))
+        return {
+            "kind": "appimage",
+            "app_id": appimage_path,
+            "name": entry.get("Name", "") or os.path.basename(appimage_path),
+            "origin": "AppImage",
+            "installation": "user file",
+            "path": appimage_path,
+            "desktop_path": desktop_path,
+            "icon": entry.get("Icon", ""),
+        }
+
+    def _installed_appimage_apps(self) -> list[dict[str, str]]:
+        apps_by_path: dict[str, dict[str, str]] = {}
+
+        desktop_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "applications")
+        for desktop_path in glob.glob(os.path.join(desktop_dir, "*.desktop")):
+            app = self._desktop_entry_for_appimage(desktop_path)
+            if app:
+                apps_by_path[app["path"]] = app
+
+        for directory in self._appimage_search_dirs():
+            if not os.path.isdir(directory):
+                continue
+            try:
+                entries = os.listdir(directory)
+            except OSError:
+                continue
+            for name in entries:
+                path = os.path.join(directory, name)
+                if not self._path_is_user_appimage(path):
+                    continue
+                real = os.path.realpath(path)
+                apps_by_path.setdefault(real, {
+                    "kind": "appimage",
+                    "app_id": real,
+                    "name": os.path.basename(real),
+                    "origin": "AppImage",
+                    "installation": "user file",
+                    "path": real,
+                    "desktop_path": "",
+                    "icon": "",
+                })
+
+        return sorted(apps_by_path.values(), key=lambda app: app["name"].casefold())
+
+    def _refresh_uninstall_apps(self, status_text: str | None = None, status_object: str = "subheading"):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        self._clear_uninstall_list()
+        apps = self._installed_flatpak_apps() + self._installed_appimage_apps()
+        if not apps:
+            self._uninstall_status.setText(status_text or "No removable Flatpak apps or AppImages found.")
+            self._uninstall_status.setObjectName(status_object)
+            _restyle(self._uninstall_status)
+            return
+        flatpak_count = sum(1 for app in apps if app["kind"] == "flatpak")
+        appimage_count = sum(1 for app in apps if app["kind"] == "appimage")
+        if not shutil.which("flatpak") and appimage_count == 0:
+            self._uninstall_status.setText("Flatpak is not available and no AppImages were found.")
+            self._uninstall_status.setObjectName("status-warn")
+            _restyle(self._uninstall_status)
+            return
+        default_status = (
+            f"{flatpak_count} Flatpak app{'s' if flatpak_count != 1 else ''} "
+            f"and {appimage_count} AppImage{'s' if appimage_count != 1 else ''} found."
+        )
+        self._uninstall_status.setText(
+            status_text or default_status
+        )
+        self._uninstall_status.setObjectName(status_object)
+        _restyle(self._uninstall_status)
+        for app in apps:
+            self._uninstall_list.addWidget(self._make_uninstall_app_row(app))
+
+    def _make_uninstall_app_row(self, app: dict[str, str]) -> QFrame:
+        row = QFrame()
+        row.setObjectName("stat-tile")
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(12)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        name_lbl = QLabel(app["name"])
+        name_lbl.setObjectName("card-summary")
+        name_lbl.setWordWrap(True)
+        text_col.addWidget(name_lbl)
+        detail_lbl = QLabel(
+            self._uninstall_app_detail(app)
+        )
+        detail_lbl.setObjectName("card-copy")
+        detail_lbl.setWordWrap(True)
+        text_col.addWidget(detail_lbl)
+        layout.addLayout(text_col, 1)
+
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.clicked.connect(lambda _=False, a=app: self._uninstall_app(a))
+        self._uninstall_buttons.append(uninstall_btn)
+        layout.addWidget(uninstall_btn)
+        return row
+
+    def _uninstall_app_detail(self, app: dict[str, str]) -> str:
+        if app["kind"] == "appimage":
+            launcher = " · launcher" if app.get("desktop_path") else ""
+            return f"{app['path']} · AppImage{launcher}"
+        return f"{app['app_id']} · {app['installation']} install · {app['origin']}"
+
+    def _set_uninstall_controls_enabled(self, enabled: bool):
+        self._uninstall_refresh_btn.setEnabled(enabled)
+        for btn in self._uninstall_buttons:
+            btn.setEnabled(enabled)
+
+    def _uninstall_app(self, app: dict[str, str]):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        if app["kind"] == "appimage":
+            self._uninstall_appimage_app(app)
+        else:
+            self._uninstall_flatpak_app(app)
+
+    def _uninstall_flatpak_app(self, app: dict[str, str]):
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Remove {app['name']}?\n\n{app['app_id']}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        cmd = ["flatpak", "uninstall", "-y"]
+        if app["installation"] == "user":
+            cmd.append("--user")
+        elif app["installation"] == "system":
+            cmd.append("--system")
+        cmd.append(app["app_id"])
+
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _uninstall_appimage_app(self, app: dict[str, str]):
+        extra = "\nIts user application-menu launcher will also be removed." if app.get("desktop_path") else ""
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Delete this AppImage from your home folder?\n\n{app['path']}{extra}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+
+        targets = [app["path"]]
+        if app.get("desktop_path"):
+            targets.append(app["desktop_path"])
+        safe_targets: list[str] = []
+        for target in targets:
+            real = os.path.realpath(os.path.expanduser(target))
+            home = os.path.realpath(os.path.expanduser("~"))
+            if real.startswith(home + os.sep):
+                safe_targets.append(real)
+
+        if not safe_targets:
+            QMessageBox.warning(
+                self,
+                "Cannot uninstall AppImage",
+                "This AppImage does not look like a user-owned file in your home folder.",
+            )
+            return
+
+        cmd = [
+            "bash", "-c",
+            "set -euo pipefail\n"
+            "for target in \"$@\"; do\n"
+            "    if [[ -e \"$target\" || -L \"$target\" ]]; then\n"
+            "        rm -f -- \"$target\"\n"
+            "        echo \"Removed $target\"\n"
+            "    fi\n"
+            "done\n"
+            "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true\n"
+            "kbuildsycoca6 --noincremental 2>/dev/null || true\n",
+            "kyth-remove-appimage",
+            *safe_targets,
+        ]
+
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ remove AppImage and launcher\n")
+        for target in safe_targets:
+            self._uninstall_log.append(f"  {target}")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _on_uninstall_line(self, ln: str):
+        self._uninstall_log.append(ln)
+        self._uninstall_log.ensureCursorVisible()
+
+    def _on_uninstall_done(self, code: int, name: str):
+        self._uninstall_progress.hide()
+        _finish_worker(self, attr="_uninstall_worker")
+        self._set_uninstall_controls_enabled(True)
+        if code == 0:
+            self._uninstall_log.append("\nDone.")
+            self._refresh_uninstall_apps(f"{name} uninstalled.", "status-ok")
+        else:
+            self._uninstall_status.setText(f"Uninstall failed (exit {code}).")
+            self._uninstall_status.setObjectName("status-err")
+            _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, True)
+            _restyle(self._uninstall_status)
 
     def _open_terminal(self):
         for cmd in (["xdg-terminal-exec"], ["konsole"], ["xterm"]):
@@ -13162,6 +13975,7 @@ class MainWindow(QMainWindow):
             ("System", [
                 ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
                 ("↻", "Update",   "Update",   UpdatePage),
+                ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
                 ("◈", "Hardware", "Hardware", HardwarePage),
                 ("⬟", "Firmware", "Firmware", FirmwarePage),
             ]),
