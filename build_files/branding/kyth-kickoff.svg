@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64" role="img" aria-label="KythOS launcher icon">
+  <defs>
+    <linearGradient id="top" x1="20" y1="8" x2="44" y2="30" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7dcfff"/>
+      <stop offset="1" stop-color="#73daca"/>
+    </linearGradient>
+    <linearGradient id="right" x1="56" y1="20" x2="34" y2="44" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#ff9e64"/>
+      <stop offset="1" stop-color="#e0af68"/>
+    </linearGradient>
+    <linearGradient id="bottom" x1="44" y1="56" x2="20" y2="34" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#bb9af7"/>
+      <stop offset="1" stop-color="#7dcfff"/>
+    </linearGradient>
+    <linearGradient id="left" x1="8" y1="44" x2="30" y2="20" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#f7768e"/>
+      <stop offset="1" stop-color="#e0af68"/>
+    </linearGradient>
+  </defs>
+
+  <path d="M32 4 C43 15 43 25 32 34 C21 25 21 15 32 4Z"
+        fill="url(#top)"/>
+  <path d="M60 32 C49 43 39 43 30 32 C39 21 49 21 60 32Z"
+        fill="url(#right)"/>
+  <path d="M32 60 C21 49 21 39 32 30 C43 39 43 49 32 60Z"
+        fill="url(#bottom)"/>
+  <path d="M4 32 C15 21 25 21 34 32 C25 43 15 43 4 32Z"
+        fill="url(#left)"/>
+
+  <circle cx="32" cy="32" r="13" fill="#f4d6b1"/>
+  <circle cx="32" cy="32" r="6" fill="#181818"/>
+</svg>

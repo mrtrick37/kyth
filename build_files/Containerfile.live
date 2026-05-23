@@ -334,6 +334,8 @@ COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg
+COPY build_files/branding/kyth-kickoff.svg \
+     /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg
 COPY build_files/branding/kyth-boot-badge.svg \
      /usr/share/plymouth/themes/kyth/kyth-boot-badge.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
@@ -351,12 +353,32 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyt
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
           /usr/share/icons/hicolor/scalable/apps/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here-kde-plasma.svg \
+    && mkdir -p /usr/share/icons/breeze/apps/scalable \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/kyth-kickoff.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here-kde-plasma.svg \
     && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/kyth-kickoff.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here-kde-plasma.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
+    && gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
