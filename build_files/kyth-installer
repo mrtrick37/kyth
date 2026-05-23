@@ -239,8 +239,135 @@ def get_root_partition(disk: str) -> str:
     )
 
 
+def _lsblk_target_mounts(disk: str) -> list[tuple[str, str]]:
+    """Return (device, mountpoint) pairs for mounted devices under disk."""
+    out = subprocess.check_output(
+        ["lsblk", "--json", "--paths", "--output", "NAME,TYPE,MOUNTPOINTS", disk],
+        text=True, stderr=subprocess.DEVNULL,
+    )
+    mounts: list[tuple[str, str]] = []
+
+    def walk(dev: dict) -> None:
+        name = dev.get("name") or ""
+        for mount in dev.get("mountpoints") or []:
+            if mount:
+                mounts.append((name, mount))
+        for child in dev.get("children") or []:
+            walk(child)
+
+    for dev in json.loads(out).get("blockdevices", []):
+        walk(dev)
+    mounts.sort(key=lambda item: item[1].count("/"), reverse=True)
+    return mounts
+
+
+def unmount_target_disk(disk: str, log) -> None:
+    """Unmount any live-session mounts that would block wiping disk."""
+    log(f"Unmounting any existing mounts on {disk} ...")
+    for mount in ("/mnt", "/sysroot", "/target"):
+        subprocess.run(_as_root(["umount", "-R", mount]), check=False)
+
+    try:
+        mounts = _lsblk_target_mounts(disk)
+    except Exception as exc:
+        log(f"Warning: could not inspect target mounts with lsblk: {exc}")
+        mounts = []
+
+    for dev, mount in mounts:
+        log(f"Unmounting {dev} from {mount}")
+        result = subprocess.run(
+            _as_root(["umount", "-R", mount]),
+            capture_output=True, text=True,
+        )
+        if result.returncode != 0:
+            err = (result.stderr or result.stdout or "").strip()
+            log(f"Normal unmount failed for {mount}: {err}")
+            subprocess.run(_as_root(["umount", "-l", mount]), check=False)
+
+    try:
+        remaining = _lsblk_target_mounts(disk)
+    except Exception:
+        remaining = []
+    if remaining:
+        details = ", ".join(f"{dev} at {mount}" for dev, mount in remaining)
+        raise RuntimeError(
+            f"Target disk {disk} still has mounted partitions: {details}. "
+            "Close any file manager or terminal using those paths and retry."
+        )
+
+
 def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
+
+
+def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
+    """Stage Kyth Secure Boot MOK enrollment via mokutil.
+
+    Returns one of: skipped, enrolled, pending, staged, failed.
+    """
+    force_stage = os.environ.get("KYTH_STAGE_MOK", "0").lower() in ("1", "true", "yes", "on")
+    if kernel != "cachy" and not force_stage:
+        log("Secure Boot: Fedora kernel selected — custom-kernel MOK enrollment not staged")
+        return "skipped"
+
+    cert_der = Path("/usr/share/kyth/secureboot/kyth-secureboot.der")
+    if not cert_der.exists():
+        log("Secure Boot: cert not found in live image — skipping enrollment staging")
+        return "skipped"
+
+    mokutil = shutil.which("mokutil")
+    if not mokutil:
+        log("Secure Boot: mokutil not found — skipping enrollment staging")
+        return "skipped"
+
+    try:
+        result = subprocess.run(
+            _as_root([mokutil, "--sb-state"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "SecureBoot enabled" not in result.stdout:
+            log("Secure Boot: not currently enabled — enrollment staging skipped")
+            log("Secure Boot: if you enable it later, run 'ujust enroll-secureboot'")
+            return "skipped"
+    except Exception as exc:
+        log(f"Secure Boot: could not check state ({exc}) — skipping enrollment staging")
+        return "skipped"
+
+    try:
+        enrolled = subprocess.run(
+            _as_root([mokutil, "--list-enrolled"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "KythOS Secure Boot" in enrolled.stdout:
+            log("Secure Boot: KythOS key already enrolled")
+            return "enrolled"
+    except Exception:
+        pass
+
+    try:
+        pending = subprocess.run(
+            _as_root([mokutil, "--list-new"]),
+            capture_output=True, text=True, timeout=5,
+        )
+        if "KythOS Secure Boot" in pending.stdout:
+            log("Secure Boot: enrollment already staged — confirm it on next boot")
+            return "pending"
+    except Exception:
+        pass
+
+    try:
+        result = subprocess.run(
+            _as_root([mokutil, "--import", str(cert_der), "--stdin-passwd"]),
+            input="kyth\n", text=True, capture_output=True, timeout=15,
+        )
+        if result.returncode == 0:
+            log("Secure Boot: enrollment staged — confirm it on first boot before the CachyOS kernel starts")
+            return "staged"
+        log(f"Secure Boot: mokutil import failed (exit {result.returncode}): {result.stderr.strip()}")
+        return "failed"
+    except Exception as exc:
+        log(f"Secure Boot: enrollment staging failed: {exc}")
+        return "failed"
 
 
 def _source_imgref(image: str) -> str:
@@ -252,11 +379,32 @@ def _source_imgref(image: str) -> str:
     return f"docker://{image}"
 
 
+def _install_images(kernel: str) -> tuple[str, str]:
+    """Return (source_imgref, target_imgref) for bootc install based on kernel choice.
+
+    Fedora uses the configured SOURCE_IMAGE/TARGET_IMAGE as-is (may be a local
+    OCI transport for embedded ISOs).  CachyOS always pulls from the
+    registry, deriving the tag by appending the kernel suffix to the base tag.
+    """
+    if kernel == "fedora":
+        return _source_imgref(SOURCE_IMAGE), TARGET_IMAGE
+    # Derive registry and base tag from TARGET_IMAGE, stripping any existing suffix.
+    if ":" in TARGET_IMAGE:
+        registry, tag = TARGET_IMAGE.rsplit(":", 1)
+    else:
+        registry, tag = TARGET_IMAGE, "latest"
+    if tag.endswith("-cachy"):
+        tag = tag[: -len("-cachy")]
+    suffix = "-cachy"
+    img = f"{registry}:{tag}{suffix}"
+    return f"docker://{img}", img
+
+
 # ── Install state ─────────────────────────────────────────────────────────────
 
 _state: dict = {
     "disk": "", "hostname": "kyth", "timezone": "UTC",
-    "username": "", "password": "",
+    "username": "", "password": "", "kernel": "fedora",
 }
 
 _events: list[dict] = []
@@ -391,29 +539,21 @@ def _run_install() -> None:
 
     try:
         disk = _state["disk"]
-        log(f"Source image : {SOURCE_IMAGE}")
-        log(f"Target image : {TARGET_IMAGE}")
+        kernel = _state.get("kernel", "fedora")
+        src_ref, tgt_ref = _install_images(kernel)
+        log(f"Kernel       : {kernel}")
+        log(f"Source imgref: {src_ref}")
+        log(f"Target image : {tgt_ref}")
         log(f"Disk         : {disk}")
         log("")
 
-        # Refuse to wipe a disk that has mounted partitions.
-        try:
-            mounts = subprocess.check_output(["cat", "/proc/mounts"], text=True)
-            for mline in mounts.splitlines():
-                dev = mline.split()[0]
-                if dev.startswith(disk) or dev == disk:
-                    raise RuntimeError(
-                        f"Target disk {disk} has a mounted partition ({dev}). "
-                        "Unmount all partitions on the target disk before installing."
-                    )
-        except subprocess.CalledProcessError:
-            pass
+        unmount_target_disk(disk, log)
 
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
         install_cmd = [
             "bootc", "install", "to-disk",
-            "--source-imgref", _source_imgref(SOURCE_IMAGE),
-            "--target-imgref", TARGET_IMAGE,
+            "--source-imgref", src_ref,
+            "--target-imgref", tgt_ref,
             "--filesystem", "btrfs",
             "--generic-image",
             "--wipe",
@@ -545,8 +685,11 @@ def _run_install() -> None:
             progress(99)
             subprocess.run(_as_root(["umount", mount]), check=False)
 
+        log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
+        mok_state = _try_stage_mok_enrollment(log, kernel)
+
         progress(100)
-        _push({"type": "done"})
+        _push({"type": "done", "mok_state": mok_state})
 
     except Exception as exc:
         try:
@@ -634,12 +777,16 @@ class Handler(BaseHTTPRequestHandler):
             if disk not in {d["name"] for d in list_disks()}:
                 self.send_error(400, "Invalid disk")
                 return
+            kernel = body.get("kernel", "fedora")
+            if kernel not in ("fedora", "cachy"):
+                kernel = "fedora"
             _state.update({
                 "disk":     disk,
                 "hostname": hostname,
                 "timezone": timezone,
                 "username": username,
                 "password": body.get("password", ""),
+                "kernel":   kernel,
             })
             with _events_lock:
                 _events.clear()
@@ -803,6 +950,18 @@ select{cursor:pointer}
 .hero-body{font-size:14px;color:var(--muted);line-height:1.7}
 .err-pre{font-size:12px;font-family:var(--mono);color:var(--red);background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px;margin:14px 0;white-space:pre-wrap;word-break:break-all}
 
+/* kernel cards */
+.kernel-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.kernel-card{display:flex;align-items:flex-start;gap:16px;padding:16px 18px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
+.kernel-card:hover{border-color:var(--accent)}
+.kernel-card.selected{border-color:var(--accent);background:#0d1e3a}
+.kernel-icon{font-size:26px;flex-shrink:0;padding-top:1px}
+.kernel-body{flex:1}
+.kernel-name{font-weight:700;font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.kernel-badge{display:inline-block;background:#0d3a1e;border:1px solid #1a5a2e;color:var(--green);font-size:10px;font-weight:600;padding:1px 7px;border-radius:4px;letter-spacing:.05em}
+.kernel-desc{color:var(--muted);font-size:12px;line-height:1.6}
+.kernel-note{margin-top:6px;font-size:11px;color:var(--amber)}
+
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -816,9 +975,10 @@ select{cursor:pointer}
   <div class="steps" id="steps">
     <div class="step" data-step="welcome"><div class="step-num">1</div><div class="step-label">Welcome</div></div>
     <div class="step" data-step="disk">   <div class="step-num">2</div><div class="step-label">Disk</div></div>
-    <div class="step" data-step="config"> <div class="step-num">3</div><div class="step-label">Configure</div></div>
-    <div class="step" data-step="review"> <div class="step-num">4</div><div class="step-label">Review</div></div>
-    <div class="step" data-step="install"><div class="step-num">5</div><div class="step-label">Install</div></div>
+    <div class="step" data-step="kernel"> <div class="step-num">3</div><div class="step-label">Kernel</div></div>
+    <div class="step" data-step="config"> <div class="step-num">4</div><div class="step-label">Configure</div></div>
+    <div class="step" data-step="review"> <div class="step-num">5</div><div class="step-label">Review</div></div>
+    <div class="step" data-step="install"><div class="step-num">6</div><div class="step-label">Install</div></div>
   </div>
   <div class="sidebar-footer">kyth installer</div>
 </nav>
@@ -829,14 +989,15 @@ select{cursor:pointer}
   <div class="page active" id="page-welcome">
     <div class="card">
       <div class="card-title">Welcome to KythOS</div>
-      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + CachyOS kernel</div>
+      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite</div>
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
-        &nbsp; 2. Set hostname, timezone, and user account<br>
-        &nbsp; 3. Download and write KythOS to disk<br><br>
+        &nbsp; 2. Choose your kernel<br>
+        &nbsp; 3. Set hostname, timezone, and user account<br>
+        &nbsp; 4. Download and write KythOS to disk<br><br>
         <span style="color:var(--amber)">⚠ The selected disk will be completely erased.</span><br>
         Back up any data you need before continuing.
       </p>
@@ -861,7 +1022,21 @@ select{cursor:pointer}
       </div>
       <div class="btn-row">
         <button onclick="goto('welcome')">← Back</button>
-        <button id="disk-next" class="primary" onclick="goto('config')" disabled>Continue →</button>
+        <button id="disk-next" class="primary" onclick="goto('kernel')" disabled>Continue →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kernel -->
+  <div class="page" id="page-kernel">
+    <div class="card">
+      <div class="card-title">Choose Kernel</div>
+      <div class="card-sub">Select the kernel for your installed system. You can switch kernels later with <code style="font-family:var(--mono);background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12px">bootc switch</code></div>
+      <hr class="divider">
+      <div class="kernel-grid" id="kernel-grid"></div>
+      <div class="btn-row">
+        <button onclick="goto('disk')">← Back</button>
+        <button class="primary" onclick="goto('config')">Continue →</button>
       </div>
     </div>
   </div>
@@ -884,7 +1059,7 @@ select{cursor:pointer}
       <input type="password" id="inp-password2" autocomplete="new-password">
       <div id="user-error" style="color:var(--red);font-size:13px;margin-top:8px;min-height:1.2em"></div>
       <div class="btn-row">
-        <button onclick="goto('disk')">← Back</button>
+        <button onclick="goto('kernel')">← Back</button>
         <button class="primary" onclick="saveConfig()">Continue →</button>
       </div>
     </div>
@@ -934,6 +1109,19 @@ select{cursor:pointer}
         KythOS has been installed successfully.<br>
         Remove the installation media and reboot to start your new system.
       </p>
+      <div id="done-sb-notice" style="display:none;text-align:left;margin-top:28px">
+        <div class="status-box status-info">
+          <strong>One more step: Secure Boot key enrollment</strong><br><br>
+          On your first reboot, a blue screen will appear before KythOS loads.
+          This is normal — it is a one-time security setup:<br><br>
+          &nbsp;&nbsp;1. Press any key when prompted<br>
+          &nbsp;&nbsp;2. Select <strong>Enroll MOK</strong><br>
+          &nbsp;&nbsp;3. Select <strong>Continue</strong><br>
+          &nbsp;&nbsp;4. Enter password: <strong style="font-family:var(--mono);letter-spacing:.05em">kyth</strong><br>
+          &nbsp;&nbsp;5. Select <strong>Yes</strong>, then <strong>Reboot</strong><br><br>
+          After this, KythOS will boot normally every time.
+        </div>
+      </div>
       <div class="btn-row" style="justify-content:center;margin-top:32px">
         <button class="primary" onclick="reboot()" style="padding:11px 32px;font-size:15px">Reboot Now</button>
       </div>
@@ -957,9 +1145,9 @@ select{cursor:pointer}
 </div><!-- #app -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '' };
+const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora' };
 let SESSION_TOKEN = '';
-const STEPS = ['welcome','disk','config','review','install'];
+const STEPS = ['welcome','disk','kernel','config','review','install'];
 
 function apiFetch(url, opts={}) {
   const o = {...opts, credentials:'same-origin'};
@@ -982,6 +1170,7 @@ function goto(name) {
     if (si === ai) el.classList.remove('done');
   });
   if (name === 'disk')    loadDisks();
+  if (name === 'kernel')  initKernel();
   if (name === 'config')  initConfig();
   if (name === 'review')  buildReview();
 }
@@ -1024,6 +1213,36 @@ function selectDisk(idx) {
   S.disk = _disks[idx];
   document.getElementById('disk-next').disabled = false;
   document.getElementById('disk-warn').style.display = 'block';
+}
+
+// ── Kernel ────────────────────────────────────────────────────────────────────
+const KERNELS = [
+  { id: 'fedora', icon: '🐧', name: 'Fedora',
+    desc: 'Stock Fedora kernel &middot; Signed by Red Hat &middot; Works with Secure Boot out of the box',
+    badge: 'Default' },
+  { id: 'cachy',  icon: '⚡', name: 'CachyOS',
+    desc: 'BORE scheduler &middot; sched-ext &middot; BBRv3 &middot; NTSYNC &middot; Optimized for gaming &amp; low-latency workloads',
+    note: 'Secure Boot: the installer stages the KythOS signing key and you confirm enrollment on first boot' },
+];
+
+function initKernel() {
+  const grid = document.getElementById('kernel-grid');
+  if (grid.children.length) return;
+  grid.innerHTML = KERNELS.map(k => `
+    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" onclick="selectKernel('${k.id}')">
+      <div class="kernel-icon">${k.icon}</div>
+      <div class="kernel-body">
+        <div class="kernel-name">${k.name}${k.badge ? ` <span class="kernel-badge">${k.badge}</span>` : ''}</div>
+        <div class="kernel-desc">${k.desc}</div>
+        ${k.note ? `<div class="kernel-note">⚠ ${k.note}</div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function selectKernel(id) {
+  S.kernel = id;
+  document.querySelectorAll('.kernel-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('kcard-' + id).classList.add('selected');
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -1072,6 +1291,16 @@ function saveConfig() {
 
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
+  const kernelLabels = { fedora: 'Fedora', cachy: 'CachyOS' };
+  const targetImage = (() => {
+    const base = S._sourceImage || '';
+    if (!base || S.kernel === 'fedora') return base || '—';
+    const colon = base.lastIndexOf(':');
+    if (colon < 0) return base + '-cachy';
+    let tag = base.slice(colon + 1);
+    if (tag.endsWith('-cachy')) { tag = tag.slice(0, -'-cachy'.length); }
+    return base.slice(0, colon + 1) + tag + '-cachy';
+  })();
   const rows = [
     ['Disk',     S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
     ['Model',    S.disk ? S.disk.model : '—'],
@@ -1079,7 +1308,8 @@ function buildReview() {
     ['Timezone', S.timezone],
     ['Username', S.username],
     ['Password', '••••••••'],
-    ['Source',   S._sourceImage || '—'],
+    ['Kernel',   kernelLabels[S.kernel] || S.kernel],
+    ['Image',    targetImage],
   ];
   document.getElementById('review-table').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
@@ -1105,6 +1335,7 @@ function startInstall() {
     body: JSON.stringify({
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
+      kernel: S.kernel,
     }),
   }).then(r => {
     if (!r.ok) return r.text().then(t => showError('Failed to start install: ' + t)).catch(() => showError('Install request failed (status ' + r.status + ')'));
@@ -1119,7 +1350,7 @@ function listenSSE() {
     if (ev.type === 'log')      appendLog(ev.text);
     else if (ev.type === 'progress') setProgress(ev.value);
     else if (ev.type === 'stats')    showStats(ev);
-    else if (ev.type === 'done') { src.close(); onDone(); }
+    else if (ev.type === 'done') { src.close(); onDone(ev.mok_state); }
     else if (ev.type === 'error'){ src.close(); showError(ev.message); }
   };
   src.onerror = () => { src.close(); showError('Lost connection to installer backend.'); };
@@ -1171,8 +1402,11 @@ function toggleLog() {
   arrow.classList.toggle('open', open);
 }
 
-function onDone() {
+function onDone(mokState) {
   clearInterval(_elapsedTimer);
+  if (mokState === 'staged' || mokState === 'pending') {
+    document.getElementById('done-sb-notice').style.display = '';
+  }
   goto('done');
 }
 

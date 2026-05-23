@@ -228,12 +228,11 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
-# ── KythOS abstract mark as system icon ─────────────────────────────────────────
+# ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Use the square transparent symbol for small app/menu/panel icons. The
-# horizontal full logo has text and a black canvas that collapses badly at
-# launcher sizes.
+# Use a simplified launcher mark for start-here because detailed gradients and
+# glow effects collapse badly at 32 px panel sizes.
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
@@ -241,9 +240,10 @@ for theme_dir in \
     mkdir -p "${theme_dir}"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde-plasma.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
@@ -276,7 +276,7 @@ if os.path.exists(aprc):
                 '--group', 'Containments', '--group', cont,
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
-                '--key', 'icon', 'start-here-kde-plasma',
+                '--key', 'icon', 'kyth-kickoff',
             ], check=False)
 
 try:
@@ -296,6 +296,43 @@ X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 AUTOSTARTEOF
+
+mkdir -p /etc/xdg/autostart
+install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
+    /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
+
+# ── Windows-friendly KDE defaults ─────────────────────────────────────────────
+# KDE stores application launch shortcuts per-user, so seed familiar defaults
+# through a tiny one-shot first-login helper.
+cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.plasma-systemmonitor.desktop \
+        --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+rm -f "${autostart}"
+WINDEFAULTEOF
+chmod +x /usr/bin/kyth-windows-friendly-defaults
+
+cat > /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop <<'WINDEFAULTDESKTOPEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS: Windows-Friendly Defaults
+Exec=/usr/bin/kyth-windows-friendly-defaults
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+WINDEFAULTDESKTOPEOF
 
 cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
@@ -331,6 +368,18 @@ install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
 mkdir -p /etc/skel/.config/autostart
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /etc/skel/.config/autostart/kyth-update-notifier.desktop
+
+# Steam Flatpak writes game shortcuts inside its sandbox. Refresh host menu
+# exports quietly at login so installed games appear under Games in KDE.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS Steam Game Menu Export
+Exec=/usr/bin/kyth-steam-game-export
+NoDisplay=true
+X-KDE-autostart-after=panel
+STEAMEXPORTAUTOSTARTEOF
 
 # Smoke-test the helper during the build so startup regressions fail the image
 # instead of surfacing only after first login.
@@ -387,6 +436,7 @@ install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
+install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
@@ -441,6 +491,20 @@ rsvg-convert -w 256 /ctx/branding/kyth-logo-transparent.svg \
     -o "${PLYMOUTH_THEME_DIR}/kyth-logo.png"
 install -m 0644 /ctx/plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
 install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
+
+# Replace the Fedora badge in the bgrt/spinner fallback theme so the ASUS
+# firmware logo ("In search of incredible") is followed by the KythOS lockup
+# rather than a Fedora logo during early-boot BGRT rendering.
+for _spinner_dir in \
+    /usr/share/plymouth/themes/spinner \
+    /usr/share/plymouth/themes/bgrt-fedora; do
+    if [ -d "${_spinner_dir}" ]; then
+        rsvg-convert -w 260 /ctx/branding/kyth-boot-badge.svg \
+            -o "${_spinner_dir}/watermark.png"
+    fi
+done
+unset _spinner_dir
+
 plymouth-set-default-theme --rebuild-initrd kyth
 
 # First-boot notice: shown once via Plymouth message_callback, then sentinel
@@ -518,6 +582,8 @@ SECMENUEOF
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
+# The upstream justfile only imports up to 60-custom.just; wire in our file.
+printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >> /usr/share/ublue-os/justfile
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true

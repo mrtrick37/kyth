@@ -41,7 +41,7 @@ vm.max_map_count = 16777216
 vm.dirty_expire_centisecs = 500
 vm.dirty_writeback_centisecs = 500
 
-# Network — activate BBRv3 (built into CachyOS kernel)
+# Network — use BBR when available; Fedora falls back if the module is absent.
 net.core.default_qdisc = fq
 net.ipv4.tcp_congestion_control = bbr
 
@@ -347,9 +347,9 @@ options i915 enable_guc=3 enable_huc=2
 I915EOF
 
 # ── NTSYNC ───────────────────────────────────────────────────────────
-# CachyOS kernel ships the ntsync module. The udev rule gives the 'users' group
-# access to /dev/ntsync so Wine/Proton can use NT synchronization primitives
-# (faster and lower-latency than esync/fsync for Windows game compatibility).
+# Custom kernels may ship ntsync. The udev rule gives the 'users' group access
+# to /dev/ntsync so Wine/Proton can use NT synchronization primitives when the
+# module is available.
 mkdir -p /usr/lib/modules-load.d
 echo 'ntsync' > /usr/lib/modules-load.d/kyth-ntsync.conf
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
@@ -403,14 +403,52 @@ amd_performance_level = high
 nv_perf_level = 5
 GAMEMODEEOF
 
-# ── Bluetooth — enable adapter on boot ───────────────────────────────────────
+# ── Bluetooth — enable adapter on every boot ────────────────────────────────
 # BlueZ ships with AutoEnable commented out (value is 'false' in modern versions).
 # Replace any commented AutoEnable line with the enabled form; append to [Policy]
-# if the line is missing entirely.
-sed -i 's/^#\s*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf
+# if the line is missing entirely. AutoEnable handles newly-seen controllers, while
+# kyth-bluetooth-enable.service corrects persisted rfkill / controller power state
+# on every boot.
+mkdir -p /etc/bluetooth
+touch /etc/bluetooth/main.conf
+sed -i -E 's/^[#[:space:]]*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf
 grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
     printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
+
+cat > /usr/libexec/kyth-enable-bluetooth <<'BTENABLEEOF'
+#!/usr/bin/bash
+set -uo pipefail
+
+if command -v rfkill >/dev/null 2>&1; then
+    rfkill unblock bluetooth >/dev/null 2>&1 || true
+fi
+
+if command -v bluetoothctl >/dev/null 2>&1; then
+    bluetoothctl power on >/dev/null 2>&1 || true
+fi
+
+exit 0
+BTENABLEEOF
+chmod 0755 /usr/libexec/kyth-enable-bluetooth
+
+cat > /usr/lib/systemd/system/kyth-bluetooth-enable.service <<'BTENABLEUNITEOF'
+[Unit]
+Description=Enable Bluetooth adapters at boot
+Documentation=https://github.com/mrtrick37/kyth
+After=bluetooth.service systemd-rfkill.service
+Wants=bluetooth.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-enable-bluetooth
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+BTENABLEUNITEOF
+
 systemctl enable bluetooth.service 2>/dev/null || true
+systemctl enable kyth-bluetooth-enable.service 2>/dev/null || true
 
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
@@ -425,6 +463,10 @@ NMEOF
 # ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
+cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFG80211EOF'
+options cfg80211 ieee80211_regdom=US
+CFG80211EOF
+
 # MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
 # ASPM puts the PCIe device into a low-power state it may not reliably wake
 # from, causing sudden disconnects and requiring a driver reload or reboot.
@@ -432,12 +474,18 @@ cat > /etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
 options mt7921e disable_aspm=1
 MT76EOF
 
-# iwlwifi (Intel WiFi): disable driver power-save and BT coexistence.
-# bt_coex_active=0 stops the driver from halving WiFi throughput when Bluetooth
-# is active (common cause of dropped signal during BT headset/controller use).
+# iwlwifi/iwlmvm (Intel Wi-Fi): keep the radio in CAM/active mode and disable
+# U-APSD. Several Intel AX-class adapters, including HP EliteBook CNVio parts,
+# can scan successfully but fail or stall during WPA association when firmware
+# power-save enters the handshake. Keep Bluetooth coexistence enabled; it is
+# the safer default for mixed 2.4 GHz Wi-Fi plus Bluetooth office environments.
 cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
-options iwlwifi power_save=0 bt_coex_active=0
+options iwlwifi power_save=0 uapsd_disable=3 bt_coex_active=1
 IWLEOF
+
+cat > /etc/modprobe.d/iwlmvm-kyth.conf <<'IWLMVMEOF'
+options iwlmvm power_scheme=1
+IWLMVMEOF
 
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
@@ -777,7 +825,7 @@ systemctl enable kyth-first-boot-message.service 2>/dev/null || true
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
-# On amd_pstate=active systems (default on CachyOS kernel), EPP is the primary
+# On amd_pstate=active systems, EPP is the primary
 # frequency/voltage scaling knob — more direct than powerprofilesctl alone.
 # Valid values: performance, balance_performance, balance_power, power, default
 install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'
@@ -803,8 +851,8 @@ EPPEOF
 # bootc upgrade/switch stages a new image but does not modify the running system —
 # a reboot is always required to activate it. fwupdmgr operations are similarly
 # safe (refresh = metadata fetch; get-updates/update = firmware staging).
-# Allowing these without a password lets 'ujust upgrade' run without a mid-stream
-# sudo prompt that breaks the terminal flow.
+# Allowing these without a password lets KythOS update flows run without a
+# mid-stream sudo prompt that breaks the terminal flow.
 # The 0440 mode (owner+group read, no write) is required by sudo's NOPASSWD check.
 install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # KythOS: wheel group may run safe update/firmware commands without a password.

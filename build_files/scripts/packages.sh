@@ -274,7 +274,7 @@ dnf5 copr disable -y ycollet/audinux
 
 
 # ── AMD GPU ───────────────────────────────────────────────────────────────────
-# amdgpu is in the CachyOS kernel; RADV (Vulkan) comes from mesa (Fedora repos).
+# amdgpu is in the kernel; RADV (Vulkan) comes from mesa (Fedora repos).
 # linux-firmware provides the baseline firmware set.  The AMD subpackages are
 # listed explicitly so future Fedora packaging splits cannot accidentally drop
 # GPU firmware or CPU microcode from AMD bare-metal installs.
@@ -308,6 +308,39 @@ dnf5 install -y --skip-unavailable \
     radeontop \
     libclc \
     qemu-guest-agent
+
+# ── Platform and wireless firmware ───────────────────────────────────────────
+# Fedora has been splitting linux-firmware into smaller subpackages. Keep the
+# hardware-critical families explicit so workstation laptops do not depend on
+# whichever subset the base image happened to include:
+#   - iwlwifi-mvm: Intel Wi-Fi 4/5/6/6E families common in EliteBook systems
+#   - iwlwifi-mld: newer Intel Wi-Fi 7 / BE-series devices
+#   - iwlwifi-dvm + iwlegacy: older Intel adapters still seen in business fleets
+#   - realtek/mediatek/atheros/brcmfmac: common USB/PCIe/Bluetooth companion HW
+#   - cirrus/sof/intel-vsc: HP laptop audio, DSP, camera, and sensor firmware
+dnf5 install -y --skip-unavailable \
+    iwlwifi-mvm-firmware \
+    iwlwifi-mld-firmware \
+    iwlwifi-dvm-firmware \
+    iwlegacy-firmware \
+    intel-vsc-firmware \
+    alsa-sof-firmware \
+    realtek-firmware \
+    mediatek-firmware \
+    atheros-firmware \
+    brcmfmac-firmware \
+    cirrus-audio-firmware || true
+
+iwlwifi_firmware_probe="$(
+    find /usr/lib/firmware \
+        \( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
+        -print -quit
+)"
+if [[ -z "${iwlwifi_firmware_probe}" ]]; then
+    echo "ERROR: Intel iwlwifi firmware blobs are missing from the image." >&2
+    exit 1
+fi
+echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 
 # ── Intel GPU ─────────────────────────────────────────────────────────────────
 # mesa-dri-drivers already ships iris (Gen 9+) and crocus (Gen 4–8) Gallium

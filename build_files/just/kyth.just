@@ -3,7 +3,7 @@
 
 # The OS update is staged — a reboot is required to activate it.
 [group('KythOS')]
-upgrade:
+kyth-upgrade:
     #!/usr/bin/env bash
     set -euo pipefail
 
@@ -22,7 +22,7 @@ upgrade:
         echo >&2
         echo "  These conflict with bootc upgrades. To fix:" >&2
         echo "    rpm-ostree reset     # removes all layered packages" >&2
-        echo "    ujust upgrade        # then retry" >&2
+        echo "    ujust kyth-upgrade   # then retry" >&2
         echo >&2
         echo "  If you still need those packages, install them via Flatpak instead." >&2
         exit 1
@@ -116,17 +116,90 @@ switch-channel channel="stable":
     #!/usr/bin/env bash
     set -euo pipefail
     case "{{ channel }}" in
-        stable|latest) tag="latest" ;;
-        testing)       tag="testing" ;;
+        stable|latest) base_tag="latest" ;;
+        testing)       base_tag="testing" ;;
         *)
             echo "Unknown channel: {{ channel }}" >&2
             echo "Valid channels: stable (default), testing" >&2
             exit 1
             ;;
     esac
+    flavor="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
+    case "${flavor}" in
+        cachy) suffix="-cachy" ;;
+        *) suffix="" ;;
+    esac
+    tag="${base_tag}${suffix}"
     echo "Switching to KythOS :${tag}..."
     sudo bootc switch "ghcr.io/mrtrick37/kyth:${tag}"
     echo "Channel switch staged. Reboot to activate."
+
+# Switch to a kernel-flavored KythOS image.
+# Default Fedora is recommended. CachyOS is an advanced variant that keeps
+# rollback support by switching the whole bootc image instead of layering kernels.
+# Usage:
+#   ujust switch-kernel fedora
+#   ujust switch-kernel cachy
+[group('KythOS')]
+switch-kernel flavor="fedora":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    flavor="$(printf '%s' "{{ flavor }}" | tr '[:upper:]' '[:lower:]')"
+    case "${flavor}" in
+        fedora|stock) suffix="" ; label="Fedora" ;;
+        cachy|cachyos) suffix="-cachy" ; label="CachyOS" ;;
+        *)
+            echo "Unknown kernel flavor: {{ flavor }}" >&2
+            echo "Valid flavors: fedora, cachy" >&2
+            exit 1
+            ;;
+    esac
+
+    status_text="$(sudo -n bootc status 2>/dev/null || bootc status 2>/dev/null || true)"
+    current_ref="$(awk '/Booted image:/ {print $NF; exit}' <<<"${status_text}")"
+    current_tag=""
+    if [[ "${current_ref}" == ghcr.io/mrtrick37/kyth:* ]]; then
+        current_tag="${current_ref##*:}"
+        current_tag="${current_tag%%@*}"
+    fi
+    current_tag="${current_tag:-latest}"
+    case "${current_tag}" in
+        testing*) channel="testing" ;;
+        *) channel="latest" ;;
+    esac
+    if [[ "${suffix}" == "-cachy" ]]; then
+        channel="testing"
+    fi
+
+    target="ghcr.io/mrtrick37/kyth:${channel}${suffix}"
+    echo "Switching to ${label} kernel image: ${target}"
+    echo "This stages a new deployment and keeps rollback available from the boot menu."
+    if ! output="$(sudo bootc switch "${target}" 2>&1)"; then
+        printf '%s\n' "${output}" >&2
+        if grep -qi 'manifest unknown' <<<"${output}"; then
+            echo "ERROR: ${target} is not published yet." >&2
+        else
+            echo "ERROR: unable to switch to ${target}." >&2
+        fi
+        if [[ "${channel}" == "latest" && "${suffix}" == "-cachy" ]]; then
+            echo "The CachyOS kernel image may only be available on the testing channel until the stable build publishes :latest-cachy." >&2
+            echo "Try: ujust switch-channel testing" >&2
+            echo "Then reboot and run: ujust switch-kernel cachy" >&2
+        else
+            echo "Try again after the image build finishes, or check your network connection." >&2
+        fi
+        exit 1
+    fi
+    printf '%s\n' "${output}"
+    echo "Kernel switch staged. Reboot to activate."
+
+# Export Steam Flatpak game shortcuts into the host application menu.
+[group('KythOS')]
+export-steam-games:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-steam-game-export
 
 # Run a game or app with the temporary performance profile wrapper.
 [group('KythOS')]
@@ -732,7 +805,7 @@ setup-waydroid image="vanilla":
         echo "Loading binder_linux kernel module..." >&2
         sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || {
             echo "ERROR: Could not load binder_linux. Waydroid requires binder support." >&2
-            echo "The CachyOS kernel ships binder_linux — if you see this, please report it." >&2
+            echo "Try the CachyOS kernel from System Hub -> Advanced -> Kernel, then reboot." >&2
             exit 1
         }
     fi
@@ -1053,11 +1126,9 @@ secureboot-status:
 
 # Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
 #
-# The first-boot service (kyth-enroll-mok.service) handles this automatically
-# when Secure Boot is active at install time. Existing users should run this
-# before enabling Secure Boot in firmware. Use this recipe if you:
-#   - enabled Secure Boot after installing KythOS
-#   - need to re-enroll after a firmware reset
+# The default Fedora kernel path does not need this key. Run this before
+# enabling Secure Boot for the advanced CachyOS kernel image, or after a
+# firmware reset if the KythOS MOK was removed.
 #
 # After running, reboot and enter the password you chose at the MokManager screen.
 [group('KythOS')]
