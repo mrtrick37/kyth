@@ -332,6 +332,18 @@ mkdir -p /etc/skel/.config/autostart
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /etc/skel/.config/autostart/kyth-update-notifier.desktop
 
+# Steam Flatpak writes game shortcuts inside its sandbox. Refresh host menu
+# exports quietly at login so installed games appear under Games in KDE.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS Steam Game Menu Export
+Exec=/usr/bin/kyth-steam-game-export
+NoDisplay=true
+X-KDE-autostart-after=panel
+STEAMEXPORTAUTOSTARTEOF
+
 # Smoke-test the helper during the build so startup regressions fail the image
 # instead of surfacing only after first login.
 # timeout 30: pages run synchronous subprocess calls (bootc status, flatpak info)
@@ -387,6 +399,7 @@ install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
+install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
 install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
