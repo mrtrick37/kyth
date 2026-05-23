@@ -4,13 +4,7 @@
 
 # KythOS
 
-### A fast, atomic image for gaming, creating, hacking, and everyday desktop life.
-
-[![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
-[![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
-[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
-[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
-[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
+### A friendly desktop OS for games, creative work, tinkering, and everyday life.
 
 [Download Stable ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
 [Try Testing ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
@@ -21,16 +15,25 @@
 
 </div>
 
-KythOS is a ready-to-install desktop OS built for gamers who are curious about Linux, tired of fragile Windows installs, or already living on Linux and want a tuned gaming image with the boring parts handled.
+KythOS is a ready-to-install Linux desktop for people who want their games, tools, updates, and hardware setup to feel less fragile.
 
-It comes as a live USB image with a graphical installer, a polished KDE Plasma desktop, gaming tools, creator tools, driver helpers, update controls, and a first-run **System Hub** that guides you through setup after install.
+It starts from a live USB, installs with a real graphical installer, and opens into a polished KDE Plasma desktop with gaming tools, creator tools, driver helpers, update controls, and a first-run **System Hub** to help you settle in.
 
-## Why Gamers Should Care
+## Download
 
 | Channel | Best for | Download |
 |---|---|---|
 | `latest` | Daily use | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
 | `testing` | New features, active development, helping catch breakage | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
+
+Direct downloads:
+
+- [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso)
+- [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso)
+
+You will need at least 8 GB RAM for the live session, a USB drive, and an internet connection during install.
+
+## Why Gamers Should Care
 
 KythOS is not trying to pretend every game works on Linux. It is trying to make the games that can work feel easier to set up, easier to tune, and easier to recover from when launchers, drivers, shaders, mods, or anti-cheat updates decide to be difficult.
 
@@ -98,20 +101,6 @@ System Hub is the KythOS control room. It keeps common setup and recovery work i
 | Security | Optional Kali toolbox containers, Wireshark, Burp Suite Community |
 | Repair | SELinux relabel, Flatpak repair, diagnostics |
 
-## Download
-
-| Channel | Use it when | Link |
-|---|---|---|
-| Stable | You want the best public image to try first | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
-| Testing | You want newer changes and accept rough edges | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
-
-Direct downloads:
-
-- [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso)
-- [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso)
-
-You will need at least 8 GB RAM for the live session, a USB drive, and an internet connection during install.
-
 ## Install
 
 1. Flash the ISO with Balena Etcher, Ventoy, `dd`, or another USB writer.
@@ -121,115 +110,6 @@ You will need at least 8 GB RAM for the live session, a USB drive, and an intern
 5. Pick your disk, timezone, hostname, and user account.
 6. Start the install and wait for the OS image to download.
 7. Reboot, open System Hub, and finish setup.
-
-## Secure Boot
-
-Secure Boot is picky because the boot happens in layers. In plain language:
-
-1. Your firmware must trust the USB bootloader.
-2. The bootloader must find GRUB.
-3. GRUB must find `vmlinuz` and `initrd.img` on the ISO.
-4. Secure Boot must trust the selected kernel signature.
-
-The default install uses Fedora-signed kernel artifacts with Fedora's
-Microsoft-signed shim. The advanced CachyOS kernel image uses the KythOS
-Machine Owner Key (MOK); enroll it once before enabling Secure Boot for that
-custom kernel variant.
-
-### Fresh install from the live USB
-
-Use this path for a new machine or a clean install:
-
-1. In firmware setup, keep Secure Boot enabled.
-2. Make sure firmware allows Linux shims:
-   **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
-   **Restore factory Secure Boot keys**.
-3. Boot the KythOS live USB.
-4. Choose **Try KythOS Live**.
-5. Run the installer from the desktop.
-
-Only enroll the KythOS MOK if you later switch to the advanced CachyOS
-kernel image and want Secure Boot enabled for that custom kernel.
-
-### Existing KythOS install
-
-If KythOS is already installed and you are using the default Fedora kernel,
-Secure Boot should work through Fedora's signed shim and kernel. If you switch
-to the CachyOS kernel image, use this order:
-
-1. Update to the latest KythOS image while Secure Boot is still disabled:
-
-   ```bash
-   sudo bootc upgrade
-   systemctl reboot
-   ```
-
-2. Stage the KythOS key before enabling Secure Boot:
-
-   ```bash
-   ujust enroll-secureboot
-   ```
-
-   If your current image does not have that recipe yet and prints
-   `Justfile does not contain recipe enroll-secureboot`, run the direct
-   enrollment command instead:
-
-   ```bash
-   openssl x509 -in /usr/share/kyth/secureboot/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der
-   sudo mokutil --import /tmp/kyth-secureboot.der
-   ```
-
-   Choose a one-time password when `mokutil` asks for it. You will enter that
-   same password at the MokManager screen after reboot.
-
-3. Reboot. At the blue MokManager screen, choose **Enroll MOK**, then
-   **Continue**, then **Yes**. Enter the one-time password you chose in the
-   previous step, then reboot.
-
-4. Enable Secure Boot in your UEFI/BIOS firmware settings.
-
-5. Boot KythOS and validate the result:
-
-   ```bash
-   ujust secureboot-status
-   mokutil --sb-state
-   ```
-
-If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
-Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
-MokManager enrollment reboot, then enable Secure Boot again.
-
-### What the common errors mean
-
-- `Selected boot image did not authenticate`
-
-  Firmware rejected the USB before GRUB, MokManager, or Linux started. Check
-  firmware setup for **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**,
-  or **Restore factory Secure Boot keys**. Without that trust anchor, normal
-  Linux shim USB media cannot start.
-
-- `vmlinuz not found` or `you need to load the kernel first`
-
-  GRUB started, but it is looking in the wrong place for the live kernel. Use a
-  current ISO and run the Secure Boot preflight below before flashing it.
-
-- `bad shim signature`, `verification failed`, or a return to GRUB when choosing
-  **Try KythOS Live**
-
-  The live ISO should be using Fedora-signed boot artifacts and should not need
-  the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
-  Boot preflight below before flashing it again.
-
-### Check an ISO before flashing
-
-Before you write a locally built ISO to USB, run:
-
-```bash
-SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
-```
-
-Only flash the ISO if preflight passes. It checks the shim signature, GRUB
-handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 
 ## Gaming Reality Check
 
@@ -283,7 +163,7 @@ This is the part for builders, testers, and people who want to know exactly what
 | Image model | Container-built OS image distributed through GitHub Container Registry |
 | Deployment | Installed and updated atomically with bootc |
 | Installer | Live KythOS desktop with a custom PySide6 + Chromium kiosk using `bootc install to-disk` |
-| Theme | Breeze Dark with KythOS branding, wallpaper, icon mark, and Plymouth splash |
+| Theme | Breeze Dark with KythOS wallpaper, icons, and custom boot branding |
 | Security | SELinux enforcing, relabel services for bootc/ostree deployments |
 | Images | `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing` |
 
@@ -328,6 +208,115 @@ Rebase from an existing Fedora atomic system:
 ```bash
 sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 ```
+
+### Secure Boot
+
+Secure Boot is picky because the boot happens in layers. In plain language:
+
+1. Your firmware must trust the USB bootloader.
+2. The bootloader must find GRUB.
+3. GRUB must find `vmlinuz` and `initrd.img` on the ISO.
+4. Secure Boot must trust the selected kernel signature.
+
+The default install uses Fedora-signed kernel artifacts with Fedora's
+Microsoft-signed shim. The advanced CachyOS kernel image uses the KythOS
+Machine Owner Key (MOK); enroll it once before enabling Secure Boot for that
+custom kernel variant.
+
+#### Fresh install from the live USB
+
+Use this path for a new machine or a clean install:
+
+1. In firmware setup, keep Secure Boot enabled.
+2. Make sure firmware allows Linux shims:
+   **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
+   **Restore factory Secure Boot keys**.
+3. Boot the KythOS live USB.
+4. Choose **Try KythOS Live**.
+5. Run the installer from the desktop.
+
+Only enroll the KythOS MOK if you later switch to the advanced CachyOS
+kernel image and want Secure Boot enabled for that custom kernel.
+
+#### Existing KythOS install
+
+If KythOS is already installed and you are using the default Fedora kernel,
+Secure Boot should work through Fedora's signed shim and kernel. If you switch
+to the CachyOS kernel image, use this order:
+
+1. Update to the latest KythOS image while Secure Boot is still disabled:
+
+   ```bash
+   sudo bootc upgrade
+   systemctl reboot
+   ```
+
+2. Stage the KythOS key before enabling Secure Boot:
+
+   ```bash
+   ujust enroll-secureboot
+   ```
+
+   If your current image does not have that recipe yet and prints
+   `Justfile does not contain recipe enroll-secureboot`, run the direct
+   enrollment command instead:
+
+   ```bash
+   openssl x509 -in /usr/share/kyth/secureboot/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der
+   sudo mokutil --import /tmp/kyth-secureboot.der
+   ```
+
+   Choose a one-time password when `mokutil` asks for it. You will enter that
+   same password at the MokManager screen after reboot.
+
+3. Reboot. At the blue MokManager screen, choose **Enroll MOK**, then
+   **Continue**, then **Yes**. Enter the one-time password you chose in the
+   previous step, then reboot.
+
+4. Enable Secure Boot in your UEFI/BIOS firmware settings.
+
+5. Boot KythOS and validate the result:
+
+   ```bash
+   ujust secureboot-status
+   mokutil --sb-state
+   ```
+
+If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
+Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
+MokManager enrollment reboot, then enable Secure Boot again.
+
+#### What the common errors mean
+
+- `Selected boot image did not authenticate`
+
+  Firmware rejected the USB before GRUB, MokManager, or Linux started. Check
+  firmware setup for **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**,
+  or **Restore factory Secure Boot keys**. Without that trust anchor, normal
+  Linux shim USB media cannot start.
+
+- `vmlinuz not found` or `you need to load the kernel first`
+
+  GRUB started, but it is looking in the wrong place for the live kernel. Use a
+  current ISO and run the Secure Boot preflight below before flashing it.
+
+- `bad shim signature`, `verification failed`, or a return to GRUB when choosing
+  **Try KythOS Live**
+
+  The live ISO should be using Fedora-signed boot artifacts and should not need
+  the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
+  Boot preflight below before flashing it again.
+
+#### Check an ISO before flashing
+
+Before you write a locally built ISO to USB, run:
+
+```bash
+SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
+```
+
+Only flash the ISO if preflight passes. It checks the shim signature, GRUB
+handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 
 ### Gaming Stack
 
@@ -438,7 +427,7 @@ build_files/
   kyth-installer                  Graphical installer
   kyth-install.sh                 bootc disk installer
   kyth-partition-install.sh       Existing-partition installer
-  branding/                       Logo, transparent mark, installer CSS
+  branding/                       Logo, transparent mark, boot badge, installer CSS
   wallpaper/                      KythOS wallpaper
   scripts/                        Package, tuning, branding, third-party setup
   kyth-welcome/                   KythOS System Hub
