@@ -231,8 +231,15 @@ SDDMEOF
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Use a simplified launcher mark for start-here because detailed gradients and
-# glow effects collapse badly at 32 px panel sizes.
+# Two failure modes to defeat:
+#   1. fedora-logos ships PNGs at exact pixel sizes; Qt/Plasma prefers an
+#      exact-size PNG over a scalable SVG, so the Fedora icon won at lookup.
+#   2. The Kickoff plasmoid's default icon is "", which falls back to the theme
+#      lookup — so a cached/stale Fedora logo survived into the applet.
+# Fix: install PNGs at every standard size AND patch Kickoff's main.xml so the
+# compiled-in default is kyth-kickoff, requiring no per-user config at all.
+
+# Scalable SVGs (also used by the kyth-set-kickoff-icon first-login script)
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
@@ -245,9 +252,45 @@ for theme_dir in \
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
+
+# PNGs at every standard size — beats fedora-logos exact-size PNG at lookup
+for sz in 16 22 24 32 48 64 128 256; do
+    for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
+        dir="${base}/${sz}x${sz}/apps"
+        mkdir -p "${dir}"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/kyth-kickoff.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here-kde.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here-kde-plasma.png"
+    done
+done
+
+# Clear any stale caches so the new icons take effect immediately on first boot.
+rm -f /usr/share/icons/hicolor/icon-theme.cache
+rm -f /usr/share/icons/breeze/icon-theme.cache
+rm -f /usr/share/icons/breeze-dark/icon-theme.cache
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
+
+# ── Kickoff plasmoid default icon ──────────────────────────────────────────────
+# Patch Kickoff's KConfig XML so every new widget instance defaults to
+# kyth-kickoff without any per-user config file or first-login script.
+# The empty <default></default> is the upstream fallback that causes Kickoff
+# to use start-here-kde-plasma from the icon theme; we replace it with the
+# named icon so the plasmoid's own default wins unconditionally.
+_kickoff_cfg=/usr/share/plasma/plasmoids/org.kde.plasma.kickoff/contents/config/main.xml
+if [[ -f "${_kickoff_cfg}" ]]; then
+    sed -i \
+        '/<entry name="icon" type="String">/,/<\/entry>/ {
+            s|<default></default>|<default>kyth-kickoff</default>|
+        }' \
+        "${_kickoff_cfg}"
+fi
 
 # ── First-login script: set Kickoff launcher icon to KythOS logo ────────────────
 # Belt-and-suspenders: the icon theme install above should be enough, but this
