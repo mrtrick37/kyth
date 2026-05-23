@@ -156,9 +156,14 @@ switch-kernel flavor="fedora":
             ;;
     esac
 
-    current_tag="$(bootc status --format json 2>/dev/null \
-        | python3 -c 'import json,re,sys; text=json.dumps(json.load(sys.stdin)); tags=re.findall(r"ghcr\.io/mrtrick37/kyth:([A-Za-z0-9._-]+)", text); print(tags[0] if tags else "latest")' \
-        2>/dev/null || echo latest)"
+    status_text="$(sudo -n bootc status 2>/dev/null || bootc status 2>/dev/null || true)"
+    current_ref="$(awk '/Booted image:/ {print $NF; exit}' <<<"${status_text}")"
+    current_tag=""
+    if [[ "${current_ref}" == ghcr.io/mrtrick37/kyth:* ]]; then
+        current_tag="${current_ref##*:}"
+        current_tag="${current_tag%%@*}"
+    fi
+    current_tag="${current_tag:-latest}"
     case "${current_tag}" in
         testing*) channel="testing" ;;
         *) channel="latest" ;;
