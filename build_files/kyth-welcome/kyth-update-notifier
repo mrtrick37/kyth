@@ -111,14 +111,13 @@ def _branch_from_ref(ref: str | None) -> str | None:
     ref = ref.strip()
     if not ref:
         return None
-    if f"{REGISTRY}:latest" in ref:
-        return "latest"
-    if f"{REGISTRY}:testing" in ref:
-        return "testing"
-    if "@" in ref:
-        return ref.split("@", 1)[0].rsplit(":", 1)[-1]
-    if ":" in ref:
-        return ref.rsplit(":", 1)[-1]
+    # Strip digest suffix before extracting the tag so testing-cachy@sha256:…
+    # isn't mistakenly shortened to "testing" by a substring match.
+    base = ref.split("@", 1)[0] if "@" in ref else ref
+    if ":" in base:
+        tag = base.rsplit(":", 1)[-1]
+        if tag:
+            return tag
     return None
 
 
