@@ -1066,6 +1066,22 @@ class HardwareProbeWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class DataWorker(QThread):
+    result = pyqtSignal(str, object)
+    failed = pyqtSignal(str, str)
+
+    def __init__(self, key: str, fn):
+        super().__init__()
+        self._key = key
+        self._fn = fn
+
+    def run(self):
+        try:
+            self.result.emit(self._key, self._fn())
+        except Exception as exc:
+            self.failed.emit(self._key, str(exc))
+
+
 # ── Helper utilities ───────────────────────────────────────────────────────────
 def _finish_worker(owner: object, attr: str = "_worker") -> None:
     worker = getattr(owner, attr, None)
@@ -1810,6 +1826,39 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
         ("warn" if ntfs_count else "ok", "Windows game drives", f"{ntfs_count} NTFS partition(s) detected; use migration below." if ntfs_count else "No NTFS game drives detected."),
         ("warn" if _has_staged_update() else "ok", "OS update", "Update staged; reboot before benchmarking." if _has_staged_update() else "No staged OS update."),
     ]
+
+
+def _gaming_migration_checklist_items() -> list[tuple[str, str, str]]:
+    steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+    heroic_ok = _is_flatpak_installed("com.heroicgameslauncher.hgl")
+    lutris_ok = _is_flatpak_installed("net.lutris.Lutris")
+    discord_ok = _is_flatpak_installed("com.discordapp.Discord")
+    obs_ok = _is_flatpak_installed("com.obsproject.Studio")
+    ludusavi_status, _, ludusavi_summary = _ludusavi_backup_summary()
+    controller_info = _detect_controllers()
+    controller_count = len(controller_info.get("usb_controllers", [])) + len(controller_info.get("input_nodes", []))
+    ntfs_count = len(_find_ntfs_drives())
+    ge_ver = _ge_proton_version()
+    return [
+        ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
+        ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing Windows games."),
+        ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
+        (ludusavi_status, "Saves backed up", ludusavi_summary),
+        ("warn" if ntfs_count else "dim", "Windows library migration", f"{ntfs_count} NTFS partition(s) detected; copy games read-only below." if ntfs_count else "No Windows game drive detected."),
+        ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
+        ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
+        ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
+    ]
+
+
+def _collect_gaming_dashboard() -> dict:
+    return {
+        "health": _gaming_health_items(),
+        "checklist": _gaming_migration_checklist_items(),
+        "streaming": _streaming_health_items(),
+        "saves": _ludusavi_backup_summary(),
+        "games": _detect_installed_games(),
+    }
 
 
 def _ludusavi_backup_summary() -> tuple[str, str, str]:
@@ -3677,11 +3726,11 @@ class WelcomePage(Page):
         self._add(section_lbl)
 
         steps = [
-            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
             ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
             ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
             ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
             ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
+            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
             ("⌨", "Set up dev environment",    "Install VS Code and the KythOS build toolchain.",       "Developer"),
             ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",            "Software"),
         ]
@@ -3787,10 +3836,11 @@ class WelcomePage(Page):
 class HardwarePage(Page):
     action_requested = pyqtSignal(str)
 
-    def __init__(self, wizard_mode: bool = False):
+    def __init__(self, wizard_mode: bool = False, navigate=None):
         super().__init__()
         self._worker = None
         self._wizard_mode = wizard_mode
+        self._navigate = navigate or (lambda key: self.action_requested.emit(key))
         self._cards: list[HardwareCard] = []
         self._last_probes: list[HardwareProbe] = []
 
@@ -3816,6 +3866,37 @@ class HardwarePage(Page):
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
         self._add(self._progress)
+
+        driver_card, driver_layout = _make_card("card-accent-ok")
+        driver_title = QLabel("Driver Manager")
+        driver_title.setObjectName("card-title")
+        driver_layout.addWidget(driver_title)
+        driver_body = QLabel(
+            "Start here when graphics, Wi-Fi, Bluetooth, controllers, audio, printers, or firmware feel wrong. "
+            "The checks below turn hardware details into recommended actions; advanced tools stay one click away."
+        )
+        driver_body.setObjectName("card-copy")
+        driver_body.setWordWrap(True)
+        driver_layout.addWidget(driver_body)
+        driver_btns = QHBoxLayout()
+        driver_btns.setSpacing(8)
+        for label, key in (
+            ("Firmware Updates", "Firmware"),
+            ("Kernel Choice", "Kernel"),
+            ("System Repair", "Repair"),
+            ("Controllers", "Controllers"),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
+            driver_btns.addWidget(btn)
+        if _detect_nvidia():
+            nvidia_btn = QPushButton("NVIDIA Drivers")
+            nvidia_btn.setObjectName("primary")
+            nvidia_btn.clicked.connect(lambda _=False: self._navigate("NVIDIA"))
+            driver_btns.addWidget(nvidia_btn)
+        driver_btns.addStretch()
+        driver_layout.addLayout(driver_btns)
+        self._add(driver_card)
 
         # Card container inside the page's scroll area
         self._card_container = QWidget()
@@ -5379,9 +5460,10 @@ class NvidiaPage(Page):
 
 # ── Page: Repair ──────────────────────────────────────────────────────────────
 class RepairPage(Page):
-    def __init__(self):
+    def __init__(self, navigate=None):
         super().__init__()
         self._worker = None
+        self._navigate = navigate or (lambda _key: None)
 
         self._page_header(
             "Advanced",
@@ -5404,6 +5486,41 @@ class RepairPage(Page):
         info_body.setWordWrap(True)
         info_layout.addWidget(info_body)
         self._add(info)
+
+        # Undo last update
+        rollback, rollback_layout = _make_card("card-accent-warn" if _has_rollback_deployment() else None)
+        rollback_title = QLabel("Undo last update")
+        rollback_title.setObjectName("card-title")
+        rollback_layout.addWidget(rollback_title)
+        rollback_ts = _bootc_image_timestamp("rollback")
+        rollback_body = QLabel(
+            (
+                "A previous system image is available. Rollback restores that image on the next boot; "
+                "your files, saves, and projects in /home stay in place."
+                + (f"\n\nPrevious image built: {rollback_ts}" if rollback_ts else "")
+            )
+            if _has_rollback_deployment()
+            else (
+                "No previous system image is available right now. After the next OS update, "
+                "KythOS will keep a rollback target here so you can undo a bad update."
+            )
+        )
+        rollback_body.setObjectName("card-copy")
+        rollback_body.setWordWrap(True)
+        rollback_layout.addWidget(rollback_body)
+        rollback_btns = QHBoxLayout()
+        rollback_btns.setSpacing(8)
+        self._rollback_repair_btn = QPushButton("Rollback and Reboot")
+        self._rollback_repair_btn.setObjectName("primary")
+        self._rollback_repair_btn.setEnabled(_has_rollback_deployment())
+        self._rollback_repair_btn.clicked.connect(self._run_rollback)
+        rollback_btns.addWidget(self._rollback_repair_btn)
+        update_btn = QPushButton("Open Update Page")
+        update_btn.clicked.connect(lambda _=False: self._navigate("Update"))
+        rollback_btns.addWidget(update_btn)
+        rollback_btns.addStretch()
+        rollback_layout.addLayout(rollback_btns)
+        self._add(rollback)
 
         # Quick fixes
         quick, quick_layout = _make_card("card-accent-ok")
@@ -5543,6 +5660,45 @@ class RepairPage(Page):
 
     def _on_confirm_text(self, text: str):
         self._reset_btn.setEnabled(text.strip() == "RESET")
+
+    def _run_rollback(self):
+        if self._worker and self._worker.isRunning():
+            return
+        self._confirm_edit.setEnabled(False)
+        self._reset_btn.setEnabled(False)
+        self._rollback_repair_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ bootc rollback\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Staging previous system image…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+
+        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "rollback"], "KythOS is staging a rollback"))
+        _set_session_inhibit(self, "KythOS is staging a rollback")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_rollback_done)
+        self._worker.start()
+
+    def _on_rollback_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+        self._confirm_edit.setEnabled(True)
+        self._on_confirm_text(self._confirm_edit.text())
+        if code == 0:
+            self._status_lbl.setText("Rollback staged — rebooting into the previous system image…")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Rebooting now.")
+            QTimer.singleShot(2000, lambda: subprocess.Popen(["systemctl", "reboot"]))
+        else:
+            self._status_lbl.setText(f"Rollback failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            self._rollback_repair_btn.setEnabled(_has_rollback_deployment())
+        _restyle(self._status_lbl)
 
     def _run_reset(self):
         self._confirm_edit.setEnabled(False)
@@ -5805,6 +5961,7 @@ def _probe_windows_partitions() -> list[dict]:
         mountpoint: str = next((m for m in raw_mounts if m and m != "[SWAP]"), "")
 
         steam_paths: list[str] = []
+        user_profiles: list[dict] = []
         if mountpoint:
             hiberfil = os.path.join(mountpoint, "hiberfil.sys")
             if os.path.exists(hiberfil):
@@ -5818,6 +5975,24 @@ def _probe_windows_partitions() -> list[dict]:
                 full = os.path.join(mountpoint, candidate)
                 if os.path.isdir(full):
                     steam_paths.append(full)
+            users_dir = os.path.join(mountpoint, "Users")
+            if os.path.isdir(users_dir):
+                for entry in sorted(os.listdir(users_dir)):
+                    if entry.lower() in ("all users", "default", "default user", "public", "desktop.ini"):
+                        continue
+                    profile = os.path.join(users_dir, entry)
+                    if not os.path.isdir(profile):
+                        continue
+                    folders = [
+                        name for name in ("Desktop", "Documents", "Downloads", "Pictures", "Music", "Videos", "Saved Games")
+                        if os.path.isdir(os.path.join(profile, name))
+                    ]
+                    if folders:
+                        user_profiles.append({
+                            "name": entry,
+                            "path": profile,
+                            "folders": folders,
+                        })
 
         results.append({
             "device":       path,
@@ -5827,6 +6002,7 @@ def _probe_windows_partitions() -> list[dict]:
             "is_dirty":     is_dirty,
             "is_hibernated": is_hibernated,
             "steam_paths":  steam_paths,
+            "user_profiles": user_profiles,
         })
 
     return results
@@ -5913,7 +6089,7 @@ class WindowsMigrationPage(Page):
         drives_top.addWidget(refresh_btn)
         drives_layout.addLayout(drives_top)
         drives_desc = QLabel(
-            "Looks for NTFS partitions, hibernation/dirty flags, mount points, and Steam folders. "
+            "Looks for NTFS partitions, hibernation/dirty flags, Windows user folders, mount points, and Steam folders. "
             "If a drive is hibernated, boot Windows once and choose full Shut Down before copying from it."
         )
         drives_desc.setObjectName("card-copy")
@@ -6016,8 +6192,10 @@ class WindowsMigrationPage(Page):
         label = part.get("label") or part.get("device") or "Windows drive"
         mount = part.get("mountpoint") or "not mounted"
         steam_count = len(part.get("steam_paths") or [])
+        profile_count = len(part.get("user_profiles") or [])
         summary = (
             f"{part.get('device', '')} · {part.get('size', '')} · {mount} · "
+            f"{profile_count} user profile{'s' if profile_count != 1 else ''} · "
             f"{steam_count} Steam folder{'s' if steam_count != 1 else ''}"
         )
         if part.get("is_hibernated"):
@@ -6032,6 +6210,22 @@ class WindowsMigrationPage(Page):
                 lambda _=False, path=part["mountpoint"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
             )
             layout.addWidget(open_btn)
+        profiles = part.get("user_profiles") or []
+        if profiles:
+            profile = profiles[0]
+            files_btn = QPushButton("Open Windows Files")
+            files_btn.clicked.connect(
+                lambda _=False, path=profile["path"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            )
+            files_btn.setToolTip(", ".join(profile.get("folders") or []))
+            layout.addWidget(files_btn)
+        steam_paths = part.get("steam_paths") or []
+        if steam_paths:
+            steam_btn = QPushButton("Open Steam Library")
+            steam_btn.clicked.connect(
+                lambda _=False, path=steam_paths[0]: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            )
+            layout.addWidget(steam_btn)
         gaming_btn = QPushButton("Move Steam")
         gaming_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
         layout.addWidget(gaming_btn)
@@ -6045,6 +6239,8 @@ class GamingPage(Page):
         self._ge_update_worker = None
         self._win_lib_worker: WindowsLibraryWorker | None = None
         self._win_lib_probed = False
+        self._data_workers: dict[str, DataWorker] = {}
+        self._dashboard_loaded = False
 
         self._page_header(
             "Apps",
@@ -6067,7 +6263,7 @@ class GamingPage(Page):
         health_top.addWidget(health_title)
         health_top.addStretch()
         health_refresh = QPushButton("Refresh")
-        health_refresh.clicked.connect(self._refresh_gaming_health)
+        health_refresh.clicked.connect(self._refresh_gaming_dashboard)
         health_top.addWidget(health_refresh)
         health_layout.addLayout(health_top)
         health_desc = QLabel(
@@ -6091,7 +6287,7 @@ class GamingPage(Page):
         checklist_top.addWidget(checklist_title)
         checklist_top.addStretch()
         checklist_refresh = QPushButton("Refresh")
-        checklist_refresh.clicked.connect(self._refresh_migration_checklist)
+        checklist_refresh.clicked.connect(self._refresh_gaming_dashboard)
         checklist_top.addWidget(checklist_refresh)
         checklist_layout.addLayout(checklist_top)
         checklist_desc = QLabel(
@@ -6155,7 +6351,7 @@ class GamingPage(Page):
         my_games_top.addWidget(my_games_title)
         my_games_top.addStretch()
         my_games_refresh = QPushButton("Scan Libraries")
-        my_games_refresh.clicked.connect(self._refresh_my_games)
+        my_games_refresh.clicked.connect(lambda _=False: self._refresh_my_games(async_scan=True))
         my_games_top.addWidget(my_games_refresh)
         my_games_layout.addLayout(my_games_top)
         my_games_desc = QLabel(
@@ -6385,7 +6581,7 @@ class GamingPage(Page):
         streaming_top.addWidget(streaming_title)
         streaming_top.addStretch()
         streaming_refresh = QPushButton("Refresh")
-        streaming_refresh.clicked.connect(self._refresh_streaming_health)
+        streaming_refresh.clicked.connect(self._refresh_gaming_dashboard)
         streaming_top.addWidget(streaming_refresh)
         streaming_layout.addLayout(streaming_top)
         streaming_desc = QLabel(
@@ -6946,7 +7142,7 @@ class GamingPage(Page):
         ludusavi_open_btn.clicked.connect(lambda _=False: subprocess.Popen(["flatpak", "run", "com.github.mtkennerly.ludusavi"]))
         saves_btns.addWidget(ludusavi_open_btn)
         saves_refresh_btn = QPushButton("Refresh Status")
-        saves_refresh_btn.clicked.connect(self._refresh_save_status)
+        saves_refresh_btn.clicked.connect(self._refresh_gaming_dashboard)
         saves_btns.addWidget(saves_refresh_btn)
         saves_doc_btn = QPushButton("Save Migration Checklist")
         saves_doc_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/blob/main/docs/game-save-migration.md")))
@@ -6985,12 +7181,12 @@ class GamingPage(Page):
 
         self._stretch()
         self._update_profile_builder()
-        self._refresh_migration_checklist()
-        self._refresh_gaming_health()
-        self._refresh_my_games()
-        self._refresh_streaming_health()
-        self._refresh_save_status()
-        self._refresh_status()
+        self._set_rows_loading(self._checklist_rows_layout, "Checking first-week setup items…")
+        self._set_rows_loading(self._health_rows_layout, "Checking launchers, Vulkan, Proton, controllers, and game drives…")
+        self._set_rows_loading(self._streaming_rows_layout, "Checking Discord, OBS, capture, audio, and camera tools…")
+        self._saves_status_lbl.setText("Scanning save backup tools…")
+        QTimer.singleShot(0, self._refresh_gaming_dashboard)
+        QTimer.singleShot(80, self._refresh_status)
         self._refresh_ntfs_drives()
 
     # ── Tool tile builder ──────────────────────────────────────────────────────
@@ -7023,14 +7219,19 @@ class GamingPage(Page):
 
     def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
         bg, fg, label = {
-            "ok": ("#121e2d", "#4fc1ff", "OK"),
-            "warn": ("#1e1a06", "#d4a843", "Check"),
-            "err": ("#3a1010", "#f48771", "Fix"),
-            "dim": ("#252526", "#858585", "Info"),
-        }.get(status, ("#252526", "#858585", "Info"))
+            "ok": ("#121e2d", "#4fc1ff", "Ready"),
+            "warn": ("#1e1a06", "#d4a843", "Needs setup"),
+            "err": ("#3a1010", "#f48771", "Needs fix"),
+            "dim": ("#252526", "#858585", "Optional"),
+        }.get(status, ("#252526", "#858585", "Optional"))
 
         row = QFrame()
-        row.setObjectName("hw-card-dim")
+        row.setObjectName({
+            "ok": "hw-card-ok",
+            "warn": "hw-card-warn",
+            "err": "hw-card-err",
+            "dim": "hw-card-dim",
+        }.get(status, "hw-card-dim"))
         layout = QHBoxLayout(row)
         layout.setContentsMargins(14, 8, 14, 8)
         layout.setSpacing(10)
@@ -7054,57 +7255,119 @@ class GamingPage(Page):
         layout.addWidget(badge)
         return row
 
-    def _refresh_gaming_health(self):
-        while self._health_rows_layout.count():
-            item = self._health_rows_layout.takeAt(0)
+    def _clear_rows(self, layout: QVBoxLayout):
+        while layout.count():
+            item = layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
-        for status, title, summary in _gaming_health_items():
+
+    def _set_rows_loading(self, layout: QVBoxLayout, message: str):
+        self._clear_rows(layout)
+        layout.addWidget(self._make_health_row("dim", "Scanning", message))
+
+    def _start_data_worker(self, key: str, fn):
+        current = self._data_workers.get(key)
+        if current is not None and current.isRunning():
+            return
+        worker = DataWorker(key, fn)
+        self._data_workers[key] = worker
+        worker.result.connect(self._on_data_result)
+        worker.failed.connect(self._on_data_failed)
+        worker.finished.connect(lambda k=key, w=worker: self._finish_data_worker(k, w))
+        worker.start()
+
+    def _finish_data_worker(self, key: str, worker: DataWorker):
+        if self._data_workers.get(key) is worker:
+            self._data_workers.pop(key, None)
+        worker.deleteLater()
+
+    def _on_data_failed(self, key: str, message: str):
+        target = {
+            "dashboard": self._health_rows_layout,
+            "health": self._health_rows_layout,
+            "checklist": self._checklist_rows_layout,
+            "streaming": self._streaming_rows_layout,
+        }.get(key)
+        if target is not None:
+            self._clear_rows(target)
+            target.addWidget(self._make_health_row("err", "Scan failed", message))
+        if key in ("dashboard", "saves") and hasattr(self, "_saves_status_lbl"):
+            self._saves_status_lbl.setText(f"Scan failed: {message}")
+
+    def _on_data_result(self, key: str, data):
+        if key == "dashboard":
+            self._render_health(data.get("health", []))
+            self._render_migration_checklist(data.get("checklist", []))
+            self._render_streaming_health(data.get("streaming", []))
+            self._render_save_status(data.get("saves"))
+            self._render_my_games(data.get("games", []))
+            self._dashboard_loaded = True
+        elif key == "health":
+            self._render_health(data)
+        elif key == "checklist":
+            self._render_migration_checklist(data)
+        elif key == "streaming":
+            self._render_streaming_health(data)
+        elif key == "saves":
+            self._render_save_status(data)
+        elif key == "games":
+            self._render_my_games(data)
+
+    def _refresh_gaming_dashboard(self):
+        self._set_rows_loading(self._health_rows_layout, "Checking launchers, Vulkan, Proton, controllers, and game drives…")
+        self._set_rows_loading(self._checklist_rows_layout, "Checking first-week setup items…")
+        self._set_rows_loading(self._streaming_rows_layout, "Checking Discord, OBS, capture, audio, and camera tools…")
+        self._my_games_summary_lbl.setText("Scanning installed game libraries…")
+        if hasattr(self, "_saves_status_lbl"):
+            self._saves_status_lbl.setText("Scanning save backup tools…")
+        self._start_data_worker("dashboard", _collect_gaming_dashboard)
+
+    def _render_health(self, items: list[tuple[str, str, str]]):
+        self._clear_rows(self._health_rows_layout)
+        for status, title, summary in items:
             self._health_rows_layout.addWidget(self._make_health_row(status, title, summary))
 
+    def _refresh_gaming_health(self):
+        self._set_rows_loading(self._health_rows_layout, "Checking launchers, Vulkan, Proton, controllers, and game drives…")
+        self._start_data_worker("health", _gaming_health_items)
+
     def _migration_checklist_items(self) -> list[tuple[str, str, str]]:
-        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
-        heroic_ok = _is_flatpak_installed("com.heroicgameslauncher.hgl")
-        lutris_ok = _is_flatpak_installed("net.lutris.Lutris")
-        discord_ok = _is_flatpak_installed("com.discordapp.Discord")
-        obs_ok = _is_flatpak_installed("com.obsproject.Studio")
-        ludusavi_status, _, ludusavi_summary = _ludusavi_backup_summary()
-        controller_info = _detect_controllers()
-        controller_count = len(controller_info.get("usb_controllers", [])) + len(controller_info.get("input_nodes", []))
-        ntfs_count = len(_find_ntfs_drives())
-        ge_ok = bool(_ge_proton_version())
-        return [
-            ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
-            ("ok" if ge_ok else "err", "GE-Proton ready", _ge_proton_version() or "Missing; update GE-Proton before testing Windows games."),
-            ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
-            (ludusavi_status, "Saves backed up", ludusavi_summary),
-            ("warn" if ntfs_count else "dim", "Windows library migration", f"{ntfs_count} NTFS partition(s) detected; copy games read-only below." if ntfs_count else "No Windows game drive detected."),
-            ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
-            ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
-            ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
-        ]
+        return _gaming_migration_checklist_items()
 
     def _refresh_migration_checklist(self):
-        while self._checklist_rows_layout.count():
-            item = self._checklist_rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        for status, title, summary in self._migration_checklist_items():
+        self._set_rows_loading(self._checklist_rows_layout, "Checking first-week setup items…")
+        self._start_data_worker("checklist", _gaming_migration_checklist_items)
+
+    def _render_migration_checklist(self, items: list[tuple[str, str, str]]):
+        self._clear_rows(self._checklist_rows_layout)
+        for status, title, summary in items:
             self._checklist_rows_layout.addWidget(self._make_health_row(status, title, summary))
 
     def _refresh_streaming_health(self):
-        while self._streaming_rows_layout.count():
-            item = self._streaming_rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        for status, title, summary in _streaming_health_items():
+        self._set_rows_loading(self._streaming_rows_layout, "Checking Discord, OBS, capture, audio, and camera tools…")
+        self._start_data_worker("streaming", _streaming_health_items)
+
+    def _render_streaming_health(self, items: list[tuple[str, str, str]]):
+        self._clear_rows(self._streaming_rows_layout)
+        for status, title, summary in items:
             self._streaming_rows_layout.addWidget(self._make_health_row(status, title, summary))
 
     def _refresh_save_status(self):
         if not hasattr(self, "_saves_status_lbl"):
             return
-        status, title, summary = _ludusavi_backup_summary()
-        prefix = {"ok": "OK", "warn": "Check", "err": "Fix", "dim": "Info"}.get(status, "Info")
+        self._saves_status_lbl.setText("Scanning save backup tools…")
+        self._start_data_worker("saves", _ludusavi_backup_summary)
+
+    def _render_save_status(self, data):
+        if not hasattr(self, "_saves_status_lbl") or not data:
+            return
+        status, title, summary = data
+        prefix = {
+            "ok": "Ready",
+            "warn": "Needs setup",
+            "err": "Needs fix",
+            "dim": "Optional",
+        }.get(status, "Optional")
         self._saves_status_lbl.setText(f"{prefix}: {title} - {summary}")
 
     def _make_my_game_row(self, game_info: dict) -> QFrame:
@@ -7175,12 +7438,16 @@ class GamingPage(Page):
         layout.addLayout(btns)
         return row
 
-    def _refresh_my_games(self):
-        while self._my_games_rows_layout.count():
-            item = self._my_games_rows_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        games = _detect_installed_games()
+    def _refresh_my_games(self, async_scan: bool = False):
+        self._clear_rows(self._my_games_rows_layout)
+        self._my_games_summary_lbl.setText("Scanning installed game libraries…")
+        if async_scan:
+            self._start_data_worker("games", _detect_installed_games)
+            return
+        self._render_my_games(_detect_installed_games())
+
+    def _render_my_games(self, games: list[dict]):
+        self._clear_rows(self._my_games_rows_layout)
         if not games:
             self._my_games_summary_lbl.setText(
                 "No installed games detected yet. Install a game in Steam, Heroic, Lutris, or Bottles, then scan again."
@@ -7420,11 +7687,9 @@ class GamingPage(Page):
 
     def showEvent(self, event):  # noqa: N802
         super().showEvent(event)
-        self._refresh_gaming_health()
-        self._refresh_migration_checklist()
-        self._refresh_my_games()
-        self._refresh_streaming_health()
-        self._refresh_save_status()
+        if not self._dashboard_loaded and "dashboard" not in self._data_workers:
+            self._refresh_gaming_dashboard()
+        QTimer.singleShot(80, self._refresh_status)
         if not self._win_lib_probed:
             self._win_lib_probed = True
             self._win_lib_worker = WindowsLibraryWorker()
@@ -14355,7 +14620,7 @@ class MainWindow(QMainWindow):
                 ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
                 ("↻", "Update",   "Update",   UpdatePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
-                ("◈", "Hardware", "Hardware", HardwarePage),
+                ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
                 ("⬟", "Firmware", "Firmware", FirmwarePage),
             ]),
             ("Apps", [
@@ -14376,7 +14641,7 @@ class MainWindow(QMainWindow):
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
-        advanced_items.append(("⚠", "Repair", "Repair", RepairPage))
+        advanced_items.append(("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)))
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
