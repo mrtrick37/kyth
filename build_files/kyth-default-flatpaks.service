@@ -19,7 +19,11 @@ ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flat
     net.lutris.Lutris \
     com.heroicgameslauncher.hgl \
     com.github.Matoking.protontricks \
-    net.davidotek.pupgui2
+    net.davidotek.pupgui2 \
+    org.x.Warpinator \
+    com.usebottles.bottles \
+    com.github.tchx84.Flatseal \
+    io.github.vikdevelop.WebApp
 ExecStartPost=/bin/mkdir -p /var/lib/kyth
 ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-done
 RemainAfterExit=yes

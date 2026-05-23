@@ -3609,6 +3609,38 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
+        # ── Rollback available notification ─────────────────────────────────
+        # Show when a previous deployment is stored — reinforces the "your system
+        # is always safe" message that keeps Windows users from feeling anxious
+        # about updates. Analogous to Mint's Timeshift indicator.
+        if rollback:
+            rb_card, rb_layout = _make_card()
+            rb_header = QHBoxLayout()
+            rb_icon = QLabel("↩")
+            rb_icon.setStyleSheet(
+                "font-size: 16px; color: #4ec9b0; font-weight: 700; background: transparent;"
+            )
+            rb_header.addWidget(rb_icon)
+            rb_title = QLabel("Previous system saved — rollback available")
+            rb_title.setObjectName("card-title")
+            rb_header.addWidget(rb_title)
+            rb_header.addStretch()
+            rb_layout.addLayout(rb_header)
+            rb_body = QLabel(
+                "Your previous OS image is stored and can be restored in one click — "
+                "like System Restore, but atomic and instant. Open the Update page to roll back."
+            )
+            rb_body.setObjectName("card-copy")
+            rb_body.setWordWrap(True)
+            rb_layout.addWidget(rb_body)
+            rb_btn_row = QHBoxLayout()
+            rb_view_btn = QPushButton("Go to Update →")
+            rb_view_btn.clicked.connect(lambda: self._navigate("Update"))
+            rb_btn_row.addWidget(rb_view_btn)
+            rb_btn_row.addStretch()
+            rb_layout.addLayout(rb_btn_row)
+            self._add(rb_card)
+
         # ── First-run chooser ────────────────────────────────────────────────
         chooser, chooser_layout = _make_card("card-accent-ok")
         chooser_title = QLabel("What do you want to do first?")
@@ -10241,7 +10273,7 @@ class SoftwarePage(Page):
         },
         {
             "name": "Everyday",
-            "desc": "Browser, chat, media, passwords, and local file sharing.",
+            "desc": "Browser, chat, media, passwords, app management, and local file sharing.",
             "apps": [
                 ("com.brave.Browser", "Brave Browser", True),
                 ("com.discordapp.Discord", "Discord", True),
@@ -10249,6 +10281,8 @@ class SoftwarePage(Page):
                 ("com.spotify.Client", "Spotify", True),
                 ("com.bitwarden.desktop", "Bitwarden", False),
                 ("org.localsend.localsend_app", "LocalSend", True),
+                ("io.github.vikdevelop.WebApp", "WebApp Manager", True),
+                ("com.github.tchx84.Flatseal", "Flatseal", True),
             ],
         },
     ]

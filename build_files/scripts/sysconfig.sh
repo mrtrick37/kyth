@@ -121,6 +121,14 @@ SYSCTLEOF
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
 echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 
+# ── OpenRGB — i2c bus access ──────────────────────────────────────────────────
+# i2c-dev: exposes /dev/i2c-* devices to userspace so OpenRGB can talk to
+# DRAM, motherboard, and GPU RGB controllers directly.
+# i2c-piix4: provides the SMBus (i2c) controller driver that covers the AMD
+# FCH/SB southbridge found on virtually all Ryzen gaming motherboards and many
+# Intel boards. Without it OpenRGB cannot enumerate most onboard RGB zones.
+printf 'i2c-dev\ni2c-piix4\n' > /etc/modules-load.d/openrgb.conf
+
 # ── systemd-oomd hardening ────────────────────────────────────────────────────
 # By default systemd-oomd runs but monitors nothing — cgroups must explicitly
 # opt in with ManagedOOMSwap/ManagedOOMMemoryPressure. Without these, oomd sits
@@ -449,6 +457,8 @@ BTENABLEUNITEOF
 
 systemctl enable bluetooth.service 2>/dev/null || true
 systemctl enable kyth-bluetooth-enable.service 2>/dev/null || true
+systemctl enable cups-browsed.service 2>/dev/null || true
+# input-remapper.service is enabled later in this script alongside rtkit-daemon
 
 # ── WiFi — disable power management ──────────────────────────────────────────
 # Linux WiFi power-save throttles the radio when idle, reducing signal
@@ -702,6 +712,27 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
+
+# ── Font rendering — Windows ClearType-compatible defaults ────────────────────
+# Linux freetype defaults vary by distro; Fedora's are conservative. Tuning
+# toward "hintslight" + RGB subpixel + lcddefault matches what Windows ClearType
+# produces: horizontal stems snap to pixel boundaries while vertical letterforms
+# are preserved, and colour fringing is suppressed by the LCD filter.
+# Users who prefer a different look can drop a file in ~/.config/fontconfig/.
+mkdir -p /etc/fonts/conf.d
+cat > /etc/fonts/local.conf <<'FONTCONFIGEOF'
+<?xml version="1.0"?>
+<!DOCTYPE fontconfig SYSTEM "fonts.dtd">
+<fontconfig>
+  <match target="font">
+    <edit name="antialias"  mode="assign"><bool>true</bool></edit>
+    <edit name="hinting"    mode="assign"><bool>true</bool></edit>
+    <edit name="hintstyle"  mode="assign"><const>hintslight</const></edit>
+    <edit name="rgba"       mode="assign"><const>rgb</const></edit>
+    <edit name="lcdfilter"  mode="assign"><const>lcddefault</const></edit>
+  </match>
+</fontconfig>
+FONTCONFIGEOF
 
 # systemd-remount-fs tries to remount the root filesystem, which is immutable
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
