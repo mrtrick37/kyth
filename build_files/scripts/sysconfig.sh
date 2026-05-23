@@ -851,8 +851,8 @@ EPPEOF
 # bootc upgrade/switch stages a new image but does not modify the running system —
 # a reboot is always required to activate it. fwupdmgr operations are similarly
 # safe (refresh = metadata fetch; get-updates/update = firmware staging).
-# Allowing these without a password lets 'ujust upgrade' run without a mid-stream
-# sudo prompt that breaks the terminal flow.
+# Allowing these without a password lets KythOS update flows run without a
+# mid-stream sudo prompt that breaks the terminal flow.
 # The 0440 mode (owner+group read, no write) is required by sudo's NOPASSWD check.
 install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # KythOS: wheel group may run safe update/firmware commands without a password.
