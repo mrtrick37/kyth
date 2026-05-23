@@ -167,8 +167,31 @@ switch-kernel flavor="fedora":
     target="ghcr.io/mrtrick37/kyth:${channel}${suffix}"
     echo "Switching to ${label} kernel image: ${target}"
     echo "This stages a new deployment and keeps rollback available from the boot menu."
-    sudo bootc switch "${target}"
+    if ! output="$(sudo bootc switch "${target}" 2>&1)"; then
+        printf '%s\n' "${output}" >&2
+        if grep -qi 'manifest unknown' <<<"${output}"; then
+            echo "ERROR: ${target} is not published yet." >&2
+        else
+            echo "ERROR: unable to switch to ${target}." >&2
+        fi
+        if [[ "${channel}" == "latest" && "${suffix}" == "-cachy" ]]; then
+            echo "The CachyOS kernel image may only be available on the testing channel until the stable build publishes :latest-cachy." >&2
+            echo "Try: ujust switch-channel testing" >&2
+            echo "Then reboot and run: ujust switch-kernel cachy" >&2
+        else
+            echo "Try again after the image build finishes, or check your network connection." >&2
+        fi
+        exit 1
+    fi
+    printf '%s\n' "${output}"
     echo "Kernel switch staged. Reboot to activate."
+
+# Export Steam Flatpak game shortcuts into the host application menu.
+[group('KythOS')]
+export-steam-games:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-steam-game-export
 
 # Run a game or app with the temporary performance profile wrapper.
 [group('KythOS')]

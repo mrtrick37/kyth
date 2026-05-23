@@ -23,7 +23,7 @@ jobs:
     # The live ISO is built from the Fedora-kernel image only. Keep advanced
     # kernel variants visible, but do not let them block the beginner-friendly
     # ISO pipeline.
-    continue-on-error: ${{ matrix.kernel_flavor != 'fedora' }}
+    continue-on-error: ${{ github.event_name == 'schedule' && matrix.kernel_flavor != 'fedora' }}
     env:
       DOCKER_CONFIG: /tmp/kyth-docker-config
 
