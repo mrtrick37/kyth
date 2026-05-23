@@ -386,7 +386,7 @@ dnf5 remove -y firefox || true
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # These packages all install from the same repo state, so keep them in one
 # transaction to cut down on repeated dependency solving.
-dnf5 install -y \
+dnf5 install -y --skip-unavailable \
     python3-pyqt6 \
     python3-pyqt6-webengine \
     qt6-qtwayland \
@@ -409,12 +409,14 @@ dnf5 install -y \
     vpnc \
     kde-connect \
     cups-browsed \
-    mscore-fonts-all \
+    liberation-fonts-all \
     openrgb
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
-# mscore-fonts-all: Arial, Times New Roman, Courier New for document/web compat.
+# liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
+#   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
+#   SourceForge at install time, which is unreliable in CI builds.
 # openrgb: unified RGB lighting control for Corsair/ASUS/MSI/Razer/etc.
 # input-remapper is already installed in the gaming packages block above.
 
