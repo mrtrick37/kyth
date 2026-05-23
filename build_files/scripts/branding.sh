@@ -354,9 +354,19 @@ set -euo pipefail
 autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
+    # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
     kwriteconfig6 --file kglobalshortcutsrc \
         --group org.kde.plasma-systemmonitor.desktop \
         --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+
+    # Double-click to open files — KDE defaults to single-click; Windows users
+    # expect double-click everywhere (Dolphin, desktop, file dialogs).
+    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick false
+
+    # Clipboard history — Win+V equivalent. Klipper ships enabled but history
+    # is off by default; turn it on with a 25-item buffer.
+    kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents true
+    kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
 fi
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
@@ -483,6 +493,43 @@ install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
     /usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
+# ── .exe / .msi MIME interception ─────────────────────────────────────────────
+# When a Windows user double-clicks a .exe installer in Dolphin, show a dialog
+# that suggests the best Linux equivalent instead of opening a hex editor.
+# The handler is registered as the system-wide default for the Windows executable
+# MIME types; users can override per-app via Dolphin's "Open With" dialog.
+install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
+install -m 0644 /ctx/kyth-exe-handler.desktop \
+    /usr/share/applications/kyth-exe-handler.desktop
+
+# Register as system-wide default for Windows executable MIME types.
+# /etc/xdg/mimeapps.list is the XDG-standard location for system defaults;
+# it is read before per-user ~/.config/mimeapps.list so new users get it
+# automatically, and existing users can still override per-app.
+mkdir -p /etc/xdg
+cat >> /etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+[Default Applications]
+application/x-ms-dos-executable=kyth-exe-handler.desktop
+application/x-msdos-program=kyth-exe-handler.desktop
+application/x-dosexec=kyth-exe-handler.desktop
+MIMEAPPSEOF
+
+# Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
+update-desktop-database /usr/share/applications/ 2>/dev/null || true
+
+# ── Right-click "New Document" templates for Dolphin ─────────────────────────
+# Any file placed in ~/Templates appears in Dolphin's right-click → Create New
+# → Document menu — the same behaviour as Windows Explorer's "New" submenu.
+# Seeding /etc/skel ensures every new user gets the templates on first login.
+mkdir -p /etc/skel/Templates
+printf ''                                          > "/etc/skel/Templates/Plain Text.txt"
+printf '# Title\n\n'                               > "/etc/skel/Templates/Markdown.md"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' > "/etc/skel/Templates/Shell Script.sh"
+printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
+                                                   > "/etc/skel/Templates/Python Script.py"
+chmod +x /etc/skel/Templates/"Shell Script.sh"
+chmod +x /etc/skel/Templates/"Python Script.py"
+
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export

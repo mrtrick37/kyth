@@ -406,8 +406,17 @@ dnf5 install -y \
     jetbrains-mono-fonts \
     cascadia-code-fonts \
     openconnect \
-    vpnc
+    vpnc \
+    kde-connect \
+    cups-browsed \
+    mscore-fonts-all \
+    openrgb
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
+# kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
+# cups-browsed: auto-discovers printers on the LAN without manual config.
+# mscore-fonts-all: Arial, Times New Roman, Courier New for document/web compat.
+# openrgb: unified RGB lighting control for Corsair/ASUS/MSI/Razer/etc.
+# input-remapper is already installed in the gaming packages block above.
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no

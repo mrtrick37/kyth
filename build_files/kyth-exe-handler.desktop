@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=KythOS Windows App Helper
+Comment=Suggests Linux alternatives when opening Windows installers
+Exec=/usr/bin/kyth-exe-handler %f
+MimeType=application/x-ms-dos-executable;application/x-msdos-program;application/x-dosexec;
+NoDisplay=true
+Terminal=false
+Categories=System;
