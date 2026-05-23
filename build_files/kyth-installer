@@ -378,11 +378,34 @@ def _source_imgref(image: str) -> str:
     return f"docker://{image}"
 
 
+def _install_images(kernel: str) -> tuple[str, str]:
+    """Return (source_imgref, target_imgref) for bootc install based on kernel choice.
+
+    Fedora uses the configured SOURCE_IMAGE/TARGET_IMAGE as-is (may be a local
+    OCI transport for embedded ISOs).  CachyOS and OGC always pull from the
+    registry, deriving the tag by appending the kernel suffix to the base tag.
+    """
+    if kernel == "fedora":
+        return _source_imgref(SOURCE_IMAGE), TARGET_IMAGE
+    # Derive registry and base tag from TARGET_IMAGE, stripping any existing suffix.
+    if ":" in TARGET_IMAGE:
+        registry, tag = TARGET_IMAGE.rsplit(":", 1)
+    else:
+        registry, tag = TARGET_IMAGE, "latest"
+    for sfx in ("-cachy", "-ogc"):
+        if tag.endswith(sfx):
+            tag = tag[: -len(sfx)]
+            break
+    suffix = "-cachy" if kernel == "cachy" else "-ogc"
+    img = f"{registry}:{tag}{suffix}"
+    return f"docker://{img}", img
+
+
 # ── Install state ─────────────────────────────────────────────────────────────
 
 _state: dict = {
     "disk": "", "hostname": "kyth", "timezone": "UTC",
-    "username": "", "password": "",
+    "username": "", "password": "", "kernel": "fedora",
 }
 
 _events: list[dict] = []
@@ -517,8 +540,11 @@ def _run_install() -> None:
 
     try:
         disk = _state["disk"]
-        log(f"Source image : {SOURCE_IMAGE}")
-        log(f"Target image : {TARGET_IMAGE}")
+        kernel = _state.get("kernel", "fedora")
+        src_ref, tgt_ref = _install_images(kernel)
+        log(f"Kernel       : {kernel}")
+        log(f"Source imgref: {src_ref}")
+        log(f"Target image : {tgt_ref}")
         log(f"Disk         : {disk}")
         log("")
 
@@ -527,8 +553,8 @@ def _run_install() -> None:
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
         install_cmd = [
             "bootc", "install", "to-disk",
-            "--source-imgref", _source_imgref(SOURCE_IMAGE),
-            "--target-imgref", TARGET_IMAGE,
+            "--source-imgref", src_ref,
+            "--target-imgref", tgt_ref,
             "--filesystem", "btrfs",
             "--generic-image",
             "--wipe",
@@ -752,12 +778,16 @@ class Handler(BaseHTTPRequestHandler):
             if disk not in {d["name"] for d in list_disks()}:
                 self.send_error(400, "Invalid disk")
                 return
+            kernel = body.get("kernel", "fedora")
+            if kernel not in ("fedora", "cachy", "ogc"):
+                kernel = "fedora"
             _state.update({
                 "disk":     disk,
                 "hostname": hostname,
                 "timezone": timezone,
                 "username": username,
                 "password": body.get("password", ""),
+                "kernel":   kernel,
             })
             with _events_lock:
                 _events.clear()
@@ -921,6 +951,18 @@ select{cursor:pointer}
 .hero-body{font-size:14px;color:var(--muted);line-height:1.7}
 .err-pre{font-size:12px;font-family:var(--mono);color:var(--red);background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px;margin:14px 0;white-space:pre-wrap;word-break:break-all}
 
+/* kernel cards */
+.kernel-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
+.kernel-card{display:flex;align-items:flex-start;gap:16px;padding:16px 18px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
+.kernel-card:hover{border-color:var(--accent)}
+.kernel-card.selected{border-color:var(--accent);background:#0d1e3a}
+.kernel-icon{font-size:26px;flex-shrink:0;padding-top:1px}
+.kernel-body{flex:1}
+.kernel-name{font-weight:700;font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
+.kernel-badge{display:inline-block;background:#0d3a1e;border:1px solid #1a5a2e;color:var(--green);font-size:10px;font-weight:600;padding:1px 7px;border-radius:4px;letter-spacing:.05em}
+.kernel-desc{color:var(--muted);font-size:12px;line-height:1.6}
+.kernel-note{margin-top:6px;font-size:11px;color:var(--amber)}
+
 ::-webkit-scrollbar{width:5px}
 ::-webkit-scrollbar-track{background:transparent}
 ::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
@@ -934,9 +976,10 @@ select{cursor:pointer}
   <div class="steps" id="steps">
     <div class="step" data-step="welcome"><div class="step-num">1</div><div class="step-label">Welcome</div></div>
     <div class="step" data-step="disk">   <div class="step-num">2</div><div class="step-label">Disk</div></div>
-    <div class="step" data-step="config"> <div class="step-num">3</div><div class="step-label">Configure</div></div>
-    <div class="step" data-step="review"> <div class="step-num">4</div><div class="step-label">Review</div></div>
-    <div class="step" data-step="install"><div class="step-num">5</div><div class="step-label">Install</div></div>
+    <div class="step" data-step="kernel"> <div class="step-num">3</div><div class="step-label">Kernel</div></div>
+    <div class="step" data-step="config"> <div class="step-num">4</div><div class="step-label">Configure</div></div>
+    <div class="step" data-step="review"> <div class="step-num">5</div><div class="step-label">Review</div></div>
+    <div class="step" data-step="install"><div class="step-num">6</div><div class="step-label">Install</div></div>
   </div>
   <div class="sidebar-footer">kyth installer</div>
 </nav>
@@ -947,14 +990,15 @@ select{cursor:pointer}
   <div class="page active" id="page-welcome">
     <div class="card">
       <div class="card-title">Welcome to KythOS</div>
-      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite + Fedora kernel</div>
+      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite</div>
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
-        &nbsp; 2. Set hostname, timezone, and user account<br>
-        &nbsp; 3. Download and write KythOS to disk<br><br>
+        &nbsp; 2. Choose your kernel<br>
+        &nbsp; 3. Set hostname, timezone, and user account<br>
+        &nbsp; 4. Download and write KythOS to disk<br><br>
         <span style="color:var(--amber)">⚠ The selected disk will be completely erased.</span><br>
         Back up any data you need before continuing.
       </p>
@@ -979,7 +1023,21 @@ select{cursor:pointer}
       </div>
       <div class="btn-row">
         <button onclick="goto('welcome')">← Back</button>
-        <button id="disk-next" class="primary" onclick="goto('config')" disabled>Continue →</button>
+        <button id="disk-next" class="primary" onclick="goto('kernel')" disabled>Continue →</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Kernel -->
+  <div class="page" id="page-kernel">
+    <div class="card">
+      <div class="card-title">Choose Kernel</div>
+      <div class="card-sub">Select the kernel for your installed system. You can switch kernels later with <code style="font-family:var(--mono);background:var(--surface2);padding:1px 6px;border-radius:4px;font-size:12px">bootc switch</code></div>
+      <hr class="divider">
+      <div class="kernel-grid" id="kernel-grid"></div>
+      <div class="btn-row">
+        <button onclick="goto('disk')">← Back</button>
+        <button class="primary" onclick="goto('config')">Continue →</button>
       </div>
     </div>
   </div>
@@ -1002,7 +1060,7 @@ select{cursor:pointer}
       <input type="password" id="inp-password2" autocomplete="new-password">
       <div id="user-error" style="color:var(--red);font-size:13px;margin-top:8px;min-height:1.2em"></div>
       <div class="btn-row">
-        <button onclick="goto('disk')">← Back</button>
+        <button onclick="goto('kernel')">← Back</button>
         <button class="primary" onclick="saveConfig()">Continue →</button>
       </div>
     </div>
@@ -1088,9 +1146,9 @@ select{cursor:pointer}
 </div><!-- #app -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '' };
+const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora' };
 let SESSION_TOKEN = '';
-const STEPS = ['welcome','disk','config','review','install'];
+const STEPS = ['welcome','disk','kernel','config','review','install'];
 
 function apiFetch(url, opts={}) {
   const o = {...opts, credentials:'same-origin'};
@@ -1113,6 +1171,7 @@ function goto(name) {
     if (si === ai) el.classList.remove('done');
   });
   if (name === 'disk')    loadDisks();
+  if (name === 'kernel')  initKernel();
   if (name === 'config')  initConfig();
   if (name === 'review')  buildReview();
 }
@@ -1155,6 +1214,39 @@ function selectDisk(idx) {
   S.disk = _disks[idx];
   document.getElementById('disk-next').disabled = false;
   document.getElementById('disk-warn').style.display = 'block';
+}
+
+// ── Kernel ────────────────────────────────────────────────────────────────────
+const KERNELS = [
+  { id: 'fedora', icon: '🐧', name: 'Fedora',
+    desc: 'Stock Fedora kernel &middot; Signed by Red Hat &middot; Works with Secure Boot out of the box',
+    badge: 'Default' },
+  { id: 'cachy',  icon: '⚡', name: 'CachyOS',
+    desc: 'BORE scheduler &middot; sched-ext &middot; BBRv3 &middot; NTSYNC &middot; Optimized for gaming &amp; low-latency workloads',
+    note: 'Secure Boot: enroll the KythOS signing key after first boot with <code style="font-family:var(--mono)">ujust enroll-secureboot</code>' },
+  { id: 'ogc',    icon: '🎮', name: 'OGC',
+    desc: 'OpenGamepadConfig kernel &middot; Enhanced gamepad &amp; input device support',
+    note: 'Secure Boot: enroll the KythOS signing key after first boot with <code style="font-family:var(--mono)">ujust enroll-secureboot</code>' },
+];
+
+function initKernel() {
+  const grid = document.getElementById('kernel-grid');
+  if (grid.children.length) return;
+  grid.innerHTML = KERNELS.map(k => `
+    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" onclick="selectKernel('${k.id}')">
+      <div class="kernel-icon">${k.icon}</div>
+      <div class="kernel-body">
+        <div class="kernel-name">${k.name}${k.badge ? ` <span class="kernel-badge">${k.badge}</span>` : ''}</div>
+        <div class="kernel-desc">${k.desc}</div>
+        ${k.note ? `<div class="kernel-note">⚠ ${k.note}</div>` : ''}
+      </div>
+    </div>`).join('');
+}
+
+function selectKernel(id) {
+  S.kernel = id;
+  document.querySelectorAll('.kernel-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('kcard-' + id).classList.add('selected');
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -1203,6 +1295,16 @@ function saveConfig() {
 
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
+  const kernelLabels = { fedora: 'Fedora', cachy: 'CachyOS', ogc: 'OGC' };
+  const targetImage = (() => {
+    const base = S._sourceImage || '';
+    if (!base || S.kernel === 'fedora') return base || '—';
+    const colon = base.lastIndexOf(':');
+    if (colon < 0) return base + (S.kernel === 'cachy' ? '-cachy' : '-ogc');
+    let tag = base.slice(colon + 1);
+    for (const sfx of ['-cachy', '-ogc']) { if (tag.endsWith(sfx)) { tag = tag.slice(0, -sfx.length); break; } }
+    return base.slice(0, colon + 1) + tag + (S.kernel === 'cachy' ? '-cachy' : '-ogc');
+  })();
   const rows = [
     ['Disk',     S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
     ['Model',    S.disk ? S.disk.model : '—'],
@@ -1210,7 +1312,8 @@ function buildReview() {
     ['Timezone', S.timezone],
     ['Username', S.username],
     ['Password', '••••••••'],
-    ['Source',   S._sourceImage || '—'],
+    ['Kernel',   kernelLabels[S.kernel] || S.kernel],
+    ['Image',    targetImage],
   ];
   document.getElementById('review-table').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
@@ -1236,6 +1339,7 @@ function startInstall() {
     body: JSON.stringify({
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
+      kernel: S.kernel,
     }),
   }).then(r => {
     if (!r.ok) return r.text().then(t => showError('Failed to start install: ' + t)).catch(() => showError('Install request failed (status ' + r.status + ')'));
