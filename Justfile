@@ -109,7 +109,7 @@ clean-output:
         | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
 
 # Prune Docker build cache and dangling (unreferenced) image layers.
-# Keeps all named images (kyth:latest, kyth-live:build, kinoite-main:44).
+# Keeps named images such as localhost/kyth:latest and kyth-live:build.
 # Run after a build to recover the reclaimable space shown in 'just disk-usage'.
 [group('Utility')]
 clean-docker:
@@ -156,7 +156,7 @@ prune-live-dev:
     docker system df || true
 
 # Full local cleanup: stale outputs + Docker cache.
-# Does NOT remove localhost/kyth:latest or ghcr.io/ublue-os/kinoite-main:44
+# Does NOT remove localhost/kyth:latest or named upstream/base images
 # since those are needed to build.
 [group('Utility')]
 clean-all: clean-output clean-docker
@@ -261,10 +261,10 @@ sudoif command *args:
     }
     sudoif {{ command }} {{ args }}
 
-# Build the base image from build_base/ and tag it as localhost/kyth:latest
-# Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:44
+# Build the base image from build_base/.
+# Override the upstream with: just build-base ghcr.io/ublue-os/kinoite-main:44 fedora
 [group('Build')]
-build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
+build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
     #!/usr/bin/env bash
     # Ensure docker group is active in this session.
     # id -nG (no arg) reads the current process's live group list; id -nG "$USER"
@@ -275,7 +275,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
             sudo usermod -aG docker "$USER"
         fi
         echo "Activating docker group for this session via sg — re-running..."
-        exec sg docker -c "just build-base '{{ base_image }}'"
+        exec sg docker -c "just build-base '{{ base_image }}' '{{ kernel_flavor }}'"
     fi
 
     if command -v cosign &>/dev/null; then
@@ -296,8 +296,10 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
         | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
         2>/dev/null || date +%Y-%m-%d)
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
+    echo "Kernel flavor: {{ kernel_flavor }}"
     docker build \
         --build-arg BASE_IMAGE={{ base_image }} \
+        --build-arg KYTH_KERNEL_FLAVOR="{{ kernel_flavor }}" \
         --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
         --tag localhost/kyth-base:stable \
         build_base/
@@ -307,8 +309,10 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44":
 # Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
 #
 # Secure Boot signing (optional):
-#   Export MOK_KEY with the PEM private key contents before building:
-#     export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
+#   Export MOK_KEY with the PEM private key contents, or point MOK_KEY_FILE at
+#   the key file, before building:
+#     export MOK_KEY_FILE=~/.config/kyth/secureboot/kyth-secureboot.key
+#     # or: export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
 #     just build
 [group('Build')]
 build: build-base
@@ -326,12 +330,20 @@ build: build-base
     echo "GE-Proton: ${GE_PROTON_VER:-latest}"
     MOK_SECRET_ARG=()
     SECUREBOOT_SIGNING_REQUESTED=0
-    if [[ -n "${MOK_KEY:-}" ]]; then
-        echo "Secure Boot: MOK_KEY set — vmlinuz will be signed"
-        MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+    if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
+        echo "ERROR: MOK_KEY_FILE is set but does not exist: ${MOK_KEY_FILE}" >&2
+        exit 1
+    fi
+    if [[ -n "${MOK_KEY:-}" || -n "${MOK_KEY_FILE:-}" ]]; then
+        echo "Secure Boot: MOK key set — vmlinuz will be signed"
+        if [[ -n "${MOK_KEY_FILE:-}" ]]; then
+            MOK_SECRET_ARG=(--secret "id=mok_key,src=${MOK_KEY_FILE}")
+        else
+            MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+        fi
         SECUREBOOT_SIGNING_REQUESTED=1
     else
-        echo "Secure Boot: MOK_KEY not set — signing skipped (set MOK_KEY to enable)"
+        echo "Secure Boot: MOK key not set — signing skipped (set MOK_KEY_FILE to enable)"
     fi
     docker buildx build \
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
@@ -516,14 +528,24 @@ build-raw $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 [group('Build Virtual Machine Image')]
 build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "iso" "disk_config/iso.toml")
 
-# Build a live ISO with the KythOS web installer (netinstall — pulls OS from
-# the registry at install time via bootc install to-disk).
+# Build a live ISO with the KythOS web installer. The live desktop is based on
+# the same KythOS image that will be installed, then pulls that image from the
+# registry at install time via bootc install to-disk.
 # Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]
 build-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
+
+# Fast Secure Boot validation that does not build a new ISO.
+# Checks source policy, the cached Fedora-kernel live image when present, and
+# any existing output/live-iso ISO.
+[group('Build Virtual Machine Image')]
+secureboot-preflight source_tag="latest":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    SOURCE_TAG={{ source_tag }} bash build_files/tests/secureboot-preflight.sh
 
 # Force a full rebuild of the live ISO, ignoring the cached container layer.
 # Use after changing Containerfile.live or any file it COPYs.
@@ -541,7 +563,7 @@ rebuild-live-iso-local:
     #!/usr/bin/env bash
     set -euo pipefail
     just build
-    SOURCE_TAG=local REBUILD_IMAGE=1 EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+    SOURCE_TAG=local REBUILD_IMAGE=1 INSTALLER_BASE_IMAGE=localhost/kyth:latest EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
 
 # Build the local embedded ISO and boot it in native QEMU with a fresh disk.
 [group('Run Virtual Machine')]
@@ -892,3 +914,18 @@ format:
     fi
     # Run shfmt on all Bash scripts
     /usr/bin/find . -iname "*.sh" -type f -exec shfmt --write "{}" ';'
+
+# Preview the installer UI in your browser (no disk changes — safe for dev)
+[group('Utility')]
+preview-installer:
+    #!/usr/bin/env python3
+    exec(open("build_files/kyth-installer").read())
+    import threading, time
+    server = _Server(("127.0.0.1", 7777), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print("Installer UI → http://127.0.0.1:7777  (Ctrl-C to stop)")
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        pass

@@ -1,12 +1,11 @@
-# Live ISO variant of KythOS — Python web installer edition
-# Built as a separate stable installer product.
-# Uses a conservative desktop/runtime base image; installed target OS is still
-# pulled from KythOS's ostreecontainer image.
+# Live ISO variant of KythOS — Python web installer edition.
+# This is built on top of the same KythOS image the installer writes to disk,
+# with only live-session and installer-specific changes layered above it.
 # Installation is handled by kyth-installer (embedded Python HTTP server + Chromium kiosk),
 # which calls 'bootc install to-disk' and configures hostname, timezone, and user account.
 # Built by build-live-iso.sh; not pushed to the registry.
 
-ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44
+ARG BASE_IMAGE=ghcr.io/mrtrick37/kyth:latest
 FROM ${BASE_IMAGE}
 
 ARG SOURCE_HASH=unknown
@@ -14,8 +13,6 @@ LABEL org.kyth.live.source-hash="${SOURCE_HASH}"
 
 # SOURCE_TAG controls which image URL is embedded in kyth-installer.env (:latest or :testing).
 ARG SOURCE_TAG=latest
-ARG SECUREBOOT_SIGNING_REQUESTED=0
-LABEL org.kyth.live.secureboot-signing-requested="${SECUREBOOT_SIGNING_REQUESTED}"
 
 # ── Installer + live boot packages ──────────────────────────────────────────
 RUN dnf5 -y versionlock clear 2>/dev/null || true \
@@ -30,6 +27,7 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     ntfs-3g \
     ntfsprogs \
     parted \
+    mokutil \
     && mkdir -p /var/lib/rpm-state \
     && dnf5 clean all \
     && echo "==> Verifying critical packages:" \
@@ -37,6 +35,90 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     && (command -v bootc >/dev/null 2>&1 || { echo "ERROR: bootc not found in image"; exit 1; }) \
     && (command -v btrfs >/dev/null 2>&1 || { echo "ERROR: btrfs not found"; exit 1; }) \
     && echo "==> All critical installer packages present"
+
+# ── Installed-OS representation audit ───────────────────────────────────────
+# The live ISO normally starts from the same KythOS image that bootc installs.
+# Keep this as CI signal, but do not block ISO creation: the live environment is
+# first and foremost the Secure Boot-capable installer, and the installer still
+# pulls the selected KythOS target image at install time.
+RUN echo "==> Checking whether live ISO base represents installed KythOS image" \
+    && missing=0 \
+    && if ! command -v code >/dev/null 2>&1; then \
+           echo "WARNING: VS Code is missing from the live ISO base image"; \
+           missing=1; \
+       fi \
+    && if ! test -f /usr/share/applications/code.desktop; then \
+           echo "WARNING: VS Code desktop entry is missing from the live ISO base image"; \
+           missing=1; \
+       fi \
+    && for path in \
+        /usr/bin/kyth-welcome \
+        /usr/bin/game-performance \
+        /usr/bin/kyth-gamescope \
+        /usr/bin/kyth-performance-mode \
+        /usr/bin/kyth-scx \
+        /usr/bin/zink-run \
+        /usr/bin/kyth-kerver \
+        /usr/bin/kyth-device-info \
+        /usr/bin/kyth-creator-check \
+        /usr/bin/kyth-davinci-install \
+        /usr/bin/kyth-duperemove \
+        /usr/bin/kyth-distrobox-root-launch \
+        /usr/bin/kyth-local-bin-migrate \
+        /usr/bin/kyth-topgrade-migrate \
+        /usr/bin/kyth-vscode-wallet \
+        /usr/bin/kyth-vpn-connect \
+        /usr/bin/kyth-vpn-status \
+        /usr/bin/kyth-rclone-update \
+        /usr/bin/kyth-ge-proton-update \
+        /usr/bin/kyth-hw-setup \
+        /usr/libexec/kyth-vpnc-script \
+        /usr/share/applications/kyth-welcome.desktop \
+        /usr/share/applications/kyth-vpn-connect.desktop \
+        /usr/lib/systemd/system/kyth-duperemove.service \
+        /usr/lib/systemd/system/kyth-duperemove.timer \
+        /usr/lib/systemd/system/kyth-local-bin-migrate.service \
+        /usr/lib/systemd/system/kyth-topgrade-migrate.service \
+        /usr/lib/systemd/system/kyth-ge-proton-update.service \
+        /usr/lib/systemd/system/kyth-ge-proton-update.timer \
+        /usr/lib/systemd/system/kyth-flathub-setup.service \
+        /usr/lib/systemd/system/kyth-default-flatpaks.service \
+        /usr/lib/systemd/system/kyth-hw-setup.service \
+        /usr/share/ublue-os/just/75-kyth.just; do \
+           if ! test -e "$path"; then \
+               echo "WARNING: installed KythOS artifact missing from live ISO base image: $path"; \
+               missing=1; \
+           fi; \
+       done \
+    && if test "${missing}" -eq 0; then \
+           echo "==> Installed KythOS artifacts present in live ISO base"; \
+       else \
+           echo "WARNING: live ISO base is missing installed KythOS artifacts; continuing with installer build"; \
+       fi
+
+# ── Hardware firmware for live installation sessions ────────────────────────
+# Keep laptop firmware explicit in the ISO too. The live environment must be
+# able to join Wi-Fi before the installed target image is pulled.
+RUN dnf5 install -y --skip-unavailable \
+    linux-firmware \
+    amd-gpu-firmware \
+    amd-ucode-firmware \
+    iwlwifi-mvm-firmware \
+    iwlwifi-mld-firmware \
+    iwlwifi-dvm-firmware \
+    iwlegacy-firmware \
+    intel-vsc-firmware \
+    alsa-sof-firmware \
+    realtek-firmware \
+    mediatek-firmware \
+    atheros-firmware \
+    brcmfmac-firmware \
+    cirrus-audio-firmware \
+    && dnf5 clean all \
+    && find /usr/lib/firmware \
+        \( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
+        -print -quit | grep -q . \
+    && echo "==> Intel iwlwifi firmware present in live ISO"
 
 # ── Desktop, ISO tooling, and utilities (tolerate Fedora package churn) ──
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
@@ -78,88 +160,50 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && dnf5 clean all \
     && mkdir -p /usr/lib/kyth/efi \
     && (find /usr/share/shim /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
+    && (test -f /usr/lib/kyth/efi/shimx64.efi && cp /usr/lib/kyth/efi/shimx64.efi /usr/lib/kyth/efi/BOOTX64.EFI || true) \
+    && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || find /usr/share/shim /usr/lib/efi/shim -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI || true) \
     && (find /usr/share/shim /usr/lib/efi/shim -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   || true) \
     && (find /usr/share/grub /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
     && (test -f /usr/lib/kyth/efi/shimx64.efi || find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
+    && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || test ! -f /usr/lib/kyth/efi/shimx64.efi || cp /usr/lib/kyth/efi/shimx64.efi /usr/lib/kyth/efi/BOOTX64.EFI) \
+    && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || find /boot/efi/EFI/BOOT -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/mmx64.efi   || find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/grubx64.efi || find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
     && (chmod 0644 /usr/lib/kyth/efi/*.efi 2>/dev/null || true) \
     && echo "==> EFI staging:" \
     && ls -la /usr/lib/kyth/efi/ || echo "WARNING: no EFI binaries staged to /usr/lib/kyth/efi/"
 
-# ── CachyOS kernel ────────────────────────────────────────────────────────────
-# Install the same CachyOS kernel used by the installed OS so the live and
-# installed environments share the same kernel. This avoids dracut failures
-# caused by Fedora kernels compiling overlay as built-in (CONFIG_OVERLAY_FS=y)
-# rather than as a loadable module, which breaks dmsquash-live.
-# --setopt=tsflags=noscripts skips %posttrans scriptlets that call rpm-ostree
-# kernel-install, which fails in Docker builds with EXDEV errors.
-RUN dnf5 copr enable -y bieszczaders/kernel-cachyos \
-    && dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules \
-    && CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)") \
-    && depmod -a "${CACHYOS_KVER}" \
-    && dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
-        kernel-cachyos \
-        kernel-cachyos-core \
-    && depmod -a "${CACHYOS_KVER}" \
-    && if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then \
-           cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" \
-               "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null || true; \
+# ── Fedora stock kernel for live boot ────────────────────────────────────────
+# Fedora's kernel vmlinuz is signed by Red Hat's production key, which is
+# embedded in Fedora's shim. Booting it requires zero MOK interaction — the
+# shim trusts it out of the box. The installed default image now uses Fedora's
+# kernel too; CachyOS is an advanced bootc image variant users can switch
+# to after install.
+# --setopt=tsflags=noscripts skips %posttrans scriptlets (same as CachyOS above).
+RUN dnf5 install -y --setopt=tsflags=noscripts \
+        kernel-core \
+        kernel-modules-core \
+        kernel-modules \
+    && FEDORA_KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
+           -printf '%f\n' | grep -v cachyos | sort -V | tail -n 1) \
+    && depmod -a "${FEDORA_KVER}" \
+    && if [ ! -f "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" ]; then \
+           cp --no-preserve=all "/boot/vmlinuz-${FEDORA_KVER}" \
+               "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" 2>/dev/null || true; \
        fi \
-    && for kdir in /usr/lib/modules/*/; do \
-           kver=$(basename "$kdir"); \
-           if [[ "$kver" != *cachyos* ]]; then rm -rf "$kdir"; fi; \
-       done \
-    && rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true \
-    && dnf5 copr disable -y bieszczaders/kernel-cachyos \
+    && echo "==> Fedora kernel for live boot: ${FEDORA_KVER}" \
     && dnf5 clean all
 
-# ── Secure Boot: sign the CachyOS vmlinuz ────────────────────────────────────
-# Skipped gracefully when MOK_KEY is not set (local builds, forks without the secret).
-# The cert is bind-mounted from the build context so it never lands in an image layer.
-# Pass the private key via: --secret id=mok_key,env=MOK_KEY
-RUN --mount=type=secret,id=mok_key \
-    --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/tmp/kyth-secureboot.cer \
+# ── Secure Boot: stage cert for post-install enrollment ──────────────────────
+# The live session and default install boot Fedora-signed kernels (no MOK needed).
+# The Kyth cert is still staged so advanced custom-kernel variants can enroll the
+# project key when needed.
+RUN --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/tmp/kyth-secureboot.cer \
     set -euo pipefail; \
-    echo "secureboot-live: signing requested=${SECUREBOOT_SIGNING_REQUESTED}"; \
-    if [[ ! -f "/run/secrets/mok_key" ]]; then \
-        if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then \
-            echo "secureboot-live: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2; \
-            exit 1; \
-        fi; \
-        echo "secureboot-live: no MOK key — vmlinuz not signed"; \
-        echo "secureboot-live: set MOK_KEY secret in CI to enable Secure Boot signing"; \
-        exit 0; \
-    fi; \
-    KVER=$(basename "$(ls -d /usr/lib/modules/*cachyos* 2>/dev/null | head -1)" 2>/dev/null || true); \
-    if [[ -z "${KVER}" ]]; then \
-        echo "secureboot-live: ERROR — no CachyOS kernel in /usr/lib/modules/" >&2; exit 1; \
-    fi; \
-    VMLINUZ="/usr/lib/modules/${KVER}/vmlinuz"; \
-    echo "secureboot-live: installing sbsigntools"; \
-    dnf5 install -y sbsigntools openssl; \
-    echo "secureboot-live: signing ${VMLINUZ} (kernel ${KVER})"; \
-    KEY_MD5=$(openssl rsa -in "/run/secrets/mok_key" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE"); \
-    CERT_MD5=$(openssl x509 -in "/tmp/kyth-secureboot.cer" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE"); \
-    echo "secureboot-live: key modulus md5=${KEY_MD5}"; \
-    echo "secureboot-live: cert modulus md5=${CERT_MD5}"; \
-    if [[ "${KEY_MD5}" != "${CERT_MD5}" ]]; then \
-        echo "secureboot-live: ERROR — MOK_KEY secret does not match kyth-secureboot.cer in the repo." >&2; \
-        exit 1; \
-    fi; \
-    sbsign --key "/run/secrets/mok_key" \
-           --cert "/tmp/kyth-secureboot.cer" \
-           --output "${VMLINUZ}.signed" \
-           "${VMLINUZ}"; \
-    mv "${VMLINUZ}.signed" "${VMLINUZ}"; \
-    sbverify --cert "/tmp/kyth-secureboot.cer" "${VMLINUZ}"; \
-    install -Dm 0644 "/tmp/kyth-secureboot.cer" /usr/share/kyth/secureboot/kyth-secureboot.cer; \
-    openssl x509 -in "/tmp/kyth-secureboot.cer" -outform DER -out /tmp/kyth-secureboot.der; \
+    install -Dm 0644 /tmp/kyth-secureboot.cer /usr/share/kyth/secureboot/kyth-secureboot.cer; \
+    openssl x509 -in /tmp/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der; \
     install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der; \
-    install -Dm 0644 /dev/null /usr/share/kyth/secureboot/live-kernel-signed; \
-    dnf5 remove -y sbsigntools; \
-    dnf5 clean all; \
-    echo "secureboot-live: vmlinuz signed successfully"
+    echo "secureboot-live: cert staged for optional custom-kernel MOK enrollment"
 
 # ── System setup: live user, autologin, mask setup service ───────────────────
 # Autologin strategy — two independent layers so one backs up the other:
@@ -221,7 +265,7 @@ RUN mkdir -p \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=KythOS Welcome\nHidden=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Helper\nExec=/usr/bin/kyth-welcome-launch\nX-KDE-autostart-after=panel\nHidden=false\nNoDisplay=true\n' \
         > /home/liveuser/.config/autostart/kyth-welcome.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Accessibility\nHidden=true\n' \
         > /home/liveuser/.config/autostart/org.kde.kaccess.desktop \
@@ -256,13 +300,17 @@ RUN mkdir -p \
         > /home/liveuser/Desktop/install-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
-    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
     && if [ -f /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop ]; then \
            cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
               /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
+       fi \
+    && if [ -f /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop ]; then \
+           cp /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop \
+              /home/liveuser/.config/autostart/kyth-windows-friendly-defaults.desktop; \
        fi \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
     && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
@@ -286,6 +334,10 @@ COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg
+COPY build_files/branding/kyth-kickoff.svg \
+     /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg
+COPY build_files/branding/kyth-boot-badge.svg \
+     /usr/share/plymouth/themes/kyth/kyth-boot-badge.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
 COPY build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
 COPY build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
@@ -301,12 +353,32 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyt
     && mkdir -p /usr/share/wallpapers/kyth/contents/images \
     && printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
         > /usr/share/wallpapers/kyth/metadata.json \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
           /usr/share/icons/hicolor/scalable/apps/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/hicolor/scalable/apps/start-here-kde-plasma.svg \
+    && mkdir -p /usr/share/icons/breeze/apps/scalable \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/kyth-kickoff.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze/apps/scalable/start-here-kde-plasma.svg \
     && mkdir -p /usr/share/icons/breeze-dark/apps/scalable \
-    && cp /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/kyth-kickoff.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
           /usr/share/icons/breeze-dark/apps/scalable/start-here.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here-kde.svg \
+    && cp /usr/share/icons/hicolor/scalable/apps/kyth-kickoff.svg \
+          /usr/share/icons/breeze-dark/apps/scalable/start-here-kde-plasma.svg \
     && gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true \
+    && gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true \
     && gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true \
     && sed -i 's/^PRETTY_NAME=.*/PRETTY_NAME="KythOS 44 Live"/' /etc/os-release \
     && sed -i 's/^NAME=.*/NAME="KythOS"/' /etc/os-release \
@@ -323,10 +395,22 @@ RUN chmod +x /usr/bin/kyth-installer /usr/bin/kyth-launch-installer /usr/bin/kyt
     || true
 
 # ── Branding assets, Plymouth theme, and live initramfs ──────────────────────
-RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1) \
+# The initramfs is built for the Fedora-signed kernel so the live session boots
+# without MOK enrollment. Modules for that kernel are in its own module tree.
+RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
+        | grep -v cachyos | sort -V | tail -n 1) \
     && rsvg-convert -w 200 \
         /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && for spinner_dir in \
+           /usr/share/plymouth/themes/spinner \
+           /usr/share/plymouth/themes/bgrt-fedora; do \
+           if [ -d "$spinner_dir" ]; then \
+               rsvg-convert -w 260 \
+                   /usr/share/plymouth/themes/kyth/kyth-boot-badge.svg \
+                   -o "$spinner_dir/watermark.png"; \
+           fi; \
+       done \
     && rsvg-convert -w 1920 -h 1080 \
         /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
         -o /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png \
@@ -437,8 +521,8 @@ RUN mkdir -p /etc/NetworkManager/conf.d /etc/modprobe.d \
         > /etc/modprobe.d/iwlwifi-kyth.conf \
     && printf 'options mt7921e disable_aspm=1\n' \
         > /etc/modprobe.d/mt7921-kyth.conf \
-    && printf 'options cfg80211 ieee80211_regdom=US\n' \
-        > /etc/modprobe.d/cfg80211-kyth.conf
+    && printf 'options rtw89_pci disable_clkreq=1 disable_aspm_l1=1 disable_aspm_l1ss=1\n' \
+        > /etc/modprobe.d/rtw89-kyth.conf
 
 # ── Finalize: machine-id, mask services, zram swap, locale / timezone ────────
 # machine-id must be "uninitialized" so systemd generates a volatile one.

@@ -65,6 +65,17 @@ _SMB_CONFIG = os.path.expanduser("~/.config/kyth-smb-shares.json")
 _SMB_CREDS_DIR = "/etc/kyth-smb-creds"
 
 
+def _is_live_session() -> bool:
+    try:
+        with open("/proc/cmdline") as _f:
+            return "kyth.live" in _f.read()
+    except OSError:
+        return False
+
+
+_IS_LIVE = _is_live_session()
+
+
 def _prefer_xwayland_if_wayland_plugin_missing() -> None:
     # KDE Wayland sessions usually expose both WAYLAND_DISPLAY and DISPLAY.
     # If qt6-qtwayland is missing in the image, Qt aborts before showing any
@@ -90,9 +101,9 @@ def _prefer_xwayland_if_wayland_plugin_missing() -> None:
 def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
                          warn_text: str = "Not Installed") -> None:
     if ok:
-        bg = "#0f2a31"
-        fg = "#5ee6c1"
-        border = "#1f6b63"
+        bg = "#1f2a24"
+        fg = "#89d185"
+        border = "#2f5d45"
         text = ok_text
     else:
         bg = "#171d27"
@@ -111,11 +122,11 @@ QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
     font-size: 13px;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QMainWindow {
-    background: #1b2838;
+    background: #1e1e1e;
 }
 
 QWidget {
@@ -128,14 +139,14 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #171a21;
-    border-right: 1px solid #0d1117;
+    background: #181818;
+    border-right: 1px solid #2b2b2b;
 }
 
 QWidget#sidebar-header {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1e2d3e, stop:1 #171a21);
-    border-bottom: 1px solid #0d1117;
+                                stop:0 #252526, stop:1 #181818);
+    border-bottom: 1px solid #2b2b2b;
 }
 
 QLabel#sidebar-logo {
@@ -148,7 +159,7 @@ QLabel#sidebar-logo {
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #66c0f4;
+    color: #a6a6a6;
     font-weight: 600;
     padding: 0;
 }
@@ -156,14 +167,14 @@ QLabel#sidebar-ver {
 QLabel#nav-section {
     font-size: 10px;
     font-weight: 700;
-    color: #4a5a6a;
+    color: #858585;
     letter-spacing: 1.4px;
     padding: 0 0 2px 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #8f98a0;
+    color: #cccccc;
     border: none;
     border-left: 3px solid transparent;
     border-radius: 0;
@@ -175,15 +186,15 @@ QPushButton#nav-item {
 
 QPushButton#nav-item:hover {
     background: rgba(255, 255, 255, 0.04);
-    color: #c6d4df;
-    border-left: 3px solid #2a475e;
+    color: #ffffff;
+    border-left: 3px solid #505050;
 }
 
 QPushButton#nav-item-active {
-    background: rgba(102, 192, 244, 0.12);
-    color: #66c0f4;
+    background: #2a2d2e;
+    color: #ffffff;
     border: none;
-    border-left: 3px solid #66c0f4;
+    border-left: 3px solid #c586c0;
     border-radius: 0;
     padding: 10px 16px 10px 13px;
     text-align: left;
@@ -193,7 +204,7 @@ QPushButton#nav-item-active {
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
-    background: #1b2838;
+    background: #1e1e1e;
 }
 
 QScrollArea {
@@ -204,14 +215,14 @@ QScrollArea {
 /* ── Page header band ────────────────────────────────────────────────────── */
 QWidget#page-header {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #1f2d3e, stop:1 #1b2838);
-    border-bottom: 1px solid #2a3f5a;
+                                stop:0 #252526, stop:1 #1e1e1e);
+    border-bottom: 1px solid #3c3c3c;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
     background: transparent;
-    color: #66c0f4;
+    color: #c586c0;
     border: none;
     font-size: 10px;
     font-weight: 700;
@@ -222,41 +233,41 @@ QLabel#eyebrow {
 QLabel#heading {
     font-size: 26px;
     font-weight: 700;
-    color: #ffffff;
-    letter-spacing: -0.5px;
+    color: #f3f3f3;
+    letter-spacing: 0;
 }
 
 QLabel#subheading {
     font-size: 13px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.5;
 }
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #57cbde;
+    color: #89d185;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #e8a838;
+    color: #cca700;
     font-weight: 600;
 }
 
 QLabel#status-err {
-    color: #e96060;
+    color: #f48771;
     font-weight: 600;
 }
 
 QLabel#status-dim {
-    color: #6a7a8a;
+    color: #858585;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #2a475e;
-    color: #c6d4df;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 9px 20px;
     font-size: 13px;
@@ -264,25 +275,41 @@ QPushButton {
 }
 
 QPushButton:hover {
-    background: #3d6680;
+    background: #3a3d41;
     color: #ffffff;
-    border-color: #2a5a80;
+    border-color: #505050;
 }
 
 QPushButton:pressed {
-    background: #1e3448;
-    color: #c6d4df;
+    background: #252526;
+    color: #cccccc;
 }
 
 QPushButton:disabled {
-    background: #1b2838;
-    color: #4a6070;
-    border-color: #1e3448;
+    background: #252526;
+    color: #6f6f6f;
+    border-color: #333333;
+}
+
+QPushButton#primary {
+    background: #3a2d3a;
+    color: #ffffff;
+    border: 1px solid #5f4b5f;
+    font-weight: 700;
+}
+
+QPushButton#primary:hover {
+    background: #4a394a;
+    border-color: #c586c0;
+}
+
+QPushButton#primary:pressed {
+    background: #2d242d;
 }
 
 QPushButton#primary:disabled {
-    background: #1b3a52;
-    color: #3a5a6a;
+    background: #252526;
+    color: #6f6f6f;
     border: none;
 }
 
@@ -312,8 +339,8 @@ QPushButton#danger:disabled {
 
 QPushButton#branch-active {
     background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #4cb8f5, stop:1 #1a9fe8);
-    color: #051625;
+                                stop:0 #4d4d4d, stop:1 #3a3a3a);
+    color: #ffffff;
     font-weight: 700;
     border: none;
     border-radius: 3px;
@@ -321,56 +348,56 @@ QPushButton#branch-active {
 }
 
 QPushButton#branch-inactive {
-    background: #2a475e;
-    color: #8f98a0;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #a6a6a6;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 10px 24px;
 }
 
 QPushButton#branch-inactive:hover {
-    background: #3d6680;
-    color: #c6d4df;
-    border-color: #2a5a80;
+    background: #3a3d41;
+    color: #cccccc;
+    border-color: #505050;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
-    color: #ffffff;
+    color: #f3f3f3;
 }
 
 QLabel#section-heading {
     font-size: 15px;
     font-weight: 700;
-    color: #c6d4df;
+    color: #cccccc;
     letter-spacing: 0.1px;
 }
 
 QLabel#card-summary {
-    color: #c6d4df;
+    color: #cccccc;
     font-weight: 600;
 }
 
 QLabel#card-action {
-    color: #66c0f4;
+    color: #c586c0;
 }
 
 QLabel#card-copy {
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
 QFrame#card-accent-ok {
-    background: #12231e;
-    border: 1px solid #1e4a3a;
+    background: #1f2a24;
+    border: 1px solid #2f5d45;
     border-radius: 4px;
 }
 
@@ -386,65 +413,129 @@ QFrame#card-accent-err {
     border-radius: 4px;
 }
 
+QFrame#starter-pack {
+    background: #202124;
+    border: 1px solid #34363b;
+    border-radius: 4px;
+}
+
+QPushButton#starter-pack-header {
+    background: transparent;
+    border: none;
+    color: #f3f3f3;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 0;
+}
+
+QPushButton#starter-pack-header:hover {
+    color: #ffffff;
+}
+
+QLabel#starter-pack-meta {
+    color: #89d185;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QWidget#starter-pack-details {
+    background: transparent;
+}
+
+/* ── Software page tab bar ───────────────────────────────────────────────── */
+QWidget#sw-tab-bar {
+    background: #1e1e1e;
+}
+
+QPushButton#sw-tab {
+    background: transparent;
+    color: #a6a6a6;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 10px 22px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 110px;
+}
+
+QPushButton#sw-tab:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #cccccc;
+}
+
+QPushButton#sw-tab-active {
+    background: transparent;
+    color: #ffffff;
+    border: none;
+    border-bottom: 2px solid #c586c0;
+    border-radius: 0;
+    padding: 10px 22px;
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 110px;
+}
+
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QFrame#stat-tile:hover {
-    border-color: #3d6680;
-    background: #1b2940;
+    border-color: #505050;
+    background: #2d2d30;
 }
 
 QLabel#stat-label {
     font-size: 10px;
     font-weight: 700;
-    color: #6a7a8a;
+    color: #858585;
     letter-spacing: 1.4px;
 }
 
 QLabel#stat-value {
     font-size: 14px;
     font-weight: 700;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QLabel#stat-value-ok {
     font-size: 14px;
     font-weight: 700;
-    color: #57cbde;
+    color: #89d185;
 }
 
 QLabel#stat-value-warn {
     font-size: 14px;
     font-weight: 700;
-    color: #e8a838;
+    color: #cca700;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #2a3f5a;
+    background: #3c3c3c;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #0d1520;
-    color: #acbdd3;
-    border: 1px solid #2a3f5a;
+    background: #1e1e1e;
+    color: #d4d4d4;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
     font-family: "Cascadia Code", "Noto Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 12px 14px;
-    selection-background-color: #2a5a80;
+    selection-background-color: #264f78;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #0d1520;
+    background: #181818;
     border: none;
     border-radius: 3px;
     max-height: 6px;
@@ -454,7 +545,7 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #1a9fe8, stop:1 #57cbde);
+                                stop:0 #c586c0, stop:1 #89d185);
     border-radius: 3px;
 }
 
@@ -467,13 +558,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: #2a3f5a;
+    background: #424242;
     border-radius: 4px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #3d6680;
+    background: #5a5a5a;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -489,13 +580,13 @@ QScrollBar:horizontal {
 }
 
 QScrollBar::handle:horizontal {
-    background: #2a3f5a;
+    background: #424242;
     border-radius: 4px;
     min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #3d6680;
+    background: #5a5a5a;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -505,55 +596,55 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #0d1520;
-    border: 1px solid #2a3f5a;
+    background: #181818;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 9px 12px;
-    color: #c6d4df;
-    selection-background-color: #2a5a80;
+    color: #cccccc;
+    selection-background-color: #5f3f5c;
 }
 
 QLineEdit:focus {
-    border-color: #66c0f4;
-    background: #101d2e;
+    border-color: #c586c0;
+    background: #1e1e1e;
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #c6d4df;
+    color: #cccccc;
     spacing: 9px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #0d1520;
-    border: 1px solid #2a3f5a;
+    background: #1e1e1e;
+    border: 1px solid #6a6a6a;
     border-radius: 3px;
 }
 
 QCheckBox::indicator:checked {
-    background: #1a9fe8;
-    border-color: #4cb8f5;
+    background: #c586c0;
+    border-color: #d7a8d3;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #66c0f4;
+    border-color: #d7a8d3;
 }
 
 /* ── ComboBox ────────────────────────────────────────────────────────────── */
 QComboBox {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 8px 12px;
-    color: #c6d4df;
+    color: #cccccc;
     min-width: 80px;
 }
 
 QComboBox:hover {
-    border-color: #66c0f4;
-    background: #1b2940;
+    border-color: #c586c0;
+    background: #2d2d30;
 }
 
 QComboBox::drop-down {
@@ -562,28 +653,28 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
-    color: #c6d4df;
-    selection-background-color: #2a475e;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    color: #cccccc;
+    selection-background-color: #3a3d41;
     outline: none;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
 QFrame#step-item {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
+    background: #252526;
+    border: 1px solid #3c3c3c;
     border-radius: 4px;
 }
 
 QFrame#step-item:hover {
-    background: #1b2940;
-    border-color: #3d6680;
+    background: #2d2d30;
+    border-color: #505050;
 }
 
 QLabel#step-number {
-    background: #2a475e;
-    color: #66c0f4;
+    background: #3a3d41;
+    color: #ffffff;
     border: none;
     border-radius: 14px;
     font-size: 12px;
@@ -593,19 +684,19 @@ QLabel#step-number {
 QLabel#step-title {
     font-size: 13px;
     font-weight: 600;
-    color: #c6d4df;
+    color: #cccccc;
 }
 
 QLabel#step-desc {
-    color: #6a7a8a;
+    color: #858585;
     font-size: 12px;
     line-height: 1.5;
 }
 
 QPushButton#step-action {
-    background: #2a475e;
-    color: #c6d4df;
-    border: 1px solid #1e3448;
+    background: #2d2d30;
+    color: #cccccc;
+    border: 1px solid #3c3c3c;
     border-radius: 3px;
     padding: 7px 16px;
     font-weight: 500;
@@ -613,49 +704,49 @@ QPushButton#step-action {
 }
 
 QPushButton#step-action:hover {
-    background: #3d6680;
+    background: #3a3d41;
     color: #ffffff;
-    border-color: #2a5a80;
+    border-color: #505050;
 }
 
 /* ── Update alert card ───────────────────────────────────────────────────── */
 QFrame#card-update {
-    background: #0f1e30;
-    border: 1px solid #1a5a8a;
+    background: #2a2518;
+    border: 1px solid #5f4f24;
     border-radius: 4px;
 }
 
 QLabel#card-title-update {
     font-size: 14px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #dcdcaa;
 }
 
 /* ── Wizard header ───────────────────────────────────────────────────────── */
 QWidget#wizard-header {
-    background: #171a21;
-    border-bottom: 1px solid #0d1117;
+    background: #181818;
+    border-bottom: 1px solid #2b2b2b;
 }
 
 QLabel#wizard-step-label {
     font-size: 10px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #c586c0;
     letter-spacing: 1.4px;
 }
 
 QLabel#step-dot-active {
-    background: #66c0f4;
+    background: #c586c0;
     border-radius: 5px;
 }
 
 QLabel#step-dot-done {
-    background: #57cbde;
+    background: #89d185;
     border-radius: 5px;
 }
 
 QLabel#step-dot-inactive {
-    background: #2a3f5a;
+    background: #505050;
     border-radius: 5px;
 }
 
@@ -663,31 +754,31 @@ QLabel#step-dot-inactive {
 QLabel#wizard-progress-step {
     font-size: 11px;
     font-weight: 600;
-    color: #4a6070;
+    color: #858585;
 }
 
 QLabel#wizard-progress-step-active {
     font-size: 11px;
     font-weight: 700;
-    color: #66c0f4;
+    color: #ffffff;
 }
 
 QLabel#wizard-progress-step-done {
     font-size: 11px;
     font-weight: 600;
-    color: #57cbde;
+    color: #89d185;
 }
 
 /* ── Wizard footer ───────────────────────────────────────────────────────── */
 QWidget#wizard-footer {
-    background: #171a21;
-    border-top: 1px solid #0d1117;
+    background: #181818;
+    border-top: 1px solid #2b2b2b;
 }
 
 /* ── Wizard welcome hero ─────────────────────────────────────────────────── */
 QWidget#wizard-hero {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-                                stop:0 #1b2d42, stop:0.5 #1b2838, stop:1 #16202d);
+                                stop:0 #252526, stop:0.5 #1e1e1e, stop:1 #181818);
 }
 
 QLabel#wizard-logo {
@@ -699,14 +790,14 @@ QLabel#wizard-logo {
 
 QLabel#wizard-tagline {
     font-size: 17px;
-    color: #66c0f4;
+    color: #c586c0;
     font-weight: 600;
     letter-spacing: 0.3px;
 }
 
 QLabel#wizard-desc {
     font-size: 13px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
@@ -719,37 +810,59 @@ QLabel#finish-title {
 
 QLabel#finish-subtitle {
     font-size: 14px;
-    color: #8f98a0;
+    color: #a6a6a6;
     line-height: 1.6;
 }
 
 /* ── Hardware card ────────────────────────────────────────────────────────── */
 QFrame#hw-card-ok {
-    background: #12231e;
-    border: 1px solid #1e4a3a;
-    border-left: 3px solid #57cbde;
+    background: #1f2a24;
+    border: 1px solid #2f5d45;
+    border-left: 3px solid #89d185;
     border-radius: 4px;
 }
 
 QFrame#hw-card-warn {
     background: #221a0a;
     border: 1px solid #4a3a10;
-    border-left: 3px solid #e8a838;
+    border-left: 3px solid #cca700;
     border-radius: 4px;
 }
 
 QFrame#hw-card-err {
     background: #221010;
     border: 1px solid #4a1a1a;
-    border-left: 3px solid #e96060;
+    border-left: 3px solid #f48771;
     border-radius: 4px;
 }
 
 QFrame#hw-card-dim {
-    background: #16202d;
-    border: 1px solid #2a3f5a;
-    border-left: 3px solid #2a475e;
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-left: 3px solid #505050;
     border-radius: 4px;
+}
+
+/* ── Live session banner ─────────────────────────────────────────────────── */
+QWidget#live-banner {
+    background: #1a1200;
+    border-bottom: 1px solid #4a3800;
+}
+
+QLabel#live-banner-badge {
+    background: #3a2a00;
+    color: #cca700;
+    border: 1px solid #5a4400;
+    border-radius: 10px;
+    padding: 3px 8px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+}
+
+QLabel#live-banner-text {
+    color: #9a8650;
+    font-size: 11px;
 }
 """
 
@@ -1206,13 +1319,13 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
 def _bootc_image_reference() -> str | None:
     data = _bootc_status_data() or {}
     candidates = (
-        ("spec", "image", "image"),
-        ("spec", "image", "reference"),
         ("status", "booted", "image", "reference"),
         ("status", "booted", "image", "image", "reference"),
         ("status", "booted", "image", "image", "image"),
         ("status", "booted", "image", "image"),
         ("status", "booted", "image"),
+        ("spec", "image", "image"),
+        ("spec", "image", "reference"),
     )
     for path in candidates:
         value = _nested_get(data, path)
@@ -1244,14 +1357,11 @@ def _branch_from_ref(ref: str | None) -> str | None:
     ref = ref.strip()
     if not ref:
         return None
-    if f"{REGISTRY}:latest" in ref:
-        return "latest"
-    if f"{REGISTRY}:testing" in ref:
-        return "testing"
-    if "@" in ref:
-        return ref.split("@", 1)[0].rsplit(":", 1)[-1]
-    if ":" in ref:
-        return ref.rsplit(":", 1)[-1]
+    base = ref.split("@", 1)[0] if "@" in ref else ref
+    if ":" in base:
+        tag = base.rsplit(":", 1)[-1]
+        if tag:
+            return tag
     return None
 
 
@@ -1260,11 +1370,43 @@ def _branch_display_name(tag: str | None) -> str:
         return "Stable (latest)"
     if tag == "testing":
         return "Testing"
+    if tag == "latest-cachy":
+        return "Stable + CachyOS kernel"
+    if tag == "testing-cachy":
+        return "Testing + CachyOS kernel"
     return tag or "unknown"
 
 
 def _current_branch() -> str | None:
     return _branch_from_ref(_bootc_image_reference())
+
+
+def _current_kernel_flavor() -> str:
+    try:
+        with open("/usr/share/kyth/kernel-flavor") as fh:
+            flavor = fh.read().strip().lower()
+            if flavor in {"fedora", "cachy"}:
+                return flavor
+    except OSError:
+        pass
+    kernel = _command_stdout(["uname", "-r"]).lower()
+    if "cachy" in kernel:
+        return "cachy"
+    return "fedora"
+
+
+def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
+    base = "testing" if channel == "testing" else "latest"
+    flavor = flavor or _current_kernel_flavor()
+    suffix = "-cachy" if flavor == "cachy" else ""
+    return f"{base}{suffix}"
+
+
+def _image_tag_for_kernel(flavor: str) -> str:
+    if flavor == "cachy":
+        return "testing-cachy"
+    channel = "testing" if (_current_branch() or "").startswith("testing") else "latest"
+    return channel
 
 
 def _has_staged_update() -> bool:
@@ -1943,7 +2085,7 @@ def _hw_setup_done() -> bool:
 
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
-        return ("#0f2a31", "#5ee6c1", "OK")
+        return ("#1f2a24", "#89d185", "OK")
     if status == "warn":
         return ("#152030", "#e0af68", "Warning")
     if status == "err":
@@ -3193,10 +3335,10 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #1a4a3a; color: #57cbde; border: 1px solid #2a6a5a;",  "OK"),
-        "warn": ("background: #3a2a00; color: #e8a838; border: 1px solid #5a4010;",  "Warning"),
-        "err":  ("background: #3a1010; color: #e96060; border: 1px solid #5a1a1a;",  "Issue"),
-        "dim":  ("background: #1e2d3e; color: #6a7a8a; border: 1px solid #2a3f5a;",  "Info"),
+        "ok":   ("background: #1f2a24; color: #89d185; border: 1px solid #2f5d45;",  "OK"),
+        "warn": ("background: #3a2a00; color: #cca700; border: 1px solid #5a4010;",  "Warning"),
+        "err":  ("background: #3a1010; color: #f48771; border: 1px solid #5a1a1a;",  "Issue"),
+        "dim":  ("background: #252526; color: #858585; border: 1px solid #3c3c3c;",  "Info"),
     }
 
     def __init__(self, probe: HardwareProbe):
@@ -3442,7 +3584,7 @@ class WelcomePage(Page):
             alert_header = QHBoxLayout()
             alert_icon = QLabel("↑")
             alert_icon.setStyleSheet(
-                "font-size: 18px; color: #66c0f4; font-weight: 700; background: transparent;"
+                "font-size: 18px; color: #c586c0; font-weight: 700; background: transparent;"
             )
             alert_header.addWidget(alert_icon)
             alert_title = QLabel("OS update staged — reboot to apply")
@@ -3467,12 +3609,43 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
+        # ── First-run chooser ────────────────────────────────────────────────
+        chooser, chooser_layout = _make_card("card-accent-ok")
+        chooser_title = QLabel("What do you want to do first?")
+        chooser_title.setObjectName("card-title")
+        chooser_layout.addWidget(chooser_title)
+        chooser_body = QLabel(
+            "Pick the path that matches why you booted KythOS today. You can come "
+            "back here anytime from the application menu."
+        )
+        chooser_body.setObjectName("card-copy")
+        chooser_body.setWordWrap(True)
+        chooser_layout.addWidget(chooser_body)
+        chooser_btns = QHBoxLayout()
+        chooser_btns.setSpacing(8)
+        for label, page_key in (
+            ("Move From Windows", "Move From Windows"),
+            ("Install Familiar Apps", "Software"),
+            ("Set Up Games", "Gaming"),
+            ("Check Hardware", "Hardware"),
+            ("Learn Updates", "Update"),
+        ):
+            btn = QPushButton(label)
+            if page_key == "Move From Windows":
+                btn.setObjectName("primary")
+            btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
+            chooser_btns.addWidget(btn)
+        chooser_btns.addStretch()
+        chooser_layout.addLayout(chooser_btns)
+        self._add(chooser)
+
         # ── Getting started section ──────────────────────────────────────────
         section_lbl = QLabel("Getting Started")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
         steps = [
+            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
             ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
             ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
             ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
@@ -3552,7 +3725,7 @@ class WelcomePage(Page):
         icon_lbl.setFixedSize(32, 32)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         icon_lbl.setStyleSheet(
-            "background: #2a475e; color: #66c0f4; border-radius: 16px; "
+            "background: #3a3d41; color: #c586c0; border-radius: 16px; "
             "font-size: 14px; font-weight: 700;"
         )
         row.addWidget(icon_lbl)
@@ -4134,7 +4307,7 @@ class UpdatePage(Page):
         self._stable_build_lbl.hide()
         stable_layout.addWidget(self._stable_build_lbl)
         self._stable_btn = QPushButton("Switch to Stable")
-        self._stable_btn.clicked.connect(lambda: self._run_branch_switch("latest"))
+        self._stable_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("latest")))
         stable_layout.addWidget(self._stable_btn)
         channel_row.addWidget(stable_card, 1)
 
@@ -4155,7 +4328,7 @@ class UpdatePage(Page):
         self._testing_build_lbl.hide()
         testing_layout.addWidget(self._testing_build_lbl)
         self._testing_btn = QPushButton("Switch to Testing")
-        self._testing_btn.clicked.connect(lambda: self._run_branch_switch("testing"))
+        self._testing_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("testing")))
         testing_layout.addWidget(self._testing_btn)
         channel_row.addWidget(testing_card, 1)
 
@@ -4465,7 +4638,7 @@ class UpdatePage(Page):
 
         # Branch channel cards
         is_idle = self._worker is None
-        if tag == "latest":
+        if tag in ("latest", "latest-cachy"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_btn.setEnabled(False)
@@ -4475,7 +4648,7 @@ class UpdatePage(Page):
             self._testing_btn.setText("Switch to Testing")
             self._testing_btn.setEnabled(is_idle)
             self._testing_build_lbl.hide()
-        elif tag == "testing":
+        elif tag in ("testing", "testing-cachy"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_btn.setEnabled(is_idle)
@@ -4522,7 +4695,7 @@ class UpdatePage(Page):
         ts_hint = f"  ·  Checked at {self._check_ts}"
 
         if state == "available":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #e8a838;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #cca700;")
             self._avail_title.setText("Update available")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(
@@ -4531,7 +4704,7 @@ class UpdatePage(Page):
             )
             self._update_now_btn.show()
         elif state == "uptodate":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #57cbde;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #89d185;")
             self._avail_title.setText("Up to date")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
@@ -4625,7 +4798,7 @@ class BranchesPage(Page):
         self._stable_build_lbl.hide()
         stable_layout.addWidget(self._stable_build_lbl)
         self._stable_btn = QPushButton("Switch to Stable")
-        self._stable_btn.clicked.connect(lambda: self._switch("latest"))
+        self._stable_btn.clicked.connect(lambda: self._switch(_image_tag_for_channel("latest")))
         stable_layout.addWidget(self._stable_btn)
         selector_row.addWidget(stable_card, 1)
 
@@ -4646,7 +4819,7 @@ class BranchesPage(Page):
         self._testing_build_lbl.hide()
         testing_layout.addWidget(self._testing_build_lbl)
         self._testing_btn = QPushButton("Switch to Testing")
-        self._testing_btn.clicked.connect(lambda: self._switch("testing"))
+        self._testing_btn.clicked.connect(lambda: self._switch(_image_tag_for_channel("testing")))
         testing_layout.addWidget(self._testing_btn)
         selector_row.addWidget(testing_card, 1)
 
@@ -4710,7 +4883,7 @@ class BranchesPage(Page):
             self._state_copy_btn.hide()
 
         # Branch cards
-        if tag == "latest":
+        if tag in ("latest", "latest-cachy"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
@@ -4718,7 +4891,7 @@ class BranchesPage(Page):
             self._testing_btn.setObjectName("branch-inactive")
             self._testing_btn.setText("Switch to Testing")
             self._testing_build_lbl.hide()
-        elif tag == "testing":
+        elif tag in ("testing", "testing-cachy"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_build_lbl.hide()
@@ -5200,6 +5373,38 @@ class RepairPage(Page):
         info_layout.addWidget(info_body)
         self._add(info)
 
+        # Quick fixes
+        quick, quick_layout = _make_card("card-accent-ok")
+        quick_title = QLabel("Quick fixes")
+        quick_title.setObjectName("card-title")
+        quick_layout.addWidget(quick_title)
+        quick_body = QLabel(
+            "Try these first. They are non-destructive and aimed at the common "
+            "Windows-switcher moments: app menu entries missing, Flatpaks acting odd, "
+            "audio disappearing, or needing a familiar Task Manager."
+        )
+        quick_body.setObjectName("card-copy")
+        quick_body.setWordWrap(True)
+        quick_layout.addWidget(quick_body)
+        quick_btns = QHBoxLayout()
+        quick_btns.setSpacing(8)
+        for label, cmd in (
+            ("Refresh App Menu", ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
+            ("Fix Flatpak Apps", ["flatpak", "repair", "--user"]),
+            ("Restart Audio", ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"]),
+            ("Restart Bluetooth", ["sudo", "-A", "systemctl", "restart", "bluetooth"]),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, c=cmd, l=label: self._run_quick_fix(l, c))
+            quick_btns.addWidget(btn)
+        task_btn = QPushButton("Open Task Manager")
+        task_btn.setObjectName("primary")
+        task_btn.clicked.connect(self._open_task_manager)
+        quick_btns.addWidget(task_btn)
+        quick_btns.addStretch()
+        quick_layout.addLayout(quick_btns)
+        self._add(quick)
+
         # Warning card
         warn, warn_layout = _make_card("card-accent-err")
         warn_title = QLabel("This action cannot be undone")
@@ -5263,6 +5468,47 @@ class RepairPage(Page):
         self._add(self._log)
         self._stretch()
 
+    def _open_task_manager(self):
+        for cmd in (["plasma-systemmonitor"], ["ksysguard"], ["konsole", "-e", "btop"], ["konsole", "-e", "top"]):
+            if shutil.which(cmd[0]):
+                subprocess.Popen(cmd)
+                return
+        QMessageBox.warning(self, "Task Manager not found", "Could not find System Monitor or a terminal task viewer.")
+
+    def _run_quick_fix(self, label: str, cmd: list[str]):
+        if self._worker and self._worker.isRunning():
+            return
+        self._confirm_edit.setEnabled(False)
+        self._reset_btn.setEnabled(False)
+        self._log.clear()
+        self._log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText(f"{label}…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._worker = Worker(cmd)
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(lambda code, name=label: self._on_quick_fix_done(code, name))
+        self._worker.start()
+
+    def _on_quick_fix_done(self, code: int, label: str):
+        self._progress.hide()
+        _finish_worker(self)
+        self._confirm_edit.setEnabled(True)
+        self._on_confirm_text(self._confirm_edit.text())
+        if code == 0:
+            self._status_lbl.setText(f"{label} complete.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone.")
+        else:
+            self._status_lbl.setText(f"{label} failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+            _set_log_panel(self._log_toggle, self._log, True)
+        _restyle(self._status_lbl)
+
     def _on_confirm_text(self, text: str):
         self._reset_btn.setEnabled(text.strip() == "RESET")
 
@@ -5306,6 +5552,167 @@ class RepairPage(Page):
             _restyle(self._status_lbl)
             self._confirm_edit.setEnabled(True)
             self._confirm_edit.clear()
+
+
+# ── Page: Kernel ──────────────────────────────────────────────────────────────
+class KernelPage(Page):
+    def __init__(self):
+        super().__init__()
+        self._worker = None
+
+        self._page_header(
+            "Advanced",
+            "Kernel",
+            "Fedora is the recommended default. CachyOS is an opt-in image variant for advanced gaming and low-latency workloads.",
+        )
+
+        state_card, state_layout = _make_card()
+        state_layout.setSpacing(6)
+        state_title = QLabel("Current kernel")
+        state_title.setObjectName("card-title")
+        state_layout.addWidget(state_title)
+        self._current_lbl = QLabel()
+        self._current_lbl.setObjectName("card-copy")
+        self._current_lbl.setWordWrap(True)
+        state_layout.addWidget(self._current_lbl)
+        self._add(state_card)
+
+        picker_row = QHBoxLayout()
+        picker_row.setSpacing(14)
+        self._kernel_buttons: dict[str, QPushButton] = {}
+        for flavor, title, copy, button_text in (
+            (
+                "fedora",
+                "Fedora Kernel",
+                "Recommended for new users. Best supported by Fedora updates, Secure Boot, NVIDIA akmods, and general troubleshooting.",
+                "Use Fedora Kernel",
+            ),
+            (
+                "cachy",
+                "CachyOS Kernel",
+                "Advanced performance option with CachyOS tuning. Good for users chasing latency or benchmark wins.",
+                "Switch to CachyOS",
+            ),
+        ):
+            card, layout = _make_card()
+            title_lbl = QLabel(title)
+            title_lbl.setObjectName("card-title")
+            layout.addWidget(title_lbl)
+            body = QLabel(copy)
+            body.setObjectName("card-copy")
+            body.setWordWrap(True)
+            layout.addWidget(body)
+            btn = QPushButton(button_text)
+            btn.clicked.connect(lambda _=False, f=flavor: self._switch_kernel(f))
+            layout.addWidget(btn)
+            self._kernel_buttons[flavor] = btn
+            picker_row.addWidget(card, 1)
+        self._add_layout(picker_row)
+
+        warn, warn_layout = _make_card("card-accent-warn")
+        warn_title = QLabel("Advanced users only")
+        warn_title.setStyleSheet("color: #cca700; font-size: 14px; font-weight: 700;")
+        warn_layout.addWidget(warn_title)
+        warn_body = QLabel(
+            "Kernel switches download a different KythOS image and apply after reboot. "
+            "The CachyOS kernel currently uses the testing image channel. "
+            "Roll Back remains available from the boot menu and the Update page if a custom kernel causes trouble."
+        )
+        warn_body.setObjectName("card-copy")
+        warn_body.setWordWrap(True)
+        warn_layout.addWidget(warn_body)
+        self._add(warn)
+
+        self._status_lbl = QLabel()
+        self._status_lbl.hide()
+        self._add(self._status_lbl)
+
+        self._progress = QProgressBar()
+        self._progress.setRange(0, 0)
+        self._progress.hide()
+        self._add(self._progress)
+
+        self._log_toggle = QPushButton("Show details")
+        self._log_toggle.setCheckable(True)
+        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
+        self._log_toggle.hide()
+        self._add(self._log_toggle)
+
+        self._log = QTextEdit()
+        self._log.setReadOnly(True)
+        self._log.setMinimumHeight(140)
+        self._log.hide()
+        self._add(self._log)
+
+        self._reboot_btn = QPushButton("Reboot to Apply")
+        self._reboot_btn.setObjectName("primary")
+        self._reboot_btn.hide()
+        self._reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+        self._add(self._reboot_btn)
+        self._stretch()
+        self._refresh()
+
+    def _refresh(self):
+        flavor = _current_kernel_flavor()
+        kernel = _command_stdout(["uname", "-r"]) or "unknown"
+        channel = _branch_display_name(_current_branch())
+        names = {"fedora": "Fedora", "cachy": "CachyOS"}
+        self._current_lbl.setText(f"{names.get(flavor, flavor)} kernel  ·  {kernel}  ·  {channel}")
+        idle = self._worker is None
+        for key, btn in self._kernel_buttons.items():
+            if key == flavor:
+                btn.setObjectName("branch-active")
+                btn.setText("Current")
+                btn.setEnabled(False)
+            else:
+                btn.setObjectName("branch-inactive")
+                btn.setText({
+                    "fedora": "Use Fedora Kernel",
+                    "cachy": "Switch to CachyOS",
+                }[key])
+                btn.setEnabled(idle)
+            _restyle(btn)
+
+    def _switch_kernel(self, flavor: str):
+        tag = _image_tag_for_kernel(flavor)
+        ref = f"{REGISTRY}:{tag}"
+        self._log.clear()
+        self._log.append(f"-> sudo bootc switch {ref}\n")
+        self._log_toggle.show()
+        _set_log_panel(self._log_toggle, self._log, False)
+        self._progress.show()
+        self._status_lbl.setText("Switching kernel image…")
+        self._status_lbl.setObjectName("subheading")
+        self._status_lbl.show()
+        _restyle(self._status_lbl)
+        self._reboot_btn.hide()
+        for btn in self._kernel_buttons.values():
+            btn.setEnabled(False)
+
+        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "switch", ref], "KythOS is switching kernel image"))
+        _set_session_inhibit(self, "KythOS is switching kernel image")
+        self._worker.line.connect(self._on_line)
+        self._worker.done.connect(self._on_done)
+        self._worker.start()
+
+    def _on_line(self, text: str):
+        self._log.append(text)
+        self._log.ensureCursorVisible()
+
+    def _on_done(self, code: int):
+        self._progress.hide()
+        _finish_worker(self)
+        _set_session_inhibit(self, None)
+        if code == 0:
+            self._status_lbl.setText("Kernel image staged — reboot to apply it.")
+            self._status_lbl.setObjectName("status-ok")
+            self._log.append("\nDone. Reboot to activate the selected kernel.")
+            self._reboot_btn.show()
+        else:
+            self._status_lbl.setText(f"Kernel switch failed (exit code {code}).")
+            self._status_lbl.setObjectName("status-err")
+        _restyle(self._status_lbl)
+        self._refresh()
 
 
 # ── Windows NTFS library detection ───────────────────────────────────────────
@@ -5403,6 +5810,200 @@ class WindowsLibraryWorker(QThread):
             print(f"Windows library probe failed: {exc}", file=sys.stderr)
             partitions = []
         self.result.emit(partitions)
+
+
+# ── Page: Move From Windows ──────────────────────────────────────────────────
+class WindowsMigrationPage(Page):
+    def __init__(self, navigate=None):
+        super().__init__()
+        self._navigate = navigate or (lambda _: None)
+        self._worker: WindowsLibraryWorker | None = None
+
+        self._page_header(
+            "System",
+            "Move From Windows",
+            "Bring your files, games, and familiar habits over without touching the Windows install.",
+        )
+
+        intro, intro_layout = _make_card("card-accent-ok")
+        intro_title = QLabel("Start here if this is your first week on KythOS")
+        intro_title.setObjectName("card-title")
+        intro_layout.addWidget(intro_title)
+        intro_body = QLabel(
+            "KythOS can read Windows drives, copy personal files, import Steam libraries, "
+            "and point you toward the right app path for Windows installers. Windows drives "
+            "are treated carefully: migration tools read from them and copy into your home folder."
+        )
+        intro_body.setObjectName("card-copy")
+        intro_body.setWordWrap(True)
+        intro_layout.addWidget(intro_body)
+        intro_btns = QHBoxLayout()
+        intro_btns.setSpacing(8)
+        for label, page in (
+            ("Install Familiar Apps", "Software"),
+            ("Move Steam Games", "Gaming"),
+            ("Back Up Saves", "Gaming"),
+            ("Open File Manager", None),
+        ):
+            btn = QPushButton(label)
+            if page:
+                btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
+            else:
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["dolphin", os.path.expanduser("~")]) if shutil.which("dolphin") else QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+            intro_btns.addWidget(btn)
+        intro_btns.addStretch()
+        intro_layout.addLayout(intro_btns)
+        self._add(intro)
+
+        checklist, checklist_layout = _make_card()
+        checklist_title = QLabel("Windows switch checklist")
+        checklist_title.setObjectName("card-title")
+        checklist_layout.addWidget(checklist_title)
+        for status, title, text in (
+            ("ok", "Apps", "Use Software > Starter Packs for Discord, VLC, Spotify, OBS, Bitwarden, and game launchers."),
+            ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random Windows installers directly."),
+            ("warn", "Files", "Copy Documents, Downloads, Pictures, Music, and Videos into your KythOS home folder."),
+            ("warn", "Saves", "Install Ludusavi before moving large libraries or experimenting with mods."),
+            ("dim", "Updates", "KythOS updates stage a new OS image. Reboot when ready; rollbacks stay available."),
+        ):
+            checklist_layout.addWidget(self._make_migration_row(status, title, text))
+        self._add(checklist)
+
+        drives, drives_layout = _make_card()
+        drives_top = QHBoxLayout()
+        drives_title = QLabel("Windows drives")
+        drives_title.setObjectName("card-title")
+        drives_top.addWidget(drives_title)
+        drives_top.addStretch()
+        refresh_btn = QPushButton("Scan Drives")
+        refresh_btn.setObjectName("primary")
+        refresh_btn.clicked.connect(self._scan_windows_drives)
+        drives_top.addWidget(refresh_btn)
+        drives_layout.addLayout(drives_top)
+        drives_desc = QLabel(
+            "Looks for NTFS partitions, hibernation/dirty flags, mount points, and Steam folders. "
+            "If a drive is hibernated, boot Windows once and choose full Shut Down before copying from it."
+        )
+        drives_desc.setObjectName("card-copy")
+        drives_desc.setWordWrap(True)
+        drives_layout.addWidget(drives_desc)
+        self._drive_status = QLabel("Click Scan Drives to look for Windows partitions.")
+        self._drive_status.setObjectName("card-copy")
+        self._drive_status.setWordWrap(True)
+        drives_layout.addWidget(self._drive_status)
+        self._drive_progress = QProgressBar()
+        self._drive_progress.setRange(0, 0)
+        self._drive_progress.hide()
+        drives_layout.addWidget(self._drive_progress)
+        self._drive_rows = QVBoxLayout()
+        self._drive_rows.setSpacing(8)
+        drives_layout.addLayout(self._drive_rows)
+        self._add(drives)
+
+        exe_card, exe_layout = _make_card()
+        exe_title = QLabel("What about .exe installers?")
+        exe_title.setObjectName("card-title")
+        exe_layout.addWidget(exe_title)
+        exe_body = QLabel(
+            "For games, start with Steam, Heroic, or Lutris. For standalone Windows apps, "
+            "use Bottles so each app gets its own isolated Windows-like environment. "
+            "If a native Linux or Flatpak version exists, prefer that first."
+        )
+        exe_body.setObjectName("card-copy")
+        exe_body.setWordWrap(True)
+        exe_layout.addWidget(exe_body)
+        exe_btns = QHBoxLayout()
+        exe_btns.setSpacing(8)
+        bottles_btn = QPushButton("Install Bottles")
+        bottles_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-bottles"], "Install Bottles"))
+        exe_btns.addWidget(bottles_btn)
+        software_btn = QPushButton("Open Software")
+        software_btn.clicked.connect(lambda _=False: self._navigate("Software"))
+        exe_btns.addWidget(software_btn)
+        exe_btns.addStretch()
+        exe_layout.addLayout(exe_btns)
+        self._add(exe_card)
+
+        self._stretch()
+
+    def _make_migration_row(self, status: str, title: str, summary: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName({
+            "ok": "hw-card-ok",
+            "warn": "hw-card-warn",
+            "err": "hw-card-err",
+            "dim": "hw-card-dim",
+        }.get(status, "hw-card-dim"))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(14, 9, 14, 9)
+        layout.setSpacing(10)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("card-summary")
+        title_lbl.setMinimumWidth(110)
+        layout.addWidget(title_lbl)
+        summary_lbl = QLabel(summary)
+        summary_lbl.setObjectName("card-copy")
+        summary_lbl.setWordWrap(True)
+        layout.addWidget(summary_lbl, 1)
+        return row
+
+    def _clear_drive_rows(self):
+        while self._drive_rows.count():
+            item = self._drive_rows.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+    def _scan_windows_drives(self):
+        if self._worker and self._worker.isRunning():
+            return
+        self._clear_drive_rows()
+        self._drive_progress.show()
+        self._drive_status.setText("Scanning NTFS partitions…")
+        self._drive_status.setObjectName("subheading")
+        _restyle(self._drive_status)
+        self._worker = WindowsLibraryWorker()
+        self._worker.result.connect(self._on_windows_drives)
+        self._worker.start()
+
+    def _on_windows_drives(self, partitions: list):
+        self._drive_progress.hide()
+        _finish_worker(self)
+        if not partitions:
+            self._drive_status.setText("No Windows/NTFS partitions found.")
+            self._drive_status.setObjectName("status-warn")
+            _restyle(self._drive_status)
+            return
+        self._drive_status.setText(f"Found {len(partitions)} Windows-style partition{'s' if len(partitions) != 1 else ''}.")
+        self._drive_status.setObjectName("status-ok")
+        _restyle(self._drive_status)
+        for part in partitions:
+            self._drive_rows.addWidget(self._make_drive_row(part))
+
+    def _make_drive_row(self, part: dict) -> QFrame:
+        status = "warn" if part.get("is_dirty") or part.get("is_hibernated") else "ok"
+        label = part.get("label") or part.get("device") or "Windows drive"
+        mount = part.get("mountpoint") or "not mounted"
+        steam_count = len(part.get("steam_paths") or [])
+        summary = (
+            f"{part.get('device', '')} · {part.get('size', '')} · {mount} · "
+            f"{steam_count} Steam folder{'s' if steam_count != 1 else ''}"
+        )
+        if part.get("is_hibernated"):
+            summary += " · hibernated"
+        elif part.get("is_dirty"):
+            summary += " · needs Windows shutdown"
+        row = self._make_migration_row(status, label, summary)
+        layout = row.layout()
+        if part.get("mountpoint"):
+            open_btn = QPushButton("Open Drive")
+            open_btn.clicked.connect(
+                lambda _=False, path=part["mountpoint"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+            )
+            layout.addWidget(open_btn)
+        gaming_btn = QPushButton("Move Steam")
+        gaming_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
+        layout.addWidget(gaming_btn)
+        return row
 
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
@@ -6390,11 +6991,11 @@ class GamingPage(Page):
 
     def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
         bg, fg, label = {
-            "ok": ("#0f2a31", "#5ee6c1", "OK"),
-            "warn": ("#3a2a00", "#e8a838", "Check"),
-            "err": ("#3a1010", "#e96060", "Fix"),
-            "dim": ("#1e2d3e", "#6a7a8a", "Info"),
-        }.get(status, ("#1e2d3e", "#6a7a8a", "Info"))
+            "ok": ("#1f2a24", "#89d185", "OK"),
+            "warn": ("#3a2a00", "#cca700", "Check"),
+            "err": ("#3a1010", "#f48771", "Fix"),
+            "dim": ("#252526", "#858585", "Info"),
+        }.get(status, ("#252526", "#858585", "Info"))
 
         row = QFrame()
         row.setObjectName("hw-card-dim")
@@ -6505,15 +7106,15 @@ class GamingPage(Page):
         name_lbl.setStyleSheet("font-size:13px; font-weight:700;")
         top.addWidget(name_lbl, 1)
         launcher_lbl = QLabel(f"  {game_info.get('launcher', 'Unknown')}  ")
-        launcher_lbl.setStyleSheet("font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; background:#1e2d3e; color:#8aaac8; border:1px solid #2a3f5a;")
+        launcher_lbl.setStyleSheet("font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; background:#252526; color:#cccccc; border:1px solid #3c3c3c;")
         top.addWidget(launcher_lbl)
         badge = QLabel(f"  {status_text}  ")
         badge_bg, badge_fg = {
-            "ok": ("#0f2a31", "#5ee6c1"),
-            "warn": ("#3a2a00", "#e8a838"),
-            "err": ("#3a1010", "#e96060"),
-            "dim": ("#1e2d3e", "#6a7a8a"),
-        }.get(status, ("#1e2d3e", "#6a7a8a"))
+            "ok": ("#1f2a24", "#89d185"),
+            "warn": ("#3a2a00", "#cca700"),
+            "err": ("#3a1010", "#f48771"),
+            "dim": ("#252526", "#858585"),
+        }.get(status, ("#252526", "#858585"))
         badge.setStyleSheet(f"background:{badge_bg}; color:{badge_fg}; border:1px solid {badge_fg}; border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
         top.addWidget(badge)
         layout.addLayout(top)
@@ -6831,7 +7432,7 @@ class GamingPage(Page):
             )
             warn.setObjectName("card-copy")
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #e8a838;")
+            warn.setStyleSheet("color: #cca700;")
             self._win_lib_layout.addWidget(warn)
 
         if any_clean:
@@ -7536,14 +8137,14 @@ class CompatibilityPage(Page):
 
     _STATUS_STYLE: dict[str, tuple[str, str, str]] = {
         # status → (badge_text, badge_css, row_left_border_color)
-        "native":  ("Native",       "background:#1a4a3a; color:#57cbde; border:1px solid #2a6a5a;",  "#57cbde"),
-        "proton":  ("Works",        "background:#1a4a3a; color:#57cbde; border:1px solid #2a6a5a;",  "#57cbde"),
-        "tweaks":  ("Tweaks",       "background:#3a2a00; color:#e8a838; border:1px solid #5a4010;",  "#e8a838"),
-        "blocked": ("Blocked",      "background:#3a1010; color:#e96060; border:1px solid #5a1a1a;",  "#e96060"),
+        "native":  ("Native",       "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
+        "proton":  ("Works",        "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
+        "tweaks":  ("Tweaks",       "background:#3a2a00; color:#cca700; border:1px solid #5a4010;",  "#cca700"),
+        "blocked": ("Blocked",      "background:#3a1010; color:#f48771; border:1px solid #5a1a1a;",  "#f48771"),
     }
     _AC_BADGE_CSS = (
         "font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; "
-        "background:#1e2d3e; color:#6a8aaa; border:1px solid #2a3f5a;"
+        "background:#252526; color:#a6a6a6; border:1px solid #3c3c3c;"
     )
 
     def __init__(self):
@@ -7595,7 +8196,7 @@ class CompatibilityPage(Page):
             cl.setSpacing(14)
             dot = QLabel("✓" if ac_status == "ok" else "✗")
             dot.setStyleSheet(
-                f"font-size:18px; font-weight:700; color:{'#57cbde' if ac_status == 'ok' else '#e96060'};"
+                f"font-size:18px; font-weight:700; color:{'#89d185' if ac_status == 'ok' else '#f48771'};"
                 " background:transparent; border:none;"
             )
             dot.setFixedWidth(20)
@@ -7669,8 +8270,8 @@ class CompatibilityPage(Page):
         btn.setFixedHeight(28)
         btn.setStyleSheet(
             "QPushButton { border-radius:4px; padding:2px 14px; font-size:12px; "
-            "background:#1e2d3e; color:#8aaac8; border:1px solid #2a3f5a; }"
-            "QPushButton:checked { background:#1a4a5a; color:#57cbde; border-color:#57cbde; }"
+            "background:#252526; color:#cccccc; border:1px solid #3c3c3c; }"
+            "QPushButton:checked { background:#3a2d3a; color:#89d185; border-color:#89d185; }"
         )
         btn.clicked.connect(lambda _=False, s=statuses: self._apply_filter(s))
         return btn
@@ -7723,7 +8324,7 @@ class CompatibilityPage(Page):
         rl.addWidget(ac_lbl)
 
         checked_lbl = QLabel(game.checked)
-        checked_lbl.setStyleSheet("font-size:10px; color:#6a7a8a;")
+        checked_lbl.setStyleSheet("font-size:10px; color:#858585;")
         checked_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         rl.addWidget(checked_lbl)
 
@@ -7980,7 +8581,7 @@ class ControllerPage(Page):
         )
         self._sb_warn_lbl.setObjectName("card-copy")
         self._sb_warn_lbl.setWordWrap(True)
-        self._sb_warn_lbl.setStyleSheet("color: #e8a838; padding: 6px 0;")
+        self._sb_warn_lbl.setStyleSheet("color: #cca700; padding: 6px 0;")
         self._sb_warn_lbl.hide()
         self._add(self._sb_warn_lbl)
 
@@ -8030,14 +8631,14 @@ class ControllerPage(Page):
                 "Xbox Wireless Adapter detected — firmware not yet flashed. "
                 "Click the button below to complete setup (requires password)."
             )
-            self._xone_status_lbl.setStyleSheet("color: #e8a838;")
+            self._xone_status_lbl.setStyleSheet("color: #cca700;")
             self._xone_btn.show()
         elif info["xone_dongle"] and info["xone_loaded"]:
             self._xone_status_lbl.setText(
                 "✓  Xbox Wireless Adapter is ready. Press the sync button on the "
                 "adapter and controller together to pair."
             )
-            self._xone_status_lbl.setStyleSheet("color: #57cbde;")
+            self._xone_status_lbl.setStyleSheet("color: #89d185;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(
@@ -8083,11 +8684,11 @@ class ControllerPage(Page):
         self._xone_btn.setEnabled(True)
         if code == 0:
             self._xone_status_lbl.setText("✓  Firmware flashed. Unplug and re-plug the adapter, then press Refresh.")
-            self._xone_status_lbl.setStyleSheet("color: #57cbde;")
+            self._xone_status_lbl.setStyleSheet("color: #89d185;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(f"Firmware flash failed (exit {code}). Check that xone is installed.")
-            self._xone_status_lbl.setStyleSheet("color: #e96060;")
+            self._xone_status_lbl.setStyleSheet("color: #f48771;")
 
 
 class SteamCopyWorker(QThread):
@@ -8276,7 +8877,7 @@ class RcloneSetupWizard(QDialog):
         self.setMinimumSize(600, 500)
         self.resize(640, 540)
         self.setModal(True)
-        self.setStyleSheet("background: #1b2838;")
+        self.setStyleSheet("background: #1e1e1e;")
 
         self._auth_worker: RcloneAuthorizeWorker | None = None
         self._token = ""
@@ -8291,7 +8892,7 @@ class RcloneSetupWizard(QDialog):
         header = QWidget()
         header.setStyleSheet(
             "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            " stop:0 #1f2d3e, stop:1 #1b2838); border-bottom: 1px solid #2a3f5a; }"
+            " stop:0 #252526, stop:1 #1e1e1e); border-bottom: 1px solid #3c3c3c; }"
         )
         hdr_layout = QHBoxLayout(header)
         hdr_layout.setContentsMargins(28, 16, 28, 16)
@@ -8300,7 +8901,7 @@ class RcloneSetupWizard(QDialog):
         hdr_layout.addWidget(title_lbl)
         hdr_layout.addStretch()
         self._step_label = QLabel()
-        self._step_label.setStyleSheet("font-size: 12px; color: #4a5a6a;")
+        self._step_label.setStyleSheet("font-size: 12px; color: #858585;")
         hdr_layout.addWidget(self._step_label)
         root.addWidget(header)
 
@@ -8315,7 +8916,7 @@ class RcloneSetupWizard(QDialog):
         # ── Footer ─────────────────────────────────────────────────────────────
         footer = QWidget()
         footer.setStyleSheet(
-            "QWidget { background: #171a21; border-top: 1px solid #0d1117; }"
+            "QWidget { background: #181818; border-top: 1px solid #2b2b2b; }"
         )
         ftr_layout = QHBoxLayout(footer)
         ftr_layout.setContentsMargins(28, 14, 28, 14)
@@ -8379,7 +8980,7 @@ class RcloneSetupWizard(QDialog):
             desc_lbl = QLabel(info["description"])
             desc_lbl.setWordWrap(True)
             desc_lbl.setStyleSheet(
-                "font-size: 12px; color: #8f98a0; background: transparent; border: none;"
+                "font-size: 12px; color: #a6a6a6; background: transparent; border: none;"
             )
             inner.addWidget(desc_lbl)
             btn.clicked.connect(lambda _checked, s=svc_id: self._select_service(s))
@@ -8410,7 +9011,7 @@ class RcloneSetupWizard(QDialog):
         form_layout.setSpacing(10)
 
         name_lbl = QLabel("Remote name")
-        name_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
+        name_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
         form_layout.addWidget(name_lbl)
         self._name_edit = QLineEdit()
         self._name_edit.setPlaceholderText("e.g. gdrive")
@@ -8421,11 +9022,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #3c3c3c; max-height: 1px; border: none;")
         form_layout.addWidget(sep)
 
         folder_lbl = QLabel("Local sync folder")
-        folder_lbl.setStyleSheet("font-weight: 600; color: #c6d4df;")
+        folder_lbl.setStyleSheet("font-weight: 600; color: #cccccc;")
         form_layout.addWidget(folder_lbl)
         folder_row = QHBoxLayout()
         folder_row.setSpacing(8)
@@ -8517,11 +9118,11 @@ class RcloneSetupWizard(QDialog):
 
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet("background: #2a3f5a; max-height: 1px; border: none;")
+        sep.setStyleSheet("background: #3c3c3c; max-height: 1px; border: none;")
         done_card_layout.addWidget(sep)
 
         cmds_lbl = QLabel("Useful commands:")
-        cmds_lbl.setStyleSheet("font-weight: 600; color: #c6d4df; font-size: 13px;")
+        cmds_lbl.setStyleSheet("font-weight: 600; color: #cccccc; font-size: 13px;")
         done_card_layout.addWidget(cmds_lbl)
 
         self._done_cmds = QTextEdit()
@@ -8597,14 +9198,14 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(102, 192, 244, 0.12); "
-                    "border: 2px solid #66c0f4; "
+                    "QPushButton { background: rgba(197, 134, 192, 0.16); "
+                    "border: 2px solid #c586c0; "
                     "border-radius: 8px; text-align: left; }"
                 )
             else:
                 btn.setChecked(False)
                 btn.setStyleSheet(
-                    "QPushButton { background: #16202d; border: 1px solid #2a3f5a; "
+                    "QPushButton { background: #252526; border: 1px solid #3c3c3c; "
                     "border-radius: 8px; text-align: left; }"
                 )
 
@@ -10144,7 +10745,7 @@ class SecurityPage(Page):
             "and a very long install time. Only choose this if you need every available tool."
         )
         self._everything_warn.setObjectName("card-copy")
-        self._everything_warn.setStyleSheet("color: #e8a838; background: #3a2a00; "
+        self._everything_warn.setStyleSheet("color: #cca700; background: #3a2a00; "
                                             "border: 1px solid #5a4010; border-radius: 6px; "
                                             "padding: 6px 10px;")
         self._everything_warn.setWordWrap(True)
@@ -11309,169 +11910,1079 @@ class DevEnvironmentPage(Page):
 
 # ── Page: Software ────────────────────────────────────────────────────────────
 class SoftwarePage(Page):
+    """App store — Starter Packs | Flatpak | AppImages | Installed."""
+
+    _STARTER_PACKS = [
+        {
+            "name": "Everyday",
+            "desc": "Browser, chat, media, passwords, and local file sharing.",
+            "apps": [
+                ("com.brave.Browser", "Brave Browser", True),
+                ("com.discordapp.Discord", "Discord", True),
+                ("org.videolan.VLC", "VLC", True),
+                ("com.spotify.Client", "Spotify", True),
+                ("com.bitwarden.desktop", "Bitwarden", False),
+                ("org.localsend.localsend_app", "LocalSend", True),
+            ],
+        },
+        {
+            "name": "Gaming",
+            "desc": "Steam, Epic/GOG, Windows launchers, saves, and standalone .exe support.",
+            "apps": [
+                ("com.valvesoftware.Steam", "Steam", True),
+                ("com.heroicgameslauncher.hgl", "Heroic Games Launcher", True),
+                ("net.lutris.Lutris", "Lutris", True),
+                ("com.usebottles.bottles", "Bottles", True),
+                ("com.github.mtkennerly.ludusavi", "Ludusavi", True),
+                ("net.davidotek.pupgui2", "ProtonUp-Qt", True),
+            ],
+        },
+        {
+            "name": "Creator",
+            "desc": "Streaming, editing, audio, images, and 3D creation.",
+            "apps": [
+                ("com.obsproject.Studio", "OBS Studio", True),
+                ("org.kde.kdenlive", "Kdenlive", True),
+                ("org.audacityteam.Audacity", "Audacity", True),
+                ("org.gimp.GIMP", "GIMP", True),
+                ("org.inkscape.Inkscape", "Inkscape", True),
+                ("org.blender.Blender", "Blender", True),
+            ],
+        },
+    ]
+
+    _CURATED_APPIMAGES = [
+        {
+            "name": "Obsidian",
+            "desc": "Markdown note-taking and knowledge base with graph view.",
+            "url": "https://obsidian.md/download",
+        },
+        {
+            "name": "Cursor",
+            "desc": "AI-first code editor built on VS Code.",
+            "url": "https://cursor.sh",
+        },
+        {
+            "name": "Zed",
+            "desc": "High-performance multi-player code editor.",
+            "url": "https://zed.dev/download",
+        },
+        {
+            "name": "Beeper",
+            "desc": "Universal messenger — iMessage, WhatsApp, Telegram, Signal, and more.",
+            "url": "https://www.beeper.com/download",
+        },
+        {
+            "name": "Joplin",
+            "desc": "Open-source Markdown note-taking with end-to-end encryption.",
+            "url": "https://joplinapp.org/download/",
+        },
+        {
+            "name": "Figma for Linux",
+            "desc": "Collaborative UI design tool (unofficial Linux wrapper).",
+            "url": "https://github.com/Figma-Linux/figma-linux/releases",
+        },
+        {
+            "name": "AppImageHub",
+            "desc": "Browse the full community catalog of AppImages.",
+            "url": "https://www.appimagehub.com",
+        },
+    ]
+
     def __init__(self):
         super().__init__()
-        self._dev_worker: Worker | None = None
+
+        # Worker references
+        self._starter_worker: Worker | None = None
+        self._uninstall_worker: Worker | None = None
+        self._uninstall_buttons: list[QPushButton] = []
+        self._fp_search_worker: Worker | None = None
+        self._fp_install_worker: Worker | None = None
+        self._fp_search_lines: list[str] = []
+        self._fp_installing: str | None = None
+
+        # Starter pack per-pack state
+        self._starter_pack_checks: dict = {}
+        self._starter_pack_buttons: dict = {}
+        self._starter_pack_details: dict = {}
 
         self._page_header(
             "Apps",
             "Software",
-            "How to install and manage applications on KythOS.",
+            "Get apps, manage installs, and remove what you don't need.",
         )
 
-        # Why dnf doesn't work
-        why_card, why_layout = _make_card()
-        why_title = QLabel("Why can't I use dnf?")
-        why_title.setObjectName("card-title")
-        why_layout.addWidget(why_title)
-        why_body = QLabel(
-            "KythOS is an immutable OS — the base system files are read-only and update atomically "
-            "as a container image. This makes the system reliable and easy to roll back, but it "
-            "means dnf can't permanently add packages to the base layer.\n\n"
-            "Use one of the three methods below depending on what you need to install."
-        )
-        why_body.setObjectName("card-copy")
-        why_body.setWordWrap(True)
-        why_layout.addWidget(why_body)
-        self._add(why_card)
+        # Tab bar — inserted into _outer between the page-header divider and the
+        # scroll area. After _page_header(), _outer contains [hdr, div, scroll].
+        tab_bar = QWidget()
+        tab_bar.setObjectName("sw-tab-bar")
+        tab_bar_layout = QHBoxLayout(tab_bar)
+        tab_bar_layout.setContentsMargins(56, 0, 56, 0)
+        tab_bar_layout.setSpacing(0)
+        self._tab_btns: list[QPushButton] = []
+        for i, label in enumerate(("Starter Packs", "Flatpak", "AppImages", "Installed")):
+            btn = QPushButton(label)
+            btn.setObjectName("sw-tab-active" if i == 0 else "sw-tab")
+            btn.clicked.connect(lambda _=False, idx=i: self._switch_tab(idx))
+            tab_bar_layout.addWidget(btn)
+            self._tab_btns.append(btn)
+        tab_bar_layout.addStretch()
+        self._outer.insertWidget(2, tab_bar)
+        self._outer.insertWidget(3, _divider())
 
-        # KythOS development
-        dev_card, dev_layout = _make_card()
-        dev_title = QLabel("KythOS Development")
-        dev_title.setObjectName("card-title")
-        dev_layout.addWidget(dev_title)
-        dev_body = QLabel(
-            "Set up the tools used to work on KythOS. VS Code is baked into the "
-            "image with full local filesystem and terminal access. Build and repo "
-            "tools live in a Fedora distrobox named kyth-dev."
-        )
-        dev_body.setObjectName("card-copy")
-        dev_body.setWordWrap(True)
-        dev_layout.addWidget(dev_body)
-        dev_layout.addWidget(_launch_opt_value(
-            "ujust install-vscode\n"
-            "ujust setup-kyth-dev-box"
-        ))
-        dev_btn_row = QHBoxLayout()
-        dev_btn_row.setSpacing(10)
-        dev_code_btn = QPushButton("Configure VS Code")
-        dev_code_btn.clicked.connect(
-            lambda: self._run_dev_command(_INSTALL_VSCODE_CMD, "Configuring VS Code…")
-        )
-        dev_btn_row.addWidget(dev_code_btn)
-        dev_box_btn = QPushButton("Create Dev Box")
-        dev_box_btn.setObjectName("primary")
-        dev_box_btn.clicked.connect(
-            lambda: self._run_dev_command(_SETUP_DEV_BOX_CMD, "Creating KythOS development box…")
-        )
-        dev_btn_row.addWidget(dev_box_btn)
-        dev_enter_btn = QPushButton("Enter Dev Box")
-        dev_enter_btn.clicked.connect(self._enter_dev_box)
-        dev_btn_row.addWidget(dev_enter_btn)
-        dev_btn_row.addStretch()
-        dev_layout.addLayout(dev_btn_row)
+        self._current_tab = 0
 
-        self._dev_status = QLabel()
-        self._dev_status.setObjectName("subheading")
-        self._dev_status.hide()
-        dev_layout.addWidget(self._dev_status)
+        # Build each tab widget and add to the scroll area
+        self._tab_widgets: list[QWidget] = []
+        for builder in (
+            self._build_starter_tab,
+            self._build_flatpak_tab,
+            self._build_appimage_tab,
+            self._build_installed_tab,
+        ):
+            tab_widget = builder()
+            self._add(tab_widget)
+            self._tab_widgets.append(tab_widget)
 
-        self._dev_progress = QProgressBar()
-        self._dev_progress.setRange(0, 0)
-        self._dev_progress.hide()
-        dev_layout.addWidget(self._dev_progress)
-
-        self._dev_log_toggle = QPushButton("Show details")
-        self._dev_log_toggle.setCheckable(True)
-        self._dev_log_toggle.hide()
-        dev_layout.addWidget(self._dev_log_toggle)
-
-        self._dev_log = QTextEdit()
-        self._dev_log.setReadOnly(True)
-        self._dev_log.setMaximumHeight(130)
-        self._dev_log.hide()
-        dev_layout.addWidget(self._dev_log)
-        self._dev_log_toggle.clicked.connect(
-            lambda checked: _set_log_panel(self._dev_log_toggle, self._dev_log, checked)
-        )
-        self._add(dev_card)
-
-        # Flatpak
-        fp_card, fp_layout = _make_card()
-        fp_top = QHBoxLayout()
-        fp_title = QLabel("Flatpak  —  Desktop Apps")
-        fp_title.setObjectName("card-title")
-        fp_top.addWidget(fp_title)
-        fp_top.addStretch()
-        fp_layout.addLayout(fp_top)
-        fp_body = QLabel(
-            "The recommended way to install graphical applications. "
-            "Flathub hosts thousands of apps — Spotify, VLC, GIMP, Obsidian, Inkscape, and more. "
-            "Flatpaks are sandboxed and update independently of the OS."
-        )
-        fp_body.setObjectName("card-copy")
-        fp_body.setWordWrap(True)
-        fp_layout.addWidget(fp_body)
-        fp_layout.addWidget(_launch_opt_value("flatpak install flathub <app-id>"))
-        fp_btn_row = QHBoxLayout()
-        fp_btn_row.setSpacing(10)
-        fp_flathub_btn = QPushButton("Browse Flathub")
-        fp_flathub_btn.setObjectName("primary")
-        fp_flathub_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://flathub.org")))
-        fp_btn_row.addWidget(fp_flathub_btn)
-        fp_btn_row.addStretch()
-        fp_layout.addLayout(fp_btn_row)
-        self._add(fp_card)
-
-        # Homebrew
-        brew_card, brew_layout = _make_card()
-        brew_title = QLabel("Homebrew  —  Command-line Tools")
-        brew_title.setObjectName("card-title")
-        brew_layout.addWidget(brew_title)
-        brew_body = QLabel(
-            "Pre-installed on KythOS and available to all users. Install CLI tools, language "
-            "runtimes, and libraries from the Homebrew catalog. Changes persist across OS updates."
-        )
-        brew_body.setObjectName("card-copy")
-        brew_body.setWordWrap(True)
-        brew_layout.addWidget(brew_body)
-        brew_layout.addWidget(_launch_opt_value("brew install <formula>"))
-        brew_btn_row = QHBoxLayout()
-        brew_btn_row.setSpacing(10)
-        brew_search_btn = QPushButton("Search Homebrew Packages")
-        brew_search_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://formulae.brew.sh")))
-        brew_btn_row.addWidget(brew_search_btn)
-        brew_btn_row.addStretch()
-        brew_layout.addLayout(brew_btn_row)
-        self._add(brew_card)
-
-        # Distrobox
-        dbox_card, dbox_layout = _make_card()
-        dbox_title = QLabel("Distrobox  —  Mutable Containers")
-        dbox_title.setObjectName("card-title")
-        dbox_layout.addWidget(dbox_title)
-        dbox_body = QLabel(
-            "Creates a full Linux container (Fedora, Ubuntu, Arch, etc.) that shares your home "
-            "directory. Use it when you need dnf, apt, or pacman — for development toolchains or "
-            "software that isn't available as a Flatpak or Homebrew formula."
-        )
-        dbox_body.setObjectName("card-copy")
-        dbox_body.setWordWrap(True)
-        dbox_layout.addWidget(dbox_body)
-        dbox_layout.addWidget(_launch_opt_value(
-            "distrobox create --image fedora:41 --name mybox\n"
-            "distrobox enter mybox"
-        ))
-        dbox_btn_row = QHBoxLayout()
-        dbox_btn_row.setSpacing(10)
-        dbox_term_btn = QPushButton("Open Terminal")
-        dbox_term_btn.clicked.connect(self._open_terminal)
-        dbox_btn_row.addWidget(dbox_term_btn)
-        dbox_btn_row.addStretch()
-        dbox_layout.addLayout(dbox_btn_row)
-        self._add(dbox_card)
+        for tab in self._tab_widgets[1:]:
+            tab.hide()
 
         self._stretch()
+
+    # ── Tab switching ──────────────────────────────────────────────────────────
+
+    def _switch_tab(self, idx: int):
+        if idx == self._current_tab:
+            return
+        for i, (btn, widget) in enumerate(zip(self._tab_btns, self._tab_widgets)):
+            active = i == idx
+            btn.setObjectName("sw-tab-active" if active else "sw-tab")
+            _restyle(btn)
+            widget.setVisible(active)
+        self._current_tab = idx
+        if idx == 3:
+            self._refresh_installed_list()
+
+    # ── Tab 0: Starter Packs ──────────────────────────────────────────────────
+
+    def _build_starter_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        intro = QLabel(
+            "Install familiar app sets in one pass. "
+            "These are Flatpak desktop apps — sandboxed and easy to remove later."
+        )
+        intro.setObjectName("card-copy")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        for pack in self._STARTER_PACKS:
+            layout.addWidget(self._make_starter_pack_panel(pack))
+
+        self._starter_status = QLabel()
+        self._starter_status.setObjectName("subheading")
+        self._starter_status.hide()
+        layout.addWidget(self._starter_status)
+
+        self._starter_progress = QProgressBar()
+        self._starter_progress.setRange(0, 0)
+        self._starter_progress.hide()
+        layout.addWidget(self._starter_progress)
+
+        self._starter_log_toggle = QPushButton("Show details")
+        self._starter_log_toggle.setCheckable(True)
+        self._starter_log_toggle.hide()
+        layout.addWidget(self._starter_log_toggle)
+
+        self._starter_log = QTextEdit()
+        self._starter_log.setReadOnly(True)
+        self._starter_log.setMaximumHeight(130)
+        self._starter_log.hide()
+        layout.addWidget(self._starter_log)
+        self._starter_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._starter_log_toggle, self._starter_log, checked)
+        )
+        return tab
+
+    def _make_starter_pack_panel(self, pack: dict) -> QFrame:
+        name = pack["name"]
+        apps = pack["apps"]
+
+        panel = QFrame()
+        panel.setObjectName("starter-pack")
+        panel_layout = QVBoxLayout(panel)
+        panel_layout.setContentsMargins(12, 10, 12, 10)
+        panel_layout.setSpacing(10)
+
+        header = QPushButton(f"▸  {name}")
+        header.setObjectName("starter-pack-header")
+        header.setCheckable(True)
+        header.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        meta = QLabel(f"{len(apps)} apps")
+        meta.setObjectName("starter-pack-meta")
+        meta.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+
+        head_row = QHBoxLayout()
+        head_row.setSpacing(10)
+        head_text = QVBoxLayout()
+        head_text.setSpacing(2)
+        head_text.addWidget(header)
+        desc_lbl = QLabel(pack["desc"])
+        desc_lbl.setObjectName("card-copy")
+        desc_lbl.setWordWrap(True)
+        head_text.addWidget(desc_lbl)
+        head_row.addLayout(head_text, 1)
+        head_row.addWidget(meta)
+        panel_layout.addLayout(head_row)
+
+        details = QWidget()
+        details.setObjectName("starter-pack-details")
+        details_layout = QVBoxLayout(details)
+        details_layout.setContentsMargins(22, 0, 0, 0)
+        details_layout.setSpacing(8)
+        details.hide()
+
+        checks = []
+        for app_id, label, selected_by_default in apps:
+            installed = _is_flatpak_installed(app_id)
+            check = QCheckBox(label)
+            check.setChecked(selected_by_default and not installed)
+            check.setEnabled(not installed)
+            check.setToolTip(app_id)
+            state_text = "Installed" if installed else ("Available" if selected_by_default else "Optional")
+
+            app_row = QHBoxLayout()
+            app_row.setSpacing(10)
+            app_row.addWidget(check, 1)
+            state = QLabel(state_text)
+            state.setObjectName("card-copy")
+            state.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+            app_row.addWidget(state)
+            checks.append((check, app_id, label, state))
+            details_layout.addLayout(app_row)
+
+        button_row = QHBoxLayout()
+        button_row.setSpacing(10)
+        install_btn = QPushButton(f"Install {name}")
+        install_btn.setObjectName("primary" if name == "Everyday" else "")
+        install_btn.clicked.connect(lambda _=False, n=name: self._install_starter_pack(n))
+        button_row.addWidget(install_btn)
+        select_all_btn = QPushButton("Select Missing")
+        select_all_btn.clicked.connect(lambda _=False, n=name: self._set_starter_pack_selection(n, True))
+        button_row.addWidget(select_all_btn)
+        clear_btn = QPushButton("Clear")
+        clear_btn.clicked.connect(lambda _=False, n=name: self._set_starter_pack_selection(n, False))
+        button_row.addWidget(clear_btn)
+        button_row.addStretch()
+        details_layout.addLayout(button_row)
+        panel_layout.addWidget(details)
+
+        header.clicked.connect(
+            lambda checked, h=header, d=details, n=name: self._toggle_starter_pack(n, h, d, checked)
+        )
+
+        self._starter_pack_checks[name] = checks
+        self._starter_pack_buttons[name] = install_btn
+        self._starter_pack_details[name] = details
+        return panel
+
+    def _toggle_starter_pack(self, name: str, header: QPushButton, details: QWidget, checked: bool):
+        header.setText(f"{'▾' if checked else '▸'}  {name}")
+        details.setVisible(checked)
+
+    def _set_starter_pack_selection(self, name: str, selected: bool):
+        for check, _, _, _ in self._starter_pack_checks.get(name, []):
+            if check.isEnabled():
+                check.setChecked(selected)
+
+    def _selected_starter_pack_apps(self, name: str) -> list[tuple[str, str, QCheckBox]]:
+        return [
+            (app_id, label, check)
+            for check, app_id, label, _ in self._starter_pack_checks.get(name, [])
+            if check.isChecked() and check.isEnabled()
+        ]
+
+    def _set_starter_pack_controls_enabled(self, enabled: bool):
+        for button in self._starter_pack_buttons.values():
+            button.setEnabled(enabled)
+        for checks in self._starter_pack_checks.values():
+            for check, _, _, _ in checks:
+                if not _is_flatpak_installed(check.toolTip()):
+                    check.setEnabled(enabled)
+
+    def _install_starter_pack(self, name: str):
+        if self._starter_worker and self._starter_worker.isRunning():
+            return
+        selected = self._selected_starter_pack_apps(name)
+        if not selected:
+            self._starter_status.setText(f"No apps selected for {name}.")
+            self._starter_status.setObjectName("status-dim")
+            self._starter_status.show()
+            _restyle(self._starter_status)
+            return
+        app_ids = [app_id for app_id, _, _ in selected]
+        missing = [app_id for app_id in app_ids if not _is_flatpak_installed(app_id)]
+        if not missing:
+            self._starter_status.setText(f"Selected {name} apps are already installed.")
+            self._starter_status.setObjectName("status-ok")
+            self._starter_status.show()
+            _restyle(self._starter_status)
+            return
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            " && flatpak install -y flathub " + " ".join(shlex.quote(app_id) for app_id in missing),
+        ]
+        self._starter_log.clear()
+        self._starter_log.append(f"→ install selected {name} apps\n")
+        for app_id in missing:
+            self._starter_log.append(f"  {app_id}")
+        self._starter_log_toggle.show()
+        _set_log_panel(self._starter_log_toggle, self._starter_log, False)
+        self._starter_progress.show()
+        self._starter_status.setText(f"Installing {name} starter pack…")
+        self._starter_status.setObjectName("subheading")
+        self._starter_status.show()
+        _restyle(self._starter_status)
+        self._set_starter_pack_controls_enabled(False)
+        self._starter_worker = Worker(cmd)
+        self._starter_worker.line.connect(self._on_starter_line)
+        self._starter_worker.done.connect(
+            lambda code, n=name, ids=missing: self._on_starter_done(code, n, ids)
+        )
+        self._starter_worker.start()
+
+    def _on_starter_line(self, ln: str):
+        self._starter_log.append(ln)
+        self._starter_log.ensureCursorVisible()
+
+    def _on_starter_done(self, code: int, name: str, installed_ids: list[str]):
+        self._starter_progress.hide()
+        _finish_worker(self, attr="_starter_worker")
+        self._set_starter_pack_controls_enabled(True)
+        if code == 0:
+            self._starter_status.setText(f"Selected {name} apps installed.")
+            self._starter_status.setObjectName("status-ok")
+            self._starter_log.append("\nDone.")
+            installed_set = set(installed_ids)
+            for check, app_id, _, state in self._starter_pack_checks.get(name, []):
+                if app_id in installed_set:
+                    check.setChecked(False)
+                    check.setEnabled(False)
+                    state.setText("Installed")
+        else:
+            self._starter_status.setText(f"{name} app install failed (exit {code}).")
+            self._starter_status.setObjectName("status-err")
+            _set_log_panel(self._starter_log_toggle, self._starter_log, True)
+        _restyle(self._starter_status)
+
+    # ── Tab 1: Flatpak Store ──────────────────────────────────────────────────
+
+    def _build_flatpak_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        intro = QLabel(
+            "Search Flathub and install apps directly. "
+            "Flatpaks are sandboxed and update independently of the OS."
+        )
+        intro.setObjectName("card-copy")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self._fp_search_box = QLineEdit()
+        self._fp_search_box.setPlaceholderText("Search Flathub…  e.g. firefox, obsidian, gimp")
+        self._fp_search_box.returnPressed.connect(self._run_fp_search)
+        search_row.addWidget(self._fp_search_box, 1)
+        self._fp_search_btn = QPushButton("Search")
+        self._fp_search_btn.setObjectName("primary")
+        self._fp_search_btn.clicked.connect(self._run_fp_search)
+        search_row.addWidget(self._fp_search_btn)
+        layout.addLayout(search_row)
+
+        self._fp_status = QLabel()
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.hide()
+        layout.addWidget(self._fp_status)
+
+        self._fp_progress = QProgressBar()
+        self._fp_progress.setRange(0, 0)
+        self._fp_progress.hide()
+        layout.addWidget(self._fp_progress)
+
+        self._fp_install_log_toggle = QPushButton("Show details")
+        self._fp_install_log_toggle.setCheckable(True)
+        self._fp_install_log_toggle.hide()
+        layout.addWidget(self._fp_install_log_toggle)
+
+        self._fp_install_log = QTextEdit()
+        self._fp_install_log.setReadOnly(True)
+        self._fp_install_log.setMaximumHeight(130)
+        self._fp_install_log.hide()
+        layout.addWidget(self._fp_install_log)
+        self._fp_install_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, checked)
+        )
+
+        self._fp_results_layout = QVBoxLayout()
+        self._fp_results_layout.setSpacing(8)
+        layout.addLayout(self._fp_results_layout)
+
+        return tab
+
+    def _run_fp_search(self):
+        if self._fp_search_worker and self._fp_search_worker.isRunning():
+            return
+        query = self._fp_search_box.text().strip()
+        if not query:
+            return
+        self._clear_fp_results()
+        self._fp_search_lines = []
+        self._fp_progress.show()
+        self._fp_status.setText(f"Searching Flathub for “{query}”…")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        self._fp_search_btn.setEnabled(False)
+        self._fp_search_worker = Worker(
+            ["flatpak", "search", "--columns=application,name,summary", query]
+        )
+        self._fp_search_worker.line.connect(self._on_fp_search_line)
+        self._fp_search_worker.done.connect(self._on_fp_search_done)
+        self._fp_search_worker.start()
+
+    def _on_fp_search_line(self, ln: str):
+        self._fp_search_lines.append(ln)
+
+    def _on_fp_search_done(self, code: int):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_search_worker")
+        self._fp_search_btn.setEnabled(True)
+        self._clear_fp_results()
+        results = []
+        for line in self._fp_search_lines:
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                app_id = parts[0].strip()
+                name = parts[1].strip()
+                summary = parts[2].strip() if len(parts) >= 3 else ""
+                if app_id:
+                    results.append((app_id, name, summary))
+        if not results:
+            msg = "No results found." if code == 0 else "Search failed — is flatpak installed?"
+            self._fp_status.setText(msg)
+            self._fp_status.setObjectName("status-dim" if code == 0 else "status-warn")
+            _restyle(self._fp_status)
+            return
+        shown = results[:30]
+        count_msg = f"{len(results)} result{'s' if len(results) != 1 else ''} found"
+        if len(results) > 30:
+            count_msg += " — showing top 30"
+        self._fp_status.setText(count_msg + ".")
+        self._fp_status.setObjectName("status-dim")
+        _restyle(self._fp_status)
+        for app_id, name, summary in shown:
+            self._fp_results_layout.addWidget(self._make_fp_result_row(app_id, name, summary))
+
+    def _clear_fp_results(self):
+        while self._fp_results_layout.count():
+            item = self._fp_results_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def _make_fp_result_row(self, app_id: str, name: str, summary: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName("stat-tile")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(14, 10, 14, 10)
+        row_layout.setSpacing(12)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        name_lbl = QLabel(name or app_id)
+        name_lbl.setObjectName("card-summary")
+        text_col.addWidget(name_lbl)
+        id_lbl = QLabel(app_id)
+        id_lbl.setObjectName("card-copy")
+        text_col.addWidget(id_lbl)
+        if summary:
+            summary_lbl = QLabel(summary)
+            summary_lbl.setObjectName("card-copy")
+            summary_lbl.setWordWrap(True)
+            text_col.addWidget(summary_lbl)
+        row_layout.addLayout(text_col, 1)
+
+        already_installed = _is_flatpak_installed(app_id)
+        install_btn = QPushButton("Installed" if already_installed else "Install")
+        install_btn.setEnabled(not already_installed)
+        if not already_installed:
+            install_btn.setObjectName("primary")
+            install_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name, b=install_btn: self._fp_install(aid, n, b)
+            )
+        row_layout.addWidget(install_btn)
+        return row
+
+    def _fp_install(self, app_id: str, name: str, btn: QPushButton):
+        if self._fp_install_worker and self._fp_install_worker.isRunning():
+            return
+        self._fp_installing = app_id
+        btn.setText("Installing…")
+        btn.setEnabled(False)
+        self._fp_install_log.clear()
+        self._fp_install_log.append(f"→ flatpak install flathub {app_id}\n")
+        self._fp_install_log_toggle.show()
+        _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, False)
+        self._fp_progress.show()
+        self._fp_status.setText(f"Installing {name or app_id}…")
+        self._fp_status.setObjectName("subheading")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            f" && flatpak install -y flathub {shlex.quote(app_id)}",
+        ]
+        self._fp_install_worker = Worker(cmd)
+        self._fp_install_worker.line.connect(self._on_fp_install_line)
+        self._fp_install_worker.done.connect(
+            lambda code, aid=app_id, n=name, b=btn: self._on_fp_install_done(code, aid, n, b)
+        )
+        self._fp_install_worker.start()
+
+    def _on_fp_install_line(self, ln: str):
+        self._fp_install_log.append(ln)
+        self._fp_install_log.ensureCursorVisible()
+
+    def _on_fp_install_done(self, code: int, app_id: str, name: str, btn: QPushButton):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_install_worker")
+        self._fp_installing = None
+        if code == 0:
+            self._fp_status.setText(f"{name or app_id} installed.")
+            self._fp_status.setObjectName("status-ok")
+            self._fp_install_log.append("\nDone.")
+            btn.setText("Installed")
+        else:
+            self._fp_status.setText(f"Install failed (exit {code}).")
+            self._fp_status.setObjectName("status-err")
+            _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, True)
+            btn.setText("Install")
+            btn.setEnabled(True)
+        _restyle(self._fp_status)
+
+    # ── Tab 2: AppImages ──────────────────────────────────────────────────────
+
+    def _build_appimage_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
+
+        import_card, import_layout = _make_card()
+        import_title = QLabel("Import a Downloaded AppImage")
+        import_title.setObjectName("card-title")
+        import_layout.addWidget(import_title)
+        import_body = QLabel(
+            "Downloaded a .AppImage file? Drop it here to install it properly — "
+            "it will be moved to ~/Applications, made executable, and optionally "
+            "added to your application menu."
+        )
+        import_body.setObjectName("card-copy")
+        import_body.setWordWrap(True)
+        import_layout.addWidget(import_body)
+        import_btn_row = QHBoxLayout()
+        import_btn_row.setSpacing(10)
+        self._ai_import_btn = QPushButton("Import .AppImage…")
+        self._ai_import_btn.setObjectName("primary")
+        self._ai_import_btn.clicked.connect(self._import_appimage)
+        import_btn_row.addWidget(self._ai_import_btn)
+        import_btn_row.addStretch()
+        import_layout.addLayout(import_btn_row)
+        self._ai_status = QLabel()
+        self._ai_status.setObjectName("subheading")
+        self._ai_status.hide()
+        import_layout.addWidget(self._ai_status)
+        layout.addWidget(import_card)
+
+        curated_card, curated_layout = _make_card()
+        curated_title = QLabel("Popular AppImages")
+        curated_title.setObjectName("card-title")
+        curated_layout.addWidget(curated_title)
+        curated_body = QLabel(
+            "Apps distributed only as AppImages. Download from their official site, "
+            "then use Import above to register them in your app menu."
+        )
+        curated_body.setObjectName("card-copy")
+        curated_body.setWordWrap(True)
+        curated_layout.addWidget(curated_body)
+        for entry in self._CURATED_APPIMAGES:
+            row = QFrame()
+            row.setObjectName("stat-tile")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(14, 10, 14, 10)
+            row_layout.setSpacing(12)
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            name_lbl = QLabel(entry["name"])
+            name_lbl.setObjectName("card-summary")
+            text_col.addWidget(name_lbl)
+            desc_lbl = QLabel(entry["desc"])
+            desc_lbl.setObjectName("card-copy")
+            desc_lbl.setWordWrap(True)
+            text_col.addWidget(desc_lbl)
+            row_layout.addLayout(text_col, 1)
+            dl_btn = QPushButton("Download Page")
+            dl_btn.clicked.connect(
+                lambda _=False, url=entry["url"]: QDesktopServices.openUrl(QUrl(url))
+            )
+            row_layout.addWidget(dl_btn)
+            curated_layout.addWidget(row)
+        layout.addWidget(curated_card)
+        return tab
+
+    def _import_appimage(self):
+        src, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select AppImage",
+            os.path.expanduser("~"),
+            "AppImages (*.AppImage *.appimage);;All Files (*)",
+        )
+        if not src:
+            return
+
+        apps_dir = os.path.expanduser("~/Applications")
+        try:
+            os.makedirs(apps_dir, exist_ok=True)
+        except OSError as exc:
+            self._ai_status.setText(f"Cannot create ~/Applications: {exc}")
+            self._ai_status.setObjectName("status-err")
+            self._ai_status.show()
+            _restyle(self._ai_status)
+            return
+
+        basename = os.path.basename(src)
+        dest = os.path.join(apps_dir, basename)
+        if os.path.realpath(src) != os.path.realpath(dest):
+            try:
+                shutil.copy2(src, dest)
+            except OSError as exc:
+                self._ai_status.setText(f"Copy failed: {exc}")
+                self._ai_status.setObjectName("status-err")
+                self._ai_status.show()
+                _restyle(self._ai_status)
+                return
+        try:
+            os.chmod(dest, 0o755)
+        except OSError:
+            pass
+
+        name = re.sub(r"\.[Aa]pp[Ii]mage$", "", basename)
+        reply = QMessageBox.question(
+            self,
+            "Add to App Menu?",
+            f"Add “{name}” to your application menu?\n\n"
+            "This creates a launcher in ~/.local/share/applications/.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._create_appimage_launcher(name, dest)
+
+        self._ai_status.setText(f"{name} imported to ~/Applications.")
+        self._ai_status.setObjectName("status-ok")
+        self._ai_status.show()
+        _restyle(self._ai_status)
+
+    def _create_appimage_launcher(self, name: str, appimage_path: str):
+        desktop_dir = os.path.expanduser("~/.local/share/applications")
+        try:
+            os.makedirs(desktop_dir, exist_ok=True)
+            safe_name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
+            desktop_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={name}\n"
+                f"Exec={appimage_path}\n"
+                "Icon=application-x-executable\n"
+                "Terminal=false\n"
+                "Categories=Utility;\n"
+            )
+            with open(desktop_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(desktop_path, 0o755)
+        except OSError:
+            return
+        for cmd in (
+            ["update-desktop-database", desktop_dir],
+            ["kbuildsycoca6", "--noincremental"],
+        ):
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=5, check=False)
+            except Exception:
+                pass
+
+    # ── Tab 3: Installed ──────────────────────────────────────────────────────
+
+    def _build_installed_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+        intro = QLabel("Installed Flatpak apps and user AppImages.")
+        intro.setObjectName("card-copy")
+        top_row.addWidget(intro, 1)
+        self._uninstall_refresh_btn = QPushButton("Refresh")
+        self._uninstall_refresh_btn.clicked.connect(self._refresh_installed_list)
+        top_row.addWidget(self._uninstall_refresh_btn)
+        layout.addLayout(top_row)
+
+        self._uninstall_status = QLabel()
+        self._uninstall_status.setObjectName("subheading")
+        layout.addWidget(self._uninstall_status)
+
+        self._uninstall_progress = QProgressBar()
+        self._uninstall_progress.setRange(0, 0)
+        self._uninstall_progress.hide()
+        layout.addWidget(self._uninstall_progress)
+
+        self._uninstall_log_toggle = QPushButton("Show details")
+        self._uninstall_log_toggle.setCheckable(True)
+        self._uninstall_log_toggle.hide()
+        layout.addWidget(self._uninstall_log_toggle)
+
+        self._uninstall_log = QTextEdit()
+        self._uninstall_log.setReadOnly(True)
+        self._uninstall_log.setMaximumHeight(130)
+        self._uninstall_log.hide()
+        layout.addWidget(self._uninstall_log)
+        self._uninstall_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, checked)
+        )
+
+        self._uninstall_list = QVBoxLayout()
+        self._uninstall_list.setSpacing(8)
+        layout.addLayout(self._uninstall_list)
+
+        self._refresh_installed_list()
+        return tab
+
+    def _refresh_installed_list(self, status_text: str | None = None, status_object: str = "subheading"):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        self._clear_uninstall_list()
+        apps = self._installed_flatpak_apps() + self._installed_appimage_apps()
+        if not apps:
+            self._uninstall_status.setText(status_text or "No removable Flatpak apps or AppImages found.")
+            self._uninstall_status.setObjectName(status_object)
+            _restyle(self._uninstall_status)
+            return
+        flatpak_count = sum(1 for app in apps if app["kind"] == "flatpak")
+        appimage_count = sum(1 for app in apps if app["kind"] == "appimage")
+        if not shutil.which("flatpak") and appimage_count == 0:
+            self._uninstall_status.setText("Flatpak is not available and no AppImages were found.")
+            self._uninstall_status.setObjectName("status-warn")
+            _restyle(self._uninstall_status)
+            return
+        self._uninstall_status.setText(
+            status_text or (
+                f"{flatpak_count} Flatpak app{'s' if flatpak_count != 1 else ''} "
+                f"and {appimage_count} AppImage{'s' if appimage_count != 1 else ''} found."
+            )
+        )
+        self._uninstall_status.setObjectName(status_object)
+        _restyle(self._uninstall_status)
+        for app in apps:
+            self._uninstall_list.addWidget(self._make_uninstall_app_row(app))
+
+    def _clear_uninstall_list(self):
+        while self._uninstall_list.count():
+            item = self._uninstall_list.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._uninstall_buttons.clear()
+
+    def _make_uninstall_app_row(self, app: dict[str, str]) -> QFrame:
+        row = QFrame()
+        row.setObjectName("stat-tile")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(14, 10, 14, 10)
+        row_layout.setSpacing(12)
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        name_lbl = QLabel(app["name"])
+        name_lbl.setObjectName("card-summary")
+        name_lbl.setWordWrap(True)
+        text_col.addWidget(name_lbl)
+        detail_lbl = QLabel(self._uninstall_app_detail(app))
+        detail_lbl.setObjectName("card-copy")
+        detail_lbl.setWordWrap(True)
+        text_col.addWidget(detail_lbl)
+        row_layout.addLayout(text_col, 1)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.clicked.connect(lambda _=False, a=app: self._uninstall_app(a))
+        self._uninstall_buttons.append(uninstall_btn)
+        row_layout.addWidget(uninstall_btn)
+        return row
+
+    def _uninstall_app_detail(self, app: dict[str, str]) -> str:
+        if app["kind"] == "appimage":
+            launcher = " · launcher" if app.get("desktop_path") else ""
+            return f"{app['path']} · AppImage{launcher}"
+        return f"{app['app_id']} · {app['installation']} install · {app['origin']}"
+
+    def _set_uninstall_controls_enabled(self, enabled: bool):
+        self._uninstall_refresh_btn.setEnabled(enabled)
+        for btn in self._uninstall_buttons:
+            btn.setEnabled(enabled)
+
+    def _uninstall_app(self, app: dict[str, str]):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        if app["kind"] == "appimage":
+            self._uninstall_appimage_app(app)
+        else:
+            self._uninstall_flatpak_app(app)
+
+    def _uninstall_flatpak_app(self, app: dict[str, str]):
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Remove {app['name']}?\n\n{app['app_id']}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        cmd = ["flatpak", "uninstall", "-y"]
+        if app["installation"] == "user":
+            cmd.append("--user")
+        elif app["installation"] == "system":
+            cmd.append("--system")
+        cmd.append(app["app_id"])
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _uninstall_appimage_app(self, app: dict[str, str]):
+        extra = "\nIts user application-menu launcher will also be removed." if app.get("desktop_path") else ""
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Delete this AppImage from your home folder?\n\n{app['path']}{extra}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        targets = [app["path"]]
+        if app.get("desktop_path"):
+            targets.append(app["desktop_path"])
+        safe_targets: list[str] = []
+        for target in targets:
+            real = os.path.realpath(os.path.expanduser(target))
+            home = os.path.realpath(os.path.expanduser("~"))
+            if real.startswith(home + os.sep):
+                safe_targets.append(real)
+        if not safe_targets:
+            QMessageBox.warning(
+                self,
+                "Cannot uninstall AppImage",
+                "This AppImage does not look like a user-owned file in your home folder.",
+            )
+            return
+        cmd = [
+            "bash", "-c",
+            "set -euo pipefail\n"
+            "for target in \"$@\"; do\n"
+            "    if [[ -e \"$target\" || -L \"$target\" ]]; then\n"
+            "        rm -f -- \"$target\"\n"
+            "        echo \"Removed $target\"\n"
+            "    fi\n"
+            "done\n"
+            "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true\n"
+            "kbuildsycoca6 --noincremental 2>/dev/null || true\n",
+            "kyth-remove-appimage",
+            *safe_targets,
+        ]
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ remove AppImage and launcher\n")
+        for target in safe_targets:
+            self._uninstall_log.append(f"  {target}")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _on_uninstall_line(self, ln: str):
+        self._uninstall_log.append(ln)
+        self._uninstall_log.ensureCursorVisible()
+
+    def _on_uninstall_done(self, code: int, name: str):
+        self._uninstall_progress.hide()
+        _finish_worker(self, attr="_uninstall_worker")
+        self._set_uninstall_controls_enabled(True)
+        if code == 0:
+            self._uninstall_log.append("\nDone.")
+            self._refresh_installed_list(f"{name} uninstalled.", "status-ok")
+        else:
+            self._uninstall_status.setText(f"Uninstall failed (exit {code}).")
+            self._uninstall_status.setObjectName("status-err")
+            _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, True)
+            _restyle(self._uninstall_status)
+
+    # ── Shared helpers ────────────────────────────────────────────────────────
+
+    def _installed_flatpak_apps(self) -> list[dict[str, str]]:
+        if not shutil.which("flatpak"):
+            return []
+        try:
+            result = subprocess.run(
+                ["flatpak", "list", "--app", "--columns=application,name,origin,installation"],
+                capture_output=True, text=True, timeout=12, check=False,
+            )
+        except Exception:
+            return []
+        apps: list[dict[str, str]] = []
+        for line in result.stdout.splitlines():
+            parts = line.split("\t")
+            if len(parts) < 4:
+                continue
+            app_id, name, origin, installation = (part.strip() for part in parts[:4])
+            if not app_id:
+                continue
+            apps.append({
+                "kind": "flatpak",
+                "app_id": app_id,
+                "name": name or app_id,
+                "origin": origin or "unknown",
+                "installation": installation or "default",
+            })
+        return sorted(apps, key=lambda app: app["name"].casefold())
+
+    def _appimage_search_dirs(self) -> list[str]:
+        home = os.path.expanduser("~")
+        return [
+            os.path.join(home, "Applications"),
+            os.path.join(home, ".local", "bin"),
+            os.path.join(home, "bin"),
+            os.path.join(home, "Desktop"),
+            os.path.join(home, "Downloads"),
+        ]
+
+    def _path_is_user_appimage(self, path: str) -> bool:
+        if not path:
+            return False
+        try:
+            real = os.path.realpath(os.path.expanduser(path))
+            home = os.path.realpath(os.path.expanduser("~"))
+        except OSError:
+            return False
+        return (
+            real.startswith(home + os.sep)
+            and os.path.isfile(real)
+            and os.path.basename(real).lower().endswith(".appimage")
+        )
+
+    def _desktop_entry_for_appimage(self, desktop_path: str) -> dict[str, str] | None:
+        parser = configparser.ConfigParser(interpolation=None, strict=False)
+        parser.optionxform = str
+        try:
+            parser.read(desktop_path, encoding="utf-8")
+        except Exception:
+            return None
+        if not parser.has_section("Desktop Entry"):
+            return None
+        entry = parser["Desktop Entry"]
+        exec_line = entry.get("Exec", "")
+        try_exec = entry.get("TryExec", "")
+        candidates: list[str] = []
+        for line in (exec_line, try_exec):
+            if not line:
+                continue
+            try:
+                parts = shlex.split(line)
+            except ValueError:
+                parts = line.split()
+            candidates.extend(part for part in parts if ".AppImage" in part or ".appimage" in part)
+        appimage_path = next((part for part in candidates if self._path_is_user_appimage(part)), "")
+        if not appimage_path:
+            return None
+        appimage_path = os.path.realpath(os.path.expanduser(appimage_path))
+        return {
+            "kind": "appimage",
+            "app_id": appimage_path,
+            "name": entry.get("Name", "") or os.path.basename(appimage_path),
+            "origin": "AppImage",
+            "installation": "user file",
+            "path": appimage_path,
+            "desktop_path": desktop_path,
+            "icon": entry.get("Icon", ""),
+        }
+
+    def _installed_appimage_apps(self) -> list[dict[str, str]]:
+        apps_by_path: dict[str, dict[str, str]] = {}
+        desktop_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "applications")
+        for desktop_path in glob.glob(os.path.join(desktop_dir, "*.desktop")):
+            app = self._desktop_entry_for_appimage(desktop_path)
+            if app:
+                apps_by_path[app["path"]] = app
+        for directory in self._appimage_search_dirs():
+            if not os.path.isdir(directory):
+                continue
+            try:
+                entries = os.listdir(directory)
+            except OSError:
+                continue
+            for name in entries:
+                path = os.path.join(directory, name)
+                if not self._path_is_user_appimage(path):
+                    continue
+                real = os.path.realpath(path)
+                apps_by_path.setdefault(real, {
+                    "kind": "appimage",
+                    "app_id": real,
+                    "name": os.path.basename(real),
+                    "origin": "AppImage",
+                    "installation": "user file",
+                    "path": real,
+                    "desktop_path": "",
+                    "icon": "",
+                })
+        return sorted(apps_by_path.values(), key=lambda app: app["name"].casefold())
 
     def _open_terminal(self):
         for cmd in (["xdg-terminal-exec"], ["konsole"], ["xterm"]):
@@ -11481,62 +12992,6 @@ class SoftwarePage(Page):
                     return
                 except OSError:
                     pass
-
-    def _run_dev_command(self, cmd: list[str], status: str):
-        if self._dev_worker and self._dev_worker.isRunning():
-            return
-        self._dev_log.clear()
-        self._dev_log.append("→ " + " ".join(cmd) + "\n")
-        self._dev_log_toggle.show()
-        _set_log_panel(self._dev_log_toggle, self._dev_log, False)
-        self._dev_progress.show()
-        self._dev_status.setText(status)
-        self._dev_status.setObjectName("subheading")
-        self._dev_status.show()
-        _restyle(self._dev_status)
-        self._dev_worker = Worker(cmd)
-        self._dev_worker.line.connect(self._on_dev_line)
-        self._dev_worker.done.connect(self._on_dev_done)
-        self._dev_worker.start()
-
-    def _on_dev_line(self, ln: str):
-        self._dev_log.append(ln)
-        self._dev_log.ensureCursorVisible()
-
-    def _on_dev_done(self, code: int):
-        self._dev_progress.hide()
-        _finish_worker(self, attr="_dev_worker")
-        if code == 0:
-            self._dev_status.setText("Development setup complete.")
-            self._dev_status.setObjectName("status-ok")
-            self._dev_log.append("\nDone.")
-        else:
-            self._dev_status.setText(f"Development setup failed (exit {code}).")
-            self._dev_status.setObjectName("status-err")
-            _set_log_panel(self._dev_log_toggle, self._dev_log, True)
-        _restyle(self._dev_status)
-
-    def _enter_dev_box(self):
-        if not _is_distrobox_container("kyth-dev"):
-            QMessageBox.information(
-                self,
-                "Dev Box Not Found",
-                "Create the KythOS development box first.",
-            )
-            return
-        terminal = None
-        for cmd in (["konsole"], ["xdg-terminal-exec"], ["xterm"]):
-            if shutil.which(cmd[0]):
-                terminal = cmd[0]
-                break
-        if terminal is None:
-            QMessageBox.warning(self, "Terminal not found",
-                                "Could not find a terminal emulator to open.")
-            return
-        if terminal == "konsole":
-            subprocess.Popen(["konsole", "-e", "distrobox", "enter", "kyth-dev"])
-        else:
-            subprocess.Popen([terminal, "--", "distrobox", "enter", "kyth-dev"])
 
 
 # ── Page: Network Shares ──────────────────────────────────────────────────────
@@ -12843,12 +14298,49 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(920, 640)
         self.resize(1100, 740)
 
+        # Outer wrapper: live banner (if running from live ISO) + main content
+        central = QWidget()
+        central.setObjectName("content-area")
+        central_layout = QVBoxLayout(central)
+        central_layout.setContentsMargins(0, 0, 0, 0)
+        central_layout.setSpacing(0)
+        self.setCentralWidget(central)
+
+        if _IS_LIVE:
+            banner = QWidget()
+            banner.setObjectName("live-banner")
+            banner_layout = QHBoxLayout(banner)
+            banner_layout.setContentsMargins(16, 9, 16, 9)
+            banner_layout.setSpacing(0)
+
+            badge = QLabel("  LIVE SESSION  ")
+            badge.setObjectName("live-banner-badge")
+            banner_layout.addWidget(badge)
+            banner_layout.addSpacing(12)
+
+            notice = QLabel(
+                "You're running from a live ISO — performance is reduced and some features "
+                "are unavailable until KythOS is installed."
+            )
+            notice.setObjectName("live-banner-text")
+            banner_layout.addWidget(notice, 1)
+            banner_layout.addSpacing(16)
+
+            install_btn = QPushButton("Install KythOS")
+            install_btn.setObjectName("primary")
+            install_btn.setFixedWidth(148)
+            install_btn.clicked.connect(
+                lambda: subprocess.Popen(["/usr/bin/kyth-launch-installer"])
+            )
+            banner_layout.addWidget(install_btn)
+            central_layout.addWidget(banner)
+
         root = QWidget()
         root.setObjectName("content-area")
         root_layout = QHBoxLayout(root)
         root_layout.setContentsMargins(0, 0, 0, 0)
         root_layout.setSpacing(0)
-        self.setCentralWidget(root)
+        central_layout.addWidget(root, 1)
 
         # ── Sidebar ──────────────────────────────────────────────────────────
         sidebar = QWidget()
@@ -12886,6 +14378,7 @@ class MainWindow(QMainWindow):
             ("System", [
                 ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
                 ("↻", "Update",   "Update",   UpdatePage),
+                ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
                 ("◈", "Hardware", "Hardware", HardwarePage),
                 ("⬟", "Firmware", "Firmware", FirmwarePage),
             ]),
@@ -12909,6 +14402,7 @@ class MainWindow(QMainWindow):
         advanced_items: list[tuple[str, str, str, object]] = []
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
         advanced_items.append(("⚠", "Repair", "Repair", RepairPage))
         nav_groups.append(("Advanced", advanced_items))
 
@@ -13030,7 +14524,7 @@ class WizardWindow(QMainWindow):
             if i > 0:
                 connector = QFrame()
                 connector.setFixedSize(28, 2)
-                connector.setStyleSheet("background: #2a3f5a; border: none;")
+                connector.setStyleSheet("background: #505050; border: none;")
                 progress_layout.addWidget(connector)
 
             step_col = QWidget()
@@ -13061,7 +14555,7 @@ class WizardWindow(QMainWindow):
         accent.setFixedHeight(2)
         accent.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #1a9fe8, stop:0.5 #57cbde, stop:1 #1b2838);"
+            "stop:0 #c586c0, stop:0.5 #89d185, stop:1 #3c3c3c);"
         )
         root_layout.addWidget(accent)
 
@@ -13178,7 +14672,8 @@ class WizardWindow(QMainWindow):
             "KythOS runs your Steam library, Epic games, and GOG titles through Proton — "
             "with no extra setup required. "
             "Xbox and PlayStation controllers connect automatically. "
-            "The kernel is tuned for gaming performance before you install a single game."
+            "It uses Fedora's smooth default kernel, with a CachyOS kernel image "
+            "available for advanced users."
         )
         desc.setObjectName("wizard-desc")
         desc.setWordWrap(True)
@@ -13197,7 +14692,7 @@ class WizardWindow(QMainWindow):
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         ge_ver = _ge_proton_version() or "included"
 
-        scx_sched = "BORE"
+        scx_sched = "Fedora"
         try:
             with open("/etc/scx/scx_loader.conf") as _scx_fh:
                 for _scx_line in _scx_fh:
@@ -13217,7 +14712,7 @@ class WizardWindow(QMainWindow):
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
                 sep.setFixedWidth(1)
-                sep.setStyleSheet("background: #2a3f5a; border: none; max-width: 1px;")
+                sep.setStyleSheet("background: #3c3c3c; border: none; max-width: 1px;")
                 stats_layout.addSpacing(28)
                 stats_layout.addWidget(sep)
                 stats_layout.addSpacing(28)
@@ -13239,8 +14734,8 @@ class WizardWindow(QMainWindow):
         page = QWidget()
         page.setObjectName("content-area")
         layout = QVBoxLayout(page)
-        layout.setContentsMargins(56, 38, 56, 32)
-        layout.setSpacing(18)
+        layout.setContentsMargins(56, 34, 56, 28)
+        layout.setSpacing(16)
 
         title = QLabel("Choose Your Extras")
         title.setObjectName("heading")
@@ -13259,7 +14754,7 @@ class WizardWindow(QMainWindow):
         core_title.setObjectName("card-title")
         core_layout.addWidget(core_title)
         core_copy = QLabel(
-            "Steam, Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
+            "Heroic Games Launcher, Lutris, ProtonUp-Qt, and protontricks install automatically "
             "as soon as networking is available."
         )
         core_copy.setObjectName("card-copy")
@@ -13268,6 +14763,7 @@ class WizardWindow(QMainWindow):
         layout.addWidget(core_card)
 
         self._wizard_extra_apps = [
+            ("com.valvesoftware.Steam",      "Steam",         "Valve's game store and Proton launcher for your Steam library."),
             ("com.discordapp.Discord",       "Discord",       "Voice, text, and community chat — used by almost every gaming community."),
             ("com.brave.Browser",            "Brave Browser", "Fast, privacy-friendly browser with good media support."),
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
@@ -13280,16 +14776,28 @@ class WizardWindow(QMainWindow):
         extras_title.setObjectName("card-title")
         extras_layout.addWidget(extras_title)
 
+        apps_view = QScrollArea()
+        apps_view.setWidgetResizable(True)
+        apps_view.setMinimumHeight(230)
+        apps_view.setFrameShape(QFrame.Shape.NoFrame)
+        apps_view.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        apps_widget = QWidget()
+        apps_layout = QVBoxLayout(apps_widget)
+        apps_layout.setContentsMargins(0, 0, 8, 0)
+        apps_layout.setSpacing(10)
+
         self._wizard_extra_checks = []
         for app_id, name, desc in self._wizard_extra_apps:
             row = QWidget()
+            row.setMinimumHeight(48)
+            row.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
             row_layout = QHBoxLayout(row)
             row_layout.setContentsMargins(0, 0, 0, 0)
             row_layout.setSpacing(12)
 
             already_installed = _is_flatpak_installed(app_id)
             check = QCheckBox()
-            check.setChecked(not already_installed and app_id == "com.discordapp.Discord")
+            check.setChecked(not already_installed and app_id in {"com.valvesoftware.Steam", "com.discordapp.Discord"})
             check.setEnabled(not already_installed)
             self._wizard_extra_checks.append((check, app_id, name))
             row_layout.addWidget(check, 0, Qt.AlignmentFlag.AlignTop)
@@ -13298,14 +14806,18 @@ class WizardWindow(QMainWindow):
             text_col.setSpacing(2)
             name_lbl = QLabel(name)
             name_lbl.setObjectName("card-title")
-            name_lbl.setStyleSheet("font-size: 14px;")
+            name_lbl.setStyleSheet("font-size: 13px;")
             desc_lbl = QLabel("Already installed." if already_installed else desc)
             desc_lbl.setObjectName("card-copy")
             desc_lbl.setWordWrap(True)
             text_col.addWidget(name_lbl)
             text_col.addWidget(desc_lbl)
             row_layout.addLayout(text_col, 1)
-            extras_layout.addWidget(row)
+            apps_layout.addWidget(row)
+
+        apps_layout.addStretch()
+        apps_view.setWidget(apps_widget)
+        extras_layout.addWidget(apps_view, 1)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -13342,8 +14854,7 @@ class WizardWindow(QMainWindow):
             lambda checked: _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, checked)
         )
 
-        layout.addWidget(extras_card)
-        layout.addStretch()
+        layout.addWidget(extras_card, 1)
         self._wizard_extra_worker = None
         return page
 
@@ -13471,7 +14982,7 @@ class WizardWindow(QMainWindow):
         )
         tip.setObjectName("card-copy")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #57cbde; margin-top: 6px;")
+        tip.setStyleSheet("color: #c586c0; margin-top: 6px;")
         pc_layout.addWidget(tip)
         ps_layout.addWidget(proton_card)
         outer.addWidget(proton_section)
@@ -13523,7 +15034,7 @@ class WizardWindow(QMainWindow):
 
         check = QLabel("✓")
         check.setStyleSheet(
-            "font-size: 52px; color: #57cbde; font-weight: 300; background: transparent;"
+            "font-size: 52px; color: #89d185; font-weight: 300; background: transparent;"
         )
         layout.addWidget(check)
         layout.addSpacing(18)
@@ -13648,7 +15159,12 @@ def main():
     app.setWindowIcon(QIcon.fromTheme("kyth"))
     app.setStyleSheet(QSS)
 
-    win = WizardWindow() if _is_first_run() else MainWindow()
+    if _IS_LIVE:
+        win = MainWindow()
+    elif _is_first_run():
+        win = WizardWindow()
+    else:
+        win = MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
     win.show()
     if start_page and isinstance(win, MainWindow):

@@ -9,47 +9,85 @@ set -euo pipefail
 # Apply KythOS branding to the base image
 echo "KythOS base customization applied"
 
-# ── CachyOS kernel ─────────────────────────────────────────────────────────
-# Install with --noscripts to skip the %posttrans that calls rpm-ostree
-# kernel-install → dracut, which fails in container builds due to EXDEV errors
-# when dracut tries to rename tmp files across the overlay filesystem.
-# We run dracut ourselves below with full control over the environment.
-dnf5 copr enable -y bieszczaders/kernel-cachyos
-dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
+KYTH_KERNEL_FLAVOR="${KYTH_KERNEL_FLAVOR:-fedora}"
 
-CACHYOS_KVER=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-depmod -a "${CACHYOS_KVER}"
+write_kernel_flavor() {
+    mkdir -p /usr/share/kyth
+    printf '%s\n' "${KYTH_KERNEL_FLAVOR}" > /usr/share/kyth/kernel-flavor
+}
 
-dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
-    kernel-cachyos \
-    kernel-cachyos-core
+latest_kernel_version() {
+    find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1
+}
 
-depmod -a "${CACHYOS_KVER}"
+remove_kernel_packages_except() {
+    local keep_pattern=$1
+    rpm -qa | grep -E '^kernel' | grep -Ev "${keep_pattern}" | xargs -r rpm --nodeps -e 2>/dev/null || true
+}
 
-# ASUS Linux support depends on the newer ASUS Armoury/WMI platform drivers.
-# CachyOS mainline kernels currently carry these; warn loudly if the Fedora
-# COPR ever drops them so the userspace tools do not silently become half-useful.
-if ! find "/usr/lib/modules/${CACHYOS_KVER}" -name 'asus-armoury.ko*' -print -quit | grep -q .; then
-    echo "WARNING: CachyOS kernel lacks asus-armoury.ko; ASUS Linux support will be reduced." >&2
+install_cachyos_kernel() {
+    # Install with --noscripts to skip the %posttrans that calls rpm-ostree
+    # kernel-install -> dracut, which fails in container builds due to EXDEV
+    # errors when dracut renames tmp files across the overlay filesystem.
+    dnf5 copr enable -y bieszczaders/kernel-cachyos
+    dnf5 install -y --setopt=tsflags=noscripts kernel-cachyos-modules
+
+    local kver
+    kver=$(basename "$(echo /usr/lib/modules/*cachyos*)")
+    depmod -a "${kver}"
+
+    dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
+        kernel-cachyos \
+        kernel-cachyos-core
+
+    depmod -a "${kver}"
+
+    # ASUS Linux support depends on newer ASUS Armoury/WMI platform drivers.
+    if ! find "/usr/lib/modules/${kver}" -name 'asus-armoury.ko*' -print -quit | grep -q .; then
+        echo "WARNING: CachyOS kernel lacks asus-armoury.ko; ASUS Linux support will be reduced." >&2
+    fi
+
+    for kdir in /usr/lib/modules/*/; do
+        local existing
+        existing=$(basename "$kdir")
+        if [[ "$existing" != *cachyos* ]]; then
+            echo "Removing non-CachyOS kernel: ${existing}"
+            rm -rf "$kdir"
+        fi
+    done
+    remove_kernel_packages_except 'cachyos'
+
+    if [ ! -f "/usr/lib/modules/${kver}/vmlinuz" ] && [ -f "/boot/vmlinuz-${kver}" ]; then
+        cp --no-preserve=all "/boot/vmlinuz-${kver}" "/usr/lib/modules/${kver}/vmlinuz" 2>/dev/null || true
+    fi
+
+    dnf5 copr disable -y bieszczaders/kernel-cachyos
+}
+
+case "${KYTH_KERNEL_FLAVOR}" in
+    fedora)
+        echo "Using Fedora kernel from upstream base image"
+        ;;
+    cachy|cachyos)
+        KYTH_KERNEL_FLAVOR="cachy"
+        install_cachyos_kernel
+        ;;
+    *)
+        echo "Unknown KYTH_KERNEL_FLAVOR: ${KYTH_KERNEL_FLAVOR}" >&2
+        echo "Valid values: fedora, cachy" >&2
+        exit 1
+        ;;
+esac
+write_kernel_flavor
+
+KVER=$(latest_kernel_version)
+if [[ -z "${KVER}" ]]; then
+    echo "ERROR: no kernel found in /usr/lib/modules" >&2
+    exit 1
 fi
 
-# Remove every non-CachyOS kernel from /usr/lib/modules/ so bootc sees
-# exactly one kernel (it errors out if multiple subdirectories are present).
-for kdir in /usr/lib/modules/*/; do
-    kver=$(basename "$kdir")
-    if [[ "$kver" != *cachyos* ]]; then
-        echo "Removing non-CachyOS kernel: ${kver}"
-        rm -rf "$kdir"
-    fi
-done
-rpm -qa | grep -E '^kernel' | grep -v cachyos | xargs -r rpm --nodeps -e 2>/dev/null || true
-
-# Ensure vmlinuz is in the OSTree-expected location
-# (kernel RPMs may put it in /boot; bootc needs it at /usr/lib/modules/<kver>/vmlinuz)
-if [ ! -f "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" ]; then
-    if [ -f "/boot/vmlinuz-${CACHYOS_KVER}" ]; then
-        cp --no-preserve=all "/boot/vmlinuz-${CACHYOS_KVER}" "/usr/lib/modules/${CACHYOS_KVER}/vmlinuz" 2>/dev/null
-    fi
+if [ ! -f "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then
+    cp --no-preserve=all "/boot/vmlinuz-${KVER}" "/usr/lib/modules/${KVER}/vmlinuz" 2>/dev/null || true
 fi
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
@@ -84,12 +122,10 @@ DRACUTEOF
 TMPDIR=/var/tmp dracut \
     --no-hostonly \
     --compress "zstd -1" \
-    --kver "${CACHYOS_KVER}" \
+    --kver "${KVER}" \
     --force \
-    "/usr/lib/modules/${CACHYOS_KVER}/initramfs" \
+    "/usr/lib/modules/${KVER}/initramfs" \
     2> >(grep -Ev 'xattr|fail to copy' >&2)
-
-dnf5 copr disable -y bieszczaders/kernel-cachyos
 
 # Set kernel args for the installed system via bootc kargs.d.
 # Keep hardware-specific GPU workarounds out of the baseline. Those are applied
