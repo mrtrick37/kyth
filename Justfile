@@ -919,3 +919,18 @@ format:
     fi
     # Run shfmt on all Bash scripts
     /usr/bin/find . -iname "*.sh" -type f -exec shfmt --write "{}" ';'
+
+# Preview the installer UI in your browser (no disk changes — safe for dev)
+[group('Utility')]
+preview-installer:
+    #!/usr/bin/env python3
+    exec(open("build_files/kyth-installer").read())
+    import threading, time
+    server = _Server(("127.0.0.1", 7777), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    print("Installer UI → http://127.0.0.1:7777  (Ctrl-C to stop)")
+    try:
+        while True:
+            time.sleep(60)
+    except KeyboardInterrupt:
+        pass
