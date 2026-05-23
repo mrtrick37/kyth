@@ -456,13 +456,13 @@ install -m 0644 /ctx/plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
 install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
 
 # Replace the Fedora badge in the bgrt/spinner fallback theme so the ASUS
-# firmware logo ("In search of incredible") is followed by a KythOS badge
+# firmware logo ("In search of incredible") is followed by the KythOS lockup
 # rather than a Fedora logo during early-boot BGRT rendering.
 for _spinner_dir in \
     /usr/share/plymouth/themes/spinner \
     /usr/share/plymouth/themes/bgrt-fedora; do
     if [ -d "${_spinner_dir}" ]; then
-        rsvg-convert -w 128 /ctx/branding/kyth-logo-transparent.svg \
+        rsvg-convert -w 260 /ctx/branding/kyth-boot-badge.svg \
             -o "${_spinner_dir}/watermark.png"
     fi
 done
