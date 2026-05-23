@@ -4,8 +4,8 @@
 ARG BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44
 FROM ${BASE_IMAGE}
 
-# Fedora is the default kernel flavor. CachyOS and OGC are advanced image
-# variants built from the same tree and exposed to users through bootc switches.
+# Fedora is the default kernel flavor. CachyOS is an advanced image
+# variant built from the same tree and exposed to users through bootc switches.
 ARG KYTH_KERNEL_FLAVOR=fedora
 
 # Passed at build time so the layer cache is busted whenever an alternate
@@ -13,13 +13,11 @@ ARG KYTH_KERNEL_FLAVOR=fedora
 # pass them here. Explicitly referenced via the no-op ':' builtin so Docker
 # (both classic and BuildKit) includes them in the cache key.
 ARG CACHYOS_KERNEL_VER=unset
-ARG OGC_KERNEL_VER=unset
 
 # Use a bind-mount so the script is never written into any image layer
 RUN --mount=type=bind,source=build.sh,target=/run/build.sh \
     --mount=type=bind,source=plymouth,target=/run/plymouth \
-    : "cache-bust=${KYTH_KERNEL_FLAVOR}-${CACHYOS_KERNEL_VER}-${OGC_KERNEL_VER}" \
+    : "cache-bust=${KYTH_KERNEL_FLAVOR}-${CACHYOS_KERNEL_VER}" \
     && KYTH_KERNEL_FLAVOR="${KYTH_KERNEL_FLAVOR}" \
        CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
-       OGC_KERNEL_VER="${OGC_KERNEL_VER}" \
        bash /run/build.sh

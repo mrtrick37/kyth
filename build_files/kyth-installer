@@ -382,7 +382,7 @@ def _install_images(kernel: str) -> tuple[str, str]:
     """Return (source_imgref, target_imgref) for bootc install based on kernel choice.
 
     Fedora uses the configured SOURCE_IMAGE/TARGET_IMAGE as-is (may be a local
-    OCI transport for embedded ISOs).  CachyOS and OGC always pull from the
+    OCI transport for embedded ISOs).  CachyOS always pulls from the
     registry, deriving the tag by appending the kernel suffix to the base tag.
     """
     if kernel == "fedora":
@@ -392,11 +392,9 @@ def _install_images(kernel: str) -> tuple[str, str]:
         registry, tag = TARGET_IMAGE.rsplit(":", 1)
     else:
         registry, tag = TARGET_IMAGE, "latest"
-    for sfx in ("-cachy", "-ogc"):
-        if tag.endswith(sfx):
-            tag = tag[: -len(sfx)]
-            break
-    suffix = "-cachy" if kernel == "cachy" else "-ogc"
+    if tag.endswith("-cachy"):
+        tag = tag[: -len("-cachy")]
+    suffix = "-cachy"
     img = f"{registry}:{tag}{suffix}"
     return f"docker://{img}", img
 
@@ -779,7 +777,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(400, "Invalid disk")
                 return
             kernel = body.get("kernel", "fedora")
-            if kernel not in ("fedora", "cachy", "ogc"):
+            if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
             _state.update({
                 "disk":     disk,
@@ -1224,9 +1222,6 @@ const KERNELS = [
   { id: 'cachy',  icon: '⚡', name: 'CachyOS',
     desc: 'BORE scheduler &middot; sched-ext &middot; BBRv3 &middot; NTSYNC &middot; Optimized for gaming &amp; low-latency workloads',
     note: 'Secure Boot: enroll the KythOS signing key after first boot with <code style="font-family:var(--mono)">ujust enroll-secureboot</code>' },
-  { id: 'ogc',    icon: '🎮', name: 'OGC',
-    desc: 'OpenGamepadConfig kernel &middot; Enhanced gamepad &amp; input device support',
-    note: 'Secure Boot: enroll the KythOS signing key after first boot with <code style="font-family:var(--mono)">ujust enroll-secureboot</code>' },
 ];
 
 function initKernel() {
@@ -1295,15 +1290,15 @@ function saveConfig() {
 
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
-  const kernelLabels = { fedora: 'Fedora', cachy: 'CachyOS', ogc: 'OGC' };
+  const kernelLabels = { fedora: 'Fedora', cachy: 'CachyOS' };
   const targetImage = (() => {
     const base = S._sourceImage || '';
     if (!base || S.kernel === 'fedora') return base || '—';
     const colon = base.lastIndexOf(':');
-    if (colon < 0) return base + (S.kernel === 'cachy' ? '-cachy' : '-ogc');
+    if (colon < 0) return base + '-cachy';
     let tag = base.slice(colon + 1);
-    for (const sfx of ['-cachy', '-ogc']) { if (tag.endsWith(sfx)) { tag = tag.slice(0, -sfx.length); break; } }
-    return base.slice(0, colon + 1) + tag + (S.kernel === 'cachy' ? '-cachy' : '-ogc');
+    if (tag.endsWith('-cachy')) { tag = tag.slice(0, -'-cachy'.length); }
+    return base.slice(0, colon + 1) + tag + '-cachy';
   })();
   const rows = [
     ['Disk',     S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],

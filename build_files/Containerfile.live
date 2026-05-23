@@ -177,7 +177,7 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
 # Fedora's kernel vmlinuz is signed by Red Hat's production key, which is
 # embedded in Fedora's shim. Booting it requires zero MOK interaction — the
 # shim trusts it out of the box. The installed default image now uses Fedora's
-# kernel too; CachyOS and OGC are advanced bootc image variants users can switch
+# kernel too; CachyOS is an advanced bootc image variant users can switch
 # to after install.
 # --setopt=tsflags=noscripts skips %posttrans scriptlets (same as CachyOS above).
 RUN dnf5 install -y --setopt=tsflags=noscripts \

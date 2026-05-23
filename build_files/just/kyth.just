@@ -127,7 +127,6 @@ switch-channel channel="stable":
     flavor="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
     case "${flavor}" in
         cachy) suffix="-cachy" ;;
-        ogc) suffix="-ogc" ;;
         *) suffix="" ;;
     esac
     tag="${base_tag}${suffix}"
@@ -136,12 +135,11 @@ switch-channel channel="stable":
     echo "Channel switch staged. Reboot to activate."
 
 # Switch to a kernel-flavored KythOS image.
-# Default Fedora is recommended. CachyOS and OGC are advanced variants that keep
+# Default Fedora is recommended. CachyOS is an advanced variant that keeps
 # rollback support by switching the whole bootc image instead of layering kernels.
 # Usage:
 #   ujust switch-kernel fedora
 #   ujust switch-kernel cachy
-#   ujust switch-kernel ogc
 [group('KythOS')]
 switch-kernel flavor="fedora":
     #!/usr/bin/env bash
@@ -151,10 +149,9 @@ switch-kernel flavor="fedora":
     case "${flavor}" in
         fedora|stock) suffix="" ; label="Fedora" ;;
         cachy|cachyos) suffix="-cachy" ; label="CachyOS" ;;
-        ogc) suffix="-ogc" ; label="OGC" ;;
         *)
             echo "Unknown kernel flavor: {{ flavor }}" >&2
-            echo "Valid flavors: fedora, cachy, ogc" >&2
+            echo "Valid flavors: fedora, cachy" >&2
             exit 1
             ;;
     esac
@@ -777,7 +774,7 @@ setup-waydroid image="vanilla":
         echo "Loading binder_linux kernel module..." >&2
         sudo modprobe binder_linux devices="binder,hwbinder,vndbinder" || {
             echo "ERROR: Could not load binder_linux. Waydroid requires binder support." >&2
-            echo "Try the CachyOS or OGC kernel from System Hub -> Advanced -> Kernel, then reboot." >&2
+            echo "Try the CachyOS kernel from System Hub -> Advanced -> Kernel, then reboot." >&2
             exit 1
         }
     fi
@@ -1099,7 +1096,7 @@ secureboot-status:
 # Manually enroll the KythOS Secure Boot key (MOK) into UEFI firmware.
 #
 # The default Fedora kernel path does not need this key. Run this before
-# enabling Secure Boot for advanced CachyOS or OGC kernel images, or after a
+# enabling Secure Boot for the advanced CachyOS kernel image, or after a
 # firmware reset if the KythOS MOK was removed.
 #
 # After running, reboot and enter the password you chose at the MokManager screen.

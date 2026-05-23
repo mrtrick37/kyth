@@ -132,9 +132,9 @@ Secure Boot is picky because the boot happens in layers. In plain language:
 4. Secure Boot must trust the selected kernel signature.
 
 The default install uses Fedora-signed kernel artifacts with Fedora's
-Microsoft-signed shim. Advanced CachyOS and OGC kernel images use the KythOS
-Machine Owner Key (MOK); enroll it once before enabling Secure Boot for those
-custom kernel variants.
+Microsoft-signed shim. The advanced CachyOS kernel image uses the KythOS
+Machine Owner Key (MOK); enroll it once before enabling Secure Boot for that
+custom kernel variant.
 
 ### Fresh install from the live USB
 
@@ -148,14 +148,14 @@ Use this path for a new machine or a clean install:
 4. Choose **Try KythOS Live**.
 5. Run the installer from the desktop.
 
-Only enroll the KythOS MOK if you later switch to the advanced CachyOS or OGC
+Only enroll the KythOS MOK if you later switch to the advanced CachyOS
 kernel image and want Secure Boot enabled for that custom kernel.
 
 ### Existing KythOS install
 
 If KythOS is already installed and you are using the default Fedora kernel,
 Secure Boot should work through Fedora's signed shim and kernel. If you switch
-to a CachyOS or OGC kernel image, use this order:
+to the CachyOS kernel image, use this order:
 
 1. Update to the latest KythOS image while Secure Boot is still disabled:
 
@@ -277,7 +277,7 @@ This is the part for builders, testers, and people who want to know exactly what
 | Layer | Detail |
 |---|---|
 | Base | Fedora 44 KDE Plasma, `ublue-os/kinoite-main:44` |
-| Kernel | Fedora kernel by default; optional CachyOS and OGC bootc image variants for advanced users |
+| Kernel | Fedora kernel by default; optional CachyOS bootc image variant for advanced users |
 | Desktop | KDE Plasma 6 |
 | Display | Wayland-first desktop, with X11 live-session compatibility where needed |
 | Image model | Container-built OS image distributed through GitHub Container Registry |
