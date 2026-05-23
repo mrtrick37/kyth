@@ -1293,7 +1293,7 @@ def _branch_from_ref(ref: str | None) -> str | None:
     ref = ref.strip()
     if not ref:
         return None
-    for tag in ("latest-cachy", "testing-cachy", "latest-ogc", "testing-ogc", "latest", "testing"):
+    for tag in ("latest-cachy", "testing-cachy", "latest", "testing"):
         if f"{REGISTRY}:{tag}" in ref:
             return tag
     if "@" in ref:
@@ -1312,10 +1312,6 @@ def _branch_display_name(tag: str | None) -> str:
         return "Stable + CachyOS kernel"
     if tag == "testing-cachy":
         return "Testing + CachyOS kernel"
-    if tag == "latest-ogc":
-        return "Stable + OGC kernel"
-    if tag == "testing-ogc":
-        return "Testing + OGC kernel"
     return tag or "unknown"
 
 
@@ -1327,22 +1323,20 @@ def _current_kernel_flavor() -> str:
     try:
         with open("/usr/share/kyth/kernel-flavor") as fh:
             flavor = fh.read().strip().lower()
-            if flavor in {"fedora", "cachy", "ogc"}:
+            if flavor in {"fedora", "cachy"}:
                 return flavor
     except OSError:
         pass
     kernel = _command_stdout(["uname", "-r"]).lower()
     if "cachy" in kernel:
         return "cachy"
-    if "ogc" in kernel:
-        return "ogc"
     return "fedora"
 
 
 def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
     base = "testing" if channel == "testing" else "latest"
     flavor = flavor or _current_kernel_flavor()
-    suffix = {"cachy": "-cachy", "ogc": "-ogc"}.get(flavor, "")
+    suffix = "-cachy" if flavor == "cachy" else ""
     return f"{base}{suffix}"
 
 
@@ -4544,7 +4538,7 @@ class UpdatePage(Page):
 
         # Branch channel cards
         is_idle = self._worker is None
-        if tag in ("latest", "latest-cachy", "latest-ogc"):
+        if tag in ("latest", "latest-cachy"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_btn.setEnabled(False)
@@ -4554,7 +4548,7 @@ class UpdatePage(Page):
             self._testing_btn.setText("Switch to Testing")
             self._testing_btn.setEnabled(is_idle)
             self._testing_build_lbl.hide()
-        elif tag in ("testing", "testing-cachy", "testing-ogc"):
+        elif tag in ("testing", "testing-cachy"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_btn.setEnabled(is_idle)
@@ -4789,7 +4783,7 @@ class BranchesPage(Page):
             self._state_copy_btn.hide()
 
         # Branch cards
-        if tag in ("latest", "latest-cachy", "latest-ogc"):
+        if tag in ("latest", "latest-cachy"):
             self._stable_btn.setObjectName("branch-active")
             self._stable_btn.setText("On Stable  (current)")
             self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
@@ -4797,7 +4791,7 @@ class BranchesPage(Page):
             self._testing_btn.setObjectName("branch-inactive")
             self._testing_btn.setText("Switch to Testing")
             self._testing_build_lbl.hide()
-        elif tag in ("testing", "testing-cachy", "testing-ogc"):
+        elif tag in ("testing", "testing-cachy"):
             self._stable_btn.setObjectName("branch-inactive")
             self._stable_btn.setText("Switch to Stable")
             self._stable_build_lbl.hide()
@@ -5396,7 +5390,7 @@ class KernelPage(Page):
         self._page_header(
             "Advanced",
             "Kernel",
-            "Fedora is the recommended default. CachyOS and OGC are opt-in image variants for advanced gaming and hardware testing.",
+            "Fedora is the recommended default. CachyOS is an opt-in image variant for advanced gaming and low-latency workloads.",
         )
 
         state_card, state_layout = _make_card()
@@ -5425,12 +5419,6 @@ class KernelPage(Page):
                 "CachyOS Kernel",
                 "Advanced performance option with CachyOS tuning. Good for users chasing latency or benchmark wins.",
                 "Switch to CachyOS",
-            ),
-            (
-                "ogc",
-                "OGC Kernel",
-                "Advanced gaming option aligned with Open Gaming Collective-style hardware and controller support.",
-                "Switch to OGC",
             ),
         ):
             card, layout = _make_card()
@@ -5494,7 +5482,7 @@ class KernelPage(Page):
         flavor = _current_kernel_flavor()
         kernel = _command_stdout(["uname", "-r"]) or "unknown"
         channel = _branch_display_name(_current_branch())
-        names = {"fedora": "Fedora", "cachy": "CachyOS", "ogc": "OGC"}
+        names = {"fedora": "Fedora", "cachy": "CachyOS"}
         self._current_lbl.setText(f"{names.get(flavor, flavor)} kernel  ·  {kernel}  ·  {channel}")
         idle = self._worker is None
         for key, btn in self._kernel_buttons.items():
@@ -5507,7 +5495,6 @@ class KernelPage(Page):
                 btn.setText({
                     "fedora": "Use Fedora Kernel",
                     "cachy": "Switch to CachyOS",
-                    "ogc": "Switch to OGC",
                 }[key])
                 btn.setEnabled(idle)
             _restyle(btn)
@@ -13460,8 +13447,8 @@ class WizardWindow(QMainWindow):
             "KythOS runs your Steam library, Epic games, and GOG titles through Proton — "
             "with no extra setup required. "
             "Xbox and PlayStation controllers connect automatically. "
-            "It uses Fedora's smooth default kernel, with CachyOS and OGC kernel images "
-            "available later for advanced users."
+            "It uses Fedora's smooth default kernel, with a CachyOS kernel image "
+            "available for advanced users."
         )
         desc.setObjectName("wizard-desc")
         desc.setWordWrap(True)

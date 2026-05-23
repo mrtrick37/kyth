@@ -38,7 +38,7 @@ jobs:
         # schedule → build both branches in parallel
         # push / workflow_dispatch → build only the triggered branch
         branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
-        kernel_flavor: [fedora, cachy, ogc]
+        kernel_flavor: [fedora, cachy]
 
     permissions:
       contents: read
@@ -55,7 +55,6 @@ jobs:
           case "${{ matrix.kernel_flavor }}" in
             fedora) SUFFIX="" ;;
             cachy)  SUFFIX="-cachy" ;;
-            ogc)    SUFFIX="-ogc" ;;
           esac
           echo "DEFAULT_TAG=${TAG}" >> ${GITHUB_ENV}
           echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> ${GITHUB_ENV}
@@ -147,15 +146,6 @@ jobs:
           echo "version=${KVER}" >> $GITHUB_OUTPUT
           echo "Resolved CachyOS kernel: ${KVER}"
 
-      - name: Resolve latest OGC kernel version
-        id: ogc_kernel
-        run: |
-          KVER=$(curl -fsSL "https://raw.githubusercontent.com/ublue-os/bazzite/main/Containerfile" \
-            | python3 -c "import re,sys,datetime; text=sys.stdin.read(); m=re.search(r'ARG KERNEL_VERSION=\"?\\$\\{KERNEL_VERSION:-([^}\\\"]+)', text) or re.search(r'ARG KERNEL_VERSION=\"?([^\"\\s]+)', text); print(m.group(1) if m else datetime.date.today().isoformat())" \
-            2>/dev/null || date +%Y-%m-%d)
-          echo "version=${KVER}" >> $GITHUB_OUTPUT
-          echo "Resolved OGC kernel: ${KVER}"
-
       - name: Resolve latest GE-Proton version
         id: ge_proton
         run: |
@@ -175,7 +165,6 @@ jobs:
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44 \
             --build-arg KYTH_KERNEL_FLAVOR="${{ matrix.kernel_flavor }}" \
             --build-arg CACHYOS_KERNEL_VER="${{ steps.cachyos_kernel.outputs.version }}" \
-            --build-arg OGC_KERNEL_VER="${{ steps.ogc_kernel.outputs.version }}" \
             --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
             --cache-to "type=registry,ref=${BASE_CACHE_REF},mode=max" \
             --tag "${BASE_IMAGE_REF}" \

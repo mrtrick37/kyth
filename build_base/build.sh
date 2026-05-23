@@ -10,7 +10,6 @@ set -euo pipefail
 echo "KythOS base customization applied"
 
 KYTH_KERNEL_FLAVOR="${KYTH_KERNEL_FLAVOR:-fedora}"
-OGC_KERNEL_VER="${OGC_KERNEL_VER:-}"
 
 write_kernel_flavor() {
     mkdir -p /usr/share/kyth
@@ -65,61 +64,6 @@ install_cachyos_kernel() {
     dnf5 copr disable -y bieszczaders/kernel-cachyos
 }
 
-install_ogc_kernel() {
-    if [[ -z "${OGC_KERNEL_VER}" || "${OGC_KERNEL_VER}" == "unset" ]]; then
-        echo "ERROR: OGC_KERNEL_VER must be set for KYTH_KERNEL_FLAVOR=ogc" >&2
-        exit 1
-    fi
-
-    dnf5 install -y skopeo jq
-    rm -rf /tmp/akmods /tmp/kernel-rpms
-    skopeo copy --retry-times 3 \
-        "docker://ghcr.io/ublue-os/akmods:ogc-$(rpm -E %fedora)-${OGC_KERNEL_VER}" \
-        dir:/tmp/akmods
-    local layer_digest
-    layer_digest=$(jq -r '.layers[].digest' </tmp/akmods/manifest.json | cut -d : -f 2 | head -n 1)
-    tar -xzf "/tmp/akmods/${layer_digest}" -C /tmp/
-
-    for pkg in kernel kernel-core kernel-modules kernel-modules-core kernel-modules-extra; do
-        rpm --erase "$pkg" --nodeps 2>/dev/null || true
-    done
-    rm -rf /usr/lib/modules/*
-
-    local kernel_rpms=()
-    local pattern rpm_path
-    for pattern in \
-        /tmp/kernel-rpms/kernel-[0-9]*.rpm \
-        /tmp/kernel-rpms/kernel-core-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-core-*.rpm \
-        /tmp/kernel-rpms/kernel-modules-extra-*.rpm \
-        /tmp/kernel-rpms/kernel-tools-*.rpm \
-        /tmp/kernel-rpms/kernel-tools-libs-*.rpm \
-        /tmp/kernel-rpms/kernel-common-*.rpm; do
-        for rpm_path in ${pattern}; do
-            [[ -e "${rpm_path}" ]] || continue
-            kernel_rpms+=("${rpm_path}")
-        done
-    done
-
-    if [[ ${#kernel_rpms[@]} -eq 0 ]]; then
-        echo "ERROR: no kernel RPMs found in OGC akmods payload" >&2
-        find /tmp/kernel-rpms -maxdepth 2 -type f -print >&2 || true
-        exit 1
-    fi
-
-    printf 'OGC kernel RPMs:\n'
-    printf '  %s\n' "${kernel_rpms[@]}"
-    dnf5 install -y --setopt=tsflags=noscripts "${kernel_rpms[@]}"
-
-    local kver
-    kver=$(latest_kernel_version)
-    depmod -a "${kver}"
-    if [ ! -f "/usr/lib/modules/${kver}/vmlinuz" ] && [ -f "/boot/vmlinuz-${kver}" ]; then
-        cp --no-preserve=all "/boot/vmlinuz-${kver}" "/usr/lib/modules/${kver}/vmlinuz" 2>/dev/null || true
-    fi
-}
-
 case "${KYTH_KERNEL_FLAVOR}" in
     fedora)
         echo "Using Fedora kernel from upstream base image"
@@ -128,12 +72,9 @@ case "${KYTH_KERNEL_FLAVOR}" in
         KYTH_KERNEL_FLAVOR="cachy"
         install_cachyos_kernel
         ;;
-    ogc)
-        install_ogc_kernel
-        ;;
     *)
         echo "Unknown KYTH_KERNEL_FLAVOR: ${KYTH_KERNEL_FLAVOR}" >&2
-        echo "Valid values: fedora, cachy, ogc" >&2
+        echo "Valid values: fedora, cachy" >&2
         exit 1
         ;;
 esac

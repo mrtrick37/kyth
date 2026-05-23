@@ -66,7 +66,7 @@ check_static_sources() {
         || fail "live image must stage shimx64.efi as removable-media BOOTX64.EFI"
     grep -q 'BOOTX64.EFI is not Microsoft UEFI-signed' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "ISO assembler must require Microsoft-signed BOOTX64.EFI for removable media"
-    grep -q "grep -Ev 'cachyos|ogc'" "${REPO_ROOT}/build_files/build-live-iso.sh" \
+    grep -q "grep -v cachyos" "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "ISO assembler must prefer the Fedora-signed live kernel"
     grep -q 'GRUB_DEFAULT=0' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "Fedora-signed live media should default to the live desktop"
@@ -139,11 +139,11 @@ check_cached_live_image() {
         test -s /usr/lib/kyth/efi/mmx64.efi
         test -s /usr/share/kyth/secureboot/kyth-secureboot.cer || true
         test -s /usr/share/kyth/secureboot/kyth-secureboot.der || true
-        fedora_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -Ev "cachyos|ogc" | sort -V | tail -n 1)
+        fedora_kver=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -v cachyos | sort -V | tail -n 1)
         test -n "${fedora_kver}"
         test -s "/usr/lib/modules/${fedora_kver}/vmlinuz"
         test -s "/usr/lib/modules/${fedora_kver}/initramfs-live"
-        ! find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -Eq "cachyos|ogc"
+        ! find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -q cachyos
     '
     pass "cached live image contains EFI binaries and only the Fedora live kernel"
 }

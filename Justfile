@@ -296,16 +296,11 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
         | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
         2>/dev/null || date +%Y-%m-%d)
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
-    OGC_KERNEL_VER=$(curl -fsSL "https://raw.githubusercontent.com/ublue-os/bazzite/main/Containerfile" \
-        | python3 -c 'import re,sys,datetime; text=sys.stdin.read(); m=re.search(r"ARG KERNEL_VERSION=\"?\\$\\{KERNEL_VERSION:-([^}\\\"]+)", text) or re.search(r"ARG KERNEL_VERSION=\"?([^\"\\s]+)", text); print(m.group(1) if m else datetime.date.today().isoformat())' \
-        2>/dev/null || date +%Y-%m-%d)
-    echo "OGC kernel: ${OGC_KERNEL_VER}"
     echo "Kernel flavor: {{ kernel_flavor }}"
     docker build \
         --build-arg BASE_IMAGE={{ base_image }} \
         --build-arg KYTH_KERNEL_FLAVOR="{{ kernel_flavor }}" \
         --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VER}" \
-        --build-arg OGC_KERNEL_VER="${OGC_KERNEL_VER}" \
         --tag localhost/kyth-base:stable \
         build_base/
 

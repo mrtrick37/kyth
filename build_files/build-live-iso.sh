@@ -532,7 +532,7 @@ fi
 echo "==> Locating kernel and live initramfs"
 KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
-        | grep -Ev 'cachyos|ogc' \
+        | grep -v cachyos \
         | sort -V \
         | tail -n 1
 )
@@ -553,7 +553,7 @@ INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 [[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
-if [[ "${KVER}" != *".fc"* || "${KVER}" == *cachyos* || "${KVER}" == *ogc* ]]; then
+if [[ "${KVER}" != *".fc"* || "${KVER}" == *cachyos* ]]; then
     # Custom fallback: apply Kyth signing if the key is available
     if [[ -f "${ROOTFS}/usr/share/kyth/secureboot/live-kernel-signed" ]]; then
         echo "    Secure Boot: custom live kernel signing marker present"
