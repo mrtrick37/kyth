@@ -1255,13 +1255,13 @@ def _parse_update_phase(line: str, mode: str) -> str | None:
 def _bootc_image_reference() -> str | None:
     data = _bootc_status_data() or {}
     candidates = (
-        ("spec", "image", "image"),
-        ("spec", "image", "reference"),
         ("status", "booted", "image", "reference"),
         ("status", "booted", "image", "image", "reference"),
         ("status", "booted", "image", "image", "image"),
         ("status", "booted", "image", "image"),
         ("status", "booted", "image"),
+        ("spec", "image", "image"),
+        ("spec", "image", "reference"),
     )
     for path in candidates:
         value = _nested_get(data, path)
