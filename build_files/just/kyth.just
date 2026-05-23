@@ -168,6 +168,9 @@ switch-kernel flavor="fedora":
         testing*) channel="testing" ;;
         *) channel="latest" ;;
     esac
+    if [[ "${suffix}" == "-cachy" ]]; then
+        channel="testing"
+    fi
 
     target="ghcr.io/mrtrick37/kyth:${channel}${suffix}"
     echo "Switching to ${label} kernel image: ${target}"
