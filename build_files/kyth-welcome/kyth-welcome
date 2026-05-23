@@ -443,6 +443,40 @@ QWidget#starter-pack-details {
     background: transparent;
 }
 
+/* ── Software page tab bar ───────────────────────────────────────────────── */
+QWidget#sw-tab-bar {
+    background: #1e1e1e;
+}
+
+QPushButton#sw-tab {
+    background: transparent;
+    color: #a6a6a6;
+    border: none;
+    border-bottom: 2px solid transparent;
+    border-radius: 0;
+    padding: 10px 22px;
+    font-size: 13px;
+    font-weight: 500;
+    min-width: 110px;
+}
+
+QPushButton#sw-tab:hover {
+    background: rgba(255, 255, 255, 0.04);
+    color: #cccccc;
+}
+
+QPushButton#sw-tab-active {
+    background: transparent;
+    color: #ffffff;
+    border: none;
+    border-bottom: 2px solid #c586c0;
+    border-radius: 0;
+    padding: 10px 22px;
+    font-size: 13px;
+    font-weight: 700;
+    min-width: 110px;
+}
+
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
     background: #252526;
@@ -11876,300 +11910,202 @@ class DevEnvironmentPage(Page):
 
 # ── Page: Software ────────────────────────────────────────────────────────────
 class SoftwarePage(Page):
+    """App store — Starter Packs | Flatpak | AppImages | Installed."""
+
+    _STARTER_PACKS = [
+        {
+            "name": "Everyday",
+            "desc": "Browser, chat, media, passwords, and local file sharing.",
+            "apps": [
+                ("com.brave.Browser", "Brave Browser", True),
+                ("com.discordapp.Discord", "Discord", True),
+                ("org.videolan.VLC", "VLC", True),
+                ("com.spotify.Client", "Spotify", True),
+                ("com.bitwarden.desktop", "Bitwarden", False),
+                ("org.localsend.localsend_app", "LocalSend", True),
+            ],
+        },
+        {
+            "name": "Gaming",
+            "desc": "Steam, Epic/GOG, Windows launchers, saves, and standalone .exe support.",
+            "apps": [
+                ("com.valvesoftware.Steam", "Steam", True),
+                ("com.heroicgameslauncher.hgl", "Heroic Games Launcher", True),
+                ("net.lutris.Lutris", "Lutris", True),
+                ("com.usebottles.bottles", "Bottles", True),
+                ("com.github.mtkennerly.ludusavi", "Ludusavi", True),
+                ("net.davidotek.pupgui2", "ProtonUp-Qt", True),
+            ],
+        },
+        {
+            "name": "Creator",
+            "desc": "Streaming, editing, audio, images, and 3D creation.",
+            "apps": [
+                ("com.obsproject.Studio", "OBS Studio", True),
+                ("org.kde.kdenlive", "Kdenlive", True),
+                ("org.audacityteam.Audacity", "Audacity", True),
+                ("org.gimp.GIMP", "GIMP", True),
+                ("org.inkscape.Inkscape", "Inkscape", True),
+                ("org.blender.Blender", "Blender", True),
+            ],
+        },
+    ]
+
+    _CURATED_APPIMAGES = [
+        {
+            "name": "Obsidian",
+            "desc": "Markdown note-taking and knowledge base with graph view.",
+            "url": "https://obsidian.md/download",
+        },
+        {
+            "name": "Cursor",
+            "desc": "AI-first code editor built on VS Code.",
+            "url": "https://cursor.sh",
+        },
+        {
+            "name": "Zed",
+            "desc": "High-performance multi-player code editor.",
+            "url": "https://zed.dev/download",
+        },
+        {
+            "name": "Beeper",
+            "desc": "Universal messenger — iMessage, WhatsApp, Telegram, Signal, and more.",
+            "url": "https://www.beeper.com/download",
+        },
+        {
+            "name": "Joplin",
+            "desc": "Open-source Markdown note-taking with end-to-end encryption.",
+            "url": "https://joplinapp.org/download/",
+        },
+        {
+            "name": "Figma for Linux",
+            "desc": "Collaborative UI design tool (unofficial Linux wrapper).",
+            "url": "https://github.com/Figma-Linux/figma-linux/releases",
+        },
+        {
+            "name": "AppImageHub",
+            "desc": "Browse the full community catalog of AppImages.",
+            "url": "https://www.appimagehub.com",
+        },
+    ]
+
     def __init__(self):
         super().__init__()
-        self._dev_worker: Worker | None = None
+
+        # Worker references
         self._starter_worker: Worker | None = None
         self._uninstall_worker: Worker | None = None
         self._uninstall_buttons: list[QPushButton] = []
+        self._fp_search_worker: Worker | None = None
+        self._fp_install_worker: Worker | None = None
+        self._fp_search_lines: list[str] = []
+        self._fp_installing: str | None = None
+
+        # Starter pack per-pack state
+        self._starter_pack_checks: dict = {}
+        self._starter_pack_buttons: dict = {}
+        self._starter_pack_details: dict = {}
 
         self._page_header(
             "Apps",
             "Software",
-            "How to install and manage applications on KythOS.",
+            "Get apps, manage installs, and remove what you don't need.",
         )
 
-        # Why dnf doesn't work
-        why_card, why_layout = _make_card()
-        why_title = QLabel("Why can't I use dnf?")
-        why_title.setObjectName("card-title")
-        why_layout.addWidget(why_title)
-        why_body = QLabel(
-            "KythOS is an immutable OS — the base system files are read-only and update atomically "
-            "as a container image. This makes the system reliable and easy to roll back, but it "
-            "means dnf can't permanently add packages to the base layer.\n\n"
-            "Use one of the three methods below depending on what you need to install."
-        )
-        why_body.setObjectName("card-copy")
-        why_body.setWordWrap(True)
-        why_layout.addWidget(why_body)
-        self._add(why_card)
+        # Tab bar — inserted into _outer between the page-header divider and the
+        # scroll area. After _page_header(), _outer contains [hdr, div, scroll].
+        tab_bar = QWidget()
+        tab_bar.setObjectName("sw-tab-bar")
+        tab_bar_layout = QHBoxLayout(tab_bar)
+        tab_bar_layout.setContentsMargins(56, 0, 56, 0)
+        tab_bar_layout.setSpacing(0)
+        self._tab_btns: list[QPushButton] = []
+        for i, label in enumerate(("Starter Packs", "Flatpak", "AppImages", "Installed")):
+            btn = QPushButton(label)
+            btn.setObjectName("sw-tab-active" if i == 0 else "sw-tab")
+            btn.clicked.connect(lambda _=False, idx=i: self._switch_tab(idx))
+            tab_bar_layout.addWidget(btn)
+            self._tab_btns.append(btn)
+        tab_bar_layout.addStretch()
+        self._outer.insertWidget(2, tab_bar)
+        self._outer.insertWidget(3, _divider())
 
-        # KythOS development
-        dev_card, dev_layout = _make_card()
-        dev_title = QLabel("KythOS Development")
-        dev_title.setObjectName("card-title")
-        dev_layout.addWidget(dev_title)
-        dev_body = QLabel(
-            "Set up the tools used to work on KythOS. VS Code is baked into the "
-            "image with full local filesystem and terminal access. Build and repo "
-            "tools live in a Fedora distrobox named kyth-dev."
-        )
-        dev_body.setObjectName("card-copy")
-        dev_body.setWordWrap(True)
-        dev_layout.addWidget(dev_body)
-        dev_layout.addWidget(_launch_opt_value(
-            "ujust install-vscode\n"
-            "ujust setup-kyth-dev-box"
-        ))
-        dev_btn_row = QHBoxLayout()
-        dev_btn_row.setSpacing(10)
-        dev_code_btn = QPushButton("Configure VS Code")
-        dev_code_btn.clicked.connect(
-            lambda: self._run_dev_command(_INSTALL_VSCODE_CMD, "Configuring VS Code…")
-        )
-        dev_btn_row.addWidget(dev_code_btn)
-        dev_box_btn = QPushButton("Create Dev Box")
-        dev_box_btn.setObjectName("primary")
-        dev_box_btn.clicked.connect(
-            lambda: self._run_dev_command(_SETUP_DEV_BOX_CMD, "Creating KythOS development box…")
-        )
-        dev_btn_row.addWidget(dev_box_btn)
-        dev_enter_btn = QPushButton("Enter Dev Box")
-        dev_enter_btn.clicked.connect(self._enter_dev_box)
-        dev_btn_row.addWidget(dev_enter_btn)
-        dev_btn_row.addStretch()
-        dev_layout.addLayout(dev_btn_row)
+        self._current_tab = 0
 
-        self._dev_status = QLabel()
-        self._dev_status.setObjectName("subheading")
-        self._dev_status.hide()
-        dev_layout.addWidget(self._dev_status)
+        # Build each tab widget and add to the scroll area
+        self._tab_widgets: list[QWidget] = []
+        for builder in (
+            self._build_starter_tab,
+            self._build_flatpak_tab,
+            self._build_appimage_tab,
+            self._build_installed_tab,
+        ):
+            tab_widget = builder()
+            self._add(tab_widget)
+            self._tab_widgets.append(tab_widget)
 
-        self._dev_progress = QProgressBar()
-        self._dev_progress.setRange(0, 0)
-        self._dev_progress.hide()
-        dev_layout.addWidget(self._dev_progress)
+        for tab in self._tab_widgets[1:]:
+            tab.hide()
 
-        self._dev_log_toggle = QPushButton("Show details")
-        self._dev_log_toggle.setCheckable(True)
-        self._dev_log_toggle.hide()
-        dev_layout.addWidget(self._dev_log_toggle)
+        self._stretch()
 
-        self._dev_log = QTextEdit()
-        self._dev_log.setReadOnly(True)
-        self._dev_log.setMaximumHeight(130)
-        self._dev_log.hide()
-        dev_layout.addWidget(self._dev_log)
-        self._dev_log_toggle.clicked.connect(
-            lambda checked: _set_log_panel(self._dev_log_toggle, self._dev_log, checked)
+    # ── Tab switching ──────────────────────────────────────────────────────────
+
+    def _switch_tab(self, idx: int):
+        if idx == self._current_tab:
+            return
+        for i, (btn, widget) in enumerate(zip(self._tab_btns, self._tab_widgets)):
+            active = i == idx
+            btn.setObjectName("sw-tab-active" if active else "sw-tab")
+            _restyle(btn)
+            widget.setVisible(active)
+        self._current_tab = idx
+        if idx == 3:
+            self._refresh_installed_list()
+
+    # ── Tab 0: Starter Packs ──────────────────────────────────────────────────
+
+    def _build_starter_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        intro = QLabel(
+            "Install familiar app sets in one pass. "
+            "These are Flatpak desktop apps — sandboxed and easy to remove later."
         )
-        self._add(dev_card)
+        intro.setObjectName("card-copy")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
 
-        # Starter packs
-        starter_card, starter_layout = _make_card()
-        starter_title = QLabel("Starter Packs")
-        starter_title.setObjectName("card-title")
-        starter_layout.addWidget(starter_title)
-        starter_body = QLabel(
-            "Install familiar app sets in one pass. These are Flatpak desktop apps, "
-            "so they stay separate from the base OS and are easy to remove later."
-        )
-        starter_body.setObjectName("card-copy")
-        starter_body.setWordWrap(True)
-        starter_layout.addWidget(starter_body)
-        self._STARTER_PACKS = [
-            {
-                "name": "Everyday",
-                "desc": "Browser, chat, media, passwords, and local file sharing.",
-                "apps": [
-                    ("com.brave.Browser", "Brave Browser", True),
-                    ("com.discordapp.Discord", "Discord", True),
-                    ("org.videolan.VLC", "VLC", True),
-                    ("com.spotify.Client", "Spotify", True),
-                    ("com.bitwarden.desktop", "Bitwarden", False),
-                    ("org.localsend.localsend_app", "LocalSend", True),
-                ],
-            },
-            {
-                "name": "Gaming",
-                "desc": "Steam, Epic/GOG, Windows launchers, saves, and standalone .exe support.",
-                "apps": [
-                    ("com.valvesoftware.Steam", "Steam", True),
-                    ("com.heroicgameslauncher.hgl", "Heroic Games Launcher", True),
-                    ("net.lutris.Lutris", "Lutris", True),
-                    ("com.usebottles.bottles", "Bottles", True),
-                    ("com.github.mtkennerly.ludusavi", "Ludusavi", True),
-                    ("net.davidotek.pupgui2", "ProtonUp-Qt", True),
-                ],
-            },
-            {
-                "name": "Creator",
-                "desc": "Streaming, editing, audio, images, and 3D creation.",
-                "apps": [
-                    ("com.obsproject.Studio", "OBS Studio", True),
-                    ("org.kde.kdenlive", "Kdenlive", True),
-                    ("org.audacityteam.Audacity", "Audacity", True),
-                    ("org.gimp.GIMP", "GIMP", True),
-                    ("org.inkscape.Inkscape", "Inkscape", True),
-                    ("org.blender.Blender", "Blender", True),
-                ],
-            },
-        ]
-        self._starter_pack_checks = {}
-        self._starter_pack_buttons = {}
-        self._starter_pack_details = {}
         for pack in self._STARTER_PACKS:
-            starter_layout.addWidget(self._make_starter_pack_panel(pack))
+            layout.addWidget(self._make_starter_pack_panel(pack))
 
         self._starter_status = QLabel()
         self._starter_status.setObjectName("subheading")
         self._starter_status.hide()
-        starter_layout.addWidget(self._starter_status)
+        layout.addWidget(self._starter_status)
+
         self._starter_progress = QProgressBar()
         self._starter_progress.setRange(0, 0)
         self._starter_progress.hide()
-        starter_layout.addWidget(self._starter_progress)
+        layout.addWidget(self._starter_progress)
+
         self._starter_log_toggle = QPushButton("Show details")
         self._starter_log_toggle.setCheckable(True)
         self._starter_log_toggle.hide()
-        starter_layout.addWidget(self._starter_log_toggle)
+        layout.addWidget(self._starter_log_toggle)
+
         self._starter_log = QTextEdit()
         self._starter_log.setReadOnly(True)
         self._starter_log.setMaximumHeight(130)
         self._starter_log.hide()
-        starter_layout.addWidget(self._starter_log)
+        layout.addWidget(self._starter_log)
         self._starter_log_toggle.clicked.connect(
             lambda checked: _set_log_panel(self._starter_log_toggle, self._starter_log, checked)
         )
-        self._add(starter_card)
-
-        # Flatpak
-        fp_card, fp_layout = _make_card()
-        fp_top = QHBoxLayout()
-        fp_title = QLabel("Flatpak  —  Desktop Apps")
-        fp_title.setObjectName("card-title")
-        fp_top.addWidget(fp_title)
-        fp_top.addStretch()
-        fp_layout.addLayout(fp_top)
-        fp_body = QLabel(
-            "The recommended way to install graphical applications. "
-            "Flathub hosts thousands of apps — Spotify, VLC, GIMP, Obsidian, Inkscape, and more. "
-            "Flatpaks are sandboxed and update independently of the OS."
-        )
-        fp_body.setObjectName("card-copy")
-        fp_body.setWordWrap(True)
-        fp_layout.addWidget(fp_body)
-        fp_layout.addWidget(_launch_opt_value("flatpak install flathub <app-id>"))
-        fp_btn_row = QHBoxLayout()
-        fp_btn_row.setSpacing(10)
-        fp_flathub_btn = QPushButton("Browse Flathub")
-        fp_flathub_btn.setObjectName("primary")
-        fp_flathub_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://flathub.org")))
-        fp_btn_row.addWidget(fp_flathub_btn)
-        fp_btn_row.addStretch()
-        fp_layout.addLayout(fp_btn_row)
-        self._add(fp_card)
-
-        # Uninstall apps
-        uninstall_card, uninstall_layout = _make_card()
-        uninstall_top = QHBoxLayout()
-        uninstall_title = QLabel("Uninstall Apps")
-        uninstall_title.setObjectName("card-title")
-        uninstall_top.addWidget(uninstall_title)
-        uninstall_top.addStretch()
-        self._uninstall_refresh_btn = QPushButton("Refresh")
-        self._uninstall_refresh_btn.clicked.connect(self._refresh_uninstall_apps)
-        uninstall_top.addWidget(self._uninstall_refresh_btn)
-        uninstall_layout.addLayout(uninstall_top)
-
-        uninstall_body = QLabel(
-            "Remove installed Flatpak desktop apps and user-owned AppImages without "
-            "hunting through terminal commands. System components and command-line "
-            "tools stay out of this list."
-        )
-        uninstall_body.setObjectName("card-copy")
-        uninstall_body.setWordWrap(True)
-        uninstall_layout.addWidget(uninstall_body)
-
-        self._uninstall_status = QLabel()
-        self._uninstall_status.setObjectName("subheading")
-        uninstall_layout.addWidget(self._uninstall_status)
-
-        self._uninstall_progress = QProgressBar()
-        self._uninstall_progress.setRange(0, 0)
-        self._uninstall_progress.hide()
-        uninstall_layout.addWidget(self._uninstall_progress)
-
-        self._uninstall_log_toggle = QPushButton("Show details")
-        self._uninstall_log_toggle.setCheckable(True)
-        self._uninstall_log_toggle.hide()
-        uninstall_layout.addWidget(self._uninstall_log_toggle)
-
-        self._uninstall_log = QTextEdit()
-        self._uninstall_log.setReadOnly(True)
-        self._uninstall_log.setMaximumHeight(130)
-        self._uninstall_log.hide()
-        uninstall_layout.addWidget(self._uninstall_log)
-        self._uninstall_log_toggle.clicked.connect(
-            lambda checked: _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, checked)
-        )
-
-        self._uninstall_list = QVBoxLayout()
-        self._uninstall_list.setSpacing(8)
-        uninstall_layout.addLayout(self._uninstall_list)
-        self._add(uninstall_card)
-        self._refresh_uninstall_apps()
-
-        # Homebrew
-        brew_card, brew_layout = _make_card()
-        brew_title = QLabel("Homebrew  —  Command-line Tools")
-        brew_title.setObjectName("card-title")
-        brew_layout.addWidget(brew_title)
-        brew_body = QLabel(
-            "Pre-installed on KythOS and available to all users. Install CLI tools, language "
-            "runtimes, and libraries from the Homebrew catalog. Changes persist across OS updates."
-        )
-        brew_body.setObjectName("card-copy")
-        brew_body.setWordWrap(True)
-        brew_layout.addWidget(brew_body)
-        brew_layout.addWidget(_launch_opt_value("brew install <formula>"))
-        brew_btn_row = QHBoxLayout()
-        brew_btn_row.setSpacing(10)
-        brew_search_btn = QPushButton("Search Homebrew Packages")
-        brew_search_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://formulae.brew.sh")))
-        brew_btn_row.addWidget(brew_search_btn)
-        brew_btn_row.addStretch()
-        brew_layout.addLayout(brew_btn_row)
-        self._add(brew_card)
-
-        # Distrobox
-        dbox_card, dbox_layout = _make_card()
-        dbox_title = QLabel("Distrobox  —  Mutable Containers")
-        dbox_title.setObjectName("card-title")
-        dbox_layout.addWidget(dbox_title)
-        dbox_body = QLabel(
-            "Creates a full Linux container (Fedora, Ubuntu, Arch, etc.) that shares your home "
-            "directory. Use it when you need dnf, apt, or pacman — for development toolchains or "
-            "software that isn't available as a Flatpak or Homebrew formula."
-        )
-        dbox_body.setObjectName("card-copy")
-        dbox_body.setWordWrap(True)
-        dbox_layout.addWidget(dbox_body)
-        dbox_layout.addWidget(_launch_opt_value(
-            "distrobox create --image fedora:41 --name mybox\n"
-            "distrobox enter mybox"
-        ))
-        dbox_btn_row = QHBoxLayout()
-        dbox_btn_row.setSpacing(10)
-        dbox_term_btn = QPushButton("Open Terminal")
-        dbox_term_btn.clicked.connect(self._open_terminal)
-        dbox_btn_row.addWidget(dbox_term_btn)
-        dbox_btn_row.addStretch()
-        dbox_layout.addLayout(dbox_btn_row)
-        self._add(dbox_card)
-
-        self._stretch()
+        return tab
 
     def _make_starter_pack_panel(self, pack: dict) -> QFrame:
         name = pack["name"]
@@ -12278,14 +12214,6 @@ class SoftwarePage(Page):
                 if not _is_flatpak_installed(check.toolTip()):
                     check.setEnabled(enabled)
 
-    def _clear_uninstall_list(self):
-        while self._uninstall_list.count():
-            item = self._uninstall_list.takeAt(0)
-            widget = item.widget()
-            if widget is not None:
-                widget.deleteLater()
-        self._uninstall_buttons.clear()
-
     def _install_starter_pack(self, name: str):
         if self._starter_worker and self._starter_worker.isRunning():
             return
@@ -12346,12 +12274,597 @@ class SoftwarePage(Page):
                     check.setChecked(False)
                     check.setEnabled(False)
                     state.setText("Installed")
-            self._refresh_uninstall_apps()
         else:
             self._starter_status.setText(f"{name} app install failed (exit {code}).")
             self._starter_status.setObjectName("status-err")
             _set_log_panel(self._starter_log_toggle, self._starter_log, True)
         _restyle(self._starter_status)
+
+    # ── Tab 1: Flatpak Store ──────────────────────────────────────────────────
+
+    def _build_flatpak_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        intro = QLabel(
+            "Search Flathub and install apps directly. "
+            "Flatpaks are sandboxed and update independently of the OS."
+        )
+        intro.setObjectName("card-copy")
+        intro.setWordWrap(True)
+        layout.addWidget(intro)
+
+        search_row = QHBoxLayout()
+        search_row.setSpacing(8)
+        self._fp_search_box = QLineEdit()
+        self._fp_search_box.setPlaceholderText("Search Flathub…  e.g. firefox, obsidian, gimp")
+        self._fp_search_box.returnPressed.connect(self._run_fp_search)
+        search_row.addWidget(self._fp_search_box, 1)
+        self._fp_search_btn = QPushButton("Search")
+        self._fp_search_btn.setObjectName("primary")
+        self._fp_search_btn.clicked.connect(self._run_fp_search)
+        search_row.addWidget(self._fp_search_btn)
+        layout.addLayout(search_row)
+
+        self._fp_status = QLabel()
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.hide()
+        layout.addWidget(self._fp_status)
+
+        self._fp_progress = QProgressBar()
+        self._fp_progress.setRange(0, 0)
+        self._fp_progress.hide()
+        layout.addWidget(self._fp_progress)
+
+        self._fp_install_log_toggle = QPushButton("Show details")
+        self._fp_install_log_toggle.setCheckable(True)
+        self._fp_install_log_toggle.hide()
+        layout.addWidget(self._fp_install_log_toggle)
+
+        self._fp_install_log = QTextEdit()
+        self._fp_install_log.setReadOnly(True)
+        self._fp_install_log.setMaximumHeight(130)
+        self._fp_install_log.hide()
+        layout.addWidget(self._fp_install_log)
+        self._fp_install_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, checked)
+        )
+
+        self._fp_results_layout = QVBoxLayout()
+        self._fp_results_layout.setSpacing(8)
+        layout.addLayout(self._fp_results_layout)
+
+        return tab
+
+    def _run_fp_search(self):
+        if self._fp_search_worker and self._fp_search_worker.isRunning():
+            return
+        query = self._fp_search_box.text().strip()
+        if not query:
+            return
+        self._clear_fp_results()
+        self._fp_search_lines = []
+        self._fp_progress.show()
+        self._fp_status.setText(f"Searching Flathub for “{query}”…")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        self._fp_search_btn.setEnabled(False)
+        self._fp_search_worker = Worker(
+            ["flatpak", "search", "--columns=application,name,summary", query]
+        )
+        self._fp_search_worker.line.connect(self._on_fp_search_line)
+        self._fp_search_worker.done.connect(self._on_fp_search_done)
+        self._fp_search_worker.start()
+
+    def _on_fp_search_line(self, ln: str):
+        self._fp_search_lines.append(ln)
+
+    def _on_fp_search_done(self, code: int):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_search_worker")
+        self._fp_search_btn.setEnabled(True)
+        self._clear_fp_results()
+        results = []
+        for line in self._fp_search_lines:
+            parts = line.split("\t")
+            if len(parts) >= 2:
+                app_id = parts[0].strip()
+                name = parts[1].strip()
+                summary = parts[2].strip() if len(parts) >= 3 else ""
+                if app_id:
+                    results.append((app_id, name, summary))
+        if not results:
+            msg = "No results found." if code == 0 else "Search failed — is flatpak installed?"
+            self._fp_status.setText(msg)
+            self._fp_status.setObjectName("status-dim" if code == 0 else "status-warn")
+            _restyle(self._fp_status)
+            return
+        shown = results[:30]
+        count_msg = f"{len(results)} result{'s' if len(results) != 1 else ''} found"
+        if len(results) > 30:
+            count_msg += " — showing top 30"
+        self._fp_status.setText(count_msg + ".")
+        self._fp_status.setObjectName("status-dim")
+        _restyle(self._fp_status)
+        for app_id, name, summary in shown:
+            self._fp_results_layout.addWidget(self._make_fp_result_row(app_id, name, summary))
+
+    def _clear_fp_results(self):
+        while self._fp_results_layout.count():
+            item = self._fp_results_layout.takeAt(0)
+            widget = item.widget()
+            if widget:
+                widget.deleteLater()
+
+    def _make_fp_result_row(self, app_id: str, name: str, summary: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName("stat-tile")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(14, 10, 14, 10)
+        row_layout.setSpacing(12)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        name_lbl = QLabel(name or app_id)
+        name_lbl.setObjectName("card-summary")
+        text_col.addWidget(name_lbl)
+        id_lbl = QLabel(app_id)
+        id_lbl.setObjectName("card-copy")
+        text_col.addWidget(id_lbl)
+        if summary:
+            summary_lbl = QLabel(summary)
+            summary_lbl.setObjectName("card-copy")
+            summary_lbl.setWordWrap(True)
+            text_col.addWidget(summary_lbl)
+        row_layout.addLayout(text_col, 1)
+
+        already_installed = _is_flatpak_installed(app_id)
+        install_btn = QPushButton("Installed" if already_installed else "Install")
+        install_btn.setEnabled(not already_installed)
+        if not already_installed:
+            install_btn.setObjectName("primary")
+            install_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name, b=install_btn: self._fp_install(aid, n, b)
+            )
+        row_layout.addWidget(install_btn)
+        return row
+
+    def _fp_install(self, app_id: str, name: str, btn: QPushButton):
+        if self._fp_install_worker and self._fp_install_worker.isRunning():
+            return
+        self._fp_installing = app_id
+        btn.setText("Installing…")
+        btn.setEnabled(False)
+        self._fp_install_log.clear()
+        self._fp_install_log.append(f"→ flatpak install flathub {app_id}\n")
+        self._fp_install_log_toggle.show()
+        _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, False)
+        self._fp_progress.show()
+        self._fp_status.setText(f"Installing {name or app_id}…")
+        self._fp_status.setObjectName("subheading")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        cmd = [
+            "bash", "-c",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+            f" && flatpak install -y flathub {shlex.quote(app_id)}",
+        ]
+        self._fp_install_worker = Worker(cmd)
+        self._fp_install_worker.line.connect(self._on_fp_install_line)
+        self._fp_install_worker.done.connect(
+            lambda code, aid=app_id, n=name, b=btn: self._on_fp_install_done(code, aid, n, b)
+        )
+        self._fp_install_worker.start()
+
+    def _on_fp_install_line(self, ln: str):
+        self._fp_install_log.append(ln)
+        self._fp_install_log.ensureCursorVisible()
+
+    def _on_fp_install_done(self, code: int, app_id: str, name: str, btn: QPushButton):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_install_worker")
+        self._fp_installing = None
+        if code == 0:
+            self._fp_status.setText(f"{name or app_id} installed.")
+            self._fp_status.setObjectName("status-ok")
+            self._fp_install_log.append("\nDone.")
+            btn.setText("Installed")
+        else:
+            self._fp_status.setText(f"Install failed (exit {code}).")
+            self._fp_status.setObjectName("status-err")
+            _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, True)
+            btn.setText("Install")
+            btn.setEnabled(True)
+        _restyle(self._fp_status)
+
+    # ── Tab 2: AppImages ──────────────────────────────────────────────────────
+
+    def _build_appimage_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(24)
+
+        import_card, import_layout = _make_card()
+        import_title = QLabel("Import a Downloaded AppImage")
+        import_title.setObjectName("card-title")
+        import_layout.addWidget(import_title)
+        import_body = QLabel(
+            "Downloaded a .AppImage file? Drop it here to install it properly — "
+            "it will be moved to ~/Applications, made executable, and optionally "
+            "added to your application menu."
+        )
+        import_body.setObjectName("card-copy")
+        import_body.setWordWrap(True)
+        import_layout.addWidget(import_body)
+        import_btn_row = QHBoxLayout()
+        import_btn_row.setSpacing(10)
+        self._ai_import_btn = QPushButton("Import .AppImage…")
+        self._ai_import_btn.setObjectName("primary")
+        self._ai_import_btn.clicked.connect(self._import_appimage)
+        import_btn_row.addWidget(self._ai_import_btn)
+        import_btn_row.addStretch()
+        import_layout.addLayout(import_btn_row)
+        self._ai_status = QLabel()
+        self._ai_status.setObjectName("subheading")
+        self._ai_status.hide()
+        import_layout.addWidget(self._ai_status)
+        layout.addWidget(import_card)
+
+        curated_card, curated_layout = _make_card()
+        curated_title = QLabel("Popular AppImages")
+        curated_title.setObjectName("card-title")
+        curated_layout.addWidget(curated_title)
+        curated_body = QLabel(
+            "Apps distributed only as AppImages. Download from their official site, "
+            "then use Import above to register them in your app menu."
+        )
+        curated_body.setObjectName("card-copy")
+        curated_body.setWordWrap(True)
+        curated_layout.addWidget(curated_body)
+        for entry in self._CURATED_APPIMAGES:
+            row = QFrame()
+            row.setObjectName("stat-tile")
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(14, 10, 14, 10)
+            row_layout.setSpacing(12)
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            name_lbl = QLabel(entry["name"])
+            name_lbl.setObjectName("card-summary")
+            text_col.addWidget(name_lbl)
+            desc_lbl = QLabel(entry["desc"])
+            desc_lbl.setObjectName("card-copy")
+            desc_lbl.setWordWrap(True)
+            text_col.addWidget(desc_lbl)
+            row_layout.addLayout(text_col, 1)
+            dl_btn = QPushButton("Download Page")
+            dl_btn.clicked.connect(
+                lambda _=False, url=entry["url"]: QDesktopServices.openUrl(QUrl(url))
+            )
+            row_layout.addWidget(dl_btn)
+            curated_layout.addWidget(row)
+        layout.addWidget(curated_card)
+        return tab
+
+    def _import_appimage(self):
+        src, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select AppImage",
+            os.path.expanduser("~"),
+            "AppImages (*.AppImage *.appimage);;All Files (*)",
+        )
+        if not src:
+            return
+
+        apps_dir = os.path.expanduser("~/Applications")
+        try:
+            os.makedirs(apps_dir, exist_ok=True)
+        except OSError as exc:
+            self._ai_status.setText(f"Cannot create ~/Applications: {exc}")
+            self._ai_status.setObjectName("status-err")
+            self._ai_status.show()
+            _restyle(self._ai_status)
+            return
+
+        basename = os.path.basename(src)
+        dest = os.path.join(apps_dir, basename)
+        if os.path.realpath(src) != os.path.realpath(dest):
+            try:
+                shutil.copy2(src, dest)
+            except OSError as exc:
+                self._ai_status.setText(f"Copy failed: {exc}")
+                self._ai_status.setObjectName("status-err")
+                self._ai_status.show()
+                _restyle(self._ai_status)
+                return
+        try:
+            os.chmod(dest, 0o755)
+        except OSError:
+            pass
+
+        name = re.sub(r"\.[Aa]pp[Ii]mage$", "", basename)
+        reply = QMessageBox.question(
+            self,
+            "Add to App Menu?",
+            f"Add “{name}” to your application menu?\n\n"
+            "This creates a launcher in ~/.local/share/applications/.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        )
+        if reply == QMessageBox.StandardButton.Yes:
+            self._create_appimage_launcher(name, dest)
+
+        self._ai_status.setText(f"{name} imported to ~/Applications.")
+        self._ai_status.setObjectName("status-ok")
+        self._ai_status.show()
+        _restyle(self._ai_status)
+
+    def _create_appimage_launcher(self, name: str, appimage_path: str):
+        desktop_dir = os.path.expanduser("~/.local/share/applications")
+        try:
+            os.makedirs(desktop_dir, exist_ok=True)
+            safe_name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
+            desktop_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
+            content = (
+                "[Desktop Entry]\n"
+                "Type=Application\n"
+                f"Name={name}\n"
+                f"Exec={appimage_path}\n"
+                "Icon=application-x-executable\n"
+                "Terminal=false\n"
+                "Categories=Utility;\n"
+            )
+            with open(desktop_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            os.chmod(desktop_path, 0o755)
+        except OSError:
+            return
+        for cmd in (
+            ["update-desktop-database", desktop_dir],
+            ["kbuildsycoca6", "--noincremental"],
+        ):
+            try:
+                subprocess.run(cmd, capture_output=True, timeout=5, check=False)
+            except Exception:
+                pass
+
+    # ── Tab 3: Installed ──────────────────────────────────────────────────────
+
+    def _build_installed_tab(self) -> QWidget:
+        tab = QWidget()
+        layout = QVBoxLayout(tab)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(16)
+
+        top_row = QHBoxLayout()
+        top_row.setSpacing(10)
+        intro = QLabel("Installed Flatpak apps and user AppImages.")
+        intro.setObjectName("card-copy")
+        top_row.addWidget(intro, 1)
+        self._uninstall_refresh_btn = QPushButton("Refresh")
+        self._uninstall_refresh_btn.clicked.connect(self._refresh_installed_list)
+        top_row.addWidget(self._uninstall_refresh_btn)
+        layout.addLayout(top_row)
+
+        self._uninstall_status = QLabel()
+        self._uninstall_status.setObjectName("subheading")
+        layout.addWidget(self._uninstall_status)
+
+        self._uninstall_progress = QProgressBar()
+        self._uninstall_progress.setRange(0, 0)
+        self._uninstall_progress.hide()
+        layout.addWidget(self._uninstall_progress)
+
+        self._uninstall_log_toggle = QPushButton("Show details")
+        self._uninstall_log_toggle.setCheckable(True)
+        self._uninstall_log_toggle.hide()
+        layout.addWidget(self._uninstall_log_toggle)
+
+        self._uninstall_log = QTextEdit()
+        self._uninstall_log.setReadOnly(True)
+        self._uninstall_log.setMaximumHeight(130)
+        self._uninstall_log.hide()
+        layout.addWidget(self._uninstall_log)
+        self._uninstall_log_toggle.clicked.connect(
+            lambda checked: _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, checked)
+        )
+
+        self._uninstall_list = QVBoxLayout()
+        self._uninstall_list.setSpacing(8)
+        layout.addLayout(self._uninstall_list)
+
+        self._refresh_installed_list()
+        return tab
+
+    def _refresh_installed_list(self, status_text: str | None = None, status_object: str = "subheading"):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        self._clear_uninstall_list()
+        apps = self._installed_flatpak_apps() + self._installed_appimage_apps()
+        if not apps:
+            self._uninstall_status.setText(status_text or "No removable Flatpak apps or AppImages found.")
+            self._uninstall_status.setObjectName(status_object)
+            _restyle(self._uninstall_status)
+            return
+        flatpak_count = sum(1 for app in apps if app["kind"] == "flatpak")
+        appimage_count = sum(1 for app in apps if app["kind"] == "appimage")
+        if not shutil.which("flatpak") and appimage_count == 0:
+            self._uninstall_status.setText("Flatpak is not available and no AppImages were found.")
+            self._uninstall_status.setObjectName("status-warn")
+            _restyle(self._uninstall_status)
+            return
+        self._uninstall_status.setText(
+            status_text or (
+                f"{flatpak_count} Flatpak app{'s' if flatpak_count != 1 else ''} "
+                f"and {appimage_count} AppImage{'s' if appimage_count != 1 else ''} found."
+            )
+        )
+        self._uninstall_status.setObjectName(status_object)
+        _restyle(self._uninstall_status)
+        for app in apps:
+            self._uninstall_list.addWidget(self._make_uninstall_app_row(app))
+
+    def _clear_uninstall_list(self):
+        while self._uninstall_list.count():
+            item = self._uninstall_list.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+        self._uninstall_buttons.clear()
+
+    def _make_uninstall_app_row(self, app: dict[str, str]) -> QFrame:
+        row = QFrame()
+        row.setObjectName("stat-tile")
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(14, 10, 14, 10)
+        row_layout.setSpacing(12)
+        text_col = QVBoxLayout()
+        text_col.setSpacing(2)
+        name_lbl = QLabel(app["name"])
+        name_lbl.setObjectName("card-summary")
+        name_lbl.setWordWrap(True)
+        text_col.addWidget(name_lbl)
+        detail_lbl = QLabel(self._uninstall_app_detail(app))
+        detail_lbl.setObjectName("card-copy")
+        detail_lbl.setWordWrap(True)
+        text_col.addWidget(detail_lbl)
+        row_layout.addLayout(text_col, 1)
+        uninstall_btn = QPushButton("Uninstall")
+        uninstall_btn.setObjectName("danger")
+        uninstall_btn.clicked.connect(lambda _=False, a=app: self._uninstall_app(a))
+        self._uninstall_buttons.append(uninstall_btn)
+        row_layout.addWidget(uninstall_btn)
+        return row
+
+    def _uninstall_app_detail(self, app: dict[str, str]) -> str:
+        if app["kind"] == "appimage":
+            launcher = " · launcher" if app.get("desktop_path") else ""
+            return f"{app['path']} · AppImage{launcher}"
+        return f"{app['app_id']} · {app['installation']} install · {app['origin']}"
+
+    def _set_uninstall_controls_enabled(self, enabled: bool):
+        self._uninstall_refresh_btn.setEnabled(enabled)
+        for btn in self._uninstall_buttons:
+            btn.setEnabled(enabled)
+
+    def _uninstall_app(self, app: dict[str, str]):
+        if self._uninstall_worker and self._uninstall_worker.isRunning():
+            return
+        if app["kind"] == "appimage":
+            self._uninstall_appimage_app(app)
+        else:
+            self._uninstall_flatpak_app(app)
+
+    def _uninstall_flatpak_app(self, app: dict[str, str]):
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Remove {app['name']}?\n\n{app['app_id']}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        cmd = ["flatpak", "uninstall", "-y"]
+        if app["installation"] == "user":
+            cmd.append("--user")
+        elif app["installation"] == "system":
+            cmd.append("--system")
+        cmd.append(app["app_id"])
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _uninstall_appimage_app(self, app: dict[str, str]):
+        extra = "\nIts user application-menu launcher will also be removed." if app.get("desktop_path") else ""
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {app['name']}",
+            f"Delete this AppImage from your home folder?\n\n{app['path']}{extra}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        targets = [app["path"]]
+        if app.get("desktop_path"):
+            targets.append(app["desktop_path"])
+        safe_targets: list[str] = []
+        for target in targets:
+            real = os.path.realpath(os.path.expanduser(target))
+            home = os.path.realpath(os.path.expanduser("~"))
+            if real.startswith(home + os.sep):
+                safe_targets.append(real)
+        if not safe_targets:
+            QMessageBox.warning(
+                self,
+                "Cannot uninstall AppImage",
+                "This AppImage does not look like a user-owned file in your home folder.",
+            )
+            return
+        cmd = [
+            "bash", "-c",
+            "set -euo pipefail\n"
+            "for target in \"$@\"; do\n"
+            "    if [[ -e \"$target\" || -L \"$target\" ]]; then\n"
+            "        rm -f -- \"$target\"\n"
+            "        echo \"Removed $target\"\n"
+            "    fi\n"
+            "done\n"
+            "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true\n"
+            "kbuildsycoca6 --noincremental 2>/dev/null || true\n",
+            "kyth-remove-appimage",
+            *safe_targets,
+        ]
+        self._set_uninstall_controls_enabled(False)
+        self._uninstall_log.clear()
+        self._uninstall_log.append("→ remove AppImage and launcher\n")
+        for target in safe_targets:
+            self._uninstall_log.append(f"  {target}")
+        self._uninstall_log_toggle.show()
+        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
+        self._uninstall_progress.show()
+        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
+        self._uninstall_status.setObjectName("subheading")
+        _restyle(self._uninstall_status)
+        self._uninstall_worker = Worker(cmd)
+        self._uninstall_worker.line.connect(self._on_uninstall_line)
+        self._uninstall_worker.done.connect(
+            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
+        )
+        self._uninstall_worker.start()
+
+    def _on_uninstall_line(self, ln: str):
+        self._uninstall_log.append(ln)
+        self._uninstall_log.ensureCursorVisible()
+
+    def _on_uninstall_done(self, code: int, name: str):
+        self._uninstall_progress.hide()
+        _finish_worker(self, attr="_uninstall_worker")
+        self._set_uninstall_controls_enabled(True)
+        if code == 0:
+            self._uninstall_log.append("\nDone.")
+            self._refresh_installed_list(f"{name} uninstalled.", "status-ok")
+        else:
+            self._uninstall_status.setText(f"Uninstall failed (exit {code}).")
+            self._uninstall_status.setObjectName("status-err")
+            _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, True)
+            _restyle(self._uninstall_status)
+
+    # ── Shared helpers ────────────────────────────────────────────────────────
 
     def _installed_flatpak_apps(self) -> list[dict[str, str]]:
         if not shutil.which("flatpak"):
@@ -12359,10 +12872,7 @@ class SoftwarePage(Page):
         try:
             result = subprocess.run(
                 ["flatpak", "list", "--app", "--columns=application,name,origin,installation"],
-                capture_output=True,
-                text=True,
-                timeout=12,
-                check=False,
+                capture_output=True, text=True, timeout=12, check=False,
             )
         except Exception:
             return []
@@ -12445,13 +12955,11 @@ class SoftwarePage(Page):
 
     def _installed_appimage_apps(self) -> list[dict[str, str]]:
         apps_by_path: dict[str, dict[str, str]] = {}
-
         desktop_dir = os.path.join(os.path.expanduser("~"), ".local", "share", "applications")
         for desktop_path in glob.glob(os.path.join(desktop_dir, "*.desktop")):
             app = self._desktop_entry_for_appimage(desktop_path)
             if app:
                 apps_by_path[app["path"]] = app
-
         for directory in self._appimage_search_dirs():
             if not os.path.isdir(directory):
                 continue
@@ -12474,198 +12982,7 @@ class SoftwarePage(Page):
                     "desktop_path": "",
                     "icon": "",
                 })
-
         return sorted(apps_by_path.values(), key=lambda app: app["name"].casefold())
-
-    def _refresh_uninstall_apps(self, status_text: str | None = None, status_object: str = "subheading"):
-        if self._uninstall_worker and self._uninstall_worker.isRunning():
-            return
-        self._clear_uninstall_list()
-        apps = self._installed_flatpak_apps() + self._installed_appimage_apps()
-        if not apps:
-            self._uninstall_status.setText(status_text or "No removable Flatpak apps or AppImages found.")
-            self._uninstall_status.setObjectName(status_object)
-            _restyle(self._uninstall_status)
-            return
-        flatpak_count = sum(1 for app in apps if app["kind"] == "flatpak")
-        appimage_count = sum(1 for app in apps if app["kind"] == "appimage")
-        if not shutil.which("flatpak") and appimage_count == 0:
-            self._uninstall_status.setText("Flatpak is not available and no AppImages were found.")
-            self._uninstall_status.setObjectName("status-warn")
-            _restyle(self._uninstall_status)
-            return
-        default_status = (
-            f"{flatpak_count} Flatpak app{'s' if flatpak_count != 1 else ''} "
-            f"and {appimage_count} AppImage{'s' if appimage_count != 1 else ''} found."
-        )
-        self._uninstall_status.setText(
-            status_text or default_status
-        )
-        self._uninstall_status.setObjectName(status_object)
-        _restyle(self._uninstall_status)
-        for app in apps:
-            self._uninstall_list.addWidget(self._make_uninstall_app_row(app))
-
-    def _make_uninstall_app_row(self, app: dict[str, str]) -> QFrame:
-        row = QFrame()
-        row.setObjectName("stat-tile")
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(14, 10, 14, 10)
-        layout.setSpacing(12)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(2)
-        name_lbl = QLabel(app["name"])
-        name_lbl.setObjectName("card-summary")
-        name_lbl.setWordWrap(True)
-        text_col.addWidget(name_lbl)
-        detail_lbl = QLabel(
-            self._uninstall_app_detail(app)
-        )
-        detail_lbl.setObjectName("card-copy")
-        detail_lbl.setWordWrap(True)
-        text_col.addWidget(detail_lbl)
-        layout.addLayout(text_col, 1)
-
-        uninstall_btn = QPushButton("Uninstall")
-        uninstall_btn.setObjectName("danger")
-        uninstall_btn.clicked.connect(lambda _=False, a=app: self._uninstall_app(a))
-        self._uninstall_buttons.append(uninstall_btn)
-        layout.addWidget(uninstall_btn)
-        return row
-
-    def _uninstall_app_detail(self, app: dict[str, str]) -> str:
-        if app["kind"] == "appimage":
-            launcher = " · launcher" if app.get("desktop_path") else ""
-            return f"{app['path']} · AppImage{launcher}"
-        return f"{app['app_id']} · {app['installation']} install · {app['origin']}"
-
-    def _set_uninstall_controls_enabled(self, enabled: bool):
-        self._uninstall_refresh_btn.setEnabled(enabled)
-        for btn in self._uninstall_buttons:
-            btn.setEnabled(enabled)
-
-    def _uninstall_app(self, app: dict[str, str]):
-        if self._uninstall_worker and self._uninstall_worker.isRunning():
-            return
-        if app["kind"] == "appimage":
-            self._uninstall_appimage_app(app)
-        else:
-            self._uninstall_flatpak_app(app)
-
-    def _uninstall_flatpak_app(self, app: dict[str, str]):
-        reply = QMessageBox.question(
-            self,
-            f"Uninstall {app['name']}",
-            f"Remove {app['name']}?\n\n{app['app_id']}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        cmd = ["flatpak", "uninstall", "-y"]
-        if app["installation"] == "user":
-            cmd.append("--user")
-        elif app["installation"] == "system":
-            cmd.append("--system")
-        cmd.append(app["app_id"])
-
-        self._set_uninstall_controls_enabled(False)
-        self._uninstall_log.clear()
-        self._uninstall_log.append("→ " + " ".join(shlex.quote(part) for part in cmd) + "\n")
-        self._uninstall_log_toggle.show()
-        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
-        self._uninstall_progress.show()
-        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
-        self._uninstall_status.setObjectName("subheading")
-        _restyle(self._uninstall_status)
-
-        self._uninstall_worker = Worker(cmd)
-        self._uninstall_worker.line.connect(self._on_uninstall_line)
-        self._uninstall_worker.done.connect(
-            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
-        )
-        self._uninstall_worker.start()
-
-    def _uninstall_appimage_app(self, app: dict[str, str]):
-        extra = "\nIts user application-menu launcher will also be removed." if app.get("desktop_path") else ""
-        reply = QMessageBox.question(
-            self,
-            f"Uninstall {app['name']}",
-            f"Delete this AppImage from your home folder?\n\n{app['path']}{extra}",
-            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
-        )
-        if reply != QMessageBox.StandardButton.Yes:
-            return
-
-        targets = [app["path"]]
-        if app.get("desktop_path"):
-            targets.append(app["desktop_path"])
-        safe_targets: list[str] = []
-        for target in targets:
-            real = os.path.realpath(os.path.expanduser(target))
-            home = os.path.realpath(os.path.expanduser("~"))
-            if real.startswith(home + os.sep):
-                safe_targets.append(real)
-
-        if not safe_targets:
-            QMessageBox.warning(
-                self,
-                "Cannot uninstall AppImage",
-                "This AppImage does not look like a user-owned file in your home folder.",
-            )
-            return
-
-        cmd = [
-            "bash", "-c",
-            "set -euo pipefail\n"
-            "for target in \"$@\"; do\n"
-            "    if [[ -e \"$target\" || -L \"$target\" ]]; then\n"
-            "        rm -f -- \"$target\"\n"
-            "        echo \"Removed $target\"\n"
-            "    fi\n"
-            "done\n"
-            "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true\n"
-            "kbuildsycoca6 --noincremental 2>/dev/null || true\n",
-            "kyth-remove-appimage",
-            *safe_targets,
-        ]
-
-        self._set_uninstall_controls_enabled(False)
-        self._uninstall_log.clear()
-        self._uninstall_log.append("→ remove AppImage and launcher\n")
-        for target in safe_targets:
-            self._uninstall_log.append(f"  {target}")
-        self._uninstall_log_toggle.show()
-        _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, False)
-        self._uninstall_progress.show()
-        self._uninstall_status.setText(f"Uninstalling {app['name']}…")
-        self._uninstall_status.setObjectName("subheading")
-        _restyle(self._uninstall_status)
-
-        self._uninstall_worker = Worker(cmd)
-        self._uninstall_worker.line.connect(self._on_uninstall_line)
-        self._uninstall_worker.done.connect(
-            lambda code, name=app["name"]: self._on_uninstall_done(code, name)
-        )
-        self._uninstall_worker.start()
-
-    def _on_uninstall_line(self, ln: str):
-        self._uninstall_log.append(ln)
-        self._uninstall_log.ensureCursorVisible()
-
-    def _on_uninstall_done(self, code: int, name: str):
-        self._uninstall_progress.hide()
-        _finish_worker(self, attr="_uninstall_worker")
-        self._set_uninstall_controls_enabled(True)
-        if code == 0:
-            self._uninstall_log.append("\nDone.")
-            self._refresh_uninstall_apps(f"{name} uninstalled.", "status-ok")
-        else:
-            self._uninstall_status.setText(f"Uninstall failed (exit {code}).")
-            self._uninstall_status.setObjectName("status-err")
-            _set_log_panel(self._uninstall_log_toggle, self._uninstall_log, True)
-            _restyle(self._uninstall_status)
 
     def _open_terminal(self):
         for cmd in (["xdg-terminal-exec"], ["konsole"], ["xterm"]):
@@ -12675,62 +12992,6 @@ class SoftwarePage(Page):
                     return
                 except OSError:
                     pass
-
-    def _run_dev_command(self, cmd: list[str], status: str):
-        if self._dev_worker and self._dev_worker.isRunning():
-            return
-        self._dev_log.clear()
-        self._dev_log.append("→ " + " ".join(cmd) + "\n")
-        self._dev_log_toggle.show()
-        _set_log_panel(self._dev_log_toggle, self._dev_log, False)
-        self._dev_progress.show()
-        self._dev_status.setText(status)
-        self._dev_status.setObjectName("subheading")
-        self._dev_status.show()
-        _restyle(self._dev_status)
-        self._dev_worker = Worker(cmd)
-        self._dev_worker.line.connect(self._on_dev_line)
-        self._dev_worker.done.connect(self._on_dev_done)
-        self._dev_worker.start()
-
-    def _on_dev_line(self, ln: str):
-        self._dev_log.append(ln)
-        self._dev_log.ensureCursorVisible()
-
-    def _on_dev_done(self, code: int):
-        self._dev_progress.hide()
-        _finish_worker(self, attr="_dev_worker")
-        if code == 0:
-            self._dev_status.setText("Development setup complete.")
-            self._dev_status.setObjectName("status-ok")
-            self._dev_log.append("\nDone.")
-        else:
-            self._dev_status.setText(f"Development setup failed (exit {code}).")
-            self._dev_status.setObjectName("status-err")
-            _set_log_panel(self._dev_log_toggle, self._dev_log, True)
-        _restyle(self._dev_status)
-
-    def _enter_dev_box(self):
-        if not _is_distrobox_container("kyth-dev"):
-            QMessageBox.information(
-                self,
-                "Dev Box Not Found",
-                "Create the KythOS development box first.",
-            )
-            return
-        terminal = None
-        for cmd in (["konsole"], ["xdg-terminal-exec"], ["xterm"]):
-            if shutil.which(cmd[0]):
-                terminal = cmd[0]
-                break
-        if terminal is None:
-            QMessageBox.warning(self, "Terminal not found",
-                                "Could not find a terminal emulator to open.")
-            return
-        if terminal == "konsole":
-            subprocess.Popen(["konsole", "-e", "distrobox", "enter", "kyth-dev"])
-        else:
-            subprocess.Popen([terminal, "--", "distrobox", "enter", "kyth-dev"])
 
 
 # ── Page: Network Shares ──────────────────────────────────────────────────────
