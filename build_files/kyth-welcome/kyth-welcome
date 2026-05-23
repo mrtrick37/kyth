@@ -101,9 +101,9 @@ def _prefer_xwayland_if_wayland_plugin_missing() -> None:
 def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
                          warn_text: str = "Not Installed") -> None:
     if ok:
-        bg = "#1f2a24"
-        fg = "#89d185"
-        border = "#2f5d45"
+        bg = "#121e2d"
+        fg = "#4fc1ff"
+        border = "#1c3d60"
         text = ok_text
     else:
         bg = "#171d27"
@@ -245,12 +245,12 @@ QLabel#subheading {
 
 /* ── Status labels ───────────────────────────────────────────────────────── */
 QLabel#status-ok {
-    color: #89d185;
+    color: #4fc1ff;
     font-weight: 600;
 }
 
 QLabel#status-warn {
-    color: #cca700;
+    color: #d4a843;
     font-weight: 600;
 }
 
@@ -396,14 +396,14 @@ QLabel#card-copy {
 }
 
 QFrame#card-accent-ok {
-    background: #1f2a24;
-    border: 1px solid #2f5d45;
+    background: #121e2d;
+    border: 1px solid #1c3d60;
     border-radius: 4px;
 }
 
 QFrame#card-accent-warn {
-    background: #221a0a;
-    border: 1px solid #4a3a10;
+    background: #181508;
+    border: 1px solid #4c4010;
     border-radius: 4px;
 }
 
@@ -434,7 +434,7 @@ QPushButton#starter-pack-header:hover {
 }
 
 QLabel#starter-pack-meta {
-    color: #89d185;
+    color: #4fc1ff;
     font-size: 11px;
     font-weight: 700;
 }
@@ -505,13 +505,13 @@ QLabel#stat-value {
 QLabel#stat-value-ok {
     font-size: 14px;
     font-weight: 700;
-    color: #89d185;
+    color: #4fc1ff;
 }
 
 QLabel#stat-value-warn {
     font-size: 14px;
     font-weight: 700;
-    color: #cca700;
+    color: #d4a843;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
@@ -545,7 +545,7 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #c586c0, stop:1 #89d185);
+                                stop:0 #c586c0, stop:1 #4fc1ff);
     border-radius: 3px;
 }
 
@@ -741,7 +741,7 @@ QLabel#step-dot-active {
 }
 
 QLabel#step-dot-done {
-    background: #89d185;
+    background: #4fc1ff;
     border-radius: 5px;
 }
 
@@ -766,7 +766,7 @@ QLabel#wizard-progress-step-active {
 QLabel#wizard-progress-step-done {
     font-size: 11px;
     font-weight: 600;
-    color: #89d185;
+    color: #4fc1ff;
 }
 
 /* ── Wizard footer ───────────────────────────────────────────────────────── */
@@ -816,16 +816,16 @@ QLabel#finish-subtitle {
 
 /* ── Hardware card ────────────────────────────────────────────────────────── */
 QFrame#hw-card-ok {
-    background: #1f2a24;
-    border: 1px solid #2f5d45;
-    border-left: 3px solid #89d185;
+    background: #121e2d;
+    border: 1px solid #1c3d60;
+    border-left: 3px solid #4fc1ff;
     border-radius: 4px;
 }
 
 QFrame#hw-card-warn {
-    background: #221a0a;
-    border: 1px solid #4a3a10;
-    border-left: 3px solid #cca700;
+    background: #181508;
+    border: 1px solid #4c4010;
+    border-left: 3px solid #d4a843;
     border-radius: 4px;
 }
 
@@ -845,14 +845,14 @@ QFrame#hw-card-dim {
 
 /* ── Live session banner ─────────────────────────────────────────────────── */
 QWidget#live-banner {
-    background: #1a1200;
-    border-bottom: 1px solid #4a3800;
+    background: #141000;
+    border-bottom: 1px solid #403800;
 }
 
 QLabel#live-banner-badge {
-    background: #3a2a00;
-    color: #cca700;
-    border: 1px solid #5a4400;
+    background: #1e1a06;
+    color: #d4a843;
+    border: 1px solid #5a4c0c;
     border-radius: 10px;
     padding: 3px 8px;
     font-size: 10px;
@@ -861,7 +861,7 @@ QLabel#live-banner-badge {
 }
 
 QLabel#live-banner-text {
-    color: #9a8650;
+    color: #a09060;
     font-size: 11px;
 }
 """
@@ -2085,7 +2085,7 @@ def _hw_setup_done() -> bool:
 
 def _status_palette(status: str) -> tuple[str, str, str]:
     if status == "ok":
-        return ("#1f2a24", "#89d185", "OK")
+        return ("#121e2d", "#4fc1ff", "OK")
     if status == "warn":
         return ("#152030", "#e0af68", "Warning")
     if status == "err":
@@ -3335,8 +3335,8 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #1f2a24; color: #89d185; border: 1px solid #2f5d45;",  "OK"),
-        "warn": ("background: #3a2a00; color: #cca700; border: 1px solid #5a4010;",  "Warning"),
+        "ok":   ("background: #121e2d; color: #4fc1ff; border: 1px solid #1c3d60;",  "OK"),
+        "warn": ("background: #1e1a06; color: #d4a843; border: 1px solid #5c4e14;",  "Warning"),
         "err":  ("background: #3a1010; color: #f48771; border: 1px solid #5a1a1a;",  "Issue"),
         "dim":  ("background: #252526; color: #858585; border: 1px solid #3c3c3c;",  "Info"),
     }
@@ -4695,7 +4695,7 @@ class UpdatePage(Page):
         ts_hint = f"  ·  Checked at {self._check_ts}"
 
         if state == "available":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #cca700;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #d4a843;")
             self._avail_title.setText("Update available")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(
@@ -4704,7 +4704,7 @@ class UpdatePage(Page):
             )
             self._update_now_btn.show()
         elif state == "uptodate":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #89d185;")
+            self._avail_dot.setStyleSheet("font-size: 13px; color: #4fc1ff;")
             self._avail_title.setText("Up to date")
             built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
@@ -5611,7 +5611,7 @@ class KernelPage(Page):
 
         warn, warn_layout = _make_card("card-accent-warn")
         warn_title = QLabel("Advanced users only")
-        warn_title.setStyleSheet("color: #cca700; font-size: 14px; font-weight: 700;")
+        warn_title.setStyleSheet("color: #d4a843; font-size: 14px; font-weight: 700;")
         warn_layout.addWidget(warn_title)
         warn_body = QLabel(
             "Kernel switches download a different KythOS image and apply after reboot. "
@@ -6991,8 +6991,8 @@ class GamingPage(Page):
 
     def _make_health_row(self, status: str, title: str, summary: str) -> QFrame:
         bg, fg, label = {
-            "ok": ("#1f2a24", "#89d185", "OK"),
-            "warn": ("#3a2a00", "#cca700", "Check"),
+            "ok": ("#121e2d", "#4fc1ff", "OK"),
+            "warn": ("#1e1a06", "#d4a843", "Check"),
             "err": ("#3a1010", "#f48771", "Fix"),
             "dim": ("#252526", "#858585", "Info"),
         }.get(status, ("#252526", "#858585", "Info"))
@@ -7110,8 +7110,8 @@ class GamingPage(Page):
         top.addWidget(launcher_lbl)
         badge = QLabel(f"  {status_text}  ")
         badge_bg, badge_fg = {
-            "ok": ("#1f2a24", "#89d185"),
-            "warn": ("#3a2a00", "#cca700"),
+            "ok": ("#121e2d", "#4fc1ff"),
+            "warn": ("#1e1a06", "#d4a843"),
             "err": ("#3a1010", "#f48771"),
             "dim": ("#252526", "#858585"),
         }.get(status, ("#252526", "#858585"))
@@ -7432,7 +7432,7 @@ class GamingPage(Page):
             )
             warn.setObjectName("card-copy")
             warn.setWordWrap(True)
-            warn.setStyleSheet("color: #cca700;")
+            warn.setStyleSheet("color: #d4a843;")
             self._win_lib_layout.addWidget(warn)
 
         if any_clean:
@@ -8137,9 +8137,9 @@ class CompatibilityPage(Page):
 
     _STATUS_STYLE: dict[str, tuple[str, str, str]] = {
         # status → (badge_text, badge_css, row_left_border_color)
-        "native":  ("Native",       "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
-        "proton":  ("Works",        "background:#1f2a24; color:#89d185; border:1px solid #2f5d45;",  "#89d185"),
-        "tweaks":  ("Tweaks",       "background:#3a2a00; color:#cca700; border:1px solid #5a4010;",  "#cca700"),
+        "native":  ("Native",       "background:#121e2d; color:#4fc1ff; border:1px solid #1c3d60;",  "#4fc1ff"),
+        "proton":  ("Works",        "background:#121e2d; color:#4fc1ff; border:1px solid #1c3d60;",  "#4fc1ff"),
+        "tweaks":  ("Tweaks",       "background:#1e1a06; color:#d4a843; border:1px solid #5c4e14;",  "#d4a843"),
         "blocked": ("Blocked",      "background:#3a1010; color:#f48771; border:1px solid #5a1a1a;",  "#f48771"),
     }
     _AC_BADGE_CSS = (
@@ -8196,7 +8196,7 @@ class CompatibilityPage(Page):
             cl.setSpacing(14)
             dot = QLabel("✓" if ac_status == "ok" else "✗")
             dot.setStyleSheet(
-                f"font-size:18px; font-weight:700; color:{'#89d185' if ac_status == 'ok' else '#f48771'};"
+                f"font-size:18px; font-weight:700; color:{'#4fc1ff' if ac_status == 'ok' else '#f48771'};"
                 " background:transparent; border:none;"
             )
             dot.setFixedWidth(20)
@@ -8271,7 +8271,7 @@ class CompatibilityPage(Page):
         btn.setStyleSheet(
             "QPushButton { border-radius:4px; padding:2px 14px; font-size:12px; "
             "background:#252526; color:#cccccc; border:1px solid #3c3c3c; }"
-            "QPushButton:checked { background:#3a2d3a; color:#89d185; border-color:#89d185; }"
+            "QPushButton:checked { background:#3a2d3a; color:#4fc1ff; border-color:#4fc1ff; }"
         )
         btn.clicked.connect(lambda _=False, s=statuses: self._apply_filter(s))
         return btn
@@ -8581,7 +8581,7 @@ class ControllerPage(Page):
         )
         self._sb_warn_lbl.setObjectName("card-copy")
         self._sb_warn_lbl.setWordWrap(True)
-        self._sb_warn_lbl.setStyleSheet("color: #cca700; padding: 6px 0;")
+        self._sb_warn_lbl.setStyleSheet("color: #d4a843; padding: 6px 0;")
         self._sb_warn_lbl.hide()
         self._add(self._sb_warn_lbl)
 
@@ -8631,14 +8631,14 @@ class ControllerPage(Page):
                 "Xbox Wireless Adapter detected — firmware not yet flashed. "
                 "Click the button below to complete setup (requires password)."
             )
-            self._xone_status_lbl.setStyleSheet("color: #cca700;")
+            self._xone_status_lbl.setStyleSheet("color: #d4a843;")
             self._xone_btn.show()
         elif info["xone_dongle"] and info["xone_loaded"]:
             self._xone_status_lbl.setText(
                 "✓  Xbox Wireless Adapter is ready. Press the sync button on the "
                 "adapter and controller together to pair."
             )
-            self._xone_status_lbl.setStyleSheet("color: #89d185;")
+            self._xone_status_lbl.setStyleSheet("color: #4fc1ff;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(
@@ -8684,7 +8684,7 @@ class ControllerPage(Page):
         self._xone_btn.setEnabled(True)
         if code == 0:
             self._xone_status_lbl.setText("✓  Firmware flashed. Unplug and re-plug the adapter, then press Refresh.")
-            self._xone_status_lbl.setStyleSheet("color: #89d185;")
+            self._xone_status_lbl.setStyleSheet("color: #4fc1ff;")
             self._xone_btn.hide()
         else:
             self._xone_status_lbl.setText(f"Firmware flash failed (exit {code}). Check that xone is installed.")
@@ -10745,8 +10745,8 @@ class SecurityPage(Page):
             "and a very long install time. Only choose this if you need every available tool."
         )
         self._everything_warn.setObjectName("card-copy")
-        self._everything_warn.setStyleSheet("color: #cca700; background: #3a2a00; "
-                                            "border: 1px solid #5a4010; border-radius: 6px; "
+        self._everything_warn.setStyleSheet("color: #d4a843; background: #1e1a06; "
+                                            "border: 1px solid #5c4e14; border-radius: 6px; "
                                             "padding: 6px 10px;")
         self._everything_warn.setWordWrap(True)
         self._everything_warn.hide()
@@ -14555,7 +14555,7 @@ class WizardWindow(QMainWindow):
         accent.setFixedHeight(2)
         accent.setStyleSheet(
             "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #c586c0, stop:0.5 #89d185, stop:1 #3c3c3c);"
+            "stop:0 #c586c0, stop:0.5 #4fc1ff, stop:1 #3c3c3c);"
         )
         root_layout.addWidget(accent)
 
@@ -15034,7 +15034,7 @@ class WizardWindow(QMainWindow):
 
         check = QLabel("✓")
         check.setStyleSheet(
-            "font-size: 52px; color: #89d185; font-weight: 300; background: transparent;"
+            "font-size: 52px; color: #4fc1ff; font-weight: 300; background: transparent;"
         )
         layout.addWidget(check)
         layout.addSpacing(18)
