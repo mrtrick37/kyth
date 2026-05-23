@@ -228,12 +228,11 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
-# ── KythOS abstract mark as system icon ─────────────────────────────────────────
+# ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Use the square transparent symbol for small app/menu/panel icons. The
-# horizontal full logo has text and a black canvas that collapses badly at
-# launcher sizes.
+# Use a simplified launcher mark for start-here because detailed gradients and
+# glow effects collapse badly at 32 px panel sizes.
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
@@ -241,9 +240,10 @@ for theme_dir in \
     mkdir -p "${theme_dir}"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/start-here-kde-plasma.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
@@ -276,7 +276,7 @@ if os.path.exists(aprc):
                 '--group', 'Containments', '--group', cont,
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
-                '--key', 'icon', 'start-here-kde-plasma',
+                '--key', 'icon', 'kyth-kickoff',
             ], check=False)
 
 try:
@@ -296,6 +296,10 @@ X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
 AUTOSTARTEOF
+
+mkdir -p /etc/xdg/autostart
+install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
+    /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
 # ── Windows-friendly KDE defaults ─────────────────────────────────────────────
 # KDE stores application launch shortcuts per-user, so seed familiar defaults
