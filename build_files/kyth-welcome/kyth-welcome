@@ -15107,7 +15107,7 @@ class WizardWindow(QMainWindow):
         _mark_wizard_done()
         main_win = MainWindow()
         main_win.setWindowIcon(QIcon.fromTheme("kyth"))
-        main_win.show()
+        main_win.showMaximized()
         main_win._navigate_to(page_key)
         self.close()
 
@@ -15166,7 +15166,7 @@ def main():
     else:
         win = MainWindow()
     win.setWindowIcon(QIcon.fromTheme("kyth"))
-    win.show()
+    win.showMaximized()
     if start_page and isinstance(win, MainWindow):
         win._navigate_to(start_page)
     _remove_autostart()

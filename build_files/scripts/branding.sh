@@ -404,6 +404,12 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-laun
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
+# Place System Hub on the desktop for all new users. The executable bit is
+# required so KDE Plasma 6 treats it as trusted without prompting the user.
+mkdir -p /etc/skel/Desktop
+install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
+    /etc/skel/Desktop/kyth-welcome.desktop
+
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /usr/share/applications/kyth-update-notifier.desktop
