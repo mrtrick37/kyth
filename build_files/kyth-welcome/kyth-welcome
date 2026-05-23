@@ -1338,6 +1338,13 @@ def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
     return f"{base}{suffix}"
 
 
+def _image_tag_for_kernel(flavor: str) -> str:
+    if flavor == "cachy":
+        return "testing-cachy"
+    channel = "testing" if (_current_branch() or "").startswith("testing") else "latest"
+    return channel
+
+
 def _has_staged_update() -> bool:
     data = _bootc_status_data() or {}
     return data.get("status", {}).get("staged") is not None
@@ -5440,6 +5447,7 @@ class KernelPage(Page):
         warn_layout.addWidget(warn_title)
         warn_body = QLabel(
             "Kernel switches download a different KythOS image and apply after reboot. "
+            "The CachyOS kernel currently uses the testing image channel. "
             "Roll Back remains available from the boot menu and the Update page if a custom kernel causes trouble."
         )
         warn_body.setObjectName("card-copy")
@@ -5498,8 +5506,10 @@ class KernelPage(Page):
             _restyle(btn)
 
     def _switch_kernel(self, flavor: str):
+        tag = _image_tag_for_kernel(flavor)
+        ref = f"{REGISTRY}:{tag}"
         self._log.clear()
-        self._log.append(f"-> ujust switch-kernel {flavor}\n")
+        self._log.append(f"-> sudo bootc switch {ref}\n")
         self._log_toggle.show()
         _set_log_panel(self._log_toggle, self._log, False)
         self._progress.show()
@@ -5511,7 +5521,7 @@ class KernelPage(Page):
         for btn in self._kernel_buttons.values():
             btn.setEnabled(False)
 
-        self._worker = Worker(_with_idle_inhibit(["ujust", "switch-kernel", flavor], "KythOS is switching kernel image"))
+        self._worker = Worker(_with_idle_inhibit(["sudo", "bootc", "switch", ref], "KythOS is switching kernel image"))
         _set_session_inhibit(self, "KythOS is switching kernel image")
         self._worker.line.connect(self._on_line)
         self._worker.done.connect(self._on_done)

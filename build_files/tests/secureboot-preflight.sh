@@ -80,8 +80,8 @@ check_static_sources() {
         || fail "installer must detect already-pending MOK enrollment"
     grep -q 'advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))' "${REPO_ROOT}/build_files/kyth-welcome/kyth-welcome" \
         || fail "welcome app must expose the Kernel page in Advanced"
-    grep -q 'ujust", "switch-kernel"' "${REPO_ROOT}/build_files/kyth-welcome/kyth-welcome" \
-        || fail "welcome Kernel page must call the switch-kernel backend"
+    grep -q 'sudo", "bootc", "switch", ref' "${REPO_ROOT}/build_files/kyth-welcome/kyth-welcome" \
+        || fail "welcome Kernel page must switch kernel images through bootc"
     grep -q '^switch-kernel flavor="fedora":' "${REPO_ROOT}/build_files/just/kyth.just" \
         || fail "ujust switch-kernel recipe must be shipped"
     grep -q '^search --no-floppy --label --set=root' "${REPO_ROOT}/build_files/build-live-iso.sh" \
