@@ -330,6 +330,8 @@ COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth.svg
 COPY build_files/branding/kyth-logo-transparent.svg \
      /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg
+COPY build_files/branding/kyth-boot-badge.svg \
+     /usr/share/plymouth/themes/kyth/kyth-boot-badge.svg
 COPY build_files/kyth-installer        /usr/bin/kyth-installer
 COPY build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
 COPY build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
@@ -374,6 +376,15 @@ RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 
     && rsvg-convert -w 200 \
         /usr/share/icons/hicolor/scalable/apps/kyth-symbol.svg \
         -o /usr/share/plymouth/themes/kyth/kyth-logo.png \
+    && for spinner_dir in \
+           /usr/share/plymouth/themes/spinner \
+           /usr/share/plymouth/themes/bgrt-fedora; do \
+           if [ -d "$spinner_dir" ]; then \
+               rsvg-convert -w 260 \
+                   /usr/share/plymouth/themes/kyth/kyth-boot-badge.svg \
+                   -o "$spinner_dir/watermark.png"; \
+           fi; \
+       done \
     && rsvg-convert -w 1920 -h 1080 \
         /usr/share/wallpapers/kyth/contents/images/1920x1080.svg \
         -o /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png \
