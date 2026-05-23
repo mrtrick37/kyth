@@ -384,8 +384,9 @@ dnf5 remove -y --no-autoremove plasma-discover-rpm-ostree 2>/dev/null || true
 dnf5 remove -y firefox || true
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
-# These packages all install from the same repo state, so keep them in one
-# transaction to cut down on repeated dependency solving.
+# Keep required desktop helper packages in one transaction. Optional niceties
+# are installed individually below so a transient RPM/scriptlet issue in a font
+# or hardware utility does not block the image.
 dnf5 install -y --skip-unavailable \
     python3-pyqt6 \
     python3-pyqt6-webengine \
@@ -403,14 +404,26 @@ dnf5 install -y --skip-unavailable \
     zsh \
     nodejs \
     npm \
-    jetbrains-mono-fonts \
-    cascadia-code-fonts \
     openconnect \
     vpnc \
     kde-connect \
-    cups-browsed \
-    liberation-fonts-all \
+    cups-browsed
+
+optional_desktop_packages=(
+    jetbrains-mono-fonts
+    cascadia-code-fonts
+    liberation-fonts-all
     openrgb
+)
+
+for pkg in "${optional_desktop_packages[@]}"; do
+    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable "${pkg}" || \
+            echo "WARNING: optional desktop package '${pkg}' failed to install; continuing." >&2
+    else
+        echo "optional desktop package '${pkg}' is unavailable in configured repos; skipping."
+    fi
+done
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
