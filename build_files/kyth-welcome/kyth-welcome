@@ -1498,6 +1498,66 @@ def _is_flatpak_installed(app_id: str) -> bool:
     return result is not None and result.returncode == 0
 
 
+_DEFAULT_FIRST_RUN_APPS = (
+    ("com.valvesoftware.Steam", "Steam"),
+    ("net.lutris.Lutris", "Lutris"),
+    ("com.heroicgameslauncher.hgl", "Heroic"),
+    ("com.usebottles.bottles", "Bottles"),
+    ("com.github.mtkennerly.ludusavi", "Ludusavi"),
+)
+
+
+def _first_run_app_setup_state() -> tuple[str, str, list[str]]:
+    if _IS_LIVE:
+        return (
+            "live",
+            "Live sessions include the KythOS tools and launcher defaults. Install to this PC for persistent app setup.",
+            [],
+        )
+    missing = [name for app_id, name in _DEFAULT_FIRST_RUN_APPS if not _is_flatpak_installed(app_id)]
+    done = os.path.exists("/var/lib/kyth/default-flatpaks-v4-done")
+    if not missing:
+        return "ready", "Steam, game launchers, Bottles, and save backup tools are ready.", []
+
+    status_path = os.path.expanduser("~/.local/share/kyth/first-run-apps.status")
+    status: dict[str, str] = {}
+    if os.path.exists(status_path):
+        try:
+            with open(status_path, encoding="utf-8") as fh:
+                for line in fh:
+                    if "=" in line:
+                        key, value = line.rstrip("\n").split("=", 1)
+                        status[key] = shlex.split(value)[0] if value else ""
+        except Exception:
+            status = {}
+
+    service = _run_command(["systemctl", "is-active", "kyth-default-flatpaks.service"], timeout=3)
+    service_state = service.stdout.strip() if service and service.stdout.strip() else ""
+    if service_state in {"active", "activating"} or status.get("state") == "setting_up":
+        return (
+            "setting_up",
+            f"KythOS is finishing app setup in the background. Pending: {', '.join(missing)}.",
+            missing,
+        )
+    if service_state == "failed" or status.get("state") == "failed":
+        return (
+            "failed",
+            f"Default app setup needs a retry. Pending: {', '.join(missing)}.",
+            missing,
+        )
+    if done:
+        return (
+            "partial",
+            f"Setup finished, but these apps are still missing: {', '.join(missing)}.",
+            missing,
+        )
+    return (
+        "pending",
+        f"Connect to the network and let KythOS finish first-run app setup. Pending: {', '.join(missing)}.",
+        missing,
+    )
+
+
 def _davinci_flatpak_app_id() -> str | None:
     for app_id in (
         "com.blackmagic.Resolve",
@@ -3731,6 +3791,13 @@ class WelcomePage(Page):
             live_layout.addLayout(live_btns)
             self._add(live_card)
 
+        self._add(self._make_trust_receipt_card())
+        windows_card = self._make_windows_drive_welcome_card()
+        if windows_card is not None:
+            self._add(windows_card)
+        if not _IS_LIVE:
+            self._add(self._make_reinstall_card())
+        self._add(self._make_first_run_status_card())
         self._add(self._make_confidence_center())
         self._add(self._make_welcome_trail())
         self._add(self._make_session_snapshot_card())
@@ -3934,6 +4001,172 @@ class WelcomePage(Page):
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
+
+    def _make_trust_receipt_card(self) -> QFrame:
+        card, layout = _make_card("card-accent-ok")
+        title = QLabel("KythOS polish receipt")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        items = []
+        kdeglobals = os.path.expanduser("~/.config/kdeglobals")
+        double_click = "pending"
+        try:
+            with open(kdeglobals, encoding="utf-8", errors="ignore") as fh:
+                double_click = "done" if "SingleClick=false" in fh.read() else "pending"
+        except OSError:
+            pass
+        kickoff = os.path.expanduser("~/.config/kickoffrc")
+        launcher_quiet = "pending"
+        try:
+            with open(kickoff, encoding="utf-8", errors="ignore") as fh:
+                launcher_quiet = "done" if "highlightNewlyInstalledApps=false" in fh.read() else "pending"
+        except OSError:
+            pass
+        mimeapps = "/etc/xdg/mimeapps.list"
+        exe_helper = "pending"
+        try:
+            with open(mimeapps, encoding="utf-8", errors="ignore") as fh:
+                text = fh.read()
+                if "application/x-ms-dos-executable=kyth-exe-handler.desktop" in text and "application/x-msi=kyth-exe-handler.desktop" in text:
+                    exe_helper = "done"
+        except OSError:
+            pass
+        folders = "done" if os.path.isdir(os.path.expanduser("~/Games")) else "pending"
+        receipt = (
+            (double_click, "Double-click opens files and folders."),
+            (launcher_quiet, "Application launcher stays clean without new-app badges."),
+            (exe_helper, "Windows .exe and .msi files route to the friendly KythOS helper."),
+            (folders, "Familiar folders like Games and Templates are ready."),
+            ("done" if _has_rollback_deployment() else "later", "Rollback appears after your first OS update."),
+        )
+        for state, text in receipt:
+            prefix = {"done": "✓", "later": "•"}.get(state, "◌")
+            items.append(f"{prefix} {text}")
+        body = QLabel("\n".join(items))
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        repair = QPushButton("Apply Polish")
+        repair.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-user-polish"]))
+        btns.addWidget(repair)
+        snapshot = QPushButton("Create Snapshot")
+        snapshot.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
+        btns.addWidget(snapshot)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_windows_drive_welcome_card(self) -> QFrame | None:
+        drives = _find_ntfs_drives()
+        if not drives:
+            return None
+        card, layout = _make_card("card-accent-ok")
+        title = QLabel("Windows drive found")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        mounted = [d for d in drives if d.get("mount")]
+        labels = [d.get("label") or d.get("name") or d.get("dev") for d in drives[:3]]
+        body = QLabel(
+            f"KythOS sees {len(drives)} Windows-style drive{'s' if len(drives) != 1 else ''}: "
+            f"{', '.join(labels)}. Open Move From Windows to copy files, inspect Steam libraries, "
+            "and keep the Windows install untouched."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        move_btn = QPushButton("Move From Windows")
+        move_btn.setObjectName("primary")
+        move_btn.clicked.connect(lambda _=False: self._navigate("Move From Windows"))
+        btns.addWidget(move_btn)
+        if mounted:
+            open_btn = QPushButton("Open Drive")
+            open_btn.clicked.connect(lambda _=False, path=mounted[0]["mount"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+            btns.addWidget(open_btn)
+        files_btn = QPushButton("File Manager")
+        files_btn.clicked.connect(lambda _=False: subprocess.Popen(["dolphin"]) if shutil.which("dolphin") else QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+        btns.addWidget(files_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_reinstall_card(self) -> QFrame:
+        card, layout = _make_card("card-accent-warn")
+        title = QLabel("Install or reinstall KythOS")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Need a completely fresh install, or want to install KythOS onto another disk? "
+            "The guided installer is available from this system too. It erases the disk you select, "
+            "so back up personal files before continuing."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        launch = QPushButton("Open Installer")
+        launch.setObjectName("primary")
+        launch.setEnabled(os.path.exists("/usr/bin/kyth-launch-installer"))
+        launch.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
+        btns.addWidget(launch)
+        backup = QPushButton("Open Home Folder")
+        backup.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+        btns.addWidget(backup)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_first_run_status_card(self) -> QFrame:
+        state, message, missing = _first_run_app_setup_state()
+        accent = {
+            "ready": "card-accent-ok",
+            "setting_up": "card-update",
+            "failed": "card-accent-err",
+            "partial": "card-accent-warn",
+            "pending": "card-accent-warn",
+            "live": "card-accent-ok",
+        }.get(state, "")
+        card, layout = _make_card(accent)
+        title_text = {
+            "ready": "KythOS is ready",
+            "setting_up": "KythOS is finishing setup",
+            "failed": "KythOS setup needs a retry",
+            "partial": "KythOS setup is mostly ready",
+            "pending": "KythOS setup is waiting for network",
+            "live": "Live session preview",
+        }.get(state, "KythOS setup")
+        title = QLabel(title_text)
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(message)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        if state in {"failed", "partial", "pending"}:
+            retry = QPushButton("Retry App Setup")
+            retry.setObjectName("primary")
+            retry.clicked.connect(lambda: subprocess.Popen(["sudo", "-A", "systemctl", "restart", "kyth-default-flatpaks.service"]))
+            btns.addWidget(retry)
+        if state == "setting_up":
+            software = QPushButton("Open Software")
+            software.clicked.connect(lambda: self._navigate("Software"))
+            btns.addWidget(software)
+        if state != "live":
+            repair = QPushButton("Open Repair")
+            repair.clicked.connect(lambda: self._navigate("Repair"))
+            btns.addWidget(repair)
+        if missing:
+            gaming = QPushButton("Open Gaming")
+            gaming.clicked.connect(lambda: self._navigate("Gaming"))
+            btns.addWidget(gaming)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
 
     def _confidence_item(self, status: str, title: str, summary: str) -> QFrame:
         row = QFrame()
@@ -4487,6 +4720,8 @@ class UpdatePage(Page):
         self._last_output_ts = 0.0
         self._op_start_ts = 0.0
         self._current_phase = ""
+        self._cancel_blocked = False
+        self._cancel_block_reason = ""
         self._staging_write_start = 0
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(5000)
@@ -4531,6 +4766,30 @@ class UpdatePage(Page):
             summary_layout.addLayout(row)
 
         self._add(self._summary_card)
+
+        reboot_card, reboot_layout = _make_card("card-accent-ok")
+        reboot_title = QLabel("Before you reboot")
+        reboot_title.setObjectName("card-title")
+        reboot_layout.addWidget(reboot_title)
+        self._reboot_plan_lbl = QLabel()
+        self._reboot_plan_lbl.setObjectName("card-copy")
+        self._reboot_plan_lbl.setWordWrap(True)
+        reboot_layout.addWidget(self._reboot_plan_lbl)
+        reboot_btns = QHBoxLayout()
+        reboot_btns.setSpacing(8)
+        self._reboot_plan_btn = QPushButton("Reboot to Apply")
+        self._reboot_plan_btn.setObjectName("primary")
+        self._reboot_plan_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+        reboot_btns.addWidget(self._reboot_plan_btn)
+        history_btn = QPushButton("View Commit History")
+        history_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        reboot_btns.addWidget(history_btn)
+        reboot_btns.addStretch()
+        reboot_layout.addLayout(reboot_btns)
+        self._reboot_plan_card = reboot_card
+        self._add(reboot_card)
 
         story_card, story_layout = _make_card("card-accent-ok")
         story_title = QLabel("Update Story")
@@ -4623,6 +4882,21 @@ class UpdatePage(Page):
         self._progress.setRange(0, 0)
         self._progress.hide()
         self._add(self._progress)
+
+        cancel_row = QHBoxLayout()
+        cancel_row.setSpacing(10)
+        self._cancel_btn = QPushButton("Cancel Update")
+        self._cancel_btn.setToolTip("Stop the running update while it is still safe to cancel")
+        self._cancel_btn.clicked.connect(self._cancel_operation)
+        self._cancel_btn.hide()
+        cancel_row.addWidget(self._cancel_btn)
+        self._cancel_note = QLabel("")
+        self._cancel_note.setObjectName("card-copy")
+        self._cancel_note.setWordWrap(True)
+        self._cancel_note.hide()
+        cancel_row.addWidget(self._cancel_note, 1)
+        cancel_row.addStretch()
+        self._add_layout(cancel_row)
 
         self._log_toggle = QPushButton("Show details")
         self._log_toggle.setCheckable(True)
@@ -4781,6 +5055,8 @@ class UpdatePage(Page):
         self._last_output_ts = time.monotonic()
         self._op_start_ts = time.monotonic()
         self._current_phase = ""
+        self._cancel_blocked = False
+        self._cancel_block_reason = ""
         self._log.clear()
         self._log_toggle.show()
         self._set_log_expanded(False)
@@ -4791,6 +5067,11 @@ class UpdatePage(Page):
         self._status_lbl.show()
         _restyle(self._status_lbl)
         self._reboot_btn.hide()
+        self._cancel_btn.setText("Cancel Update")
+        self._cancel_btn.setEnabled(True)
+        self._cancel_btn.show()
+        self._cancel_note.setText("You can cancel while KythOS is checking or downloading. Once the image is being written, the safest path is to let it finish.")
+        self._cancel_note.show()
         self._set_buttons_enabled(False)
 
         self._worker = Worker(_with_idle_inhibit(cmd, inhibit_reason))
@@ -4799,8 +5080,71 @@ class UpdatePage(Page):
         self._worker.done.connect(self._on_done)
         self._worker.start()
         self._update_activity()
+        self._update_cancel_state()
         if mode != "rollback":
             self._heartbeat.start()
+
+    def _phase_blocks_cancel(self, phase: str) -> str:
+        if self._mode == "rollback":
+            return "Rollback is already staging the previous deployment. Let it finish, then reboot or update again."
+        if phase in {
+            "Unpacking image layers…",
+            "Download complete — processing image layers…",
+            "Processing image layers…",
+            "Importing image into system storage…",
+            "Storing image manifest…",
+            "Writing new OS image to disk…",
+            "Updating package database in the new image…",
+            "Preparing boot files for the new image…",
+            "Deploying new OS image…",
+            "Staging new image for next reboot…",
+            "Staged — new image ready for next reboot.",
+        }:
+            return "The update is past the safe cancel point and is writing/staging the new image. Let it finish."
+        if "writing image to disk" in phase.lower() or "committing image" in phase.lower():
+            return "The update is writing the new image. Let it finish."
+        return ""
+
+    def _update_cancel_state(self):
+        if self._worker is None:
+            self._cancel_btn.hide()
+            self._cancel_note.hide()
+            return
+        reason = self._phase_blocks_cancel(self._current_phase)
+        if reason:
+            self._cancel_blocked = True
+            self._cancel_block_reason = reason
+            self._cancel_btn.setEnabled(False)
+            self._cancel_btn.setToolTip(reason)
+            self._cancel_note.setText(reason)
+        elif not self._cancel_blocked:
+            self._cancel_btn.setEnabled(True)
+            self._cancel_btn.setToolTip("Stop the running update while it is still safe to cancel")
+
+    def _cancel_operation(self):
+        if self._worker is None:
+            return
+        self._update_cancel_state()
+        if self._cancel_blocked:
+            self._log.append(f"\nCancel unavailable: {self._cancel_block_reason}")
+            self._log.ensureCursorVisible()
+            return
+        reply = QMessageBox.question(
+            self,
+            "Cancel Update?",
+            "Stop the running update now? Anything already downloaded can usually be reused later.",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        self._cancel_btn.setEnabled(False)
+        self._cancel_btn.setText("Cancelling…")
+        self._cancel_note.setText("Cancel requested. Waiting for the update process to stop cleanly…")
+        self._status_lbl.setText("Cancelling update…")
+        self._log.append("\nCancel requested by user. Waiting for the update process to stop…")
+        self._log.ensureCursorVisible()
+        self._worker.cancel()
 
     def _run_topgrade(self):
         self._start_operation(
@@ -4840,6 +5184,7 @@ class UpdatePage(Page):
         phase = _parse_update_phase(text.strip(), self._mode)
         if phase:
             self._set_phase(phase)
+            self._update_cancel_state()
             if phase != "Downloading image layers…" and self._dl_downloaded >= self._dl_total > 0:
                 self._progress.setRange(0, 0)
         # Start or update network monitor when bootc tells us how much to download
@@ -4883,6 +5228,7 @@ class UpdatePage(Page):
             self._dl_final_bytes = downloaded
             self._progress.setRange(0, 0)
             self._set_phase(phase)
+            self._update_cancel_state()
             self._update_activity()
             self._stop_dl_monitor()
 
@@ -4979,12 +5325,19 @@ class UpdatePage(Page):
         self._heartbeat.stop()
         self._stop_dl_monitor()
         self._progress.hide()
+        self._cancel_btn.hide()
+        self._cancel_note.hide()
         _finish_worker(self)
         _set_session_inhibit(self, None)
         self._update_activity()
         self._set_buttons_enabled(True)
 
-        if code == 0:
+        if code == Worker.CANCELLED:
+            self._status_lbl.setText("Update cancelled. The running operation was stopped.")
+            self._status_lbl.setObjectName("status-warn")
+            self._log.append("\nCancelled. You can start the update again when ready.")
+            self._check_for_update()
+        elif code == 0:
             if self._mode == "rollback":
                 self._status_lbl.setText("Rollback staged — reboot to return to the previous system.")
                 self._status_lbl.setObjectName("status-warn")
@@ -5038,6 +5391,8 @@ class UpdatePage(Page):
             self._rollback_val.setText("—")
             self._rollback_btn.setEnabled(False)
             self._rollback_btn.setText("Roll Back")
+            self._reboot_plan_lbl.setText("An update operation is running. The reboot plan will update when staging finishes.")
+            self._reboot_plan_btn.hide()
             return
 
         staged = _has_staged_update()
@@ -5069,6 +5424,38 @@ class UpdatePage(Page):
 
         digest = _bootc_image_digest("booted")
         digest_hint = f" Running digest: {digest[0]}." if digest else ""
+        staged_digest = _bootc_image_digest("staged") if staged else None
+        rollback_digest = _bootc_image_digest("rollback") if rollback else None
+        if staged:
+            staged_bits = []
+            if staged_ts:
+                staged_bits.append(f"new image built {staged_ts}")
+            if staged_digest:
+                staged_bits.append(f"sha256:{staged_digest[0]}")
+            rollback_bits = []
+            if rollback_ts:
+                rollback_bits.append(f"rollback built {rollback_ts}")
+            if rollback_digest:
+                rollback_bits.append(f"sha256:{rollback_digest[0]}")
+            self._reboot_plan_lbl.setText(
+                "Ready when you are. Reboot will apply "
+                f"{', '.join(staged_bits) if staged_bits else 'the staged KythOS image'}. "
+                f"Your current system remains available as {', '.join(rollback_bits) if rollback_bits else 'a rollback target'}. "
+                "Personal files and apps in your home folder are not erased by the reboot."
+            )
+            self._reboot_plan_btn.show()
+        else:
+            current_bits = []
+            if booted_ts:
+                current_bits.append(f"running image built {booted_ts}")
+            if digest:
+                current_bits.append(f"sha256:{digest[0]}")
+            self._reboot_plan_lbl.setText(
+                f"No OS image is waiting for reboot. {', '.join(current_bits) if current_bits else 'You are running the current booted image.'} "
+                "After your next update, this panel will show exactly what reboot will apply and what rollback will preserve."
+            )
+            self._reboot_plan_btn.hide()
+
         if staged:
             self._update_story_lbl.setText(
                 "A new KythOS image is staged. Reboot when convenient; your current "
