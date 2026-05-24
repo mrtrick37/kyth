@@ -38,18 +38,18 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
 
 # ── Installed-OS representation audit ───────────────────────────────────────
 # The live ISO normally starts from the same KythOS image that bootc installs.
-# Keep this as CI signal, but do not block ISO creation: the live environment is
-# first and foremost the Secure Boot-capable installer, and the installer still
-# pulls the selected KythOS target image at install time.
+# Keep this as CI signal. Some deep installed-service artifacts are still
+# warnings, but user-facing preview anchors such as VS Code are required: the
+# live ISO should not ship a broken first impression.
 RUN echo "==> Checking whether live ISO base represents installed KythOS image" \
     && missing=0 \
     && if ! command -v code >/dev/null 2>&1; then \
-           echo "WARNING: VS Code is missing from the live ISO base image"; \
-           missing=1; \
+           echo "FAIL: VS Code is missing from the live ISO base image"; \
+           exit 1; \
        fi \
     && if ! test -f /usr/share/applications/code.desktop; then \
-           echo "WARNING: VS Code desktop entry is missing from the live ISO base image"; \
-           missing=1; \
+           echo "FAIL: VS Code desktop entry is missing from the live ISO base image"; \
+           exit 1; \
        fi \
     && for path in \
         /usr/bin/kyth-welcome \
@@ -361,6 +361,27 @@ RUN mkdir -p \
            printf '[Desktop Entry]\nType=Application\nName=%s\nHidden=true\n' "$svc" \
                > "/etc/xdg/autostart/${svc}.desktop"; \
        done
+
+# ── Live first-impression audit ──────────────────────────────────────────────
+# Fail the image if the live desktop stops looking like KythOS or loses the
+# obvious explore/install path. These checks are cheap and catch regressions
+# before anyone boots a disappointing USB.
+RUN echo "==> Live first-impression audit:" \
+    && test -x /home/liveuser/Desktop/explore-kyth.desktop \
+    && test -x /home/liveuser/Desktop/install-kyth.desktop \
+    && test -f /usr/share/applications/kyth-explore.desktop \
+    && test -f /usr/share/applications/kyth-install.desktop \
+    && test -f /usr/share/applications/kyth-welcome.desktop \
+    && test -f /usr/share/applications/code.desktop \
+    && command -v code >/dev/null 2>&1 \
+    && grep -q '/usr/share/applications/kyth-welcome.desktop' /home/liveuser/.config/kickoffrc \
+    && grep -q '/usr/share/applications/kyth-install.desktop' /home/liveuser/.config/kickoffrc \
+    && grep -q '/usr/share/applications/code.desktop' /home/liveuser/.config/kickoffrc \
+    && grep -q 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' /home/liveuser/.config/user-dirs.dirs \
+    && test -d /home/liveuser/Games \
+    && test -f '/home/liveuser/Templates/Plain Text.txt' \
+    && test -x '/home/liveuser/Templates/Shell Script.sh' \
+    && python3 -c 'import os, sys; paths=("/home/liveuser/Desktop/explore-kyth.desktop", "/home/liveuser/Desktop/install-kyth.desktop"); bad=[]; [bad.append(path) for path in paths if os.getxattr(path, "user.metadata::trusted") != b"yes"]; sys.exit("untrusted desktop shortcuts: " + ", ".join(bad) if bad else 0)'
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \

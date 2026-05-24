@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import select
+import socket
 import subprocess
 import threading
 import time
@@ -379,6 +380,66 @@ def _source_imgref(image: str) -> str:
     return f"docker://{image}"
 
 
+def _imgref_needs_network(imgref: str) -> bool:
+    return imgref.startswith("docker://")
+
+
+def _registry_host(imgref: str) -> str:
+    image = imgref.removeprefix("docker://")
+    return image.split("/", 1)[0].split("@", 1)[0].rsplit(":", 1)[0]
+
+
+def _friendly_network_error(extra: str = "") -> str:
+    detail = f"\n\nDetails: {extra}" if extra else ""
+    return (
+        "KythOS needs an internet connection before it can install.\n\n"
+        "Connect to Wi-Fi or plug in Ethernet from the live desktop, then return "
+        "to this installer and click Start Install again. Your disk, account, "
+        "timezone, and kernel choices will stay here while you connect.\n\n"
+        "Tip: use the network icon in the bottom-right panel to join Wi-Fi."
+        f"{detail}"
+    )
+
+
+def _network_preflight(imgref: str) -> str | None:
+    """Return a friendly error message if the selected install source needs
+    the network and the live session cannot reach its registry yet."""
+    if not _imgref_needs_network(imgref):
+        return None
+
+    host = _registry_host(imgref)
+    if not host:
+        return _friendly_network_error("The selected image registry could not be determined.")
+
+    try:
+        route = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if route.returncode != 0 or not route.stdout.strip():
+            return _friendly_network_error("No active default network route was found.")
+    except Exception:
+        # Keep going: DNS/connect checks below are a better user-facing signal.
+        pass
+
+    try:
+        socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return _friendly_network_error(
+            f"The live session is not resolving {host}. Wi-Fi may not be connected yet."
+        )
+    except Exception as exc:
+        return _friendly_network_error(f"DNS check for {host} failed: {exc}")
+
+    try:
+        with socket.create_connection((host, 443), timeout=5):
+            return None
+    except OSError:
+        return _friendly_network_error(
+            f"The live session cannot reach {host}:443 yet."
+        )
+
+
 def _install_images(kernel: str) -> tuple[str, str]:
     """Return (source_imgref, target_imgref) for bootc install based on kernel choice.
 
@@ -504,6 +565,7 @@ def _run_install() -> None:
 
         STALL_TIMEOUT = 600
         last_output   = time.monotonic()
+        recent_output: list[str] = []
         while True:
             ready, _, _ = select.select([proc.stdout], [], [], 30)
             if ready:
@@ -513,6 +575,8 @@ def _run_install() -> None:
                 last_output = time.monotonic()
                 stripped = line.rstrip()
                 log(stripped)
+                recent_output.append(stripped)
+                recent_output = recent_output[-30:]
                 if "layers needed:" in stripped:
                     try:
                         m = stripped.split("layers needed:")[1]
@@ -532,6 +596,25 @@ def _run_install() -> None:
         monitor_thread.join(timeout=2)
         proc.wait()
         if proc.returncode != 0:
+            lowered = "\n".join(recent_output).lower()
+            network_tokens = (
+                "network is unreachable",
+                "no route to host",
+                "temporary failure in name resolution",
+                "name or service not known",
+                "could not resolve",
+                "connection timed out",
+                "i/o timeout",
+                "tls handshake timeout",
+                "connection reset",
+                "connection refused",
+            )
+            if any(token in lowered for token in network_tokens):
+                raise RuntimeError(
+                    _friendly_network_error(
+                        "The image download lost network access before it finished."
+                    )
+                )
             raise RuntimeError(
                 f"Command failed (exit {proc.returncode}):\n  {' '.join(full_cmd)}"
             )
@@ -780,6 +863,11 @@ class Handler(BaseHTTPRequestHandler):
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
+            src_ref, _ = _install_images(kernel)
+            network_error = _network_preflight(src_ref)
+            if network_error:
+                self._json({"started": False, "message": network_error}, status=409)
+                return
             _state.update({
                 "disk":     disk,
                 "hostname": hostname,
@@ -798,9 +886,9 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self.send_error(404)
 
-    def _json(self, data: object) -> None:
+    def _json(self, data: object, status: int = 200) -> None:
         body = json.dumps(data).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(body))
         self.end_headers()
@@ -1338,9 +1426,14 @@ function startInstall() {
       kernel: S.kernel,
     }),
   }).then(r => {
-    if (!r.ok) return r.text().then(t => showError('Failed to start install: ' + t)).catch(() => showError('Install request failed (status ' + r.status + ')'));
+    if (!r.ok) {
+      return r.json()
+        .then(j => showError(j.message || ('Install request failed (status ' + r.status + ')')))
+        .catch(() => r.text().then(t => showError('Failed to start install: ' + t))
+          .catch(() => showError('Install request failed (status ' + r.status + ')')));
+    }
     listenSSE();
-  }).catch(e => showError('Network error: ' + e));
+  }).catch(e => showError('The installer could not talk to its local backend: ' + e));
 }
 
 function listenSSE() {

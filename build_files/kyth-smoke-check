@@ -175,6 +175,42 @@ check_file() {
     fi
 }
 
+check_file_contains() {
+    local path="$1"
+    local pattern="$2"
+    local label="$3"
+    local detail="${4:-$pattern}"
+    if [[ -r "$path" ]] && grep -Fq "$pattern" "$path"; then
+        pass "$label" "$detail"
+    else
+        fail "$label" "$path does not contain expected entry"
+    fi
+}
+
+check_desktop_trusted() {
+    local path="$1"
+    local label="$2"
+    if [[ ! -e "$path" ]]; then
+        fail "$label" "$path missing"
+        return
+    fi
+    if python3 - "$path" >/dev/null 2>&1 <<'PY'; then
+import os
+import sys
+sys.exit(0 if os.getxattr(sys.argv[1], "user.metadata::trusted") == b"yes" else 1)
+PY
+        pass "$label" "$path trusted"
+    else
+        warn "$label" "$path exists but is not marked trusted"
+    fi
+}
+
+is_live_session() {
+    [[ -r /proc/cmdline ]] && grep -qw 'kyth.live=1' /proc/cmdline && return 0
+    [[ -r /etc/os-release ]] && grep -q '^PRETTY_NAME="KythOS .* Live"' /etc/os-release && return 0
+    [[ "${USER:-}" == "liveuser" ]]
+}
+
 check_kernel_module_or_builtin() {
     local module="$1"
     local label="$2"
@@ -314,6 +350,25 @@ if [[ -r "${HOME}/.config/kdeglobals" ]]; then
     fi
 else
     warn "Double-click default" "user KDE config not created yet; /usr/bin/kyth-user-polish applies it after login"
+fi
+
+if is_live_session; then
+    section "Live ISO First Impression"
+    check_file "${HOME}/Desktop/explore-kyth.desktop" "Explore desktop shortcut"
+    check_file "${HOME}/Desktop/install-kyth.desktop" "Install desktop shortcut"
+    check_desktop_trusted "${HOME}/Desktop/explore-kyth.desktop" "Explore shortcut trust"
+    check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
+    check_file /usr/share/applications/kyth-explore.desktop "Explore app launcher"
+    check_file /usr/share/applications/kyth-install.desktop "Install app launcher"
+    check_command code "VS Code command"
+    check_file /usr/share/applications/code.desktop "VS Code launcher"
+    check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-welcome.desktop" "System Hub favorite" "pinned in launcher favorites"
+    check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-install.desktop" "Installer favorite" "pinned in launcher favorites"
+    check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/code.desktop" "VS Code favorite" "pinned in launcher favorites"
+    check_file_contains "${HOME}/.config/user-dirs.dirs" 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' "Live user dirs" "familiar folders configured"
+    check_file "${HOME}/Games" "Live Games folder"
+    check_file "${HOME}/Templates/Plain Text.txt" "Live text template"
+    check_file "${HOME}/Templates/Shell Script.sh" "Live shell template"
 fi
 
 section "Core Daily-Driver Services"
