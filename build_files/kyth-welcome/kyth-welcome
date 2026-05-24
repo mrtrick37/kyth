@@ -3813,16 +3813,10 @@ class WelcomePage(Page):
             live_layout.addLayout(live_btns)
             self._add(live_card)
 
-        self._add(self._make_trust_receipt_card())
         windows_card = self._make_windows_drive_welcome_card()
         if windows_card is not None:
             self._add(windows_card)
-        if not _IS_LIVE:
-            self._add(self._make_reinstall_card())
         self._add(self._make_first_run_status_card())
-        self._add(self._make_confidence_center())
-        self._add(self._make_welcome_trail())
-        self._add(self._make_session_snapshot_card())
 
         # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
@@ -3996,6 +3990,9 @@ class WelcomePage(Page):
         backup_btn_row.addStretch()
         backup_layout.addLayout(backup_btn_row)
         self._add(backup_card)
+
+        if not _IS_LIVE:
+            self._add(self._make_reinstall_card())
 
         # ── Links ────────────────────────────────────────────────────────────
         link_row = QHBoxLayout()
@@ -4563,12 +4560,12 @@ class DiagnosticsPage(Page):
         self._last_probes: list[HardwareProbe] = []
         self._base_report = ""
         self._health_report = ""
+        self._probe_cards: dict[str, HardwareCard] = {}
 
         self._page_header(
             "System",
             "Health Report",
-            "One support report for hardware probes, update confidence, controllers, "
-            "resume checks, gaming basics, and raw system state.",
+            "A quick look at how your hardware and system stack are doing.",
         )
 
         btn_row = QHBoxLayout()
@@ -4598,21 +4595,77 @@ class DiagnosticsPage(Page):
         self._progress.setRange(0, 0)
         self._add(self._progress)
 
+        # Summary banner
+        self._banner_card, self._banner_layout = _make_card()
+        self._banner_title = QLabel()
+        self._banner_title.setObjectName("card-title")
+        self._banner_layout.addWidget(self._banner_title)
+        self._banner_body = QLabel()
+        self._banner_body.setObjectName("card-copy")
+        self._banner_body.setWordWrap(True)
+        self._banner_layout.addWidget(self._banner_body)
+        self._banner_card.hide()
+        self._add(self._banner_card)
+
+        # Per-probe cards
+        self._cards_widget = QWidget()
+        self._cards_layout = QVBoxLayout(self._cards_widget)
+        self._cards_layout.setContentsMargins(0, 0, 0, 0)
+        self._cards_layout.setSpacing(8)
+        self._add(self._cards_widget)
+
+        # Raw report (hidden; surfaced via toggle for support use)
+        self._raw_toggle = QPushButton("Show technical details")
+        self._raw_toggle.setCheckable(True)
+        self._raw_toggle.setChecked(False)
+        self._raw_toggle.toggled.connect(self._toggle_raw)
+        self._raw_toggle.hide()
+        self._add(self._raw_toggle)
+
         self._report = QTextEdit()
         self._report.setReadOnly(True)
-        self._report.setMinimumHeight(300)
+        self._report.setMinimumHeight(220)
+        self._report.hide()
         self._add(self._report)
 
-        hint = QLabel(
-            "Hardware-specific live controls remain on Hardware, Gaming, Controllers, "
-            "Update, and Repair. This page only consolidates report output."
-        )
-        hint.setObjectName("status-dim")
-        hint.setWordWrap(True)
-        self._add(hint)
         self._stretch()
-
         self.refresh()
+
+    def _clear_cards(self):
+        while self._cards_layout.count():
+            item = self._cards_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._probe_cards = {}
+
+    def _build_summary_banner(self, probes: list[HardwareProbe]) -> None:
+        errs  = [p for p in probes if p.status == "err"]
+        warns = [p for p in probes if p.status == "warn"]
+        oks   = [p for p in probes if p.status == "ok"]
+        if errs:
+            self._banner_card.setObjectName("card-accent-err")
+            self._banner_title.setText(
+                f"{len(errs)} issue{'s' if len(errs) != 1 else ''} found"
+            )
+            self._banner_body.setText(
+                "Some hardware or system checks need attention. "
+                "Review the items below and follow the suggested fixes."
+            )
+        elif warns:
+            self._banner_card.setObjectName("card-accent-warn")
+            self._banner_title.setText(
+                f"{len(warns)} warning{'s' if len(warns) != 1 else ''}"
+            )
+            self._banner_body.setText(
+                "Everything is mostly working but some things could be improved. "
+                "Check the items below for details."
+            )
+        else:
+            self._banner_card.setObjectName("card-accent-ok")
+            self._banner_title.setText(f"All {len(oks)} checks passed")
+            self._banner_body.setText("Your hardware and system stack look healthy.")
+        _restyle(self._banner_card)
+        self._banner_card.show()
 
     def refresh(self):
         self._refresh_btn.setEnabled(False)
@@ -4624,7 +4677,11 @@ class DiagnosticsPage(Page):
         self._progress.show()
         self._base_report = ""
         self._health_report = ""
-        self._report.setPlainText("Running health report…")
+        self._banner_card.hide()
+        self._raw_toggle.hide()
+        self._report.hide()
+        self._report.setPlainText("")
+        self._clear_cards()
 
         self._worker = HardwareProbeWorker()
         self._worker.done.connect(self._on_done)
@@ -4634,22 +4691,26 @@ class DiagnosticsPage(Page):
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._copy_btn.setEnabled(True)
-        self._save_btn.setEnabled(True)
         _finish_worker(self)
         self._last_probes = probes
         self._base_report = _diagnostics_report(probes)
-        self._report.setPlainText(self._base_report + "\nRunning CLI health checks…")
+
+        self._build_summary_banner(probes)
+        self._clear_cards()
+        for probe in probes:
+            card = HardwareCard(probe)
+            self._probe_cards[probe.title] = card
+            self._cards_layout.addWidget(card)
 
         levels = {p.status for p in probes}
         if "err" in levels:
-            self._status_lbl.setText("Hardware issues found — running CLI checks.")
+            self._status_lbl.setText("Issues found — running extended checks…")
             self._status_lbl.setObjectName("status-err")
         elif "warn" in levels:
-            self._status_lbl.setText("Hardware completed with warnings — running CLI checks.")
+            self._status_lbl.setText("Warnings found — running extended checks…")
             self._status_lbl.setObjectName("status-warn")
         else:
-            self._status_lbl.setText("Hardware checks passed — running CLI checks.")
+            self._status_lbl.setText("Hardware checks passed — running extended checks…")
             self._status_lbl.setObjectName("status-ok")
         _restyle(self._status_lbl)
 
@@ -4665,6 +4726,8 @@ class DiagnosticsPage(Page):
         self._report.setPlainText(self._base_report + recs + self._health_report)
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
+        self._raw_toggle.show()
+
         has_failures = (
             re.search(r"^FAIL\s+", self._health_report, re.MULTILINE)
             or re.search(r"^FAIL:\s*[1-9]", self._health_report, re.MULTILINE)
@@ -4677,13 +4740,13 @@ class DiagnosticsPage(Page):
             or "Result: resume readiness has warnings" in self._health_report
         )
         if has_failures:
-            self._status_lbl.setText("Health report completed — issues need attention.")
+            self._status_lbl.setText("Issues found — check the details above.")
             self._status_lbl.setObjectName("status-err")
         elif has_warnings:
-            self._status_lbl.setText("Health report completed with warnings.")
+            self._status_lbl.setText("Warnings found — review the items above.")
             self._status_lbl.setObjectName("status-warn")
         else:
-            self._status_lbl.setText("Health report completed successfully.")
+            self._status_lbl.setText("All checks completed successfully.")
             self._status_lbl.setObjectName("status-ok")
         _restyle(self._status_lbl)
 
@@ -4693,7 +4756,8 @@ class DiagnosticsPage(Page):
         self._report.setPlainText(self._base_report + self._health_report)
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
-        self._status_lbl.setText(f"Health command checks failed: {message}")
+        self._raw_toggle.show()
+        self._status_lbl.setText(f"Extended checks failed: {message}")
         self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
 
@@ -4701,10 +4765,15 @@ class DiagnosticsPage(Page):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
         _finish_worker(self)
-        self._report.setPlainText("")
         self._status_lbl.setText(f"Failed: {message}")
         self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
+
+    def _toggle_raw(self, checked: bool):
+        self._raw_toggle.setText(
+            "Hide technical details" if checked else "Show technical details"
+        )
+        self._report.setVisible(checked)
 
     def _copy_report(self):
         QApplication.clipboard().setText(self._report.toPlainText())
@@ -4787,82 +4856,55 @@ class UpdatePage(Page):
         for row in (booted_row, staged_row, rollback_row):
             summary_layout.addLayout(row)
 
-        self._add(self._summary_card)
-
-        reboot_card, reboot_layout = _make_card("card-accent-ok")
-        reboot_title = QLabel("Before you reboot")
-        reboot_title.setObjectName("card-title")
-        reboot_layout.addWidget(reboot_title)
-        self._reboot_plan_lbl = QLabel()
-        self._reboot_plan_lbl.setObjectName("card-copy")
-        self._reboot_plan_lbl.setWordWrap(True)
-        reboot_layout.addWidget(self._reboot_plan_lbl)
-        reboot_btns = QHBoxLayout()
-        reboot_btns.setSpacing(8)
-        self._reboot_plan_btn = QPushButton("Reboot to Apply")
-        self._reboot_plan_btn.setObjectName("primary")
-        self._reboot_plan_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
-        reboot_btns.addWidget(self._reboot_plan_btn)
-        history_btn = QPushButton("View Commit History")
-        history_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
-        )
-        reboot_btns.addWidget(history_btn)
-        reboot_btns.addStretch()
-        reboot_layout.addLayout(reboot_btns)
-        self._reboot_plan_card = reboot_card
-        self._add(reboot_card)
-
-        story_card, story_layout = _make_card("card-accent-ok")
-        story_title = QLabel("Update Story")
-        story_title.setObjectName("card-title")
-        story_layout.addWidget(story_title)
-        self._update_story_lbl = QLabel()
-        self._update_story_lbl.setObjectName("card-copy")
-        self._update_story_lbl.setWordWrap(True)
-        story_layout.addWidget(self._update_story_lbl)
-        story_btns = QHBoxLayout()
-        story_btns.setSpacing(8)
-        story_history_btn = QPushButton("View Commit History")
-        story_history_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
-        )
-        story_btns.addWidget(story_history_btn)
-        story_snapshot_btn = QPushButton("Snapshot Before Update")
-        story_snapshot_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
-        story_btns.addWidget(story_snapshot_btn)
-        story_btns.addStretch()
-        story_layout.addLayout(story_btns)
-        self._add(story_card)
-
         # ── Update availability ───────────────────────────────────────────────
         avail_card, avail_layout = _make_card()
-        avail_layout.setSpacing(6)
+        avail_layout.setSpacing(0)
 
-        avail_top = QHBoxLayout()
-        avail_top.setSpacing(10)
-        self._avail_dot = QLabel("●")
-        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
-        avail_top.addWidget(self._avail_dot)
+        avail_hero = QHBoxLayout()
+        avail_hero.setSpacing(16)
+        avail_hero.setContentsMargins(0, 0, 0, 0)
+
+        self._avail_icon = QLabel("○")
+        self._avail_icon.setFixedWidth(40)
+        self._avail_icon.setAlignment(Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self._avail_icon.setStyleSheet("font-size: 28px; color: #555555;")
+        avail_hero.addWidget(self._avail_icon)
+
+        avail_text_col = QVBoxLayout()
+        avail_text_col.setSpacing(4)
+        avail_text_col.setContentsMargins(0, 0, 0, 0)
         self._avail_title = QLabel("Checking for updates…")
         self._avail_title.setObjectName("card-title")
-        avail_top.addWidget(self._avail_title)
-        avail_top.addStretch()
-        self._check_btn = QPushButton("Check Now")
-        self._check_btn.setEnabled(False)
-        self._check_btn.clicked.connect(self._check_for_update)
-        avail_top.addWidget(self._check_btn)
-        self._update_now_btn = QPushButton("Update Now")
-        self._update_now_btn.setObjectName("primary")
-        self._update_now_btn.hide()
-        self._update_now_btn.clicked.connect(self._run_topgrade)
-        avail_top.addWidget(self._update_now_btn)
-        avail_layout.addLayout(avail_top)
-
+        avail_text_col.addWidget(self._avail_title)
         self._avail_lbl = QLabel()
         self._avail_lbl.setObjectName("card-copy")
         self._avail_lbl.setWordWrap(True)
-        avail_layout.addWidget(self._avail_lbl)
+        avail_text_col.addWidget(self._avail_lbl)
+        avail_hero.addLayout(avail_text_col, 1)
+
+        avail_btn_col = QVBoxLayout()
+        avail_btn_col.setSpacing(6)
+        avail_btn_col.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignRight)
+        self._update_now_btn = QPushButton("Update Now")
+        self._update_now_btn.setObjectName("primary")
+        self._update_now_btn.setMinimumWidth(120)
+        self._update_now_btn.hide()
+        self._update_now_btn.clicked.connect(self._run_topgrade)
+        avail_btn_col.addWidget(self._update_now_btn)
+        self._restart_now_btn = QPushButton("Restart Now")
+        self._restart_now_btn.setObjectName("primary")
+        self._restart_now_btn.setMinimumWidth(120)
+        self._restart_now_btn.hide()
+        self._restart_now_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+        avail_btn_col.addWidget(self._restart_now_btn)
+        self._check_btn = QPushButton("Check Now")
+        self._check_btn.setEnabled(False)
+        self._check_btn.setMinimumWidth(120)
+        self._check_btn.clicked.connect(self._check_for_update)
+        avail_btn_col.addWidget(self._check_btn)
+        avail_hero.addLayout(avail_btn_col)
+
+        avail_layout.addLayout(avail_hero)
         self._avail_card = avail_card
         self._add(self._avail_card)
 
@@ -4870,14 +4912,14 @@ class UpdatePage(Page):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
-        self._topgrade_btn = QPushButton("Full Update  (topgrade)")
+        self._topgrade_btn = QPushButton("Full Update")
         self._topgrade_btn.setObjectName("primary")
-        self._topgrade_btn.setToolTip("Updates the OS image, Flatpaks, and all topgrade-managed tools")
+        self._topgrade_btn.setToolTip("Updates the OS image, Flatpaks, and all topgrade-managed tools in one pass")
         self._topgrade_btn.clicked.connect(self._run_topgrade)
         btn_row.addWidget(self._topgrade_btn)
 
         self._os_btn = QPushButton("OS Image Only")
-        self._os_btn.setToolTip("Downloads the next KythOS system image (bootc upgrade)")
+        self._os_btn.setToolTip("Downloads the next KythOS system image only (bootc upgrade)")
         self._os_btn.clicked.connect(self._run_bootc_upgrade)
         btn_row.addWidget(self._os_btn)
 
@@ -4887,6 +4929,10 @@ class UpdatePage(Page):
         btn_row.addWidget(self._rollback_btn)
         btn_row.addStretch()
         self._add_layout(btn_row)
+
+        self._divider()
+
+        self._add(self._summary_card)
 
         # Status + activity
         self._status_lbl = QLabel()
@@ -4979,6 +5025,53 @@ class UpdatePage(Page):
         cl_btn_row.addStretch()
         cl_layout.addLayout(cl_btn_row)
         self._add(changelog_card)
+
+        # ── Reboot plan + update story (detail cards, shown below the fold) ───
+        reboot_card, reboot_layout = _make_card("card-accent-ok")
+        reboot_title = QLabel("Before you restart")
+        reboot_title.setObjectName("card-title")
+        reboot_layout.addWidget(reboot_title)
+        self._reboot_plan_lbl = QLabel()
+        self._reboot_plan_lbl.setObjectName("card-copy")
+        self._reboot_plan_lbl.setWordWrap(True)
+        reboot_layout.addWidget(self._reboot_plan_lbl)
+        reboot_btns = QHBoxLayout()
+        reboot_btns.setSpacing(8)
+        self._reboot_plan_btn = QPushButton("Restart to Apply")
+        self._reboot_plan_btn.setObjectName("primary")
+        self._reboot_plan_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
+        reboot_btns.addWidget(self._reboot_plan_btn)
+        history_btn2 = QPushButton("View Commit History")
+        history_btn2.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        reboot_btns.addWidget(history_btn2)
+        reboot_btns.addStretch()
+        reboot_layout.addLayout(reboot_btns)
+        self._reboot_plan_card = reboot_card
+        self._add(reboot_card)
+
+        story_card, story_layout = _make_card()
+        story_title = QLabel("Update history")
+        story_title.setObjectName("card-title")
+        story_layout.addWidget(story_title)
+        self._update_story_lbl = QLabel()
+        self._update_story_lbl.setObjectName("card-copy")
+        self._update_story_lbl.setWordWrap(True)
+        story_layout.addWidget(self._update_story_lbl)
+        story_btns = QHBoxLayout()
+        story_btns.setSpacing(8)
+        story_history_btn = QPushButton("View Commit History")
+        story_history_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        story_btns.addWidget(story_history_btn)
+        story_snapshot_btn = QPushButton("Snapshot Before Update")
+        story_snapshot_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
+        story_btns.addWidget(story_snapshot_btn)
+        story_btns.addStretch()
+        story_layout.addLayout(story_btns)
+        self._add(story_card)
 
         # ── Channel ───────────────────────────────────────────────────────────
         self._divider()
@@ -5361,20 +5454,23 @@ class UpdatePage(Page):
             self._check_for_update()
         elif code == 0:
             if self._mode == "rollback":
-                self._status_lbl.setText("Rollback staged — reboot to return to the previous system.")
+                self._status_lbl.setText("Rollback staged — restart to return to the previous system.")
                 self._status_lbl.setObjectName("status-warn")
-                self._log.append("\nDone. Reboot to switch to the previous deployment.")
+                self._log.append("\nDone. Restart to switch to the previous deployment.")
                 self._reboot_btn.show()
+                self._on_check_result(self._check_state, "")
             elif self._mode == "switch":
-                self._status_lbl.setText("Branch staged — reboot to apply the new channel.")
+                self._status_lbl.setText("Branch staged — restart to apply the new channel.")
                 self._status_lbl.setObjectName("status-ok")
-                self._log.append("\nDone. Reboot to boot into the new branch.")
+                self._log.append("\nDone. Restart to boot into the new branch.")
                 self._reboot_btn.show()
+                self._on_check_result(self._check_state, "")
             elif _has_staged_update():
-                self._status_lbl.setText("Update ready — reboot when you want to apply it.")
+                self._status_lbl.setText("Update staged — restart when you're ready to apply it.")
                 self._status_lbl.setObjectName("status-ok")
-                self._log.append("\nDone. Your next system image is staged and waiting for reboot.")
+                self._log.append("\nDone. Your next system image is staged and waiting for restart.")
                 self._reboot_btn.show()
+                self._on_check_result(self._check_state, "")
             elif self._mode == "topgrade":
                 self._status_lbl.setText("Update complete — everything is up to date.")
                 self._status_lbl.setObjectName("status-ok")
@@ -5538,10 +5634,14 @@ class UpdatePage(Page):
             return
         self._check_state = "checking"
         self._check_btn.setEnabled(False)
-        self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+        self._avail_card.setObjectName("card")
+        _restyle(self._avail_card)
+        self._avail_icon.setText("○")
+        self._avail_icon.setStyleSheet("font-size: 28px; color: #555555;")
         self._avail_title.setText("Checking for updates…")
         self._avail_lbl.setText("")
         self._update_now_btn.hide()
+        self._restart_now_btn.hide()
         self._check_worker = UpdateCheckWorker()
         self._check_worker.result.connect(self._on_check_result)
         self._check_worker.start()
@@ -5551,29 +5651,56 @@ class UpdatePage(Page):
         self._check_ts = datetime.now().strftime("%H:%M")
         self._check_btn.setEnabled(True)
         ts_hint = f"  ·  Checked at {self._check_ts}"
+        built = f"  ·  built {remote_ts}" if remote_ts else ""
 
-        if state == "available":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #d4a843;")
-            self._avail_title.setText("Update available")
-            built = f"  ·  built {remote_ts}" if remote_ts else ""
+        staged = _has_staged_update()
+
+        if staged:
+            self._avail_card.setObjectName("card-accent-ok")
+            _restyle(self._avail_card)
+            self._avail_icon.setText("↻")
+            self._avail_icon.setStyleSheet("font-size: 28px; color: #4fc1ff;")
+            self._avail_title.setText("Restart required")
+            staged_ts = _bootc_image_timestamp("staged")
+            built_staged = f"  ·  built {staged_ts}" if staged_ts else ""
             self._avail_lbl.setText(
-                f"A new KythOS image is available{built}. "
-                f"Run Full Update to download and stage it for your next reboot.{ts_hint}"
+                f"A new image is staged and waiting{built_staged}. "
+                f"Restart now or later — your current system stays available as a fallback.{ts_hint}"
+            )
+            self._restart_now_btn.show()
+            self._update_now_btn.hide()
+        elif state == "available":
+            self._avail_card.setObjectName("card-accent-warn")
+            _restyle(self._avail_card)
+            self._avail_icon.setText("↓")
+            self._avail_icon.setStyleSheet("font-size: 28px; color: #d4a843;")
+            self._avail_title.setText("Update available")
+            self._avail_lbl.setText(
+                f"A new image is ready{built}. "
+                f"Run a full update to download it — restart whenever you're ready.{ts_hint}"
             )
             self._update_now_btn.show()
+            self._restart_now_btn.hide()
         elif state == "uptodate":
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #4fc1ff;")
+            self._avail_card.setObjectName("card-accent-ok")
+            _restyle(self._avail_card)
+            self._avail_icon.setText("✓")
+            self._avail_icon.setStyleSheet("font-size: 28px; color: #4fc1ff;")
             self._avail_title.setText("Up to date")
-            built = f"  ·  built {remote_ts}" if remote_ts else ""
             self._avail_lbl.setText(f"Running the latest image{built}.{ts_hint}")
             self._update_now_btn.hide()
+            self._restart_now_btn.hide()
         else:
-            self._avail_dot.setStyleSheet("font-size: 13px; color: #888888;")
+            self._avail_card.setObjectName("card")
+            _restyle(self._avail_card)
+            self._avail_icon.setText("⚠")
+            self._avail_icon.setStyleSheet("font-size: 28px; color: #888888;")
             self._avail_title.setText("Check unavailable")
             self._avail_lbl.setText(
-                f"Could not reach the registry — check your network connection.{ts_hint}"
+                f"Could not reach the update server — check your network connection.{ts_hint}"
             )
             self._update_now_btn.hide()
+            self._restart_now_btn.hide()
 
 
 # ── Page: Branches ────────────────────────────────────────────────────────────
