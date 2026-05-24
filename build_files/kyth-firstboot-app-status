@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# User-session notifier for default app setup progress.
+
+set -uo pipefail
+
+STAMP_DIR="${HOME}/.local/share/kyth"
+STAMP="${STAMP_DIR}/firstboot-app-status-v1"
+DEFAULT_DONE="/var/lib/kyth/default-flatpaks-v4-done"
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+    local title="$1"
+    local body="$2"
+    if have notify-send; then
+        notify-send --app-name="KythOS" "$title" "$body" >/dev/null 2>&1 || true
+    elif have kdialog; then
+        kdialog --title "$title" --passivepopup "$body" 12 >/dev/null 2>&1 || true
+    fi
+}
+
+flatpak_ok() {
+    flatpak info "$1" >/dev/null 2>&1
+}
+
+missing_apps() {
+    local missing=()
+    for app in \
+        com.valvesoftware.Steam \
+        net.lutris.Lutris \
+        com.heroicgameslauncher.hgl \
+        com.usebottles.bottles \
+        com.github.mtkennerly.ludusavi; do
+        flatpak_ok "$app" || missing+=("$app")
+    done
+    printf '%s\n' "${missing[@]}"
+}
+
+mkdir -p "${STAMP_DIR}"
+
+if [[ "${1:-}" != "--force" && -f "${STAMP}" && -f "${DEFAULT_DONE}" ]]; then
+    exit 0
+fi
+
+sleep "${KYTH_APP_STATUS_DELAY:-20}"
+
+if ! have flatpak; then
+    notify "KythOS app setup needs attention" "Flatpak is not available. Run ujust smoke-check for details."
+    exit 2
+fi
+
+missing="$(missing_apps)"
+if [[ -z "${missing}" ]]; then
+    notify "KythOS apps are ready" "Steam, launchers, Bottles, and save backup tools are installed."
+    touch "${STAMP}"
+    exit 0
+fi
+
+service_state="unknown"
+if have systemctl; then
+    service_state="$(systemctl is-active kyth-default-flatpaks.service 2>/dev/null || true)"
+fi
+
+case "${service_state}" in
+    active|activating)
+        notify "KythOS is still setting up apps" "Game launchers and migration tools are installing in the background."
+        ;;
+    failed)
+        notify "KythOS app setup failed" "Some default apps are missing. Open System Hub or run sudo systemctl restart kyth-default-flatpaks.service."
+        ;;
+    *)
+        if have sudo && sudo -n systemctl start kyth-default-flatpaks.service >/dev/null 2>&1; then
+            notify "KythOS is setting up apps" "Game launchers and migration tools have started installing in the background."
+        else
+            notify "KythOS app setup is incomplete" "Some default apps are missing. Run sudo systemctl start kyth-default-flatpaks.service when online."
+        fi
+        ;;
+esac
+
+exit 1

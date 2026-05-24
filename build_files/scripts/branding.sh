@@ -70,6 +70,7 @@ ID=fedora
 VERSION="44"
 VERSION_ID="44"
 ANSI_COLOR="0;34"
+LOGO=kyth
 HOME_URL="https://github.com/mrtrick37/kyth"
 SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
@@ -231,8 +232,15 @@ SDDMEOF
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
-# Use a simplified launcher mark for start-here because detailed gradients and
-# glow effects collapse badly at 32 px panel sizes.
+# Two failure modes to defeat:
+#   1. fedora-logos ships PNGs at exact pixel sizes; Qt/Plasma prefers an
+#      exact-size PNG over a scalable SVG, so the Fedora icon won at lookup.
+#   2. The Kickoff plasmoid's default icon is "", which falls back to the theme
+#      lookup — so a cached/stale Fedora logo survived into the applet.
+# Fix: install PNGs at every standard size AND patch Kickoff's main.xml so the
+# compiled-in default is kyth-kickoff, requiring no per-user config at all.
+
+# Scalable SVGs (also used by the kyth-set-kickoff-icon first-login script)
 for theme_dir in \
     /usr/share/icons/hicolor/scalable/apps \
     /usr/share/icons/breeze/apps/scalable \
@@ -245,9 +253,45 @@ for theme_dir in \
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
+
+# PNGs at every standard size — beats fedora-logos exact-size PNG at lookup
+for sz in 16 22 24 32 48 64 128 256; do
+    for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
+        dir="${base}/${sz}x${sz}/apps"
+        mkdir -p "${dir}"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/kyth-kickoff.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here-kde.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/start-here-kde-plasma.png"
+    done
+done
+
+# Clear any stale caches so the new icons take effect immediately on first boot.
+rm -f /usr/share/icons/hicolor/icon-theme.cache
+rm -f /usr/share/icons/breeze/icon-theme.cache
+rm -f /usr/share/icons/breeze-dark/icon-theme.cache
 gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
+
+# ── Kickoff plasmoid default icon ──────────────────────────────────────────────
+# Patch Kickoff's KConfig XML so every new widget instance defaults to
+# kyth-kickoff without any per-user config file or first-login script.
+# The empty <default></default> is the upstream fallback that causes Kickoff
+# to use start-here-kde-plasma from the icon theme; we replace it with the
+# named icon so the plasmoid's own default wins unconditionally.
+_kickoff_cfg=/usr/share/plasma/plasmoids/org.kde.plasma.kickoff/contents/config/main.xml
+if [[ -f "${_kickoff_cfg}" ]]; then
+    sed -i \
+        '/<entry name="icon" type="String">/,/<\/entry>/ {
+            s|<default></default>|<default>kyth-kickoff</default>|
+        }' \
+        "${_kickoff_cfg}"
+fi
 
 # ── First-login script: set Kickoff launcher icon to KythOS logo ────────────────
 # Belt-and-suspenders: the icon theme install above should be enough, but this
@@ -301,38 +345,242 @@ mkdir -p /etc/xdg/autostart
 install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
     /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
-# ── Windows-friendly KDE defaults ─────────────────────────────────────────────
-# KDE stores application launch shortcuts per-user, so seed familiar defaults
-# through a tiny one-shot first-login helper.
-cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+# ── User comfort polish ───────────────────────────────────────────────────────
+# KDE stores several "Windows users expect this" preferences per-user. Bake a
+# versioned, automatic polish pass into the image so new accounts get it from
+# /etc/skel and existing accounts receive it once after an OS update.
+cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+version="v2"
+stamp_dir="${HOME}/.local/share/kyth"
+stamp="${stamp_dir}/user-polish-${version}"
+old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+
+if [[ -f "${stamp}" ]]; then
+    rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
+    exit 0
+fi
+
+mkdir -p "${stamp_dir}"
+
+# Ensure common folders exist even when xdg-user-dirs did not run yet. Games is
+# intentionally non-standard but important for a Windows-style "where do I put
+# my game stuff?" mental model.
+if command -v xdg-user-dirs-update >/dev/null 2>&1; then
+    xdg-user-dirs-update >/dev/null 2>&1 || true
+fi
+mkdir -p \
+    "${HOME}/Desktop" \
+    "${HOME}/Documents" \
+    "${HOME}/Downloads" \
+    "${HOME}/Games" \
+    "${HOME}/Music" \
+    "${HOME}/Pictures" \
+    "${HOME}/Public" \
+    "${HOME}/Templates" \
+    "${HOME}/Videos"
+
+if [[ ! -f "${HOME}/Games/.directory" ]]; then
+    cat > "${HOME}/Games/.directory" <<'GAMESDIREEOF'
+[Desktop Entry]
+Icon=applications-games
+Name=Games
+GAMESDIREEOF
+fi
+
+if [[ ! -f "${HOME}/Templates/Plain Text.txt" ]]; then
+    printf '' > "${HOME}/Templates/Plain Text.txt"
+fi
+
+# File associations that make double-click behavior feel normal on day one.
+# Use xdg-mime so existing user choices are updated per MIME type without
+# clobbering unrelated custom associations.
+mkdir -p "${HOME}/.config"
+if command -v xdg-mime >/dev/null 2>&1; then
+    while IFS='|' read -r desktop mime; do
+        [[ -n "${desktop}" && -n "${mime}" ]] || continue
+        xdg-mime default "${desktop}" "${mime}" >/dev/null 2>&1 || true
+    done <<'MIMEDEFAULTS'
+org.kde.okular.desktop|application/pdf
+org.kde.okular.desktop|application/epub+zip
+org.kde.gwenview.desktop|image/jpeg
+org.kde.gwenview.desktop|image/png
+org.kde.gwenview.desktop|image/gif
+org.kde.gwenview.desktop|image/webp
+org.videolan.VLC.desktop|video/mp4
+org.videolan.VLC.desktop|video/x-matroska
+org.videolan.VLC.desktop|video/x-msvideo
+org.videolan.VLC.desktop|audio/mpeg
+org.videolan.VLC.desktop|audio/flac
+org.kde.kwrite.desktop|text/plain
+org.kde.kwrite.desktop|text/markdown
+org.kde.ark.desktop|application/zip
+org.kde.ark.desktop|application/x-7z-compressed
+org.kde.ark.desktop|application/x-rar
+org.kde.ark.desktop|application/x-tar
+kyth-exe-handler.desktop|application/x-ms-dos-executable
+kyth-exe-handler.desktop|application/x-msdos-program
+kyth-exe-handler.desktop|application/x-dosexec
+com.brave.Browser.desktop|x-scheme-handler/http
+com.brave.Browser.desktop|x-scheme-handler/https
+com.getmailspring.Mailspring.desktop|x-scheme-handler/mailto
+org.kde.dolphin.desktop|inode/directory
+MIMEDEFAULTS
+fi
+
+# Dolphin Places sidebar: seed a Windows-familiar set without depending on
+# fragile GUI state. Preserve existing customized places; add Games when absent.
+mkdir -p "${HOME}/.local/share"
+places_file="${HOME}/.local/share/user-places.xbel"
+if [[ ! -f "${places_file}" ]]; then
+    cat > "${places_file}" <<PLACESXBELEOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE xbel>
+<xbel version="1.0">
+ <bookmark href="file://${HOME}">
+  <title>Home</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="user-home" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Desktop">
+  <title>Desktop</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="user-desktop" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Documents">
+  <title>Documents</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-documents" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Downloads">
+  <title>Downloads</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-download" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Games">
+  <title>Games</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="applications-games" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Pictures">
+  <title>Pictures</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Videos">
+  <title>Videos</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-videos" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="trash:/">
+  <title>Trash</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="user-trash" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="network:/">
+  <title>Network</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="network-workgroup" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+</xbel>
+PLACESXBELEOF
+elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
+    tmp_places="${places_file}.kyth-tmp"
+    awk -v home="${HOME}" '
+        /<\/xbel>/ && !done {
+            print " <bookmark href=\"file://" home "/Games\">"
+            print "  <title>Games</title>"
+            print "  <info><metadata owner=\"http://freedesktop.org\"><bookmark:icon name=\"applications-games\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\"/></metadata></info>"
+            print " </bookmark>"
+            done=1
+        }
+        { print }
+    ' "${places_file}" > "${tmp_places}" && mv "${tmp_places}" "${places_file}"
+fi
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
+    # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
     kwriteconfig6 --file kglobalshortcutsrc \
         --group org.kde.plasma-systemmonitor.desktop \
         --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+
+    # Double-click to open files — KDE defaults to single-click; Windows users
+    # expect double-click everywhere (Dolphin, desktop, file dialogs).
+    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool --notify false
+
+    # Clipboard history — Win+V equivalent. Klipper ships enabled but history
+    # is off by default; turn it on with a 25-item buffer.
+    kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
+    kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
+
+    # Dolphin/File Explorer comfort: remember view properties per folder, keep
+    # previews available, and use a visible location bar instead of breadcrumbs
+    # for easier path copy/paste during support and migration.
+    kwriteconfig6 --file dolphinrc --group General --key RememberOpenedTabs --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key ShowFullPath --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
+    kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
 fi
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 fi
 
-rm -f "${autostart}"
+if command -v /usr/bin/kyth-steam-game-export >/dev/null 2>&1; then
+    /usr/bin/kyth-steam-game-export >/dev/null 2>&1 || true
+fi
+
+touch "${stamp}"
+rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
+POLISHEOF
+chmod +x /usr/bin/kyth-user-polish
+
+# Backward-compatible command name used by existing docs, support notes, and
+# old smoke-check output. It now runs the same build-integrated polish pass.
+cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+#!/usr/bin/env bash
+exec /usr/bin/kyth-user-polish "$@"
 WINDEFAULTEOF
 chmod +x /usr/bin/kyth-windows-friendly-defaults
 
-cat > /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop <<'WINDEFAULTDESKTOPEOF'
+cat > /etc/skel/.config/autostart/kyth-user-polish.desktop <<'POLISHDESKTOPEOF'
 [Desktop Entry]
 Type=Application
-Name=KythOS: Windows-Friendly Defaults
-Exec=/usr/bin/kyth-windows-friendly-defaults
+Name=KythOS: User Comfort Polish
+Exec=/usr/bin/kyth-user-polish
 X-KDE-autostart-after=panel
 Hidden=false
 NoDisplay=true
-WINDEFAULTDESKTOPEOF
+POLISHDESKTOPEOF
+
+# Global autostart means existing users receive new polish migrations after an
+# OS update too; the version stamp above prevents repeated preference churn.
+install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
+    /etc/xdg/autostart/kyth-user-polish.desktop
+
+# Seed the same familiar folder layout into fresh homes. The autostart helper
+# repairs these for existing users and for accounts created by unusual tools.
+mkdir -p \
+    /etc/skel/Desktop \
+    /etc/skel/Documents \
+    /etc/skel/Downloads \
+    /etc/skel/Games \
+    /etc/skel/Music \
+    /etc/skel/Pictures \
+    /etc/skel/Public \
+    /etc/skel/Templates \
+    /etc/skel/Videos
+
+cat > /etc/skel/Games/.directory <<'GAMESDIREEOF'
+[Desktop Entry]
+Icon=applications-games
+Name=Games
+GAMESDIREEOF
+
+cat > /etc/skel/.config/user-dirs.dirs <<'USERDIRSEOF'
+XDG_DESKTOP_DIR="$HOME/Desktop"
+XDG_DOWNLOAD_DIR="$HOME/Downloads"
+XDG_TEMPLATES_DIR="$HOME/Templates"
+XDG_PUBLICSHARE_DIR="$HOME/Public"
+XDG_DOCUMENTS_DIR="$HOME/Documents"
+XDG_MUSIC_DIR="$HOME/Music"
+XDG_PICTURES_DIR="$HOME/Pictures"
+XDG_VIDEOS_DIR="$HOME/Videos"
+USERDIRSEOF
 
 cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
@@ -361,6 +609,12 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-laun
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
 
+# Place System Hub on the desktop for all new users. The executable bit is
+# required so KDE Plasma 6 treats it as trusted without prompting the user.
+mkdir -p /etc/skel/Desktop
+install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
+    /etc/skel/Desktop/kyth-welcome.desktop
+
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /usr/share/applications/kyth-update-notifier.desktop
@@ -368,6 +622,27 @@ install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
 mkdir -p /etc/skel/.config/autostart
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /etc/skel/.config/autostart/kyth-update-notifier.desktop
+
+# User-session confidence checks. These show friendly notifications and are
+# version/deployment-gated so they do not nag on every login.
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS Post-Update Check
+Exec=/usr/bin/kyth-post-update-check
+NoDisplay=true
+X-KDE-autostart-after=panel
+POSTUPDATEAUTOSTARTEOF
+
+cat > /etc/xdg/autostart/kyth-firstboot-app-status.desktop <<'APPSTATUSAUTOSTARTEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS App Setup Status
+Exec=/usr/bin/kyth-firstboot-app-status
+NoDisplay=true
+X-KDE-autostart-after=panel
+APPSTATUSAUTOSTARTEOF
 
 # Steam Flatpak writes game shortcuts inside its sandbox. Refresh host menu
 # exports quietly at login so installed games appear under Games in KDE.
@@ -418,6 +693,12 @@ install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
+install -m 0755 /ctx/kyth-smoke-check /usr/bin/kyth-smoke-check
+install -m 0755 /ctx/kyth-post-update-check /usr/bin/kyth-post-update-check
+install -m 0755 /ctx/kyth-firstboot-app-status /usr/bin/kyth-firstboot-app-status
+install -m 0755 /ctx/kyth-controller-check /usr/bin/kyth-controller-check
+install -m 0755 /ctx/kyth-resume-check /usr/bin/kyth-resume-check
+install -m 0755 /ctx/kyth-nvidia-status /usr/bin/kyth-nvidia-status
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
@@ -434,6 +715,64 @@ install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
     /usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
+# ── .exe / .msi MIME interception ─────────────────────────────────────────────
+# When a Windows user double-clicks a .exe installer in Dolphin, show a dialog
+# that suggests the best Linux equivalent instead of opening a hex editor.
+# The handler is registered as the system-wide default for the Windows executable
+# MIME types; users can override per-app via Dolphin's "Open With" dialog.
+install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
+install -m 0644 /ctx/kyth-exe-handler.desktop \
+    /usr/share/applications/kyth-exe-handler.desktop
+
+# Register as system-wide default for Windows executable MIME types.
+# /etc/xdg/mimeapps.list is the XDG-standard location for system defaults;
+# it is read before per-user ~/.config/mimeapps.list so new users get it
+# automatically, and existing users can still override per-app.
+mkdir -p /etc/xdg
+cat >> /etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+[Default Applications]
+application/pdf=org.kde.okular.desktop;okularApplication_pdf.desktop;
+application/epub+zip=org.kde.okular.desktop;okularApplication_epub.desktop;
+image/jpeg=org.kde.gwenview.desktop;gwenview.desktop;
+image/png=org.kde.gwenview.desktop;gwenview.desktop;
+image/gif=org.kde.gwenview.desktop;gwenview.desktop;
+image/webp=org.kde.gwenview.desktop;gwenview.desktop;
+video/mp4=org.videolan.VLC.desktop;mpv.desktop;org.kde.haruna.desktop;
+video/x-matroska=org.videolan.VLC.desktop;mpv.desktop;org.kde.haruna.desktop;
+video/x-msvideo=org.videolan.VLC.desktop;mpv.desktop;org.kde.haruna.desktop;
+audio/mpeg=org.videolan.VLC.desktop;mpv.desktop;org.kde.elisa.desktop;
+audio/flac=org.videolan.VLC.desktop;mpv.desktop;org.kde.elisa.desktop;
+text/plain=org.kde.kwrite.desktop;org.kde.kate.desktop;
+text/markdown=org.kde.kwrite.desktop;org.kde.kate.desktop;
+application/zip=org.kde.ark.desktop;ark.desktop;
+application/x-7z-compressed=org.kde.ark.desktop;ark.desktop;
+application/x-rar=org.kde.ark.desktop;ark.desktop;
+application/x-tar=org.kde.ark.desktop;ark.desktop;
+application/x-ms-dos-executable=kyth-exe-handler.desktop
+application/x-msdos-program=kyth-exe-handler.desktop
+application/x-dosexec=kyth-exe-handler.desktop
+x-scheme-handler/http=com.brave.Browser.desktop;chromium-browser.desktop
+x-scheme-handler/https=com.brave.Browser.desktop;chromium-browser.desktop
+x-scheme-handler/mailto=com.getmailspring.Mailspring.desktop
+inode/directory=org.kde.dolphin.desktop
+MIMEAPPSEOF
+
+# Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
+update-desktop-database /usr/share/applications/ 2>/dev/null || true
+
+# ── Right-click "New Document" templates for Dolphin ─────────────────────────
+# Any file placed in ~/Templates appears in Dolphin's right-click → Create New
+# → Document menu — the same behaviour as Windows Explorer's "New" submenu.
+# Seeding /etc/skel ensures every new user gets the templates on first login.
+mkdir -p /etc/skel/Templates
+printf ''                                          > "/etc/skel/Templates/Plain Text.txt"
+printf '# Title\n\n'                               > "/etc/skel/Templates/Markdown.md"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' > "/etc/skel/Templates/Shell Script.sh"
+printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
+                                                   > "/etc/skel/Templates/Python Script.py"
+chmod +x /etc/skel/Templates/"Shell Script.sh"
+chmod +x /etc/skel/Templates/"Python Script.py"
+
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
