@@ -3865,7 +3865,7 @@ class WelcomePage(Page):
             ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
             ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
             ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
-            ("⌨", "Set up dev environment",    "Install VS Code and the KythOS build toolchain.",       "Developer"),
+            ("⌨", "Set up dev environment",    "Open Software for VS Code, dev boxes, and build tools.", "Software"),
             ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",            "Software"),
         ]
         for num, (icon, title, desc, page_key) in enumerate(steps, 1):
