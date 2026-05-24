@@ -936,6 +936,12 @@ systemctl enable fwupd 2>/dev/null || true
 # Users should update manually: sudo bootc upgrade && sudo systemctl reboot
 systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
 systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
+# Keep Fedora's standalone CountMe timer enabled on installed atomic systems.
+# bootc upgrades do not normally fetch RPM repository metadata, so DNF's
+# countme=True setting alone is not enough to report active installed systems.
+if systemctl list-unit-files --type=timer --no-legend 2>/dev/null | grep -q '^rpm-ostree-countme\.timer'; then
+    systemctl enable rpm-ostree-countme.timer 2>/dev/null || true
+fi
 # Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
 # plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
 # DNF/PackageKit backend as a belt-and-suspenders measure. Discover's Flatpak

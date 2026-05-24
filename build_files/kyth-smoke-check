@@ -340,6 +340,18 @@ check_file /etc/skel/Games "Games folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 check_file /usr/bin/kyth-exe-handler "Windows app helper"
 check_file /usr/bin/kyth-session-snapshot "Session snapshot helper"
+check_file_contains /etc/dnf/dnf.conf "countme=True" "DNF CountMe" "anonymous weekly CountMe reporting enabled"
+if is_live_session; then
+    if systemctl is-enabled --quiet rpm-ostree-countme.timer 2>/dev/null; then
+        warn "CountMe timer" "enabled in live session"
+    else
+        pass "CountMe timer" "disabled in live session"
+    fi
+elif systemctl list-unit-files rpm-ostree-countme.timer --no-legend 2>/dev/null | grep -q '^rpm-ostree-countme\.timer'; then
+    check_system_unit_enabled rpm-ostree-countme.timer "CountMe timer"
+else
+    warn "CountMe timer" "rpm-ostree-countme.timer unavailable; DNF countme remains configured"
+fi
 
 if [[ -r /etc/xdg/mimeapps.list ]] && grep -q '^application/x-msi=kyth-exe-handler.desktop' /etc/xdg/mimeapps.list; then
     pass "MSI helper association" "Windows installers open KythOS helper"
