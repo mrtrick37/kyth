@@ -1670,8 +1670,12 @@ def main() -> None:
     # to the original user; fall back to running Chromium directly if not set
     # (e.g. when testing as root without sudo).
     sudo_user = os.environ.get("SUDO_USER", "")
+    chromium_bin = next(
+        (b for b in ("chromium", "chromium-browser", "chromium-bin") if shutil.which(b)),
+        "chromium",
+    )
     chromium_cmd = [
-        "chromium-browser",
+        chromium_bin,
         f"--app=http://127.0.0.1:{PORT}",
         "--disable-dev-shm-usage",
         "--disable-extensions",

@@ -407,7 +407,8 @@ dnf5 install -y --skip-unavailable \
     openconnect \
     vpnc \
     kde-connect \
-    cups-browsed
+    cups-browsed \
+    chromium
 
 optional_desktop_packages=(
     jetbrains-mono-fonts
