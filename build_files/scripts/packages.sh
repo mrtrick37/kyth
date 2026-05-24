@@ -12,6 +12,11 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 # Raise parallel download slots from the default 3 to 10 — same value used by
 # UBlue, Bazzite, and recommended in Fedora documentation.
 echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
+# CountMe adds an anonymous weekly age bucket to one repository metadata request.
+# This lets Fedora-style mirror logs estimate active systems without user
+# accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
+# aggregate trend in the README when exported CountMe data is available.
+echo 'countme=True' >> /etc/dnf/dnf.conf
 
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
