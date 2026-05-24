@@ -3771,7 +3771,6 @@ class WelcomePage(Page):
     def __init__(self, navigate=None):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
-        self._snapshot_worker = None
 
         self._page_header(
             "System Hub",
@@ -3816,8 +3815,6 @@ class WelcomePage(Page):
         windows_card = self._make_windows_drive_welcome_card()
         if windows_card is not None:
             self._add(windows_card)
-        self._add(self._make_first_run_status_card())
-
         # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
@@ -3991,9 +3988,6 @@ class WelcomePage(Page):
         backup_layout.addLayout(backup_btn_row)
         self._add(backup_card)
 
-        if not _IS_LIVE:
-            self._add(self._make_reinstall_card())
-
         # ── Links ────────────────────────────────────────────────────────────
         link_row = QHBoxLayout()
         link_row.setSpacing(10)
@@ -4020,61 +4014,6 @@ class WelcomePage(Page):
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
-
-    def _make_trust_receipt_card(self) -> QFrame:
-        card, layout = _make_card("card-accent-ok")
-        title = QLabel("KythOS polish receipt")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        items = []
-        kdeglobals = os.path.expanduser("~/.config/kdeglobals")
-        double_click = "pending"
-        try:
-            with open(kdeglobals, encoding="utf-8", errors="ignore") as fh:
-                double_click = "done" if "SingleClick=false" in fh.read() else "pending"
-        except OSError:
-            pass
-        kickoff = os.path.expanduser("~/.config/kickoffrc")
-        launcher_quiet = "pending"
-        try:
-            with open(kickoff, encoding="utf-8", errors="ignore") as fh:
-                launcher_quiet = "done" if "highlightNewlyInstalledApps=false" in fh.read() else "pending"
-        except OSError:
-            pass
-        mimeapps = "/etc/xdg/mimeapps.list"
-        exe_helper = "pending"
-        try:
-            with open(mimeapps, encoding="utf-8", errors="ignore") as fh:
-                text = fh.read()
-                if "application/x-ms-dos-executable=kyth-exe-handler.desktop" in text and "application/x-msi=kyth-exe-handler.desktop" in text:
-                    exe_helper = "done"
-        except OSError:
-            pass
-        folders = "done" if os.path.isdir(os.path.expanduser("~/Games")) else "pending"
-        receipt = (
-            (double_click, "Double-click opens files and folders."),
-            (launcher_quiet, "Application launcher stays clean without new-app badges."),
-            (exe_helper, "Windows .exe and .msi files route to the friendly KythOS helper."),
-            (folders, "Familiar folders like Games and Templates are ready."),
-            ("done" if _has_rollback_deployment() else "later", "Rollback appears after your first OS update."),
-        )
-        for state, text in receipt:
-            prefix = {"done": "✓", "later": "•"}.get(state, "◌")
-            items.append(f"{prefix} {text}")
-        body = QLabel("\n".join(items))
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        btns = QHBoxLayout()
-        repair = QPushButton("Apply Polish")
-        repair.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-user-polish"]))
-        btns.addWidget(repair)
-        snapshot = QPushButton("Create Snapshot")
-        snapshot.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
-        btns.addWidget(snapshot)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
 
     def _make_windows_drive_welcome_card(self) -> QFrame | None:
         drives = _find_ntfs_drives()
@@ -4110,216 +4049,6 @@ class WelcomePage(Page):
         btns.addStretch()
         layout.addLayout(btns)
         return card
-
-    def _make_reinstall_card(self) -> QFrame:
-        card, layout = _make_card("card-accent-warn")
-        title = QLabel("Install or reinstall KythOS")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        body = QLabel(
-            "Need a completely fresh install, or want to install KythOS onto another disk? "
-            "The guided installer is available from this system too. It erases the disk you select, "
-            "so back up personal files before continuing."
-        )
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        btns = QHBoxLayout()
-        launch = QPushButton("Open Installer")
-        launch.setObjectName("primary")
-        launch.setEnabled(os.path.exists("/usr/bin/kyth-launch-installer"))
-        launch.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
-        btns.addWidget(launch)
-        backup = QPushButton("Open Home Folder")
-        backup.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
-        btns.addWidget(backup)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_first_run_status_card(self) -> QFrame:
-        state, message, missing = _first_run_app_setup_state()
-        accent = {
-            "ready": "card-accent-ok",
-            "setting_up": "card-update",
-            "failed": "card-accent-err",
-            "partial": "card-accent-warn",
-            "pending": "card-accent-warn",
-            "live": "card-accent-ok",
-        }.get(state, "")
-        card, layout = _make_card(accent)
-        title_text = {
-            "ready": "KythOS is ready",
-            "setting_up": "KythOS is finishing setup",
-            "failed": "KythOS setup needs a retry",
-            "partial": "KythOS setup is mostly ready",
-            "pending": "KythOS setup is waiting for network",
-            "live": "Live session preview",
-        }.get(state, "KythOS setup")
-        title = QLabel(title_text)
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        body = QLabel(message)
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        if state in {"failed", "partial", "pending"}:
-            retry = QPushButton("Retry App Setup")
-            retry.setObjectName("primary")
-            retry.clicked.connect(lambda: subprocess.Popen(["sudo", "-A", "systemctl", "restart", "kyth-default-flatpaks.service"]))
-            btns.addWidget(retry)
-        if state == "setting_up":
-            software = QPushButton("Open Software")
-            software.clicked.connect(lambda: self._navigate("Software"))
-            btns.addWidget(software)
-        if state != "live":
-            repair = QPushButton("Open Repair")
-            repair.clicked.connect(lambda: self._navigate("Repair"))
-            btns.addWidget(repair)
-        if missing:
-            gaming = QPushButton("Open Gaming")
-            gaming.clicked.connect(lambda: self._navigate("Gaming"))
-            btns.addWidget(gaming)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _confidence_item(self, status: str, title: str, summary: str) -> QFrame:
-        row = QFrame()
-        row.setObjectName({
-            "ok": "hw-card-ok",
-            "warn": "hw-card-warn",
-            "err": "hw-card-err",
-            "dim": "hw-card-dim",
-        }.get(status, "hw-card-dim"))
-        layout = QHBoxLayout(row)
-        layout.setContentsMargins(12, 7, 12, 7)
-        layout.setSpacing(10)
-        title_lbl = QLabel(title)
-        title_lbl.setObjectName("card-summary")
-        title_lbl.setMinimumWidth(110)
-        layout.addWidget(title_lbl)
-        summary_lbl = QLabel(summary)
-        summary_lbl.setObjectName("card-copy")
-        summary_lbl.setWordWrap(True)
-        layout.addWidget(summary_lbl, 1)
-        return row
-
-    def _make_confidence_center(self) -> QFrame:
-        card, layout = _make_card("card-accent-ok")
-        title = QLabel("Confidence Center")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-
-        checks: list[tuple[str, str, str]] = []
-        network_ok = bool(_command_stdout(["ip", "route", "show", "default"], timeout=3))
-        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
-        ge_ver = _ge_proton_version()
-        pipewire = _run_command(["systemctl", "--user", "is-active", "pipewire.service"], timeout=3)
-        audio_ok = pipewire is not None and pipewire.returncode == 0
-        rollback_ok = _has_rollback_deployment()
-        checks.append(("ok" if network_ok else "warn",
-                       "Network", "Online route detected." if network_ok else "Connect Wi-Fi or Ethernet before install, updates, or game downloads."))
-        checks.append(("ok" if steam_ok else "warn",
-                       "Steam", "Installed." if steam_ok else "Install Steam from Gaming or Starter Packs."))
-        checks.append(("ok" if ge_ver else "warn",
-                       "GE-Proton", ge_ver or "Run GE-Proton update or use ProtonUp-Qt."))
-        checks.append(("ok" if audio_ok else "warn",
-                       "Audio", "PipeWire is running." if audio_ok else "Check audio before calls or streaming."))
-        checks.append(("ok" if rollback_ok else "dim",
-                       "Rollback", "Previous system image available." if rollback_ok else "Rollback appears after your first OS update."))
-        ntfs_count = len(_find_ntfs_drives())
-        checks.append(("warn" if ntfs_count else "dim",
-                       "Windows drives", f"{ntfs_count} NTFS partition(s) detected for migration." if ntfs_count else "No Windows drive detected."))
-
-        score = sum(1 for status, _, _ in checks if status == "ok")
-        top = QLabel(f"{score}/{len(checks)} ready for daily use")
-        top.setObjectName("card-copy")
-        top.setStyleSheet("font-weight: 700; color: #dde6f5;")
-        layout.addWidget(top)
-        for status, label, summary in checks:
-            layout.addWidget(self._confidence_item(status, label, summary))
-
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        for label, page in (
-            ("Check Hardware", "Hardware"),
-            ("Set Up Games", "Gaming"),
-            ("Move From Windows", "Move From Windows"),
-            ("Panic Button", "Repair"),
-        ):
-            btn = QPushButton(label)
-            if page == "Hardware":
-                btn.setObjectName("primary")
-            btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
-            btns.addWidget(btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_welcome_trail(self) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel("KythOS Welcome Trail")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        items = [
-            ("Hardware checked", "Open Hardware and confirm the basics."),
-            ("Steam or Heroic ready", "Install a launcher and sign in."),
-            ("Proton understood", "Use Gaming to copy a known-good launch profile."),
-            ("Saves protected", "Install Ludusavi before migration or modding."),
-            ("Rollback learned", "Open Update and see how undo works."),
-        ]
-        for i, (name, desc) in enumerate(items, 1):
-            layout.addWidget(self._confidence_item("dim", f"{i}. {name}", desc))
-        btns = QHBoxLayout()
-        for label, page in (("Start Trail", "Hardware"), ("Learn Updates", "Update"), ("Back Up Saves", "Gaming")):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
-            btns.addWidget(btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_session_snapshot_card(self) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel("Session Snapshot")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        body = QLabel(
-            "Export a plain-text snapshot of this setup: OS image, Flatpaks, gaming paths, "
-            "and KythOS checks. Use it before reinstalling, moving to another PC, or asking for help."
-        )
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        btns = QHBoxLayout()
-        self._snapshot_btn = QPushButton("Create Snapshot")
-        self._snapshot_btn.clicked.connect(self._run_session_snapshot)
-        btns.addWidget(self._snapshot_btn)
-        self._snapshot_status = QLabel("")
-        self._snapshot_status.setObjectName("card-copy")
-        btns.addWidget(self._snapshot_status, 1)
-        layout.addLayout(btns)
-        return card
-
-    def _run_session_snapshot(self):
-        if self._snapshot_worker and self._snapshot_worker.isRunning():
-            return
-        self._snapshot_btn.setEnabled(False)
-        self._snapshot_status.setText("Creating snapshot…")
-        self._snapshot_worker = Worker(["/usr/bin/kyth-session-snapshot"])
-        self._snapshot_worker.line.connect(lambda ln: self._snapshot_status.setText(ln.strip() or "Snapshot created."))
-        self._snapshot_worker.done.connect(self._on_snapshot_done)
-        self._snapshot_worker.start()
-
-    def _on_snapshot_done(self, code: int):
-        _finish_worker(self, attr="_snapshot_worker")
-        self._snapshot_btn.setEnabled(True)
-        if code != 0:
-            self._snapshot_status.setText(f"Snapshot failed (exit {code}).")
 
     def _make_step(self, num: int, icon: str, title: str, desc: str, page_key: str) -> QFrame:
         frame = QFrame()
@@ -6335,6 +6064,7 @@ class RepairPage(Page):
     def __init__(self, navigate=None):
         super().__init__()
         self._worker = None
+        self._snapshot_worker = None
         self._navigate = navigate or (lambda _key: None)
 
         self._page_header(
@@ -6477,6 +6207,52 @@ class RepairPage(Page):
         quick_layout.addLayout(quick_btns)
         self._add(quick)
 
+        # Session snapshot
+        snapshot_card, snapshot_layout = _make_card()
+        snapshot_title = QLabel("Session Snapshot")
+        snapshot_title.setObjectName("card-title")
+        snapshot_layout.addWidget(snapshot_title)
+        snapshot_body = QLabel(
+            "Export a plain-text snapshot of this setup: OS image, Flatpaks, gaming paths, "
+            "and KythOS checks. Useful before reinstalling, moving to another PC, or asking for help."
+        )
+        snapshot_body.setObjectName("card-copy")
+        snapshot_body.setWordWrap(True)
+        snapshot_layout.addWidget(snapshot_body)
+        snapshot_btns = QHBoxLayout()
+        self._snapshot_btn = QPushButton("Create Snapshot")
+        self._snapshot_btn.clicked.connect(self._run_session_snapshot)
+        snapshot_btns.addWidget(self._snapshot_btn)
+        self._snapshot_status = QLabel("")
+        self._snapshot_status.setObjectName("card-copy")
+        snapshot_btns.addWidget(self._snapshot_status, 1)
+        snapshot_layout.addLayout(snapshot_btns)
+        self._add(snapshot_card)
+
+        # Reinstall on another disk
+        reinstall_card, reinstall_layout = _make_card()
+        reinstall_title = QLabel("Install KythOS on another disk")
+        reinstall_title.setObjectName("card-title")
+        reinstall_layout.addWidget(reinstall_title)
+        reinstall_body = QLabel(
+            "To install KythOS onto a different disk, boot the live ISO — the full graphical "
+            "installer is built in. Back up personal files first; the installer erases the disk you select."
+        )
+        reinstall_body.setObjectName("card-copy")
+        reinstall_body.setWordWrap(True)
+        reinstall_layout.addWidget(reinstall_body)
+        reinstall_btns = QHBoxLayout()
+        reinstall_btns.setSpacing(8)
+        iso_btn = QPushButton("Download Live ISO")
+        iso_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/releases")))
+        reinstall_btns.addWidget(iso_btn)
+        home_btn = QPushButton("Open Home Folder")
+        home_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
+        reinstall_btns.addWidget(home_btn)
+        reinstall_btns.addStretch()
+        reinstall_layout.addLayout(reinstall_btns)
+        self._add(reinstall_card)
+
         # Warning card
         warn, warn_layout = _make_card("card-accent-err")
         warn_title = QLabel("This action cannot be undone")
@@ -6539,6 +6315,22 @@ class RepairPage(Page):
         self._log.hide()
         self._add(self._log)
         self._stretch()
+
+    def _run_session_snapshot(self):
+        if self._snapshot_worker and self._snapshot_worker.isRunning():
+            return
+        self._snapshot_btn.setEnabled(False)
+        self._snapshot_status.setText("Creating snapshot…")
+        self._snapshot_worker = Worker(["/usr/bin/kyth-session-snapshot"])
+        self._snapshot_worker.line.connect(lambda ln: self._snapshot_status.setText(ln.strip() or "Snapshot created."))
+        self._snapshot_worker.done.connect(self._on_snapshot_done)
+        self._snapshot_worker.start()
+
+    def _on_snapshot_done(self, code: int):
+        _finish_worker(self, attr="_snapshot_worker")
+        self._snapshot_btn.setEnabled(True)
+        if code != 0:
+            self._snapshot_status.setText(f"Snapshot failed (exit {code}).")
 
     def _open_task_manager(self):
         for cmd in (["plasma-systemmonitor"], ["ksysguard"], ["konsole", "-e", "btop"], ["konsole", "-e", "top"]):
