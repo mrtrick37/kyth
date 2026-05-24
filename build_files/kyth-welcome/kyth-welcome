@@ -3696,6 +3696,40 @@ class WelcomePage(Page):
             "A fast, atomic gaming desktop. Updates are atomic, rollbacks are instant.",
         )
 
+        if _IS_LIVE:
+            live_card, live_layout = _make_card("card-accent-ok")
+            live_title = QLabel("Try the real desktop before installing")
+            live_title.setObjectName("card-title")
+            live_layout.addWidget(live_title)
+            live_body = QLabel(
+                "This live session is built from the same KythOS image that gets installed. "
+                "Use it to check your hardware, see the gaming stack, inspect Windows migration tools, "
+                "and get a feel for the daily desktop. USB storage and software rendering can make it "
+                "slower than an installed system."
+            )
+            live_body.setObjectName("card-copy")
+            live_body.setWordWrap(True)
+            live_layout.addWidget(live_body)
+            live_btns = QHBoxLayout()
+            live_btns.setSpacing(8)
+            for label, page_key, primary in (
+                ("Check Hardware", "Hardware", True),
+                ("Gaming Stack", "Gaming", False),
+                ("Game Compatibility", "Compatibility", False),
+                ("Move From Windows", "Move From Windows", False),
+            ):
+                btn = QPushButton(label)
+                if primary:
+                    btn.setObjectName("primary")
+                btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
+                live_btns.addWidget(btn)
+            install_btn = QPushButton("Install KythOS")
+            install_btn.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
+            live_btns.addWidget(install_btn)
+            live_btns.addStretch()
+            live_layout.addLayout(live_btns)
+            self._add(live_card)
+
         # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
@@ -3885,9 +3919,12 @@ class WelcomePage(Page):
         link_row.addStretch()
         self._add_layout(link_row)
 
-        note = QLabel(
+        note_text = (
+            "This window opens automatically in the live session. Reopen it anytime from the application menu."
+            if _IS_LIVE else
             "This window won't reappear on login. Reopen it anytime from the application menu."
         )
+        note = QLabel(note_text)
         note.setObjectName("status-dim")
         note.setWordWrap(True)
         self._add(note)
@@ -14679,8 +14716,8 @@ class MainWindow(QMainWindow):
             banner_layout.addSpacing(12)
 
             notice = QLabel(
-                "You're running from a live ISO — performance is reduced and some features "
-                "are unavailable until KythOS is installed."
+                "You're trying the real KythOS desktop from USB. Explore the hub, check hardware, "
+                "test app flow, then install when it feels right."
             )
             notice.setObjectName("live-banner-text")
             banner_layout.addWidget(notice, 1)

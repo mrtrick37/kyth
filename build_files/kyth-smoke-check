@@ -298,6 +298,13 @@ check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
 check_file /etc/skel/Games "Games folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
+check_file /usr/bin/kyth-exe-handler "Windows app helper"
+
+if [[ -r /etc/xdg/mimeapps.list ]] && grep -q '^application/x-msi=kyth-exe-handler.desktop' /etc/xdg/mimeapps.list; then
+    pass "MSI helper association" "Windows installers open KythOS helper"
+else
+    warn "MSI helper association" "application/x-msi is not mapped to kyth-exe-handler.desktop"
+fi
 
 if [[ -r "${HOME}/.config/kdeglobals" ]]; then
     if grep -q '^SingleClick=false' "${HOME}/.config/kdeglobals"; then
