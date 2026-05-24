@@ -121,6 +121,7 @@ KythOS focuses on making Linux gaming smoother, not making impossible promises.
 
 Useful project docs:
 
+- [Daily-driver validation](docs/daily-driver-validation.md)
 - [Gaming validation matrix](docs/gaming-validation-matrix.md)
 - [Gaming results](docs/gaming-results/)
 - [Modding on KythOS](docs/modding-on-kythos.md)
@@ -324,6 +325,7 @@ handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 - GameMode, Gamescope, MangoHud, vkBasalt, LatencyFleX, obs-vkcapture, scx schedulers, system76-scheduler, and ananicy-cpp.
 - Controller and peripheral support through steam-devices, game-devices rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB, and input-remapper.
 - Helper commands include `kyth-gamescope`, `game-performance`, `kyth-performance-mode`, `kyth-scx`, `zink-run`, `kyth-kerver`, and `kyth-device-info`.
+- `kyth-smoke-check` / `ujust smoke-check` verifies the daily-driver basics after install or update.
 
 ### System Tuning Highlights
 

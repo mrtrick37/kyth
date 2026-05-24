@@ -308,6 +308,13 @@ device-info:
     set -euo pipefail
     /usr/bin/kyth-device-info
 
+# Run the daily-driver readiness smoke check.
+[group('KythOS')]
+smoke-check *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-smoke-check {{ args }}
+
 # Install LACT from Flathub on an immutable system.
 [group('KythOS')]
 install-lact:
