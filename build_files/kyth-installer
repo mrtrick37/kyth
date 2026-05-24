@@ -31,6 +31,10 @@ SESSION_TOKEN = secrets.token_urlsafe(32)
 SKIP_FETCH_CHECK = os.environ.get("KYTH_INSTALL_SKIP_FETCH_CHECK", "0").lower() in (
     "1", "true", "yes", "on"
 )
+# Present when running from the live ISO (written by build-live-iso.sh / Containerfile.live).
+# Absent on a running installed system — used to gate operations that only make sense
+# from a live environment (e.g. wiping the running disk).
+_IS_LIVE_SESSION = Path("/etc/kyth-installer.env").exists()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -298,6 +302,11 @@ def _lsblk_target_mounts(disk: str) -> list[tuple[str, str]]:
     return mounts
 
 
+# Mountpoints that must never receive a lazy unmount — they are part of the
+# running system and detaching them would destabilize the OS.
+_CRITICAL_MOUNTS = frozenset({"/", "/boot", "/boot/efi", "/efi", "/home", "/var"})
+
+
 def unmount_target_disk(disk: str, log) -> None:
     """Unmount any live-session mounts that would block wiping disk."""
     log(f"Unmounting any existing mounts on {disk} ...")
@@ -319,7 +328,10 @@ def unmount_target_disk(disk: str, log) -> None:
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()
             log(f"Normal unmount failed for {mount}: {err}")
-            subprocess.run(_as_root(["umount", "-l", mount]), check=False)
+            if mount in _CRITICAL_MOUNTS:
+                log(f"Skipping lazy unmount of running system mount: {mount}")
+            else:
+                subprocess.run(_as_root(["umount", "-l", mount]), check=False)
 
     try:
         remaining = _lsblk_target_mounts(disk)
@@ -687,6 +699,8 @@ def _run_install() -> None:
         root_part = get_root_partition(disk)
         mount     = "/var/tmp/kyth-install-root"
         Path(mount).mkdir(parents=True, exist_ok=True)
+        # Detach any stale mount left by a previously crashed install attempt.
+        subprocess.run(_as_root(["umount", "-l", mount]), check=False, capture_output=True)
         subprocess.run(_as_root(["mount", root_part, mount]), check=True)
         progress(93)
 
@@ -858,7 +872,7 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/config":
-            self._json({"source_image": SOURCE_IMAGE, "session_token": SESSION_TOKEN})
+            self._json({"source_image": SOURCE_IMAGE, "session_token": SESSION_TOKEN, "is_live": _IS_LIVE_SESSION})
         elif path == "/api/disks":
             self._json(list_disks())
         elif path == "/api/timezones":
@@ -912,6 +926,18 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({
                     "started": False,
                     "message": "Please confirm that your files are backed up and that the selected disk will be erased.",
+                }, status=409)
+                return
+            if disks[disk].get("current") and not _IS_LIVE_SESSION:
+                self._json({
+                    "started": False,
+                    "message": (
+                        "This is the disk running the current KythOS session.\n\n"
+                        "The running root filesystem cannot be unmounted, so reinstalling "
+                        "onto this disk requires the KythOS live ISO.\n\n"
+                        "Boot from the live ISO to reinstall onto this disk. "
+                        "You can download it from the Repair page in kyth-welcome."
+                    ),
                 }, status=409)
                 return
             if disks[disk].get("current") and not body.get("confirm_current"):
@@ -1237,6 +1263,13 @@ select{cursor:pointer}
         <input type="checkbox" id="confirm-current" onchange="updateInstallReady()">
         <span>This appears to be the disk currently running this session. I understand reinstalling it will replace this KythOS install.</span>
       </label>
+      <div class="status-box status-info" id="live-iso-required" style="display:none">
+        <strong>Live ISO required to reinstall this disk</strong><br><br>
+        This is the disk running the current KythOS session. The running root filesystem
+        cannot be unmounted, so reinstalling onto it requires booting from the live ISO.<br><br>
+        Download the live ISO from the <strong>Repair</strong> page in kyth-welcome,
+        write it to a USB drive, and boot from it to reinstall.
+      </div>
       <div class="btn-row">
         <button onclick="goto('config')">← Back</button>
         <button class="primary" id="install-now" onclick="startInstall()" disabled>Install Now</button>
@@ -1314,7 +1347,7 @@ select{cursor:pointer}
 </div><!-- #app -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora' };
+const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
 let SESSION_TOKEN = '';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
 
@@ -1383,7 +1416,9 @@ function selectDisk(idx) {
   document.getElementById('disk-next').disabled = false;
   document.getElementById('disk-warn').style.display = 'block';
   document.getElementById('disk-warn').textContent = S.disk.current
-    ? '⚠ This appears to be the disk currently running this KythOS session. Reinstalling will replace it.'
+    ? (S.isLive
+        ? '⚠ This appears to be the disk currently running this session. Reinstalling will replace it.'
+        : '⚠ This is the running system disk. To reinstall this disk, boot from the KythOS live ISO.')
     : '⚠ All data on this disk will be permanently destroyed.';
 }
 
@@ -1488,16 +1523,25 @@ function buildReview() {
   document.getElementById('confirm-backup').checked = false;
   document.getElementById('confirm-erase').checked = false;
   document.getElementById('confirm-current').checked = false;
-  document.getElementById('confirm-current-wrap').style.display = S.disk && S.disk.current ? 'flex' : 'none';
-  document.getElementById('review-wipe').textContent = S.disk && S.disk.current
-    ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
-    : '⚠ Everything on the selected disk will be permanently erased.';
+  const isCurrentNonLive = S.disk && S.disk.current && !S.isLive;
+  const isCurrentLive    = S.disk && S.disk.current && S.isLive;
+  document.getElementById('confirm-current-wrap').style.display = isCurrentLive ? 'flex' : 'none';
+  document.getElementById('live-iso-required').style.display    = isCurrentNonLive ? 'block' : 'none';
+  document.getElementById('review-wipe').textContent = isCurrentNonLive
+    ? '⚠ This is the running system disk — see notice below.'
+    : (S.disk && S.disk.current
+        ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
+        : '⚠ Everything on the selected disk will be permanently erased.');
   updateInstallReady();
 }
 
 function updateInstallReady() {
-  const backup = document.getElementById('confirm-backup').checked;
-  const erase = document.getElementById('confirm-erase').checked;
+  if (S.disk && S.disk.current && !S.isLive) {
+    document.getElementById('install-now').disabled = true;
+    return;
+  }
+  const backup    = document.getElementById('confirm-backup').checked;
+  const erase     = document.getElementById('confirm-erase').checked;
   const currentOk = !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
   document.getElementById('install-now').disabled = !(backup && erase && currentOk);
 }
@@ -1507,15 +1551,10 @@ let _startTime = 0;
 let _elapsedTimer = null;
 
 function startInstall() {
-  if (document.getElementById('install-now').disabled) return;
-  goto('install');
-  _startTime = Date.now();
-  _elapsedTimer = setInterval(() => {
-    const s = Math.floor((Date.now() - _startTime) / 1000);
-    const m = Math.floor(s / 60), sec = s % 60;
-    document.getElementById('install-elapsed').textContent =
-      m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-  }, 1000);
+  const btn = document.getElementById('install-now');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
 
   apiFetch('/api/start', {
     method: 'POST',
@@ -1530,13 +1569,27 @@ function startInstall() {
     }),
   }).then(r => {
     if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = 'Install Now';
       return r.json()
         .then(j => showError(j.message || ('Install request failed (status ' + r.status + ')')))
         .catch(() => r.text().then(t => showError('Failed to start install: ' + t))
           .catch(() => showError('Install request failed (status ' + r.status + ')')));
     }
+    goto('install');
+    _startTime = Date.now();
+    _elapsedTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - _startTime) / 1000);
+      const m = Math.floor(s / 60), sec = s % 60;
+      document.getElementById('install-elapsed').textContent =
+        m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }, 1000);
     listenSSE();
-  }).catch(e => showError('The installer could not talk to its local backend: ' + e));
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = 'Install Now';
+    showError('The installer could not talk to its local backend: ' + e);
+  });
 }
 
 function listenSSE() {
@@ -1644,6 +1697,7 @@ function reboot() {
 fetch('/api/config').then(r=>r.json()).then(cfg => {
   SESSION_TOKEN = cfg.session_token;
   S._sourceImage = cfg.source_image;
+  S.isLive = cfg.is_live !== false;
 });
 goto('welcome');
 </script>
