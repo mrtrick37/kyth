@@ -630,6 +630,20 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+install -m 0755 /ctx/kyth-installer /usr/bin/kyth-installer
+install -m 0755 /ctx/kyth-launch-installer /usr/bin/kyth-launch-installer
+install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
+
+cat > /usr/share/applications/kyth-install.desktop <<'INSTALLDESKTOPEOF'
+[Desktop Entry]
+Name=Install or Reinstall KythOS
+Comment=Install KythOS to a disk using the guided installer
+Exec=/usr/bin/kyth-launch-installer
+Icon=kyth
+Terminal=false
+Type=Application
+Categories=System;
+INSTALLDESKTOPEOF
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.

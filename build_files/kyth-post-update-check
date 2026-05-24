@@ -10,6 +10,10 @@ NOTIFY=1
 
 have() { command -v "$1" >/dev/null 2>&1; }
 
+if grep -qw 'kyth.live' /proc/cmdline 2>/dev/null; then
+    exit 0
+fi
+
 notify() {
     [[ "$NOTIFY" -eq 1 ]] || return 0
     local title="$1"
@@ -144,6 +148,8 @@ fi
 
 echo "${APP_NAME}: ready"
 echo "PASS  Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
-notify "${APP_NAME}: ready" "Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
+if [[ "$FORCE" -eq 1 ]]; then
+    notify "${APP_NAME}: ready" "Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
+fi
 [[ "$CAN_STAMP" -eq 1 && "$NOTIFY" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
 exit 0
