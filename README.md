@@ -326,6 +326,8 @@ handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 - Controller and peripheral support through steam-devices, game-devices rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB, and input-remapper.
 - Helper commands include `kyth-gamescope`, `game-performance`, `kyth-performance-mode`, `kyth-scx`, `zink-run`, `kyth-kerver`, and `kyth-device-info`.
 - `kyth-smoke-check` / `ujust smoke-check` verifies the daily-driver basics after install or update.
+- `ujust post-update-check`, `ujust controller-check`, and `ujust resume-check` cover targeted confidence checks for updates, controllers, and suspend/resume.
+- `ujust nvidia-status` explains NVIDIA driver/build/reboot state without changing the system.
 
 ### System Tuning Highlights
 

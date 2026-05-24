@@ -23,6 +23,20 @@ Store notable output in the release notes or the matching hardware result. The
 check is read-only: it does not install apps, change drivers, run updates, or
 mount Windows drives.
 
+KythOS also ships smaller targeted checks:
+
+```bash
+ujust post-update-check
+ujust nvidia-status
+ujust controller-check
+ujust resume-check
+```
+
+`post-update-check` is also launched automatically once per deployment after
+login. It confirms the current boot still has rollback visibility, graphics,
+Vulkan, Flatpaks, and desktop audio. `nvidia-status`, `controller-check`, and
+`resume-check` are manual validation helpers for hardware-specific testing.
+
 ## Release Gates
 
 A release candidate should pass these before being called daily-driver ready:
@@ -46,6 +60,11 @@ A release candidate should pass these before being called daily-driver ready:
 - Discover manages Flatpaks without presenting phantom RPM system updates.
 - Repair and support paths are visible: System Hub Repair opens, and
   `ujust device-info` produces a paste-friendly report.
+- The Repair page explains why `/usr` is read-only and points users toward
+  Flatpak, Distrobox, `/home`, System Hub, and image updates instead of manual
+  system-file edits.
+- The default game app setup notifier either confirms Steam/launchers/save tools
+  are installed or tells the user how to retry the setup service.
 
 ## Hardware Coverage
 
@@ -80,6 +99,8 @@ Do these intentionally. Evangelists are made when recovery works.
    desktop survives without killing session-critical services.
 7. Suspend and resume with Bluetooth audio or controller connected, then launch
    a game.
+8. Try to copy a helper into `/usr/bin` on an installed system and confirm the
+   project docs/System Hub messaging explain that the OS image is immutable.
 
 ## Result Template
 
