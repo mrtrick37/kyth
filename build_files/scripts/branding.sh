@@ -477,6 +477,7 @@ install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
+install -m 0755 /ctx/kyth-smoke-check /usr/bin/kyth-smoke-check
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove

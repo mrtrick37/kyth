@@ -60,6 +60,7 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
         /usr/bin/zink-run \
         /usr/bin/kyth-kerver \
         /usr/bin/kyth-device-info \
+        /usr/bin/kyth-smoke-check \
         /usr/bin/kyth-creator-check \
         /usr/bin/kyth-davinci-install \
         /usr/bin/kyth-duperemove \
