@@ -53,6 +53,8 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
        fi \
     && for path in \
         /usr/bin/kyth-welcome \
+        /usr/bin/kyth-welcome-launch \
+        /usr/bin/kyth-exe-handler \
         /usr/bin/game-performance \
         /usr/bin/kyth-gamescope \
         /usr/bin/kyth-performance-mode \
@@ -81,6 +83,7 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
         /usr/bin/kyth-hw-setup \
         /usr/libexec/kyth-vpnc-script \
         /usr/share/applications/kyth-welcome.desktop \
+        /usr/share/applications/kyth-exe-handler.desktop \
         /usr/share/applications/kyth-vpn-connect.desktop \
         /usr/lib/systemd/system/kyth-duperemove.service \
         /usr/lib/systemd/system/kyth-duperemove.timer \
@@ -264,8 +267,16 @@ RUN groupadd -r autologin 2>/dev/null || true \
 # ── Live user home: KDE config, autostarts, desktop shortcuts ────────────────
 RUN mkdir -p \
         /home/liveuser/Desktop \
+        /home/liveuser/Documents \
+        /home/liveuser/Downloads \
+        /home/liveuser/Games \
+        /home/liveuser/Music \
+        /home/liveuser/Pictures \
+        /home/liveuser/Public \
+        /home/liveuser/Templates \
+        /home/liveuser/Videos \
         /home/liveuser/.config/autostart \
-    /home/liveuser/.config \
+        /home/liveuser/.config \
         /home/liveuser/.config/plasma-workspace/env \
     && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
         > /home/liveuser/.bash_profile \
@@ -300,16 +311,30 @@ RUN mkdir -p \
         > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
         > /home/liveuser/.config/kdeglobals \
+    && printf 'XDG_DESKTOP_DIR="$HOME/Desktop"\nXDG_DOWNLOAD_DIR="$HOME/Downloads"\nXDG_TEMPLATES_DIR="$HOME/Templates"\nXDG_PUBLICSHARE_DIR="$HOME/Public"\nXDG_DOCUMENTS_DIR="$HOME/Documents"\nXDG_MUSIC_DIR="$HOME/Music"\nXDG_PICTURES_DIR="$HOME/Pictures"\nXDG_VIDEOS_DIR="$HOME/Videos"\n' \
+        > /home/liveuser/.config/user-dirs.dirs \
     && printf '[Theme]\nname=breeze-dark\n' \
         > /home/liveuser/.config/plasmarc \
+    && printf '[Desktop Entry]\nIcon=applications-games\nName=Games\n' \
+        > /home/liveuser/Games/.directory \
+    && printf '' > '/home/liveuser/Templates/Plain Text.txt' \
+    && printf '# Title\n\n' > '/home/liveuser/Templates/Markdown.md' \
+    && printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' > '/home/liveuser/Templates/Shell Script.sh' \
+    && printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
+        > '/home/liveuser/Templates/Python Script.py' \
+    && chmod +x '/home/liveuser/Templates/Shell Script.sh' '/home/liveuser/Templates/Python Script.py' \
     && printf '#!/bin/bash\n# Live environment hook kept for compatibility.\n# Rendering policy is applied in ~/.xinitrc for deterministic startup.\ntrue\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
+    && printf '[Desktop Entry]\nName=Explore KythOS\nComment=Open System Hub and try KythOS before installing\nExec=/usr/bin/kyth-welcome-launch --page Welcome\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /home/liveuser/Desktop/explore-kyth.desktop \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
-    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop,/usr/share/applications/kyth-install.desktop\n' \
+    && printf '[Desktop Entry]\nName=Explore KythOS\nComment=Open System Hub and try KythOS before installing\nExec=/usr/bin/kyth-welcome-launch --page Welcome\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
+        > /usr/share/applications/kyth-explore.desktop \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/kyth-welcome.desktop,/usr/share/applications/kyth-install.desktop,/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
@@ -317,12 +342,13 @@ RUN mkdir -p \
            cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
               /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
        fi \
-    && if [ -f /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop ]; then \
-           cp /etc/skel/.config/autostart/kyth-windows-friendly-defaults.desktop \
-              /home/liveuser/.config/autostart/kyth-windows-friendly-defaults.desktop; \
+    && if [ -f /etc/skel/.config/autostart/kyth-user-polish.desktop ]; then \
+           cp /etc/skel/.config/autostart/kyth-user-polish.desktop \
+              /home/liveuser/.config/autostart/kyth-user-polish.desktop; \
        fi \
-    && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
+    && chmod +x /home/liveuser/Desktop/install-kyth.desktop /home/liveuser/Desktop/explore-kyth.desktop \
+    && python3 -c "import os; [os.setxattr(path, 'user.metadata::trusted', b'yes') for path in ('/home/liveuser/Desktop/install-kyth.desktop', '/home/liveuser/Desktop/explore-kyth.desktop')]" \
+    && (update-desktop-database /usr/share/applications/ 2>/dev/null || true) \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && mkdir -p /etc/xdg/autostart \
     && for svc in \

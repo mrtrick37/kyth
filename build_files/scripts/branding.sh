@@ -423,6 +423,9 @@ org.kde.ark.desktop|application/x-tar
 kyth-exe-handler.desktop|application/x-ms-dos-executable
 kyth-exe-handler.desktop|application/x-msdos-program
 kyth-exe-handler.desktop|application/x-dosexec
+kyth-exe-handler.desktop|application/x-msi
+kyth-exe-handler.desktop|application/x-msdownload
+kyth-exe-handler.desktop|application/vnd.microsoft.portable-executable
 com.brave.Browser.desktop|x-scheme-handler/http
 com.brave.Browser.desktop|x-scheme-handler/https
 com.getmailspring.Mailspring.desktop|x-scheme-handler/mailto
@@ -751,6 +754,9 @@ application/x-tar=org.kde.ark.desktop;ark.desktop;
 application/x-ms-dos-executable=kyth-exe-handler.desktop
 application/x-msdos-program=kyth-exe-handler.desktop
 application/x-dosexec=kyth-exe-handler.desktop
+application/x-msi=kyth-exe-handler.desktop
+application/x-msdownload=kyth-exe-handler.desktop
+application/vnd.microsoft.portable-executable=kyth-exe-handler.desktop
 x-scheme-handler/http=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/https=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/mailto=com.getmailspring.Mailspring.desktop
