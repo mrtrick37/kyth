@@ -122,6 +122,9 @@ PLASMAEOF
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
 FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
+
+[General]
+highlightNewlyInstalledApps=false
 KICKOFFEOF
 
 # ── Screen lock timeout ───────────────────────────────────────────────────────
@@ -293,10 +296,12 @@ if [[ -f "${_kickoff_cfg}" ]]; then
         "${_kickoff_cfg}"
 fi
 
-# ── First-login script: set Kickoff launcher icon to KythOS logo ────────────────
+# ── First-login script: polish Kickoff launcher defaults ──────────────────────
 # Belt-and-suspenders: the icon theme install above should be enough, but this
 # also writes the icon key directly into each user's Kickoff applet config in
-# case the theme lookup is overridden by a previously cached value.
+# case the theme lookup is overridden by a previously cached value. It also
+# disables Plasma's newly-installed app badges so KythOS launchers land in
+# their categories without green dots or "New!" labels.
 cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
 import os, re, subprocess
@@ -321,6 +326,14 @@ if os.path.exists(aprc):
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
                 '--key', 'icon', 'kyth-kickoff',
+            ], check=False)
+            subprocess.run([
+                'kwriteconfig6', '--file', aprc,
+                '--group', 'Containments', '--group', cont,
+                '--group', 'Applets', '--group', applet,
+                '--group', 'Configuration', '--group', 'General',
+                '--key', 'highlightNewlyInstalledApps',
+                '--type', 'bool', 'false',
             ], check=False)
 
 try:
@@ -780,6 +793,7 @@ chmod +x /etc/skel/Templates/"Shell Script.sh"
 chmod +x /etc/skel/Templates/"Python Script.py"
 
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
+install -m 0755 /ctx/kyth-session-snapshot /usr/bin/kyth-session-snapshot
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service

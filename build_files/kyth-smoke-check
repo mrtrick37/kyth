@@ -324,6 +324,7 @@ check_system_unit_enabled display-manager.service "Login manager"
 check_file /usr/share/wallpapers/kyth/metadata.json "KythOS wallpaper"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
+check_file_contains /etc/skel/.config/kickoffrc "highlightNewlyInstalledApps=false" "Launcher badge quieting" "new-app badges disabled by default"
 check_file /etc/skel/.config/baloofilerc "Baloo quiet default"
 check_file /usr/bin/kyth-user-polish "User comfort polish"
 check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
@@ -335,6 +336,7 @@ check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup 
 check_file /etc/skel/Games "Games folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 check_file /usr/bin/kyth-exe-handler "Windows app helper"
+check_file /usr/bin/kyth-session-snapshot "Session snapshot helper"
 
 if [[ -r /etc/xdg/mimeapps.list ]] && grep -q '^application/x-msi=kyth-exe-handler.desktop' /etc/xdg/mimeapps.list; then
     pass "MSI helper association" "Windows installers open KythOS helper"
@@ -365,6 +367,7 @@ if is_live_session; then
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-welcome.desktop" "System Hub favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-install.desktop" "Installer favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/code.desktop" "VS Code favorite" "pinned in launcher favorites"
+    check_file_contains "${HOME}/.config/kickoffrc" "highlightNewlyInstalledApps=false" "Live launcher badge quieting" "new-app badges disabled in live session"
     check_file_contains "${HOME}/.config/user-dirs.dirs" 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' "Live user dirs" "familiar folders configured"
     check_file "${HOME}/Games" "Live Games folder"
     check_file "${HOME}/Templates/Plain Text.txt" "Live text template"
