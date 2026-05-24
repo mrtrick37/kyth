@@ -3041,6 +3041,28 @@ def _tail_file(path: str, max_lines: int = 80) -> str:
     return "".join(lines[-max_lines:]).strip()
 
 
+def _system_hub_log_has_self_error(log_tail: str) -> bool:
+    if not log_tail:
+        return False
+    sections = re.split(r"(?m)^==== .+ kyth-welcome launch ====$", log_tail)
+    recent = sections[-1] if sections else log_tail
+    # External tools opened from System Hub can inherit stderr into the launcher
+    # log. Only flag messages that look like the Hub itself failed to start.
+    hub_markers = (
+        "kyth-welcome launch failed",
+        "traceback (most recent call last)",
+        'file "/usr/bin/kyth-welcome"',
+        "qt.qpa.plugin",
+        "could not load the qt platform plugin",
+        "segmentation fault",
+        "core dumped",
+    )
+    lowered = recent.lower()
+    if any(marker in lowered for marker in hub_markers):
+        return True
+    return bool(re.search(r"(?m)^(error|failed|aborted):", recent, re.IGNORECASE))
+
+
 def _system_hub_probe() -> HardwareProbe:
     app_path = "/usr/bin/kyth-welcome"
     launcher_path = "/usr/bin/kyth-welcome-launch"
@@ -3086,7 +3108,7 @@ def _system_hub_probe() -> HardwareProbe:
             "Install kyth-welcome-launch and refresh the desktop entry so launch failures are logged.",
         )
 
-    if log_tail and re.search(r"(traceback|error|failed|aborted|core dumped)", log_tail, re.IGNORECASE):
+    if _system_hub_log_has_self_error(log_tail):
         return HardwareProbe(
             "System Hub", "warn",
             "Recent System Hub launch log contains an error.",
@@ -15962,6 +15984,8 @@ class WizardWindow(QMainWindow):
             ("com.discordapp.Discord",       "Discord",       "Voice, text, and community chat — used by almost every gaming community."),
             ("com.brave.Browser",            "Brave Browser", "Fast, privacy-friendly browser with good media support."),
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
+            ("org.videolan.VLC",             "VLC",           "Plays virtually every video and audio format without extra codecs."),
+            ("org.libreoffice.LibreOffice",  "LibreOffice",   "Open Word, Excel, and PowerPoint files — full office suite."),
             ("com.github.mtkennerly.ludusavi","Ludusavi",      "Back up and restore game saves before migration or modding."),
             ("com.moonlight_stream.Moonlight","Moonlight",     "Stream games from another PC or NVIDIA Shield on your network."),
         ]

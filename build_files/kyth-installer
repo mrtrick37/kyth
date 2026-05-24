@@ -43,8 +43,43 @@ def _human_size(n: int) -> str:
     return f"{n:.1f} PB"
 
 
+def _running_system_disk() -> str:
+    try:
+        source = subprocess.check_output(
+            ["findmnt", "-n", "-o", "SOURCE", "/"],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        ).strip()
+    except Exception:
+        return ""
+    if not source or not source.startswith("/dev/"):
+        return ""
+    try:
+        pkname = subprocess.check_output(
+            ["lsblk", "-n", "-o", "PKNAME", source],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        ).strip().splitlines()
+        parent = next((line.strip() for line in pkname if line.strip()), "")
+        if parent:
+            return f"/dev/{parent}"
+    except Exception:
+        pass
+    try:
+        disk = subprocess.check_output(
+            ["lsblk", "-n", "-o", "NAME,TYPE", source],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        )
+        for line in disk.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "disk":
+                return f"/dev/{parts[0].lstrip('└─├─')}"
+    except Exception:
+        pass
+    return ""
+
+
 def list_disks() -> list[dict]:
     try:
+        running_disk = _running_system_disk()
         out = subprocess.check_output(
             ["lsblk", "--json", "--bytes", "--nodeps",
              "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA"],
@@ -61,6 +96,7 @@ def list_disks() -> list[dict]:
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
                     "tran":  d.get("tran") or "",
+                    "current": f"/dev/{d['name']}" == running_disk,
                 })
         return result
     except Exception:
@@ -829,6 +865,17 @@ class Handler(BaseHTTPRequestHandler):
             self._json(list_timezones())
         elif path == "/api/stream":
             self._sse()
+        elif path == "/api/log":
+            try:
+                text = LOG_FILE.read_text(errors="replace")
+            except Exception as exc:
+                text = f"Could not read installer log: {exc}\n"
+            body = text.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", len(body))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_error(404)
 
@@ -857,8 +904,21 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(400, "Invalid hostname")
                 return
             disk = body.get("disk", "")
-            if disk not in {d["name"] for d in list_disks()}:
+            disks = {d["name"]: d for d in list_disks()}
+            if disk not in disks:
                 self.send_error(400, "Invalid disk")
+                return
+            if not body.get("confirm_backup") or not body.get("confirm_erase"):
+                self._json({
+                    "started": False,
+                    "message": "Please confirm that your files are backed up and that the selected disk will be erased.",
+                }, status=409)
+                return
+            if disks[disk].get("current") and not body.get("confirm_current"):
+                self._json({
+                    "started": False,
+                    "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
+                }, status=409)
                 return
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
@@ -1011,6 +1071,10 @@ select{cursor:pointer}
 .review-table td:first-child{color:var(--muted);width:40%;font-size:13px}
 .review-table td:last-child{font-weight:500;padding-left:16px}
 .review-wipe{background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px 16px;font-size:13px;color:var(--red);margin:16px 0}
+.review-confirm{display:flex;gap:10px;align-items:flex-start;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:8px 0;color:var(--text);font-size:13px;line-height:1.5}
+.review-confirm input{margin-top:3px}
+.review-current{background:#241609;border-color:#6b4514;color:var(--amber)}
+.mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
 /* progress */
 .progress-wrap{margin:20px 0}
@@ -1160,10 +1224,22 @@ select{cursor:pointer}
       <div class="card-sub">Confirm settings — installation begins immediately after you click Install</div>
       <hr class="divider">
       <table class="review-table" id="review-table"></table>
-      <div class="review-wipe">⚠ Everything on the selected disk will be permanently erased.</div>
+      <div class="review-wipe" id="review-wipe">⚠ Everything on the selected disk will be permanently erased.</div>
+      <label class="review-confirm">
+        <input type="checkbox" id="confirm-backup" onchange="updateInstallReady()">
+        <span>I have backed up anything I want to keep from the selected disk.</span>
+      </label>
+      <label class="review-confirm">
+        <input type="checkbox" id="confirm-erase" onchange="updateInstallReady()">
+        <span>I understand KythOS will erase the selected disk and install a fresh system.</span>
+      </label>
+      <label class="review-confirm review-current" id="confirm-current-wrap" style="display:none">
+        <input type="checkbox" id="confirm-current" onchange="updateInstallReady()">
+        <span>This appears to be the disk currently running this session. I understand reinstalling it will replace this KythOS install.</span>
+      </label>
       <div class="btn-row">
         <button onclick="goto('config')">← Back</button>
-        <button class="primary" onclick="startInstall()">Install Now</button>
+        <button class="primary" id="install-now" onclick="startInstall()" disabled>Install Now</button>
       </div>
     </div>
   </div>
@@ -1185,6 +1261,10 @@ select{cursor:pointer}
         <span class="log-arrow" id="log-arrow">▶</span> Show install log
       </button>
       <div class="log-wrap" id="log-wrap"></div>
+      <div class="mini-actions">
+        <button onclick="copyVisibleLog()">Copy Visible Log</button>
+        <button onclick="copyFullLog()">Copy Full Log</button>
+      </div>
     </div>
   </div>
 
@@ -1225,6 +1305,7 @@ select{cursor:pointer}
       <p style="font-size:12px;color:var(--muted)">Full log saved to /tmp/kyth-installer.log</p>
       <div class="btn-row">
         <button class="primary" onclick="goto('review')">← Back to Installer</button>
+        <button onclick="copyFullLog()">Copy Full Log</button>
       </div>
     </div>
   </div>
@@ -1287,7 +1368,7 @@ function loadDisks(attempt) {
         <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
         <div class="disk-info">
           <div class="disk-name">${d.name}</div>
-          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}</div>
+          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.current ? ' · current system disk' : ''}</div>
         </div>
         <div class="disk-size">${d.size}</div>
       </div>`).join('');
@@ -1301,6 +1382,9 @@ function selectDisk(idx) {
   S.disk = _disks[idx];
   document.getElementById('disk-next').disabled = false;
   document.getElementById('disk-warn').style.display = 'block';
+  document.getElementById('disk-warn').textContent = S.disk.current
+    ? '⚠ This appears to be the disk currently running this KythOS session. Reinstalling will replace it.'
+    : '⚠ All data on this disk will be permanently destroyed.';
 }
 
 // ── Kernel ────────────────────────────────────────────────────────────────────
@@ -1401,6 +1485,21 @@ function buildReview() {
   ];
   document.getElementById('review-table').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  document.getElementById('confirm-backup').checked = false;
+  document.getElementById('confirm-erase').checked = false;
+  document.getElementById('confirm-current').checked = false;
+  document.getElementById('confirm-current-wrap').style.display = S.disk && S.disk.current ? 'flex' : 'none';
+  document.getElementById('review-wipe').textContent = S.disk && S.disk.current
+    ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
+    : '⚠ Everything on the selected disk will be permanently erased.';
+  updateInstallReady();
+}
+
+function updateInstallReady() {
+  const backup = document.getElementById('confirm-backup').checked;
+  const erase = document.getElementById('confirm-erase').checked;
+  const currentOk = !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
+  document.getElementById('install-now').disabled = !(backup && erase && currentOk);
 }
 
 // ── Install ───────────────────────────────────────────────────────────────────
@@ -1408,6 +1507,7 @@ let _startTime = 0;
 let _elapsedTimer = null;
 
 function startInstall() {
+  if (document.getElementById('install-now').disabled) return;
   goto('install');
   _startTime = Date.now();
   _elapsedTimer = setInterval(() => {
@@ -1424,6 +1524,9 @@ function startInstall() {
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
       kernel: S.kernel,
+      confirm_backup: document.getElementById('confirm-backup').checked,
+      confirm_erase: document.getElementById('confirm-erase').checked,
+      confirm_current: document.getElementById('confirm-current').checked,
     }),
   }).then(r => {
     if (!r.ok) {
@@ -1486,6 +1589,30 @@ function appendLog(text) {
   line.textContent = text;
   wrap.appendChild(line);
   wrap.scrollTop = wrap.scrollHeight;
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text || '');
+  } catch (e) {
+    const area = document.createElement('textarea');
+    area.value = text || '';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    document.body.removeChild(area);
+  }
+}
+
+function copyVisibleLog() {
+  copyText(document.getElementById('log-wrap').innerText || '');
+}
+
+function copyFullLog() {
+  apiFetch('/api/log')
+    .then(r => r.text())
+    .then(t => copyText(t))
+    .catch(() => copyVisibleLog());
 }
 
 function toggleLog() {
