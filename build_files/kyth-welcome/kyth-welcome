@@ -1260,6 +1260,32 @@ def _get_rx_bytes() -> int:
         return 0
 
 
+def _bootc_proxy_running() -> bool:
+    """Return True if the skopeo image-proxy bootc spawns is still alive (download in progress)."""
+    try:
+        r = subprocess.run(
+            ["pgrep", "-f", "skopeo.*image-proxy"],
+            capture_output=True, timeout=2,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def _get_disk_write_bytes() -> int:
+    """Sum write bytes across all block devices from /proc/diskstats."""
+    try:
+        total = 0
+        with open("/proc/diskstats") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 10:
+                    total += int(parts[9])  # sectors written (512 bytes each)
+        return total * 512
+    except Exception:
+        return 0
+
+
 def _parse_size_bytes(size_str: str) -> int:
     """Parse '8.3 GB' or '500 MB' to bytes. Returns 0 on failure."""
     try:
@@ -4247,6 +4273,7 @@ class UpdatePage(Page):
         self._last_output_ts = 0.0
         self._op_start_ts = 0.0
         self._current_phase = ""
+        self._staging_write_start = 0
         self._heartbeat = QTimer(self)
         self._heartbeat.setInterval(5000)
         self._heartbeat.timeout.connect(self._heartbeat_tick)
@@ -4513,6 +4540,7 @@ class UpdatePage(Page):
         self._dl_eta = 0
         self._dl_final_bytes = 0
         self._dl_low_speed_ticks = 0
+        self._staging_write_start = 0
         self._mode = mode
         self._last_output_ts = time.monotonic()
         self._op_start_ts = time.monotonic()
@@ -4622,21 +4650,20 @@ class UpdatePage(Page):
             self._update_activity()
             self._stop_dl_monitor()
 
-        # Download is ≥99.5% complete by byte count
-        if total > 0 and downloaded / total >= 0.995:
-            _finish_download("Download complete — preparing new OS image…")
-            return
-
-        # Track consecutive near-zero-speed ticks. The 99.5% threshold can miss
-        # when /proc/net/dev accumulates unrelated traffic or the total is an
-        # estimate. After 5 consecutive seconds of silence with data in flight,
-        # declare the download done and let ostree take over.
+        # Track consecutive near-zero-speed ticks.
+        # Only declare the download done when speed has been near-zero for at
+        # least 10 seconds AND the skopeo image-proxy process has exited —
+        # skopeo stays alive for the entire pull, so if it's still running the
+        # download is definitely still in progress regardless of what the
+        # network byte counter says.  The byte-count 99.5% heuristic is removed
+        # entirely: /proc/net/dev counts all interface traffic (not just bootc)
+        # and the total is an estimate, making it too unreliable to use alone.
         if speed_bps <= 100_000:
             self._dl_low_speed_ticks += 1
         else:
             self._dl_low_speed_ticks = 0
 
-        if self._dl_low_speed_ticks >= 5 and downloaded > 0:
+        if self._dl_low_speed_ticks >= 10 and downloaded > 0 and not _bootc_proxy_running():
             _finish_download("Download complete — processing image layers…")
             return
 
@@ -4690,6 +4717,26 @@ class UpdatePage(Page):
                 and self._last_output_ts
                 and time.monotonic() - self._last_output_ts > 10):
             self._set_phase("Processing image layers…")
+        # During the post-download staging phase, bootc/ostree commit layers to
+        # disk without emitting any output. Inject a heartbeat line every tick so
+        # the log doesn't look frozen while ostree is writing gigabytes to disk.
+        silent_secs = (time.monotonic() - self._last_output_ts) if self._last_output_ts else 0
+        if (self._dl_monitor is None
+                and self._dl_final_bytes > 0
+                and silent_secs >= 5
+                and self._worker is not None):
+            if self._staging_write_start == 0:
+                self._staging_write_start = _get_disk_write_bytes()
+            written = max(0, _get_disk_write_bytes() - self._staging_write_start)
+            elapsed = int(time.monotonic() - self._op_start_ts) if self._op_start_ts else 0
+            mins, secs_part = divmod(elapsed, 60)
+            elapsed_str = f"{mins}m {secs_part:02d}s" if mins else f"{secs_part}s"
+            if written >= 1024 * 1024:
+                msg = f"  [staging] writing image to disk… {_human_bytes(written)} written · {elapsed_str} elapsed"
+            else:
+                msg = f"  [staging] committing image to repository… {elapsed_str} elapsed"
+            self._log.append(msg)
+            self._log.ensureCursorVisible()
         self._update_activity()
 
     def _on_done(self, code: int):
