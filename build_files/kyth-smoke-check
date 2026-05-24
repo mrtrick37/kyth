@@ -359,11 +359,15 @@ fi
 
 if is_live_session; then
     section "Live ISO First Impression"
-    check_file "${HOME}/Desktop/explore-kyth.desktop" "Explore desktop shortcut"
     check_file "${HOME}/Desktop/install-kyth.desktop" "Install desktop shortcut"
-    check_desktop_trusted "${HOME}/Desktop/explore-kyth.desktop" "Explore shortcut trust"
+    check_file "${HOME}/Desktop/system-hub.desktop" "System Hub desktop shortcut"
     check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
-    check_file /usr/share/applications/kyth-explore.desktop "Explore app launcher"
+    check_desktop_trusted "${HOME}/Desktop/system-hub.desktop" "System Hub shortcut trust"
+    if [[ -e "${HOME}/Desktop/explore-kyth.desktop" || -e /usr/share/applications/kyth-explore.desktop ]]; then
+        fail "Explore shortcut removed" "Explore KythOS shortcut is still present"
+    else
+        pass "Explore shortcut removed" "live desktop only exposes Install KythOS and System Hub"
+    fi
     check_file /usr/share/applications/kyth-install.desktop "Install app launcher"
     check_command code "VS Code command"
     check_file /usr/share/applications/code.desktop "VS Code launcher"
