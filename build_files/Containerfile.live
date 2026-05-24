@@ -79,6 +79,7 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
         /usr/bin/kyth-vpn-connect \
         /usr/bin/kyth-vpn-status \
         /usr/bin/kyth-rclone-update \
+        /usr/bin/kyth-session-snapshot \
         /usr/bin/kyth-ge-proton-update \
         /usr/bin/kyth-hw-setup \
         /usr/libexec/kyth-vpnc-script \
@@ -334,7 +335,7 @@ RUN mkdir -p \
         > /usr/share/applications/kyth-install.desktop \
     && printf '[Desktop Entry]\nName=Explore KythOS\nComment=Open System Hub and try KythOS before installing\nExec=/usr/bin/kyth-welcome-launch --page Welcome\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-explore.desktop \
-    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/kyth-welcome.desktop,/usr/share/applications/kyth-install.desktop,/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop\n' \
+    && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/kyth-welcome.desktop,/usr/share/applications/kyth-install.desktop,/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop\n\n[General]\nhighlightNewlyInstalledApps=false\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
@@ -377,6 +378,7 @@ RUN echo "==> Live first-impression audit:" \
     && grep -q '/usr/share/applications/kyth-welcome.desktop' /home/liveuser/.config/kickoffrc \
     && grep -q '/usr/share/applications/kyth-install.desktop' /home/liveuser/.config/kickoffrc \
     && grep -q '/usr/share/applications/code.desktop' /home/liveuser/.config/kickoffrc \
+    && grep -q '^highlightNewlyInstalledApps=false$' /home/liveuser/.config/kickoffrc \
     && grep -q 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' /home/liveuser/.config/user-dirs.dirs \
     && test -d /home/liveuser/Games \
     && test -f '/home/liveuser/Templates/Plain Text.txt' \

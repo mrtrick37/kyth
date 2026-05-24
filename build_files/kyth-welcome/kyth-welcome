@@ -3689,6 +3689,7 @@ class WelcomePage(Page):
     def __init__(self, navigate=None):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
+        self._snapshot_worker = None
 
         self._page_header(
             "System Hub",
@@ -3729,6 +3730,10 @@ class WelcomePage(Page):
             live_btns.addStretch()
             live_layout.addLayout(live_btns)
             self._add(live_card)
+
+        self._add(self._make_confidence_center())
+        self._add(self._make_welcome_trail())
+        self._add(self._make_session_snapshot_card())
 
         # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
@@ -3930,6 +3935,140 @@ class WelcomePage(Page):
         self._add(note)
         self._stretch()
 
+    def _confidence_item(self, status: str, title: str, summary: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName({
+            "ok": "hw-card-ok",
+            "warn": "hw-card-warn",
+            "err": "hw-card-err",
+            "dim": "hw-card-dim",
+        }.get(status, "hw-card-dim"))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 7, 12, 7)
+        layout.setSpacing(10)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("card-summary")
+        title_lbl.setMinimumWidth(110)
+        layout.addWidget(title_lbl)
+        summary_lbl = QLabel(summary)
+        summary_lbl.setObjectName("card-copy")
+        summary_lbl.setWordWrap(True)
+        layout.addWidget(summary_lbl, 1)
+        return row
+
+    def _make_confidence_center(self) -> QFrame:
+        card, layout = _make_card("card-accent-ok")
+        title = QLabel("Confidence Center")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        checks: list[tuple[str, str, str]] = []
+        network_ok = bool(_command_stdout(["ip", "route", "show", "default"], timeout=3))
+        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+        ge_ver = _ge_proton_version()
+        pipewire = _run_command(["systemctl", "--user", "is-active", "pipewire.service"], timeout=3)
+        audio_ok = pipewire is not None and pipewire.returncode == 0
+        rollback_ok = _has_rollback_deployment()
+        checks.append(("ok" if network_ok else "warn",
+                       "Network", "Online route detected." if network_ok else "Connect Wi-Fi or Ethernet before install, updates, or game downloads."))
+        checks.append(("ok" if steam_ok else "warn",
+                       "Steam", "Installed." if steam_ok else "Install Steam from Gaming or Starter Packs."))
+        checks.append(("ok" if ge_ver else "warn",
+                       "GE-Proton", ge_ver or "Run GE-Proton update or use ProtonUp-Qt."))
+        checks.append(("ok" if audio_ok else "warn",
+                       "Audio", "PipeWire is running." if audio_ok else "Check audio before calls or streaming."))
+        checks.append(("ok" if rollback_ok else "dim",
+                       "Rollback", "Previous system image available." if rollback_ok else "Rollback appears after your first OS update."))
+        ntfs_count = len(_find_ntfs_drives())
+        checks.append(("warn" if ntfs_count else "dim",
+                       "Windows drives", f"{ntfs_count} NTFS partition(s) detected for migration." if ntfs_count else "No Windows drive detected."))
+
+        score = sum(1 for status, _, _ in checks if status == "ok")
+        top = QLabel(f"{score}/{len(checks)} ready for daily use")
+        top.setObjectName("card-copy")
+        top.setStyleSheet("font-weight: 700; color: #dde6f5;")
+        layout.addWidget(top)
+        for status, label, summary in checks:
+            layout.addWidget(self._confidence_item(status, label, summary))
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for label, page in (
+            ("Check Hardware", "Hardware"),
+            ("Set Up Games", "Gaming"),
+            ("Move From Windows", "Move From Windows"),
+            ("Panic Button", "Repair"),
+        ):
+            btn = QPushButton(label)
+            if page == "Hardware":
+                btn.setObjectName("primary")
+            btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_welcome_trail(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("KythOS Welcome Trail")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        items = [
+            ("Hardware checked", "Open Hardware and confirm the basics."),
+            ("Steam or Heroic ready", "Install a launcher and sign in."),
+            ("Proton understood", "Use Gaming to copy a known-good launch profile."),
+            ("Saves protected", "Install Ludusavi before migration or modding."),
+            ("Rollback learned", "Open Update and see how undo works."),
+        ]
+        for i, (name, desc) in enumerate(items, 1):
+            layout.addWidget(self._confidence_item("dim", f"{i}. {name}", desc))
+        btns = QHBoxLayout()
+        for label, page in (("Start Trail", "Hardware"), ("Learn Updates", "Update"), ("Back Up Saves", "Gaming")):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_session_snapshot_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Session Snapshot")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Export a plain-text snapshot of this setup: OS image, Flatpaks, gaming paths, "
+            "and KythOS checks. Use it before reinstalling, moving to another PC, or asking for help."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        self._snapshot_btn = QPushButton("Create Snapshot")
+        self._snapshot_btn.clicked.connect(self._run_session_snapshot)
+        btns.addWidget(self._snapshot_btn)
+        self._snapshot_status = QLabel("")
+        self._snapshot_status.setObjectName("card-copy")
+        btns.addWidget(self._snapshot_status, 1)
+        layout.addLayout(btns)
+        return card
+
+    def _run_session_snapshot(self):
+        if self._snapshot_worker and self._snapshot_worker.isRunning():
+            return
+        self._snapshot_btn.setEnabled(False)
+        self._snapshot_status.setText("Creating snapshot…")
+        self._snapshot_worker = Worker(["/usr/bin/kyth-session-snapshot"])
+        self._snapshot_worker.line.connect(lambda ln: self._snapshot_status.setText(ln.strip() or "Snapshot created."))
+        self._snapshot_worker.done.connect(self._on_snapshot_done)
+        self._snapshot_worker.start()
+
+    def _on_snapshot_done(self, code: int):
+        _finish_worker(self, attr="_snapshot_worker")
+        self._snapshot_btn.setEnabled(True)
+        if code != 0:
+            self._snapshot_status.setText(f"Snapshot failed (exit {code}).")
+
     def _make_step(self, num: int, icon: str, title: str, desc: str, page_key: str) -> QFrame:
         frame = QFrame()
         frame.setObjectName("step-item")
@@ -4035,6 +4174,8 @@ class HardwarePage(Page):
         driver_layout.addLayout(driver_btns)
         self._add(driver_card)
 
+        self._add(self._make_personality_card())
+
         # Card container inside the page's scroll area
         self._card_container = QWidget()
         self._card_container.setObjectName("content-area")
@@ -4045,6 +4186,42 @@ class HardwarePage(Page):
 
         self._stretch()
         self.refresh()
+
+    def _make_personality_card(self) -> QFrame:
+        pci = _command_stdout(["lspci"], timeout=5).lower()
+        cpu = _command_stdout(["lscpu"], timeout=5).lower()
+        if "nvidia" in pci and ("amd" in cpu or "ryzen" in cpu):
+            title = "NVIDIA gaming desktop"
+            note = "Best first checks: proprietary module active, Vulkan summary, display refresh rate, and Game Night Mode."
+        elif "nvidia" in pci:
+            title = "NVIDIA gaming machine"
+            note = "Best first checks: driver build status, Secure Boot state, Vulkan, and external display behavior."
+        elif "amd" in pci or "radeon" in pci:
+            title = "AMD/Radeon gaming machine"
+            note = "Best first checks: Mesa/Vulkan, VRR/high refresh, MangoHud, and firmware updates."
+        elif "intel" in pci:
+            title = "Intel laptop or iGPU desktop"
+            note = "Best first checks: Wi-Fi, Bluetooth, suspend/resume, fractional scaling, and battery profile."
+        else:
+            title = "KythOS desktop"
+            note = "Best first checks: graphics, audio, network, firmware, and rollback confidence."
+
+        card, layout = _make_card("card-accent-ok")
+        card_title = QLabel(f"Hardware Personality: {title}")
+        card_title.setObjectName("card-title")
+        layout.addWidget(card_title)
+        body = QLabel(note)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        for label, key in (("Gaming", "Gaming"), ("Controllers", "Controllers"), ("Firmware", "Firmware"), ("Repair", "Repair")):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
 
     def refresh(self):
         self._refresh_btn.setEnabled(False)
@@ -4354,6 +4531,28 @@ class UpdatePage(Page):
             summary_layout.addLayout(row)
 
         self._add(self._summary_card)
+
+        story_card, story_layout = _make_card("card-accent-ok")
+        story_title = QLabel("Update Story")
+        story_title.setObjectName("card-title")
+        story_layout.addWidget(story_title)
+        self._update_story_lbl = QLabel()
+        self._update_story_lbl.setObjectName("card-copy")
+        self._update_story_lbl.setWordWrap(True)
+        story_layout.addWidget(self._update_story_lbl)
+        story_btns = QHBoxLayout()
+        story_btns.setSpacing(8)
+        story_history_btn = QPushButton("View Commit History")
+        story_history_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
+        )
+        story_btns.addWidget(story_history_btn)
+        story_snapshot_btn = QPushButton("Snapshot Before Update")
+        story_snapshot_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
+        story_btns.addWidget(story_snapshot_btn)
+        story_btns.addStretch()
+        story_layout.addLayout(story_btns)
+        self._add(story_card)
 
         # ── Update availability ───────────────────────────────────────────────
         avail_card, avail_layout = _make_card()
@@ -4867,6 +5066,24 @@ class UpdatePage(Page):
             self._rollback_btn.setText("Roll Back")
 
         self._rollback_btn.setEnabled(rollback and self._worker is None)
+
+        digest = _bootc_image_digest("booted")
+        digest_hint = f" Running digest: {digest[0]}." if digest else ""
+        if staged:
+            self._update_story_lbl.setText(
+                "A new KythOS image is staged. Reboot when convenient; your current "
+                f"system remains available as rollback.{digest_hint}"
+            )
+        elif rollback:
+            self._update_story_lbl.setText(
+                "You are running the active KythOS image and a previous image is saved. "
+                f"If something feels worse after an update, rollback is one click away.{digest_hint}"
+            )
+        else:
+            self._update_story_lbl.setText(
+                "You are running the active KythOS image. After your next OS update, "
+                f"the previous image will appear here as a rollback target.{digest_hint}"
+            )
 
         # Branch channel cards
         is_idle = self._worker is None
@@ -5682,6 +5899,20 @@ class RepairPage(Page):
         quick_layout.addWidget(quick_body)
         quick_btns = QHBoxLayout()
         quick_btns.setSpacing(8)
+        panic_btn = QPushButton("Panic Button")
+        panic_btn.setObjectName("primary")
+        panic_btn.setToolTip("Run the safe repair bundle: app menu, user polish, Flatpak repair, audio restart, and snapshot.")
+        panic_btn.clicked.connect(lambda _=False: self._run_quick_fix("Panic Button", [
+            "bash", "-c",
+            "set -e; "
+            "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; "
+            "kbuildsycoca6 --noincremental 2>/dev/null || true; "
+            "/usr/bin/kyth-user-polish 2>/dev/null || true; "
+            "flatpak repair --user 2>/dev/null || true; "
+            "systemctl --user restart pipewire pipewire-pulse wireplumber 2>/dev/null || true; "
+            "/usr/bin/kyth-session-snapshot"
+        ]))
+        quick_btns.addWidget(panic_btn)
         for label, cmd in (
             ("Refresh App Menu", ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
             ("Apply User Polish", ["/usr/bin/kyth-user-polish"]),
@@ -6233,6 +6464,25 @@ class WindowsMigrationPage(Page):
             checklist_layout.addWidget(self._make_migration_row(status, title, text))
         self._add(checklist)
 
+        score_card, score_layout = _make_card("card-accent-ok")
+        score_title = QLabel("Switch Readiness")
+        score_title.setObjectName("card-title")
+        score_layout.addWidget(score_title)
+        self._migration_score_lbl = QLabel(
+            "Scan drives to estimate migration readiness. KythOS looks at launchers, save tools, Windows drives, and safe copy paths."
+        )
+        self._migration_score_lbl.setObjectName("card-copy")
+        self._migration_score_lbl.setWordWrap(True)
+        score_layout.addWidget(self._migration_score_lbl)
+        score_btns = QHBoxLayout()
+        for label, page in (("Install Launchers", "Gaming"), ("Back Up Saves", "Gaming"), ("Cloud Storage", "Cloud Storage")):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, key=page: self._navigate(key))
+            score_btns.addWidget(btn)
+        score_btns.addStretch()
+        score_layout.addLayout(score_btns)
+        self._add(score_card)
+
         drives, drives_layout = _make_card()
         drives_top = QHBoxLayout()
         drives_title = QLabel("Windows drives")
@@ -6335,11 +6585,21 @@ class WindowsMigrationPage(Page):
         if not partitions:
             self._drive_status.setText("No Windows/NTFS partitions found.")
             self._drive_status.setObjectName("status-warn")
+            self._migration_score_lbl.setText("Switch readiness: 2/5. Install your launchers and Ludusavi, then connect your Windows drive or cloud backup when ready.")
             _restyle(self._drive_status)
             return
         self._drive_status.setText(f"Found {len(partitions)} Windows-style partition{'s' if len(partitions) != 1 else ''}.")
         self._drive_status.setObjectName("status-ok")
         _restyle(self._drive_status)
+        clean = sum(1 for p in partitions if not p.get("is_dirty") and not p.get("is_hibernated"))
+        steam = sum(len(p.get("steam_paths") or []) for p in partitions)
+        profiles = sum(len(p.get("user_profiles") or []) for p in partitions)
+        score = 2 + (1 if clean else 0) + (1 if steam else 0) + (1 if profiles else 0)
+        self._migration_score_lbl.setText(
+            f"Switch readiness: {score}/5. Found {clean} safely readable drive(s), "
+            f"{steam} Steam folder(s), and {profiles} Windows user profile(s). "
+            "Back up saves with Ludusavi before copying large libraries."
+        )
         for part in partitions:
             self._drive_rows.addWidget(self._make_drive_row(part))
 
@@ -6410,6 +6670,44 @@ class GamingPage(Page):
         self._win_lib_card.hide()
         self._add(self._win_lib_card)
         self._divider()
+
+        # ── Game Night Mode ──────────────────────────────────────────────────
+        night_card, night_layout = _make_card("card-accent-ok")
+        night_title = QLabel("Game Night Mode")
+        night_title.setObjectName("card-title")
+        night_layout.addWidget(night_title)
+        night_body = QLabel(
+            "One click for a calm play session: prevent sleep, apply KythOS gaming "
+            "performance mode, keep the desktop quiet, and launch the apps players usually need."
+        )
+        night_body.setObjectName("card-copy")
+        night_body.setWordWrap(True)
+        night_layout.addWidget(night_body)
+        night_btns = QHBoxLayout()
+        night_btns.setSpacing(8)
+        self._game_night_start_btn = QPushButton("Start Game Night")
+        self._game_night_start_btn.setObjectName("primary")
+        self._game_night_start_btn.clicked.connect(self._start_game_night)
+        night_btns.addWidget(self._game_night_start_btn)
+        self._game_night_stop_btn = QPushButton("End Game Night")
+        self._game_night_stop_btn.setEnabled(False)
+        self._game_night_stop_btn.clicked.connect(self._stop_game_night)
+        night_btns.addWidget(self._game_night_stop_btn)
+        for label, cmd in (
+            ("Open Steam", ["flatpak", "run", "com.valvesoftware.Steam"]),
+            ("Open Discord", ["flatpak", "run", "com.discordapp.Discord"]),
+            ("Open OBS", ["flatpak", "run", "com.obsproject.Studio"]),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, c=cmd: subprocess.Popen(c))
+            night_btns.addWidget(btn)
+        night_btns.addStretch()
+        night_layout.addLayout(night_btns)
+        self._game_night_status = QLabel("Ready when you are.")
+        self._game_night_status.setObjectName("card-copy")
+        night_layout.addWidget(self._game_night_status)
+        self._game_night_inhibit = None
+        self._add(night_card)
 
         # ── Gaming Health Check ──────────────────────────────────────────────
         health_card, health_layout = _make_card()
@@ -7357,6 +7655,28 @@ class GamingPage(Page):
         row.addWidget(cp)
         row.addStretch()
         return row
+
+    def _start_game_night(self):
+        if self._game_night_inhibit and self._game_night_inhibit.poll() is None:
+            return
+        subprocess.Popen(["kyth-performance-mode", "save"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        subprocess.Popen(["kyth-performance-mode", "gaming"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if shutil.which("systemd-inhibit"):
+            self._game_night_inhibit = subprocess.Popen(
+                ["systemd-inhibit", "--what=idle:sleep", "--why=KythOS Game Night Mode", "sleep", "14400"],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        self._game_night_start_btn.setEnabled(False)
+        self._game_night_stop_btn.setEnabled(True)
+        self._game_night_status.setText("Game Night Mode is on for up to 4 hours. Sleep is blocked and gaming performance mode is active.")
+
+    def _stop_game_night(self):
+        if self._game_night_inhibit and self._game_night_inhibit.poll() is None:
+            self._game_night_inhibit.terminate()
+        subprocess.Popen(["kyth-performance-mode", "restore"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self._game_night_start_btn.setEnabled(True)
+        self._game_night_stop_btn.setEnabled(False)
+        self._game_night_status.setText("Game Night Mode ended. Normal desktop behavior restored.")
 
     def _update_profile_builder(self):
         if not hasattr(self, "_profile_launch_value"):
@@ -10797,6 +11117,20 @@ class SoftwarePage(Page):
         },
     ]
 
+    _FAMILIAR_APPS = [
+        ("Microsoft Office", "Use LibreOffice locally, or pin Microsoft 365 as a Web App.", "org.libreoffice.LibreOffice"),
+        ("Outlook", "Use Thunderbird for mail/calendar, or pin Outlook Web as a Web App.", "org.mozilla.Thunderbird"),
+        ("Teams", "Use Teams in the browser and pin it with WebApp Manager.", "io.github.vikdevelop.WebApp"),
+        ("Photoshop", "Use GIMP for raster editing; Krita is excellent for painting.", "org.gimp.GIMP"),
+        ("Premiere", "Use Kdenlive or install DaVinci Resolve from Creator tools.", "org.kde.kdenlive"),
+        ("Battle.net", "Use Lutris for Battle.net and Blizzard games.", "net.lutris.Lutris"),
+        ("Epic Games", "Use Heroic Games Launcher for Epic, GOG, and Amazon libraries.", "com.heroicgameslauncher.hgl"),
+        ("Vortex / MO2", "Use SteamTinkerLaunch per game, or Bottles for standalone mod tools.", ""),
+        ("Notepad++", "Use Kate, already included, or VS Code.", ""),
+        ("WinSCP", "Use Dolphin sftp:// paths, or install FileZilla.", "org.filezillaproject.Filezilla"),
+        ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported.", "org.freedesktop.Piper"),
+    ]
+
     def __init__(self):
         super().__init__()
 
@@ -10902,6 +11236,8 @@ class SoftwarePage(Page):
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
+        layout.addWidget(self._make_familiar_app_finder())
+
         for pack in self._STARTER_PACKS:
             layout.addWidget(self._make_starter_pack_panel(pack))
 
@@ -10929,6 +11265,83 @@ class SoftwarePage(Page):
             lambda checked: _set_log_panel(self._starter_log_toggle, self._starter_log, checked)
         )
         return tab
+
+    def _make_familiar_app_finder(self) -> QFrame:
+        card, layout = _make_card("card-accent-ok")
+        title = QLabel("Familiar App Finder")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Search by the Windows app name you remember. KythOS will suggest the native, Flatpak, web-app, Bottles, or launcher path."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        row = QHBoxLayout()
+        self._familiar_combo = QComboBox()
+        self._familiar_combo.setEditable(True)
+        for name, _, _ in self._FAMILIAR_APPS:
+            self._familiar_combo.addItem(name)
+        row.addWidget(self._familiar_combo, 1)
+        btn = QPushButton("Find Path")
+        btn.setObjectName("primary")
+        btn.clicked.connect(self._find_familiar_app)
+        row.addWidget(btn)
+        layout.addLayout(row)
+        self._familiar_result = QLabel("Try Office, Photoshop, Battle.net, Vortex, Notepad++, or G HUB.")
+        self._familiar_result.setObjectName("card-copy")
+        self._familiar_result.setWordWrap(True)
+        layout.addWidget(self._familiar_result)
+        btns = QHBoxLayout()
+        self._familiar_install_btn = QPushButton("Install Suggested App")
+        self._familiar_install_btn.hide()
+        btns.addWidget(self._familiar_install_btn)
+        flathub_btn = QPushButton("Search Flathub")
+        flathub_btn.clicked.connect(lambda _=False: self._search_familiar_on_flathub())
+        btns.addWidget(flathub_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _find_familiar_app(self):
+        query = self._familiar_combo.currentText().strip()
+        lower = query.lower()
+        match = None
+        for name, desc, app_id in self._FAMILIAR_APPS:
+            if lower in name.lower() or name.lower() in lower:
+                match = (name, desc, app_id)
+                break
+        if not match:
+            self._familiar_result.setText(
+                f"No curated path for “{query}” yet. Search Flathub first; use Bottles only when a native/web path does not exist."
+            )
+            self._familiar_install_btn.hide()
+            return
+        name, desc, app_id = match
+        self._familiar_result.setText(f"{name}: {desc}")
+        if app_id:
+            self._familiar_install_btn.setText(f"Install {name.split('/')[0].strip()}")
+            try:
+                self._familiar_install_btn.clicked.disconnect()
+            except RuntimeError:
+                pass
+            self._familiar_install_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name: self._install_familiar_app(aid, n)
+            )
+            self._familiar_install_btn.show()
+        else:
+            self._familiar_install_btn.hide()
+
+    def _install_familiar_app(self, app_id: str, name: str):
+        self._switch_tab(4)
+        self._fp_search_box.setText(app_id)
+        self._fp_install(app_id, name, self._familiar_install_btn)
+
+    def _search_familiar_on_flathub(self):
+        query = self._familiar_combo.currentText().strip()
+        self._switch_tab(4)
+        self._fp_search_box.setText(query)
+        self._run_fp_search()
 
     def _make_starter_pack_panel(self, pack: dict) -> QFrame:
         name = pack["name"]
