@@ -2292,8 +2292,6 @@ def _firmware_probe() -> HardwareProbe:
             "Firmware", "warn",
             "Firmware tooling installed but device enumeration failed.",
             devices.stdout.strip() or "fwupdmgr get-devices exited with an error.",
-            "Open Firmware to retry.",
-            action_page_key="Firmware",
         )
 
     device_count = devices.stdout.count("Device ID:")
@@ -2303,8 +2301,6 @@ def _firmware_probe() -> HardwareProbe:
             "Firmware", "warn",
             f"Firmware updates available for {device_count or 'one or more'} device(s).",
             updates.stdout.strip() or devices.stdout.strip(),
-            "Open Firmware to apply updates.",
-            action_page_key="Firmware",
         )
     if updates is not None and updates.returncode == 2:
         return HardwareProbe(
@@ -2316,7 +2312,6 @@ def _firmware_probe() -> HardwareProbe:
         "Firmware", "dim",
         f"fwupd available, {device_count} managed device(s).",
         devices.stdout.strip(),
-        "Open Firmware to refresh and check for updates.",
     )
 
 
@@ -3947,7 +3942,6 @@ class WelcomePage(Page):
         steps = [
             ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
             ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
-            ("⬟", "Update device firmware",    "Check for BIOS and peripheral firmware updates.",        "Firmware"),
             ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
             ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
             ("⌨", "Set up dev environment",    "Open Software for VS Code, dev boxes, and build tools.", "Software"),
@@ -4138,7 +4132,6 @@ class HardwarePage(Page):
         driver_btns = QHBoxLayout()
         driver_btns.setSpacing(8)
         for label, key in (
-            ("Firmware Updates", "Firmware"),
             ("Kernel Choice", "Kernel"),
             ("System Repair", "Repair"),
             ("Controllers", "Controllers"),
@@ -4196,7 +4189,7 @@ class HardwarePage(Page):
         body.setWordWrap(True)
         layout.addWidget(body)
         btns = QHBoxLayout()
-        for label, key in (("Gaming", "Gaming"), ("Controllers", "Controllers"), ("Firmware", "Firmware"), ("Repair", "Repair")):
+        for label, key in (("Gaming", "Gaming"), ("Controllers", "Controllers"), ("Repair", "Repair")):
             btn = QPushButton(label)
             btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
             btns.addWidget(btn)
@@ -5737,148 +5730,6 @@ class BranchesPage(Page):
         self._refresh_current()
 
 
-# ── Page: Firmware ────────────────────────────────────────────────────────────
-class FirmwarePage(Page):
-    def __init__(self):
-        super().__init__()
-        self._worker = None
-
-        self._page_header(
-            "System",
-            "Firmware",
-            "Check for and apply device firmware updates via fwupd.",
-        )
-
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        self._check_btn = QPushButton("Check for Updates")
-        self._check_btn.setObjectName("primary")
-        self._check_btn.clicked.connect(self._run_check)
-        btn_row.addWidget(self._check_btn)
-
-        self._update_btn = QPushButton("Apply Updates")
-        self._update_btn.setEnabled(False)
-        self._update_btn.clicked.connect(self._run_update)
-        btn_row.addWidget(self._update_btn)
-        btn_row.addStretch()
-
-        self._status_lbl = QLabel()
-        self._status_lbl.setObjectName("subheading")
-        btn_row.addWidget(self._status_lbl)
-        self._add_layout(btn_row)
-
-        self._progress = QProgressBar()
-        self._progress.setRange(0, 0)
-        self._progress.hide()
-        self._add(self._progress)
-
-        self._log_toggle = QPushButton("Show details")
-        self._log_toggle.setCheckable(True)
-        self._log_toggle.clicked.connect(lambda checked: _set_log_panel(self._log_toggle, self._log, checked))
-        self._log_toggle.hide()
-        self._add(self._log_toggle)
-
-        self._log = QTextEdit()
-        self._log.setReadOnly(True)
-        self._log.setMinimumHeight(200)
-        self._log.hide()
-        self._add(self._log)
-
-        note = QLabel("A reboot may be required after applying firmware updates.")
-        note.setObjectName("subheading")
-        self._add(note)
-        self._stretch()
-
-    def _run_check(self):
-        self._log.clear()
-        self._log.append("→ fwupdmgr refresh --force\n")
-        self._log_toggle.show()
-        _set_log_panel(self._log_toggle, self._log, False)
-        self._progress.show()
-        self._status_lbl.setText("Refreshing firmware metadata…")
-        self._status_lbl.setObjectName("subheading")
-        _restyle(self._status_lbl)
-        self._check_btn.setEnabled(False)
-        self._update_btn.setEnabled(False)
-
-        self._worker = Worker(["fwupdmgr", "refresh", "--force"])
-        _set_session_inhibit(self, "KythOS is checking for firmware updates")
-        self._worker.line.connect(self._on_line)
-        self._worker.done.connect(self._on_check_done)
-        self._worker.start()
-
-    def _on_check_done(self, code: int):
-        self._progress.hide()
-        self._check_btn.setEnabled(True)
-        _finish_worker(self)
-
-        if code == 0:
-            self._log.append("\n→ fwupdmgr get-updates\n")
-            self._progress.show()
-            self._status_lbl.setText("Checking for updates…")
-            _restyle(self._status_lbl)
-            self._worker = Worker(["fwupdmgr", "get-updates"])
-            self._worker.line.connect(self._on_line)
-            self._worker.done.connect(self._on_get_updates_done)
-            self._worker.start()
-        else:
-            _set_session_inhibit(self, None)
-            self._status_lbl.setText("Failed to refresh firmware metadata.")
-            self._status_lbl.setObjectName("status-err")
-            _restyle(self._status_lbl)
-
-    def _on_get_updates_done(self, code: int):
-        self._progress.hide()
-        _finish_worker(self)
-        _set_session_inhibit(self, None)
-        # fwupdmgr get-updates exits 2 when no updates are available
-        if code == 0:
-            self._status_lbl.setText("Firmware updates available.")
-            self._status_lbl.setObjectName("status-warn")
-            self._update_btn.setEnabled(True)
-        elif code == 2:
-            self._status_lbl.setText("Firmware is up to date.")
-            self._status_lbl.setObjectName("status-ok")
-        else:
-            self._status_lbl.setText("Could not retrieve update list.")
-            self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
-
-    def _run_update(self):
-        self._log.append("\n→ fwupdmgr update\n")
-        self._progress.show()
-        self._status_lbl.setText("Applying firmware updates…")
-        self._status_lbl.setObjectName("subheading")
-        _restyle(self._status_lbl)
-        self._update_btn.setEnabled(False)
-        self._check_btn.setEnabled(False)
-
-        self._worker = Worker(["fwupdmgr", "update"])
-        _set_session_inhibit(self, "KythOS is applying firmware updates")
-        self._worker.line.connect(self._on_line)
-        self._worker.done.connect(self._on_update_done)
-        self._worker.start()
-
-    def _on_update_done(self, code: int):
-        self._progress.hide()
-        self._check_btn.setEnabled(True)
-        _finish_worker(self)
-        _set_session_inhibit(self, None)
-
-        if code == 0:
-            self._status_lbl.setText("Firmware updated. A reboot may be required.")
-            self._status_lbl.setObjectName("status-ok")
-            self._log.append("\nDone. Reboot if prompted by fwupd.")
-        else:
-            self._status_lbl.setText(f"Update failed (exit code {code}).")
-            self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
-
-    def _on_line(self, text: str):
-        self._log.append(text)
-        self._log.ensureCursorVisible()
-
-
 # ── Page: NVIDIA Drivers ──────────────────────────────────────────────────────
 class NvidiaPage(Page):
     def __init__(self):
@@ -6106,9 +5957,11 @@ class RepairPage(Page):
         immutable_btns = QHBoxLayout()
         immutable_btns.setSpacing(8)
         update_help_btn = QPushButton("Open Update Page")
+        update_help_btn.setToolTip("Open the Update page to run a system update or roll back to the previous image.")
         update_help_btn.clicked.connect(lambda _=False: self._navigate("Update"))
         immutable_btns.addWidget(update_help_btn)
         software_help_btn = QPushButton("Open Software")
+        software_help_btn.setToolTip("Open the Software page to browse Flatpak apps, Distrobox environments, and dev tools.")
         software_help_btn.clicked.connect(lambda _=False: self._navigate("Software"))
         immutable_btns.addWidget(software_help_btn)
         immutable_btns.addStretch()
@@ -6140,10 +5993,12 @@ class RepairPage(Page):
         rollback_btns.setSpacing(8)
         self._rollback_repair_btn = QPushButton("Rollback and Reboot")
         self._rollback_repair_btn.setObjectName("primary")
+        self._rollback_repair_btn.setToolTip("Activate the previous OS image on the next boot. Your files in /home stay untouched.")
         self._rollback_repair_btn.setEnabled(_has_rollback_deployment())
         self._rollback_repair_btn.clicked.connect(self._run_rollback)
         rollback_btns.addWidget(self._rollback_repair_btn)
         update_btn = QPushButton("Open Update Page")
+        update_btn.setToolTip("Open the Update page to run a system update or roll back to the previous image.")
         update_btn.clicked.connect(lambda _=False: self._navigate("Update"))
         rollback_btns.addWidget(update_btn)
         rollback_btns.addStretch()
@@ -6179,28 +6034,38 @@ class RepairPage(Page):
             "/usr/bin/kyth-session-snapshot"
         ]))
         quick_btns.addWidget(panic_btn)
-        for label, cmd in (
-            ("Refresh App Menu", ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
-            ("Apply User Polish", ["/usr/bin/kyth-user-polish"]),
-            ("Retry Game Apps", ["sudo", "-A", "systemctl", "restart", "kyth-default-flatpaks.service"]),
-            ("Fix Flatpak Apps", ["flatpak", "repair", "--user"]),
-            ("Restart Audio", ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"]),
-            ("Restart Bluetooth", ["sudo", "-A", "systemctl", "restart", "bluetooth"]),
+        for label, tip, cmd in (
+            ("Refresh App Menu",  "Rebuild the application menu database. Fixes missing app icons and entries after installs.",
+             ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
+            ("Apply User Polish", "Re-apply KythOS default theme, fonts, and KDE settings to your user profile.",
+             ["/usr/bin/kyth-user-polish"]),
+            ("Retry Game Apps",   "Restart the Flatpak install service to retry installing Steam, Lutris, and other game apps.",
+             ["sudo", "-A", "systemctl", "restart", "kyth-default-flatpaks.service"]),
+            ("Fix Flatpak Apps",  "Repair the Flatpak user installation. Fixes corrupted or missing app runtimes.",
+             ["flatpak", "repair", "--user"]),
+            ("Restart Audio",     "Restart PipeWire, PipeWire-Pulse, and WirePlumber. Fixes audio that has stopped working.",
+             ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"]),
+            ("Restart Bluetooth", "Restart the Bluetooth service. Fixes controllers and headsets that won't pair or connect.",
+             ["sudo", "-A", "systemctl", "restart", "bluetooth"]),
         ):
             btn = QPushButton(label)
+            btn.setToolTip(tip)
             btn.clicked.connect(lambda _=False, c=cmd, l=label: self._run_quick_fix(l, c))
             quick_btns.addWidget(btn)
         if _detect_nvidia():
             nvidia_status_btn = QPushButton("NVIDIA Status")
+            nvidia_status_btn.setToolTip("Show current NVIDIA driver build status and kernel module load state.")
             nvidia_status_btn.clicked.connect(
                 lambda _=False: self._run_quick_fix("NVIDIA Status", ["/usr/bin/kyth-nvidia-status"])
             )
             quick_btns.addWidget(nvidia_status_btn)
             nvidia_fix_btn = QPushButton("Retry NVIDIA Build")
+            nvidia_fix_btn.setToolTip("Open the NVIDIA Drivers page to retry the kernel module build.")
             nvidia_fix_btn.clicked.connect(lambda _=False: self._navigate("NVIDIA"))
             quick_btns.addWidget(nvidia_fix_btn)
         task_btn = QPushButton("Open Task Manager")
         task_btn.setObjectName("primary")
+        task_btn.setToolTip("Launch the system task manager to inspect running processes and resource usage.")
         task_btn.clicked.connect(self._open_task_manager)
         quick_btns.addWidget(task_btn)
         quick_btns.addStretch()
@@ -6221,6 +6086,7 @@ class RepairPage(Page):
         snapshot_layout.addWidget(snapshot_body)
         snapshot_btns = QHBoxLayout()
         self._snapshot_btn = QPushButton("Create Snapshot")
+        self._snapshot_btn.setToolTip("Export a plain-text report of your OS image, Flatpaks, and hardware checks — useful before reinstalling or when asking for help.")
         self._snapshot_btn.clicked.connect(self._run_session_snapshot)
         snapshot_btns.addWidget(self._snapshot_btn)
         self._snapshot_status = QLabel("")
@@ -6244,9 +6110,11 @@ class RepairPage(Page):
         reinstall_btns = QHBoxLayout()
         reinstall_btns.setSpacing(8)
         iso_btn = QPushButton("Download Live ISO")
+        iso_btn.setToolTip("Open the KythOS releases page to download a live ISO for installing on another disk.")
         iso_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/releases")))
         reinstall_btns.addWidget(iso_btn)
         home_btn = QPushButton("Open Home Folder")
+        home_btn.setToolTip("Open your home folder in the file manager to back up personal files before reinstalling.")
         home_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
         reinstall_btns.addWidget(home_btn)
         reinstall_btns.addStretch()
@@ -6288,6 +6156,7 @@ class RepairPage(Page):
         btn_row = QHBoxLayout()
         self._reset_btn = QPushButton("Repair Install")
         self._reset_btn.setObjectName("danger")
+        self._reset_btn.setToolTip("Reset layered packages and system config to KythOS defaults. /home is untouched. This cannot be undone.")
         self._reset_btn.setEnabled(False)
         self._reset_btn.clicked.connect(self._run_reset)
         btn_row.addWidget(self._reset_btn)
@@ -15518,7 +15387,6 @@ class MainWindow(QMainWindow):
                 ("↻", "Update",   "Update",   UpdatePage),
                 ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
-                ("⬟", "Firmware", "Firmware", FirmwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("Apps", [
