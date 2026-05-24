@@ -14619,9 +14619,9 @@ class MainWindow(QMainWindow):
             ("System", [
                 ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
                 ("↻", "Update",   "Update",   UpdatePage),
-                ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
                 ("⬟", "Firmware", "Firmware", FirmwarePage),
+                ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("Apps", [
                 ("◉", "Gaming",           "Gaming",           GamingPage),
