@@ -967,7 +967,11 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=_run_install, daemon=True).start()
             self._json({"started": True})
         elif path == "/api/reboot":
-            subprocess.Popen(_as_root(["reboot"]))
+            for cmd in (["plymouth", "--show-splash"], ["systemctl", "--no-block", "reboot"]):
+                try:
+                    subprocess.Popen(_as_root(cmd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
             self._json({"ok": True})
         else:
             self.send_error(404)
@@ -1171,6 +1175,8 @@ select{cursor:pointer}
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
+        <span style="color:var(--amber)">Connect to Wi-Fi or Ethernet before you install.</span><br>
+        Use the network icon in the bottom-right panel to join wireless first. The installer will keep your choices if you need to leave and connect.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
         &nbsp; 2. Choose your kernel<br>
@@ -1690,6 +1696,7 @@ function showError(msg) {
 }
 
 function reboot() {
+  document.body.innerHTML = '<div id="app"><div id="content" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div></div>';
   apiFetch('/api/reboot', {method:'POST'}).catch(()=>{});
 }
 

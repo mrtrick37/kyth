@@ -15326,8 +15326,7 @@ class MainWindow(QMainWindow):
             banner_layout.addSpacing(12)
 
             notice = QLabel(
-                "You're trying the real KythOS desktop from USB. Explore the hub, check hardware, "
-                "test app flow, then install when it feels right."
+                "Connect to Wi-Fi or Ethernet first, then install KythOS or open System Hub for hardware checks."
             )
             notice.setObjectName("live-banner-text")
             banner_layout.addWidget(notice, 1)
@@ -15842,7 +15841,8 @@ class WizardWindow(QMainWindow):
         extras_layout.addWidget(self._wizard_install_status)
 
         self._wizard_install_progress = QProgressBar()
-        self._wizard_install_progress.setRange(0, 0)
+        self._wizard_install_progress.setRange(0, 100)
+        self._wizard_install_progress.setValue(0)
         self._wizard_install_progress.hide()
         extras_layout.addWidget(self._wizard_install_progress)
 
@@ -15878,41 +15878,68 @@ class WizardWindow(QMainWindow):
             _restyle(self._wizard_install_status)
             return
 
-        app_ids = [app_id for app_id, _ in selected]
         names = ", ".join(name for _, name in selected)
         self._wizard_install_btn.setEnabled(False)
         for check, _, _ in self._wizard_extra_checks:
             check.setEnabled(False)
-        self._wizard_install_status.setText(f"Installing {names}...")
+        self._wizard_install_total = len(selected)
+        self._wizard_install_done = 0
+        self._wizard_install_status.setText(f"Preparing to install {names}...")
         self._wizard_install_status.setObjectName("subheading")
         _restyle(self._wizard_install_status)
+        self._wizard_install_progress.setRange(0, len(selected))
+        self._wizard_install_progress.setValue(0)
         self._wizard_install_progress.show()
         self._wizard_install_log.clear()
         self._wizard_install_log.append("-> flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo")
-        self._wizard_install_log.append(f"-> flatpak install -y flathub {' '.join(app_ids)}\n")
+        for app_id, name in selected:
+            self._wizard_install_log.append(f"-> flatpak install -y flathub {app_id}  # {name}")
+        self._wizard_install_log.append("")
         self._wizard_install_log_toggle.show()
         _set_log_panel(self._wizard_install_log_toggle, self._wizard_install_log, False)
 
-        cmd = [
-            "bash", "-c",
-            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
-            + " && flatpak install -y flathub " + " ".join(shlex.quote(app_id) for app_id in app_ids),
+        script = [
+            "set -e",
+            "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo",
         ]
+        for app_id, name in selected:
+            script.append(f"echo __KYTH_APP_START__:{shlex.quote(app_id)}:{shlex.quote(name)}")
+            script.append(f"flatpak install -y flathub {shlex.quote(app_id)}")
+            script.append(f"echo __KYTH_APP_DONE__:{shlex.quote(app_id)}:{shlex.quote(name)}")
+        cmd = ["bash", "-c", "\n".join(script)]
         self._wizard_extra_worker = Worker(cmd)
-        self._wizard_extra_worker.line.connect(lambda ln: (
-            self._wizard_install_log.append(ln),
-            self._wizard_install_log.ensureCursorVisible(),
-        ))
+        self._wizard_extra_worker.line.connect(self._on_wizard_extra_install_line)
         self._wizard_extra_worker.done.connect(
             lambda code, installed=selected: self._on_wizard_extra_install_done(code, installed)
         )
         self._wizard_extra_worker.start()
         self._update_nav()
 
+    def _on_wizard_extra_install_line(self, line: str):
+        if line.startswith("__KYTH_APP_START__:"):
+            parts = line.split(":", 2)
+            name = parts[2] if len(parts) > 2 else "selected app"
+            current = getattr(self, "_wizard_install_done", 0) + 1
+            total = max(1, getattr(self, "_wizard_install_total", 1))
+            self._wizard_install_status.setText(f"Installing {name} ({current} of {total})...")
+            self._wizard_install_status.setObjectName("subheading")
+            _restyle(self._wizard_install_status)
+            return
+        if line.startswith("__KYTH_APP_DONE__:"):
+            parts = line.split(":", 2)
+            name = parts[2] if len(parts) > 2 else "app"
+            self._wizard_install_done = getattr(self, "_wizard_install_done", 0) + 1
+            total = max(1, getattr(self, "_wizard_install_total", 1))
+            self._wizard_install_progress.setValue(self._wizard_install_done)
+            self._wizard_install_status.setText(f"Installed {name} ({self._wizard_install_done} of {total}).")
+            return
+        self._wizard_install_log.append(line)
+        self._wizard_install_log.ensureCursorVisible()
+
     def _on_wizard_extra_install_done(self, code: int, installed: list[tuple[str, str]]):
-        self._wizard_install_progress.hide()
         _finish_worker(self, attr="_wizard_extra_worker")
         if code == 0:
+            self._wizard_install_progress.setValue(max(1, getattr(self, "_wizard_install_total", 1)))
             self._wizard_install_status.setText("Optional apps installed.")
             self._wizard_install_status.setObjectName("status-ok")
             self._wizard_install_log.append("\nDone.")
