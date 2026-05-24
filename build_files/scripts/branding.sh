@@ -372,7 +372,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v2"
+version="v3"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -521,7 +521,7 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
 
     # Double-click to open files — KDE defaults to single-click; Windows users
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
-    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool --notify false
+    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
 
     # Clipboard history — Win+V equivalent. Klipper ships enabled but history
     # is off by default; turn it on with a 25-item buffer.
