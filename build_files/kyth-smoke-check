@@ -289,16 +289,24 @@ check_file /usr/share/wallpapers/kyth/metadata.json "KythOS wallpaper"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
 check_file /etc/skel/.config/baloofilerc "Baloo quiet default"
+check_file /usr/bin/kyth-user-polish "User comfort polish"
+check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
+check_file /etc/xdg/mimeapps.list "Default app associations"
+check_file /usr/bin/kyth-post-update-check "Post-update confidence"
+check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
+check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
+check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
+check_file /etc/skel/Games "Games folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 
 if [[ -r "${HOME}/.config/kdeglobals" ]]; then
     if grep -q '^SingleClick=false' "${HOME}/.config/kdeglobals"; then
         pass "Double-click default" "user config uses Windows-style open behavior"
     else
-        warn "Double-click default" "run /usr/bin/kyth-windows-friendly-defaults"
+        warn "Double-click default" "run /usr/bin/kyth-user-polish or log out/in after updating"
     fi
 else
-    warn "Double-click default" "user KDE config not created yet; run /usr/bin/kyth-windows-friendly-defaults after login"
+    warn "Double-click default" "user KDE config not created yet; /usr/bin/kyth-user-polish applies it after login"
 fi
 
 section "Core Daily-Driver Services"
@@ -418,6 +426,9 @@ check_system_unit_enabled kyth-topgrade-migrate.service "Topgrade migration"
 check_system_unit_enabled kyth-local-bin-migrate.service "Local bin migration"
 check_file /usr/share/ublue-os/just/75-kyth.just "KythOS ujust recipes"
 check_optional_command kyth-device-info "Support snapshot"
+check_optional_command kyth-controller-check "Controller check"
+check_optional_command kyth-resume-check "Resume check"
+check_optional_command kyth-nvidia-status "NVIDIA status check"
 
 if [[ "$VERBOSE" -eq 1 ]]; then
     section "Verbose Context"

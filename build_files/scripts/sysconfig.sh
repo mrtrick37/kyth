@@ -897,6 +897,9 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx set *
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx restart
 %wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx stop
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl start kyth-flathub-setup.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl start kyth-default-flatpaks.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl restart kyth-default-flatpaks.service
 # distrobox enter --root internally calls "sudo podman exec/start/inspect" to
 # manage rootful containers.  From a KDE app launcher (no TTY) sudo cannot
 # prompt for a password, so GUI apps like zenmap would silently fail.

@@ -3312,6 +3312,80 @@ def _diagnostics_report(probes: list[HardwareProbe]) -> str:
     return "\n".join(lines).strip() + "\n"
 
 
+def _health_command_report() -> str:
+    checks: list[tuple[str, list[str], int]] = [
+        ("Daily-driver smoke check", ["/usr/bin/kyth-smoke-check", "--verbose"], 90),
+        ("Post-update confidence", ["/usr/bin/kyth-post-update-check", "--force", "--no-notify"], 45),
+        ("NVIDIA status", ["/usr/bin/kyth-nvidia-status"], 30),
+        ("Controller readiness", ["/usr/bin/kyth-controller-check"], 30),
+        ("Suspend/resume readiness", ["/usr/bin/kyth-resume-check"], 45),
+        ("Raw support snapshot", ["/usr/bin/kyth-device-info"], 60),
+    ]
+
+    sections = ["", "KythOS Health Command Output", "==========================", ""]
+    env = os.environ.copy()
+    env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
+    for title, cmd, timeout in checks:
+        sections.append(f"== {title} ==")
+        exe = cmd[0]
+        if not os.path.exists(exe) and shutil.which(exe) is None:
+            sections.extend([f"missing: {exe}", ""])
+            continue
+        try:
+            r = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+                env=env,
+            )
+            output = (r.stdout or "").strip()
+            err = (r.stderr or "").strip()
+            sections.append(f"command: {' '.join(shlex.quote(part) for part in cmd)}")
+            sections.append(f"exit: {r.returncode}")
+            if output:
+                sections.append(output)
+            if err:
+                sections.append("")
+                sections.append("stderr:")
+                sections.append(err)
+        except subprocess.TimeoutExpired:
+            sections.append(f"timed out after {timeout}s")
+        except Exception as exc:
+            sections.append(f"failed to run: {exc}")
+        sections.append("")
+    return "\n".join(sections)
+
+
+def _health_recommendations(report: str) -> str:
+    checks: list[tuple[str, str]] = [
+        ("kyth-default-flatpaks.service", "Default game apps are incomplete. Open Repair and click Retry Game Apps, or run: sudo systemctl restart kyth-default-flatpaks.service"),
+        ("Vulkan", "Vulkan reported trouble. Open Hardware and check Graphics; reboot if a GPU driver was just updated."),
+        ("PipeWire", "Desktop audio is not fully active. Open Repair and click Restart Audio."),
+        ("WirePlumber", "Audio session management is not fully active. Open Repair and click Restart Audio."),
+        ("Rollback deployment not visible", "Rollback is not visible yet. Run one OS update, reboot, then verify the previous deployment appears."),
+        ("NVIDIA setup has failures", "NVIDIA setup needs attention. Open NVIDIA Drivers or Repair and retry the NVIDIA build."),
+        ("NVIDIA setup needs attention", "NVIDIA may need a reboot or driver build. Open NVIDIA Drivers for the exact state."),
+        ("Controller readiness has warnings", "Controller support is partially unverified. Open Controllers, pair or plug in a gamepad, then run ujust controller-check."),
+        ("resume readiness has warnings", "Suspend/resume has warnings. Test Wi-Fi, Bluetooth, audio, display, and Vulkan after waking."),
+        ("not daily-driver ready", "Daily-driver smoke check found a blocker. Review the FAIL lines below first."),
+        ("Windows drives", "A Windows drive needs care. Use Move From Windows and fully shut down Windows before copying files."),
+    ]
+    recs: list[str] = []
+    lower_report = report.lower()
+    for needle, message in checks:
+        if needle.lower() in lower_report and message not in recs:
+            recs.append(message)
+
+    if not recs:
+        return ""
+
+    lines = ["", "Recommended Fixes", "=================", ""]
+    lines.extend(f"- {rec}" for rec in recs[:8])
+    lines.append("")
+    return "\n".join(lines)
+
+
 def _remove_autostart():
     path = os.path.expanduser("~/.config/autostart/kyth-welcome.desktop")
     try:
@@ -3906,54 +3980,6 @@ class HardwarePage(Page):
         self._card_col.setSpacing(12)
         self._add(self._card_container)
 
-        if not wizard_mode:
-            # ── Diagnostics Report ────────────────────────────────────────────
-            self._divider()
-            diag_head = QLabel("Diagnostics Report")
-            diag_head.setObjectName("heading")
-            diag_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
-            self._add(diag_head)
-            diag_sub = QLabel(
-                "A full system report covering all hardware checks above. "
-                "Paste into a bug report or save to a file."
-            )
-            diag_sub.setObjectName("card-copy")
-            diag_sub.setWordWrap(True)
-            self._add(diag_sub)
-
-            diag_btn_row = QHBoxLayout()
-            diag_btn_row.setSpacing(10)
-            self._diag_refresh_btn = QPushButton("Refresh & Regenerate")
-            self._diag_refresh_btn.clicked.connect(self.refresh)
-            diag_btn_row.addWidget(self._diag_refresh_btn)
-            self._diag_copy_btn = QPushButton("Copy Report")
-            self._diag_copy_btn.setEnabled(False)
-            self._diag_copy_btn.clicked.connect(self._copy_diag_report)
-            diag_btn_row.addWidget(self._diag_copy_btn)
-            self._diag_save_btn = QPushButton("Save Report…")
-            self._diag_save_btn.setEnabled(False)
-            self._diag_save_btn.clicked.connect(self._save_diag_report)
-            diag_btn_row.addWidget(self._diag_save_btn)
-            diag_btn_row.addStretch()
-            self._diag_status_lbl = QLabel()
-            self._diag_status_lbl.setObjectName("subheading")
-            diag_btn_row.addWidget(self._diag_status_lbl)
-            self._add_layout(diag_btn_row)
-
-            self._diag_report = QTextEdit()
-            self._diag_report.setReadOnly(True)
-            self._diag_report.setMinimumHeight(260)
-            self._diag_report.setStyleSheet(
-                "font-family: 'Noto Mono', 'Cascadia Code', monospace; font-size: 12px;"
-            )
-            self._add(self._diag_report)
-        else:
-            self._diag_refresh_btn = None
-            self._diag_copy_btn = None
-            self._diag_save_btn = None
-            self._diag_status_lbl = None
-            self._diag_report = None
-
         self._stretch()
         self.refresh()
 
@@ -3983,8 +4009,6 @@ class HardwarePage(Page):
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        if self._diag_refresh_btn:
-            self._diag_refresh_btn.setEnabled(True)
         _finish_worker(self)
         self._replace_cards(probes)
         self._last_probes = probes
@@ -3993,31 +4017,13 @@ class HardwarePage(Page):
         if "err" in levels:
             self._status_lbl.setText("One or more issues need attention.")
             self._status_lbl.setObjectName("status-err")
-            if self._diag_status_lbl:
-                self._diag_status_lbl.setText("Issues found — review before filing a bug.")
-                self._diag_status_lbl.setObjectName("status-err")
         elif "warn" in levels:
             self._status_lbl.setText("Mostly healthy — a few items worth checking.")
             self._status_lbl.setObjectName("status-warn")
-            if self._diag_status_lbl:
-                self._diag_status_lbl.setText("Completed with warnings.")
-                self._diag_status_lbl.setObjectName("status-warn")
         else:
             self._status_lbl.setText("All checks passed.")
             self._status_lbl.setObjectName("status-ok")
-            if self._diag_status_lbl:
-                self._diag_status_lbl.setText("All checks passed.")
-                self._diag_status_lbl.setObjectName("status-ok")
         _restyle(self._status_lbl)
-        if self._diag_status_lbl:
-            _restyle(self._diag_status_lbl)
-
-        if self._diag_report:
-            self._diag_report.setPlainText(_diagnostics_report(probes))
-        if self._diag_copy_btn:
-            self._diag_copy_btn.setEnabled(True)
-        if self._diag_save_btn:
-            self._diag_save_btn.setEnabled(True)
 
         if self._wizard_mode:
             self._wire_wizard_action_buttons(probes)
@@ -4047,39 +4053,10 @@ class HardwarePage(Page):
     def _on_failed(self, message: str):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
-        self._diag_refresh_btn.setEnabled(True)
         _finish_worker(self)
         self._status_lbl.setText(f"Probe failed: {message}")
         self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
-        self._diag_status_lbl.setText(f"Failed: {message}")
-        self._diag_status_lbl.setObjectName("status-err")
-        _restyle(self._diag_status_lbl)
-
-    def _copy_diag_report(self):
-        QApplication.clipboard().setText(self._diag_report.toPlainText())
-        self._diag_status_lbl.setText("Report copied to clipboard.")
-        self._diag_status_lbl.setObjectName("status-ok")
-        _restyle(self._diag_status_lbl)
-
-    def _save_diag_report(self):
-        default = os.path.expanduser(
-            f"~/Documents/kyth-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt"
-        )
-        path, _ = QFileDialog.getSaveFileName(
-            self, "Save Diagnostics Report", default, "Text Files (*.txt);;All Files (*)"
-        )
-        if not path:
-            return
-        try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(self._diag_report.toPlainText())
-            self._diag_status_lbl.setText(f"Saved to {path}.")
-            self._diag_status_lbl.setObjectName("status-ok")
-        except OSError as exc:
-            self._diag_status_lbl.setText(f"Could not save: {exc}")
-            self._diag_status_lbl.setObjectName("status-err")
-        _restyle(self._diag_status_lbl)
 
 
 # ── Page: Diagnostics ─────────────────────────────────────────────────────────
@@ -4087,18 +4064,21 @@ class DiagnosticsPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._health_worker = None
         self._last_probes: list[HardwareProbe] = []
+        self._base_report = ""
+        self._health_report = ""
 
         self._page_header(
             "System",
-            "Diagnostics",
-            "Generate a support report covering hardware, firmware, connectivity, audio, "
-            "storage, and system state. Paste it into a bug report or save it as a file.",
+            "Health Report",
+            "One support report for hardware probes, update confidence, controllers, "
+            "resume checks, gaming basics, and raw system state.",
         )
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
-        self._refresh_btn = QPushButton("Run Diagnostics")
+        self._refresh_btn = QPushButton("Run Health Report")
         self._refresh_btn.setObjectName("primary")
         self._refresh_btn.clicked.connect(self.refresh)
         btn_row.addWidget(self._refresh_btn)
@@ -4127,6 +4107,14 @@ class DiagnosticsPage(Page):
         self._report.setReadOnly(True)
         self._report.setMinimumHeight(300)
         self._add(self._report)
+
+        hint = QLabel(
+            "Hardware-specific live controls remain on Hardware, Gaming, Controllers, "
+            "Update, and Repair. This page only consolidates report output."
+        )
+        hint.setObjectName("status-dim")
+        hint.setWordWrap(True)
+        self._add(hint)
         self._stretch()
 
         self.refresh()
@@ -4139,7 +4127,9 @@ class DiagnosticsPage(Page):
         self._status_lbl.setObjectName("subheading")
         _restyle(self._status_lbl)
         self._progress.show()
-        self._report.setPlainText("Running diagnostics…")
+        self._base_report = ""
+        self._health_report = ""
+        self._report.setPlainText("Running health report…")
 
         self._worker = HardwareProbeWorker()
         self._worker.done.connect(self._on_done)
@@ -4153,18 +4143,63 @@ class DiagnosticsPage(Page):
         self._save_btn.setEnabled(True)
         _finish_worker(self)
         self._last_probes = probes
-        self._report.setPlainText(_diagnostics_report(probes))
+        self._base_report = _diagnostics_report(probes)
+        self._report.setPlainText(self._base_report + "\nRunning CLI health checks…")
 
         levels = {p.status for p in probes}
         if "err" in levels:
-            self._status_lbl.setText("Issues found — review before filing a bug.")
+            self._status_lbl.setText("Hardware issues found — running CLI checks.")
             self._status_lbl.setObjectName("status-err")
         elif "warn" in levels:
-            self._status_lbl.setText("Completed with warnings.")
+            self._status_lbl.setText("Hardware completed with warnings — running CLI checks.")
             self._status_lbl.setObjectName("status-warn")
         else:
-            self._status_lbl.setText("Diagnostics completed successfully.")
+            self._status_lbl.setText("Hardware checks passed — running CLI checks.")
             self._status_lbl.setObjectName("status-ok")
+        _restyle(self._status_lbl)
+
+        self._health_worker = DataWorker("health", _health_command_report)
+        self._health_worker.result.connect(self._on_health_done)
+        self._health_worker.failed.connect(self._on_health_failed)
+        self._health_worker.start()
+
+    def _on_health_done(self, _key: str, report: str):
+        _finish_worker(self, "_health_worker")
+        self._health_report = str(report)
+        recs = _health_recommendations(self._base_report + self._health_report)
+        self._report.setPlainText(self._base_report + recs + self._health_report)
+        self._copy_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        has_failures = (
+            re.search(r"^FAIL\s+", self._health_report, re.MULTILINE)
+            or re.search(r"^FAIL:\s*[1-9]", self._health_report, re.MULTILINE)
+            or "Result: not daily-driver ready" in self._health_report
+        )
+        has_warnings = (
+            re.search(r"^WARN\s+", self._health_report, re.MULTILINE)
+            or re.search(r"^WARN:\s*[1-9]", self._health_report, re.MULTILINE)
+            or "Result: controller readiness has warnings" in self._health_report
+            or "Result: resume readiness has warnings" in self._health_report
+        )
+        if has_failures:
+            self._status_lbl.setText("Health report completed — issues need attention.")
+            self._status_lbl.setObjectName("status-err")
+        elif has_warnings:
+            self._status_lbl.setText("Health report completed with warnings.")
+            self._status_lbl.setObjectName("status-warn")
+        else:
+            self._status_lbl.setText("Health report completed successfully.")
+            self._status_lbl.setObjectName("status-ok")
+        _restyle(self._status_lbl)
+
+    def _on_health_failed(self, _key: str, message: str):
+        _finish_worker(self, "_health_worker")
+        self._health_report = f"\nKythOS Health Command Output\n==========================\n\nfailed: {message}\n"
+        self._report.setPlainText(self._base_report + self._health_report)
+        self._copy_btn.setEnabled(True)
+        self._save_btn.setEnabled(True)
+        self._status_lbl.setText(f"Health command checks failed: {message}")
+        self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
 
     def _on_failed(self, message: str):
@@ -4183,8 +4218,8 @@ class DiagnosticsPage(Page):
         _restyle(self._status_lbl)
 
     def _save_report(self):
-        default = os.path.expanduser(f"~/Documents/kyth-diagnostics-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt")
-        path, _ = QFileDialog.getSaveFileName(self, "Save Diagnostics Report", default, "Text Files (*.txt);;All Files (*)")
+        default = os.path.expanduser(f"~/Documents/kyth-health-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt")
+        path, _ = QFileDialog.getSaveFileName(self, "Save Health Report", default, "Text Files (*.txt);;All Files (*)")
         if not path:
             return
         try:
@@ -5487,6 +5522,32 @@ class RepairPage(Page):
         info_layout.addWidget(info_body)
         self._add(info)
 
+        immutable, immutable_layout = _make_card("card-accent-ok")
+        immutable_title = QLabel("Why system files are read-only")
+        immutable_title.setObjectName("card-title")
+        immutable_layout.addWidget(immutable_title)
+        immutable_body = QLabel(
+            "KythOS protects the base OS like a game console image: /usr is read-only while "
+            "you are using the system, and OS changes arrive as a new bootable deployment. "
+            "That is why updates can be rolled back cleanly. Install apps with Flatpak, use "
+            "Distrobox for development tools, keep personal files in /home, and let KythOS "
+            "updates replace the base system instead of editing it by hand."
+        )
+        immutable_body.setObjectName("card-copy")
+        immutable_body.setWordWrap(True)
+        immutable_layout.addWidget(immutable_body)
+        immutable_btns = QHBoxLayout()
+        immutable_btns.setSpacing(8)
+        update_help_btn = QPushButton("Open Update Page")
+        update_help_btn.clicked.connect(lambda _=False: self._navigate("Update"))
+        immutable_btns.addWidget(update_help_btn)
+        software_help_btn = QPushButton("Open Software")
+        software_help_btn.clicked.connect(lambda _=False: self._navigate("Software"))
+        immutable_btns.addWidget(software_help_btn)
+        immutable_btns.addStretch()
+        immutable_layout.addLayout(immutable_btns)
+        self._add(immutable)
+
         # Undo last update
         rollback, rollback_layout = _make_card("card-accent-warn" if _has_rollback_deployment() else None)
         rollback_title = QLabel("Undo last update")
@@ -5539,6 +5600,8 @@ class RepairPage(Page):
         quick_btns.setSpacing(8)
         for label, cmd in (
             ("Refresh App Menu", ["bash", "-c", "update-desktop-database \"$HOME/.local/share/applications\" 2>/dev/null || true; kbuildsycoca6 --noincremental"]),
+            ("Apply User Polish", ["/usr/bin/kyth-user-polish"]),
+            ("Retry Game Apps", ["sudo", "-A", "systemctl", "restart", "kyth-default-flatpaks.service"]),
             ("Fix Flatpak Apps", ["flatpak", "repair", "--user"]),
             ("Restart Audio", ["systemctl", "--user", "restart", "pipewire", "pipewire-pulse", "wireplumber"]),
             ("Restart Bluetooth", ["sudo", "-A", "systemctl", "restart", "bluetooth"]),
@@ -5546,6 +5609,15 @@ class RepairPage(Page):
             btn = QPushButton(label)
             btn.clicked.connect(lambda _=False, c=cmd, l=label: self._run_quick_fix(l, c))
             quick_btns.addWidget(btn)
+        if _detect_nvidia():
+            nvidia_status_btn = QPushButton("NVIDIA Status")
+            nvidia_status_btn.clicked.connect(
+                lambda _=False: self._run_quick_fix("NVIDIA Status", ["/usr/bin/kyth-nvidia-status"])
+            )
+            quick_btns.addWidget(nvidia_status_btn)
+            nvidia_fix_btn = QPushButton("Retry NVIDIA Build")
+            nvidia_fix_btn.clicked.connect(lambda _=False: self._navigate("NVIDIA"))
+            quick_btns.addWidget(nvidia_fix_btn)
         task_btn = QPushButton("Open Task Manager")
         task_btn.setObjectName("primary")
         task_btn.clicked.connect(self._open_task_manager)
@@ -14619,6 +14691,7 @@ class MainWindow(QMainWindow):
             ("System", [
                 ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
                 ("↻", "Update",   "Update",   UpdatePage),
+                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
                 ("⬟", "Firmware", "Firmware", FirmwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),

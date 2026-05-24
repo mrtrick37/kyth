@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# Read-only suspend/resume confidence check.
+
+set -uo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+pass() { printf 'PASS  %-28s %s\n' "$1" "$2"; }
+warn() { printf 'WARN  %-28s %s\n' "$1" "$2"; WARNINGS=$((WARNINGS + 1)); }
+fail() { printf 'FAIL  %-28s %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
+
+WARNINGS=0
+FAILURES=0
+
+echo "KythOS Resume Check"
+echo "Generated: $(date -Is)"
+echo
+
+if have loginctl && loginctl show-session "${XDG_SESSION_ID:-self}" >/dev/null 2>&1; then
+    pass "Login session" "logind can see this session"
+else
+    warn "Login session" "session not visible through loginctl"
+fi
+
+if have nmcli; then
+    state="$(nmcli -t -f STATE general 2>/dev/null || true)"
+    [[ "$state" == connected* ]] && pass "Network" "$state" || warn "Network" "${state:-unknown}"
+else
+    warn "Network" "nmcli unavailable"
+fi
+
+if have systemctl; then
+    systemctl --user is-active --quiet pipewire.service 2>/dev/null \
+        && pass "PipeWire" "active" || warn "PipeWire" "not active"
+    systemctl --user is-active --quiet wireplumber.service 2>/dev/null \
+        && pass "WirePlumber" "active" || warn "WirePlumber" "not active"
+    systemctl is-active --quiet bluetooth.service 2>/dev/null \
+        && pass "Bluetooth service" "active" || warn "Bluetooth service" "not active"
+fi
+
+if compgen -G "/sys/class/bluetooth/hci*" >/dev/null; then
+    pass "Bluetooth adapter" "controller present"
+else
+    warn "Bluetooth adapter" "no hci controller visible"
+fi
+
+if have lspci && lspci -nn 2>/dev/null | grep -Eiq 'vga|3d|display'; then
+    gpu="$(lspci -nn 2>/dev/null | grep -Ei 'vga|3d|display' | sed -n '1p')"
+    pass "GPU detected" "$gpu"
+else
+    warn "GPU detected" "no GPU found via lspci"
+fi
+
+if have vulkaninfo; then
+    timeout 10 vulkaninfo --summary >/dev/null 2>&1 \
+        && pass "Vulkan" "responding" || warn "Vulkan" "failed after resume"
+else
+    warn "Vulkan" "vulkaninfo unavailable"
+fi
+
+if have kscreen-doctor; then
+    connected="$(kscreen-doctor -o 2>/dev/null | grep -c ' connected' || true)"
+    [[ "${connected:-0}" -gt 0 ]] && pass "Displays" "${connected} connected output(s)" || warn "Displays" "no connected output reported"
+else
+    warn "Displays" "kscreen-doctor unavailable"
+fi
+
+if journalctl -b --since '-10 minutes' -p err --no-pager >/tmp/kyth-resume-journal.$$ 2>/dev/null; then
+    errs="$(grep -Ec 'amdgpu|nvidia|i915|xe|bluetooth|NetworkManager|pipewire|wireplumber|kwin' /tmp/kyth-resume-journal.$$ || true)"
+    [[ "${errs:-0}" -eq 0 ]] && pass "Recent critical logs" "no matching errors in last 10 minutes" \
+        || warn "Recent critical logs" "${errs} matching error(s) in last 10 minutes"
+else
+    warn "Recent critical logs" "journalctl unavailable"
+fi
+rm -f /tmp/kyth-resume-journal.$$
+
+if [[ "$FAILURES" -gt 0 ]]; then
+    echo
+    echo "Result: resume readiness has failures."
+    exit 2
+fi
+if [[ "$WARNINGS" -gt 0 ]]; then
+    echo
+    echo "Result: resume readiness has warnings."
+    exit 1
+fi
+echo
+echo "Result: resume readiness looks good."

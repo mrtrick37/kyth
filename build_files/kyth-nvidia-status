@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+# Summarize NVIDIA readiness without changing the system.
+
+set -uo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+pass() { printf 'PASS  %-28s %s\n' "$1" "$2"; }
+warn() { printf 'WARN  %-28s %s\n' "$1" "$2"; WARNINGS=$((WARNINGS + 1)); }
+fail() { printf 'FAIL  %-28s %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
+
+WARNINGS=0
+FAILURES=0
+
+echo "KythOS NVIDIA Status"
+echo "Generated: $(date -Is)"
+echo
+
+if ! have lspci || ! lspci 2>/dev/null | grep -qi nvidia; then
+    pass "NVIDIA hardware" "no NVIDIA GPU detected"
+    echo
+    echo "Result: no NVIDIA-specific work needed."
+    exit 0
+fi
+
+gpu="$(lspci -nn 2>/dev/null | grep -i nvidia | sed -n '1p')"
+pass "NVIDIA hardware" "$gpu"
+
+if rpm -q akmod-nvidia >/dev/null 2>&1; then
+    pass "akmod-nvidia" "installed"
+else
+    fail "akmod-nvidia" "missing from image"
+fi
+
+if modinfo nvidia >/dev/null 2>&1; then
+    pass "Kernel module built" "modinfo nvidia works"
+else
+    warn "Kernel module built" "not built for current kernel yet"
+fi
+
+if lsmod 2>/dev/null | grep -q '^nvidia '; then
+    pass "Kernel module loaded" "nvidia loaded"
+else
+    warn "Kernel module loaded" "not loaded; reboot may be required after build"
+fi
+
+svc_state="unknown"
+if have systemctl; then
+    svc_state="$(systemctl is-active kyth-hw-setup.service 2>/dev/null || true)"
+    svc_result="$(systemctl show -p Result --value kyth-hw-setup.service 2>/dev/null || true)"
+    case "$svc_state:$svc_result" in
+        active:*|activating:*) warn "Hardware setup service" "building in background" ;;
+        inactive:success|failed:success) pass "Hardware setup service" "completed" ;;
+        failed:*) fail "Hardware setup service" "failed; run journalctl -u kyth-hw-setup" ;;
+        *) warn "Hardware setup service" "${svc_state:-unknown} ${svc_result:-}" ;;
+    esac
+fi
+
+if have nvidia-smi; then
+    if nvidia-smi --query-gpu=name,driver_version --format=csv,noheader 2>/dev/null | sed -n '1p' >/tmp/kyth-nvidia-smi.$$; then
+        smi="$(cat /tmp/kyth-nvidia-smi.$$)"
+        [[ -n "$smi" ]] && pass "nvidia-smi" "$smi" || warn "nvidia-smi" "no GPU output"
+    else
+        warn "nvidia-smi" "command failed"
+    fi
+    rm -f /tmp/kyth-nvidia-smi.$$
+else
+    warn "nvidia-smi" "not available until proprietary driver is active"
+fi
+
+echo
+if [[ "$FAILURES" -gt 0 ]]; then
+    echo "Result: NVIDIA setup has failures."
+    exit 2
+fi
+if [[ "$WARNINGS" -gt 0 ]]; then
+    echo "Result: NVIDIA setup needs attention or a reboot."
+    exit 1
+fi
+echo "Result: NVIDIA setup looks good."

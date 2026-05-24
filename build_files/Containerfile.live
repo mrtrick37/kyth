@@ -61,6 +61,12 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
         /usr/bin/kyth-kerver \
         /usr/bin/kyth-device-info \
         /usr/bin/kyth-smoke-check \
+        /usr/bin/kyth-post-update-check \
+        /usr/bin/kyth-firstboot-app-status \
+        /usr/bin/kyth-controller-check \
+        /usr/bin/kyth-resume-check \
+        /usr/bin/kyth-nvidia-status \
+        /usr/bin/kyth-user-polish \
         /usr/bin/kyth-creator-check \
         /usr/bin/kyth-davinci-install \
         /usr/bin/kyth-duperemove \
@@ -85,6 +91,8 @@ RUN echo "==> Checking whether live ISO base represents installed KythOS image" 
         /usr/lib/systemd/system/kyth-flathub-setup.service \
         /usr/lib/systemd/system/kyth-default-flatpaks.service \
         /usr/lib/systemd/system/kyth-hw-setup.service \
+        /etc/xdg/autostart/kyth-post-update-check.desktop \
+        /etc/xdg/autostart/kyth-firstboot-app-status.desktop \
         /usr/share/ublue-os/just/75-kyth.just; do \
            if ! test -e "$path"; then \
                echo "WARNING: installed KythOS artifact missing from live ISO base image: $path"; \
