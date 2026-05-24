@@ -161,7 +161,7 @@ check_flatpak() {
     elif flatpak_installed "$app_id"; then
         pass "$label" "$app_id installed"
     else
-        warn "$label" "$app_id not installed yet"
+        warn "$label" "$app_id missing; run sudo systemctl start kyth-default-flatpaks.service"
     fi
 }
 
@@ -188,12 +188,42 @@ check_kernel_module_or_builtin() {
 }
 
 short_bootc_ref() {
-    bootc status --format json 2>/dev/null \
+    local cmd=(bootc status --format json)
+    if ! "${cmd[@]}" 2>/dev/null \
         | python3 -c 'import json,sys
 s=json.load(sys.stdin)
 img=s.get("status",{}).get("booted",{}).get("image",{}).get("image",{}).get("image","")
 digest=s.get("status",{}).get("booted",{}).get("image",{}).get("imageDigest","")
+print(img or digest or "unknown")' 2>/dev/null; then
+        sudo -n bootc status --format json 2>/dev/null \
+            | python3 -c 'import json,sys
+s=json.load(sys.stdin)
+img=s.get("status",{}).get("booted",{}).get("image",{}).get("image",{}).get("image","")
+digest=s.get("status",{}).get("booted",{}).get("image",{}).get("imageDigest","")
 print(img or digest or "unknown")' 2>/dev/null
+    fi
+}
+
+read_deployment_status() {
+    local dest="$1"
+    DEPLOYMENT_STATUS_SOURCE=""
+
+    if have bootc && bootc status >"$dest" 2>/dev/null; then
+        DEPLOYMENT_STATUS_SOURCE="bootc"
+        return 0
+    fi
+
+    if have sudo && sudo -n bootc status >"$dest" 2>/dev/null; then
+        DEPLOYMENT_STATUS_SOURCE="bootc-sudo"
+        return 0
+    fi
+
+    if have ostree && ostree admin status >"$dest" 2>/dev/null; then
+        DEPLOYMENT_STATUS_SOURCE="ostree"
+        return 0
+    fi
+
+    return 1
 }
 
 deployment_count() {
@@ -218,10 +248,15 @@ fi
 
 check_command bootc "bootc"
 if have bootc; then
-    if bootc status >/tmp/kyth-smoke-bootc.$$ 2>/dev/null; then
-        ref="$(short_bootc_ref)"
-        pass "Booted image" "${ref:-bootc status readable}"
-        if grep -qi 'staged' /tmp/kyth-smoke-bootc.$$; then
+    if read_deployment_status /tmp/kyth-smoke-bootc.$$; then
+        if [[ "$DEPLOYMENT_STATUS_SOURCE" == bootc* ]]; then
+            ref="$(short_bootc_ref)"
+            pass "Booted image" "${ref:-bootc status readable}"
+        else
+            ref="$(awk '/^\*/ {print $2; exit}' /tmp/kyth-smoke-bootc.$$)"
+            pass "Booted deployment" "${ref:-ostree admin status readable} (bootc status requires root)"
+        fi
+        if [[ "$DEPLOYMENT_STATUS_SOURCE" == bootc* ]] && grep -qi 'staged' /tmp/kyth-smoke-bootc.$$; then
             warn "Staged update" "reboot before performance testing"
         else
             pass "Staged update" "none detected"
@@ -260,10 +295,10 @@ if [[ -r "${HOME}/.config/kdeglobals" ]]; then
     if grep -q '^SingleClick=false' "${HOME}/.config/kdeglobals"; then
         pass "Double-click default" "user config uses Windows-style open behavior"
     else
-        warn "Double-click default" "user config may still use single-click"
+        warn "Double-click default" "run /usr/bin/kyth-windows-friendly-defaults"
     fi
 else
-    warn "Double-click default" "user KDE config not created yet"
+    warn "Double-click default" "user KDE config not created yet; run /usr/bin/kyth-windows-friendly-defaults after login"
 fi
 
 section "Core Daily-Driver Services"

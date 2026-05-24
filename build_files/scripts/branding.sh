@@ -361,7 +361,7 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
 
     # Double-click to open files — KDE defaults to single-click; Windows users
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
-    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick false
+    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool --notify false
 
     # Clipboard history — Win+V equivalent. Klipper ships enabled but history
     # is off by default; turn it on with a 25-item buffer.
