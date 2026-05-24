@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+# Read-only confidence check shown once per booted deployment after login.
+
+set -uo pipefail
+
+APP_NAME="KythOS Post-Update Check"
+STAMP_DIR="${HOME}/.local/share/kyth"
+FORCE=0
+NOTIFY=1
+
+have() { command -v "$1" >/dev/null 2>&1; }
+
+notify() {
+    [[ "$NOTIFY" -eq 1 ]] || return 0
+    local title="$1"
+    local body="$2"
+    if have notify-send; then
+        notify-send --app-name="KythOS" "$title" "$body" >/dev/null 2>&1 || true
+    elif have kdialog; then
+        kdialog --title "$title" --passivepopup "$body" 12 >/dev/null 2>&1 || true
+    fi
+}
+
+deployment_id() {
+    if have ostree; then
+        ostree admin status 2>/dev/null | awk '/^\*/ {print $2"."$3; exit}'
+        return
+    fi
+    if have bootc; then
+        bootc status --format json 2>/dev/null \
+            | python3 -c 'import json,sys
+s=json.load(sys.stdin)
+print(s.get("status",{}).get("booted",{}).get("image",{}).get("imageDigest",""))' 2>/dev/null
+        return
+    fi
+    uname -r
+}
+
+check_flatpak() {
+    local app_id="$1"
+    flatpak info "$app_id" >/dev/null 2>&1
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --force) FORCE=1 ;;
+        --no-notify) NOTIFY=0 ;;
+        --help|-h)
+            echo "Usage: kyth-post-update-check [--force] [--no-notify]"
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            exit 64
+            ;;
+    esac
+    shift
+done
+
+CAN_STAMP=1
+mkdir -p "${STAMP_DIR}" 2>/dev/null || CAN_STAMP=0
+dep="$(deployment_id)"
+dep="${dep:-unknown-$(uname -r)}"
+stamp="${STAMP_DIR}/post-update-check-${dep//[^A-Za-z0-9_.-]/_}"
+
+if [[ "$FORCE" -ne 1 && "$CAN_STAMP" -eq 1 && -f "${stamp}" ]]; then
+    exit 0
+fi
+
+failures=()
+warnings=()
+
+if have ostree; then
+    deployments="$(ostree admin status 2>/dev/null | grep -Ec '^\*? +[A-Za-z0-9_-]+ ' || true)"
+    [[ "${deployments:-0}" -ge 2 ]] || warnings+=("Rollback deployment not visible yet.")
+elif have bootc; then
+    bootc status >/dev/null 2>&1 || warnings+=("bootc status needs root; rollback was not checked here.")
+else
+    failures+=("No deployment tool found.")
+fi
+
+if have lspci && lspci -nn 2>/dev/null | grep -Eiq 'vga|3d|display'; then
+    gpu_line="$(lspci -nn 2>/dev/null | grep -Ei 'vga|3d|display' | sed -n '1p')"
+    if grep -qi nvidia <<<"${gpu_line}"; then
+        lsmod 2>/dev/null | grep -q '^nvidia ' \
+            || warnings+=("NVIDIA hardware detected but proprietary module is not loaded.")
+    elif grep -Eiq 'amd|ati' <<<"${gpu_line}"; then
+        lsmod 2>/dev/null | grep -q '^amdgpu' \
+            || warnings+=("AMD GPU detected but amdgpu is not loaded.")
+    elif grep -qi intel <<<"${gpu_line}"; then
+        lsmod 2>/dev/null | grep -q '^i915\|^xe' \
+            || warnings+=("Intel GPU detected but i915/xe is not loaded.")
+    fi
+else
+    warnings+=("No GPU was detected by lspci.")
+fi
+
+if have vulkaninfo; then
+    timeout 10 vulkaninfo --summary >/dev/null 2>&1 \
+        || warnings+=("Vulkan check failed after update.")
+else
+    warnings+=("vulkaninfo is missing, so Vulkan was not checked.")
+fi
+
+if have flatpak; then
+    for app in \
+        com.valvesoftware.Steam \
+        net.lutris.Lutris \
+        com.heroicgameslauncher.hgl \
+        com.usebottles.bottles \
+        com.github.mtkennerly.ludusavi; do
+        check_flatpak "$app" || warnings+=("${app} is not installed.")
+    done
+else
+    failures+=("Flatpak is missing.")
+fi
+
+if have systemctl; then
+    systemctl --user is-active --quiet pipewire.service 2>/dev/null \
+        || warnings+=("PipeWire is not active in this login session.")
+    systemctl --user is-active --quiet wireplumber.service 2>/dev/null \
+        || warnings+=("WirePlumber is not active in this login session.")
+fi
+
+if [[ "${#failures[@]}" -gt 0 ]]; then
+    title="${APP_NAME}: needs attention"
+    body="$(printf '%s\n' "${failures[@]}" "${warnings[@]}" | sed '/^$/d' | head -5 | paste -sd ' ' -)"
+    echo "$title"
+    printf 'FAIL  %s\n' "${failures[@]}"
+    [[ "${#warnings[@]}" -eq 0 ]] || printf 'WARN  %s\n' "${warnings[@]}"
+    notify "$title" "${body:-Run ujust smoke-check for details.}"
+    exit 2
+fi
+
+if [[ "${#warnings[@]}" -gt 0 ]]; then
+    title="${APP_NAME}: review recommended"
+    body="$(printf '%s\n' "${warnings[@]}" | head -5 | paste -sd ' ' -)"
+    echo "$title"
+    printf 'WARN  %s\n' "${warnings[@]}"
+    notify "$title" "${body:-Run ujust smoke-check for details.}"
+    [[ "$CAN_STAMP" -eq 1 && "$NOTIFY" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
+    exit 1
+fi
+
+echo "${APP_NAME}: ready"
+echo "PASS  Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
+notify "${APP_NAME}: ready" "Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
+[[ "$CAN_STAMP" -eq 1 && "$NOTIFY" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
+exit 0

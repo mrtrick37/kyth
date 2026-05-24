@@ -384,9 +384,10 @@ dnf5 remove -y --no-autoremove plasma-discover-rpm-ostree 2>/dev/null || true
 dnf5 remove -y firefox || true
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
-# These packages all install from the same repo state, so keep them in one
-# transaction to cut down on repeated dependency solving.
-dnf5 install -y \
+# Keep required desktop helper packages in one transaction. Optional niceties
+# are installed individually below so a transient RPM/scriptlet issue in a font
+# or hardware utility does not block the image.
+dnf5 install -y --skip-unavailable \
     python3-pyqt6 \
     python3-pyqt6-webengine \
     qt6-qtwayland \
@@ -403,11 +404,34 @@ dnf5 install -y \
     zsh \
     nodejs \
     npm \
-    jetbrains-mono-fonts \
-    cascadia-code-fonts \
     openconnect \
-    vpnc
+    vpnc \
+    kde-connect \
+    cups-browsed
+
+optional_desktop_packages=(
+    jetbrains-mono-fonts
+    cascadia-code-fonts
+    liberation-fonts-all
+    openrgb
+)
+
+for pkg in "${optional_desktop_packages[@]}"; do
+    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+        dnf5 install -y --skip-unavailable "${pkg}" || \
+            echo "WARNING: optional desktop package '${pkg}' failed to install; continuing." >&2
+    else
+        echo "optional desktop package '${pkg}' is unavailable in configured repos; skipping."
+    fi
+done
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
+# kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
+# cups-browsed: auto-discovers printers on the LAN without manual config.
+# liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
+#   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
+#   SourceForge at install time, which is unreliable in CI builds.
+# openrgb: unified RGB lighting control for Corsair/ASUS/MSI/Razer/etc.
+# input-remapper is already installed in the gaming packages block above.
 
 # Wire up SDDM and graphical boot via explicit symlinks.
 # systemctl enable/set-default are unreliable inside a container build (no

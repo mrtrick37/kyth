@@ -308,6 +308,41 @@ device-info:
     set -euo pipefail
     /usr/bin/kyth-device-info
 
+# Run the daily-driver readiness smoke check.
+[group('KythOS')]
+smoke-check *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-smoke-check {{ args }}
+
+# Run the once-per-deployment post-update confidence check now.
+[group('KythOS')]
+post-update-check *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-post-update-check --force {{ args }}
+
+# Check controller readiness for Steam Input, Bluetooth, and remapping paths.
+[group('KythOS')]
+controller-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-controller-check
+
+# Check common suspend/resume regressions: network, audio, Bluetooth, display, Vulkan.
+[group('KythOS')]
+resume-check:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-resume-check
+
+# Check NVIDIA hardware, akmod build, loaded module, and reboot-needed state.
+[group('KythOS')]
+nvidia-status:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-nvidia-status
+
 # Install LACT from Flathub on an immutable system.
 [group('KythOS')]
 install-lact:

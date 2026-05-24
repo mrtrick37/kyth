@@ -1,0 +1,239 @@
+#!/usr/bin/env python3
+"""kyth-exe-handler — intercept Windows .exe/.msi files and suggest Linux alternatives.
+
+Registered as the default MIME handler for application/x-ms-dos-executable so that
+double-clicking a Windows installer in Dolphin shows a curated suggestion dialog
+instead of silently failing or opening a hex editor.
+"""
+
+import os
+import re
+import shutil
+import subprocess
+import sys
+
+os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
+
+from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtWidgets import (
+    QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
+    QPushButton, QVBoxLayout,
+)
+
+# (filename_pattern, display_name, suggestion_text, flathub_id_or_None)
+# Patterns matched case-insensitively against the installer stem after stripping
+# common setup/version suffixes (e.g. "MicrosoftTeams-x64.exe" → "microsoftteams").
+_APP_DB = [
+    # Microsoft Office
+    (r"word|winword",           "Microsoft Word",           "Use LibreOffice Writer — fully compatible with .docx files.",          "org.libreoffice.LibreOffice"),
+    (r"excel",                  "Microsoft Excel",          "Use LibreOffice Calc — reads and writes .xlsx files.",                 "org.libreoffice.LibreOffice"),
+    (r"powerpnt|powerpoint",    "Microsoft PowerPoint",     "Use LibreOffice Impress — reads and writes .pptx files.",              "org.libreoffice.LibreOffice"),
+    (r"outlook",                "Microsoft Outlook",        "Use Thunderbird for desktop email and calendar.",                      "org.mozilla.Thunderbird"),
+    (r"onenote",                "Microsoft OneNote",        "Access OneNote at onenote.com, or use Obsidian for local notes.",      None),
+    (r"teams",                  "Microsoft Teams",          "Use Teams in the browser, or pin it as a Web App via WebApp Manager.", "io.github.vikdevelop.WebApp"),
+    (r"onedrive",               "OneDrive",                 "Access OneDrive through KDE's Online Accounts in System Settings.",    None),
+    # Communication
+    (r"discord",                "Discord",                  "Install the native Linux Discord app.",                                "com.discordapp.Discord"),
+    (r"slack",                  "Slack",                    "Install Slack from Flathub.",                                         "com.slack.Slack"),
+    (r"zoom",                   "Zoom",                     "Install Zoom from Flathub.",                                          "us.zoom.Zoom"),
+    (r"skype",                  "Skype",                    "Install Skype from Flathub.",                                         "com.skype.Skype"),
+    (r"signal",                 "Signal",                   "Install Signal from Flathub.",                                        "org.signal.Signal"),
+    (r"telegram",               "Telegram",                 "Install Telegram from Flathub.",                                      "org.telegram.desktop"),
+    (r"whatsapp",               "WhatsApp",                 "Pin WhatsApp Web as a desktop app via WebApp Manager.",               "io.github.vikdevelop.WebApp"),
+    # Browsers
+    (r"chrome|googlechrome",    "Google Chrome",            "Install Chrome from Flathub.",                                        "com.google.Chrome"),
+    (r"firefox",                "Firefox",                  "Firefox is available from Flathub.",                                  "org.mozilla.firefox"),
+    (r"brave",                  "Brave",                    "Install Brave from Flathub.",                                         "com.brave.Browser"),
+    # Adobe Creative Cloud
+    (r"photoshop",              "Adobe Photoshop",          "Use GIMP for photo editing — it handles many Photoshop files.",       "org.gimp.GIMP"),
+    (r"premiere",               "Adobe Premiere",           "Use Kdenlive or DaVinci Resolve for video editing.",                  "org.kde.kdenlive"),
+    (r"after.?e?f?fects|afterfx","Adobe After Effects",     "Use Blender for motion graphics and visual effects.",                 "org.blender.Blender"),
+    (r"audition",               "Adobe Audition",           "Use Audacity for audio editing.",                                     "org.audacityteam.Audacity"),
+    (r"lightroom",              "Adobe Lightroom",          "Use Darktable for raw photo processing.",                             "org.darktable.Darktable"),
+    (r"illustrator",            "Adobe Illustrator",        "Use Inkscape for vector graphics.",                                   "org.inkscape.Inkscape"),
+    # Gaming launchers
+    (r"steam",                  "Steam",                    "Steam is already installed on KythOS.",                               "com.valvesoftware.Steam"),
+    (r"epicgames|epicinstaller","Epic Games Launcher",      "Use Heroic Games Launcher to access your Epic library.",              "com.heroicgameslauncher.hgl"),
+    (r"galaxyclient|gog",       "GOG Galaxy",               "Use Heroic Games Launcher to access your GOG library.",               "com.heroicgameslauncher.hgl"),
+    (r"battle.?net|blizzard",   "Battle.net",               "Run Battle.net through Lutris or Bottles.",                          "net.lutris.Lutris"),
+    (r"origin|eaapp|ea.?app",   "EA App / Origin",          "Use Heroic Games Launcher to access your EA library.",                "com.heroicgameslauncher.hgl"),
+    (r"uplay|ubisoft.?connect", "Ubisoft Connect",          "Use Heroic Games Launcher to access your Ubisoft library.",           "com.heroicgameslauncher.hgl"),
+    # Productivity / tools
+    (r"notepad\+\+|npp\b",      "Notepad++",                "Use Kate (already installed) or VS Code for text editing.",           None),
+    (r"7z|7-?zip",              "7-Zip",                    "p7zip is already installed — right-click any archive in Dolphin.",    None),
+    (r"winrar",                 "WinRAR",                   "p7zip is already installed — right-click any archive in Dolphin.",    None),
+    (r"obs.?studio|obs64",      "OBS Studio",               "Install OBS Studio from Flathub.",                                    "com.obsproject.Studio"),
+    (r"vlc",                    "VLC",                      "Install VLC from Flathub.",                                           "org.videolan.VLC"),
+    (r"spotify",                "Spotify",                   "Install Spotify from Flathub.",                                      "com.spotify.Client"),
+    (r"bitwarden",              "Bitwarden",                "Install Bitwarden from Flathub.",                                     "com.bitwarden.desktop"),
+    (r"1password",              "1Password",                "Install 1Password from Flathub.",                                     "com.onepassword.OnePassword"),
+    (r"resolve|davinci",        "DaVinci Resolve",          "Install DaVinci Resolve via KythOS System Hub → Software.",           None),
+    (r"gimp",                   "GIMP",                     "Install GIMP from Flathub.",                                          "org.gimp.GIMP"),
+    (r"inkscape",               "Inkscape",                 "Install Inkscape from Flathub.",                                      "org.inkscape.Inkscape"),
+    (r"blender",                "Blender",                  "Install Blender from Flathub.",                                       "org.blender.Blender"),
+]
+
+_QSS = """
+* { font-family: "Noto Sans", "Segoe UI", sans-serif; font-size: 13px; color: #cccccc; }
+QDialog { background: #1e1e1e; }
+QWidget { background: transparent; }
+QLabel  { background: transparent; }
+QFrame#sep { color: #3e3e42; }
+QPushButton {
+    background: #2d2d30; color: #cccccc;
+    border: 1px solid #3e3e42; border-radius: 4px;
+    padding: 6px 16px; min-height: 28px;
+}
+QPushButton:hover  { background: #3e3e42; color: #ffffff; }
+QPushButton#primary {
+    background: #0e639c; color: #ffffff; border-color: #1177bb;
+}
+QPushButton#primary:hover { background: #1177bb; }
+"""
+
+
+def _normalise(filename: str) -> str:
+    stem = os.path.splitext(os.path.basename(filename))[0].lower()
+    # Strip trailing version/arch tokens: -x64, _win64, -1.2.3, _v2, _amd64
+    stem = re.sub(r"[-_](x64|x86|x86_64|amd64|win64|win32|arm64|v?\d[\d.]*)$", "", stem)
+    # Strip leading/trailing setup / install wrappers
+    stem = re.sub(r"^(setup[-_]?|install[-_]?)", "", stem)
+    stem = re.sub(r"([-_]?setup|[-_]?install|[-_]?installer)$", "", stem)
+    return stem
+
+
+def _lookup(filepath: str):
+    stem = _normalise(filepath)
+    for pattern, app_name, suggestion, flatpak_id in _APP_DB:
+        if re.search(pattern, stem, re.IGNORECASE):
+            return app_name, suggestion, flatpak_id
+    return None, None, None
+
+
+def _flatpak_installed(flatpak_id: str) -> bool:
+    return subprocess.run(
+        ["flatpak", "info", flatpak_id],
+        capture_output=True,
+    ).returncode == 0
+
+
+def _launch_install(flatpak_id: str):
+    terminal = next(
+        (t for t in ("konsole", "gnome-terminal", "xterm") if shutil.which(t)),
+        None,
+    )
+    cmd = ["flatpak", "install", "--noninteractive", "flathub", flatpak_id]
+    if terminal == "konsole":
+        subprocess.Popen(["konsole", "-e"] + cmd)
+    elif terminal == "gnome-terminal":
+        subprocess.Popen(["gnome-terminal", "--"] + cmd)
+    elif terminal == "xterm":
+        subprocess.Popen(["xterm", "-e"] + cmd)
+    else:
+        subprocess.Popen(cmd)
+
+
+def main():
+    if len(sys.argv) < 2:
+        sys.exit(0)
+
+    filepath = sys.argv[1]
+    app_name, suggestion, flatpak_id = _lookup(filepath)
+    basename = os.path.basename(filepath)
+    search_term = (app_name or os.path.splitext(basename)[0]).replace(" ", "+")
+
+    app = QApplication(sys.argv)
+    app.setStyleSheet(_QSS)
+
+    dlg = QDialog()
+    dlg.setWindowTitle("KythOS — Windows Application")
+    dlg.setMinimumWidth(500)
+    dlg.setMaximumWidth(600)
+
+    root = QVBoxLayout(dlg)
+    root.setContentsMargins(24, 24, 24, 20)
+    root.setSpacing(14)
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    title = QLabel(f"<b>{app_name or 'Windows Application'}</b>")
+    title.setStyleSheet("font-size: 16px; color: #ffffff;")
+    root.addWidget(title)
+
+    file_lbl = QLabel(f"<span style='color:#888888; font-size:12px;'>{basename}</span>")
+    file_lbl.setWordWrap(True)
+    root.addWidget(file_lbl)
+
+    sep = QFrame()
+    sep.setObjectName("sep")
+    sep.setFrameShape(QFrame.Shape.HLine)
+    root.addWidget(sep)
+
+    # ── Suggestion ────────────────────────────────────────────────────────────
+    body_text = suggestion or (
+        "This is a Windows application installer. KythOS runs Linux software natively.\n\n"
+        "Search Flathub for a Linux equivalent, or run it inside Bottles (Wine)."
+    )
+    body = QLabel(body_text)
+    body.setWordWrap(True)
+    body.setStyleSheet("color: #d4d4d4; line-height: 1.5;")
+    root.addWidget(body)
+
+    # ── Buttons ───────────────────────────────────────────────────────────────
+    btn_row = QHBoxLayout()
+    btn_row.setSpacing(8)
+
+    if flatpak_id:
+        if _flatpak_installed(flatpak_id):
+            launch_btn = QPushButton("Launch →")
+            launch_btn.setObjectName("primary")
+            launch_btn.clicked.connect(
+                lambda: (subprocess.Popen(["flatpak", "run", flatpak_id]), dlg.accept())
+            )
+            btn_row.addWidget(launch_btn)
+        else:
+            install_btn = QPushButton("Install Linux Version")
+            install_btn.setObjectName("primary")
+            install_btn.clicked.connect(
+                lambda: (_launch_install(flatpak_id), dlg.accept())
+            )
+            btn_row.addWidget(install_btn)
+
+    flathub_btn = QPushButton("Search Flathub")
+    flathub_btn.clicked.connect(
+        lambda: (
+            QDesktopServices.openUrl(QUrl(f"https://flathub.org/apps/search?q={search_term}")),
+            dlg.accept(),
+        )
+    )
+    btn_row.addWidget(flathub_btn)
+
+    bottles_installed = _flatpak_installed("com.usebottles.bottles")
+    bottles_lbl = "Open with Bottles" if bottles_installed else "Try Bottles (Wine)"
+    bottles_btn = QPushButton(bottles_lbl)
+    bottles_btn.setToolTip("Run Windows apps in an isolated Wine environment")
+    bottles_btn.clicked.connect(
+        lambda: (
+            subprocess.Popen(
+                ["flatpak", "run", "com.usebottles.bottles"]
+                if bottles_installed
+                else ["flatpak", "install", "--noninteractive", "flathub", "com.usebottles.bottles"]
+            ),
+            dlg.accept(),
+        )
+    )
+    btn_row.addWidget(bottles_btn)
+
+    btn_row.addStretch()
+
+    cancel_btn = QPushButton("Cancel")
+    cancel_btn.clicked.connect(dlg.reject)
+    btn_row.addWidget(cancel_btn)
+
+    root.addLayout(btn_row)
+
+    dlg.exec()
+
+
+if __name__ == "__main__":
+    main()

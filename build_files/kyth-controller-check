@@ -1,0 +1,92 @@
+#!/usr/bin/env bash
+# Read-only controller readiness check for KythOS gaming validation.
+
+set -uo pipefail
+
+have() { command -v "$1" >/dev/null 2>&1; }
+pass() { printf 'PASS  %-28s %s\n' "$1" "$2"; }
+warn() { printf 'WARN  %-28s %s\n' "$1" "$2"; WARNINGS=$((WARNINGS + 1)); }
+fail() { printf 'FAIL  %-28s %s\n' "$1" "$2"; FAILURES=$((FAILURES + 1)); }
+
+WARNINGS=0
+FAILURES=0
+
+echo "KythOS Controller Check"
+echo "Generated: $(date -Is)"
+echo
+
+if [[ -d /dev/input ]]; then
+    pass "Input subsystem" "/dev/input present"
+else
+    fail "Input subsystem" "/dev/input missing"
+fi
+
+controllers=()
+if have udevadm; then
+    while IFS= read -r line; do
+        controllers+=("$line")
+    done < <(
+        for dev in /dev/input/event*; do
+            [[ -e "$dev" ]] || continue
+            name="$(udevadm info --query=property --name="$dev" 2>/dev/null \
+                | awk -F= '/^ID_MODEL_FROM_DATABASE=|^ID_MODEL=|^NAME=/{print $2; exit}')"
+            props="$(udevadm info --query=property --name="$dev" 2>/dev/null)"
+            if grep -Eiq 'joystick|gamepad|xbox|dualsense|dualshock|playstation|controller' <<<"${name} ${props}"; then
+                printf '%s %s\n' "$dev" "${name:-controller}"
+            fi
+        done
+    )
+fi
+
+if [[ "${#controllers[@]}" -gt 0 ]]; then
+    pass "Controller detected" "${controllers[0]}"
+    if [[ "${#controllers[@]}" -gt 1 ]]; then
+        printf '%s\n' "${controllers[@]:1}" | sed 's/^/      /'
+    fi
+else
+    warn "Controller detected" "none found; plug in or pair a controller and rerun"
+fi
+
+if have bluetoothctl; then
+    bt_devices="$(bluetoothctl devices 2>/dev/null || true)"
+    if grep -Eiq 'Xbox|DualSense|DualShock|Wireless Controller|8BitDo|Controller' <<<"${bt_devices}"; then
+        pass "Bluetooth controller" "$(grep -Ei 'Xbox|DualSense|DualShock|Wireless Controller|8BitDo|Controller' <<<"${bt_devices}" | sed -n '1p')"
+    else
+        warn "Bluetooth controller" "no paired controller-like Bluetooth device found"
+    fi
+else
+    warn "Bluetooth controller" "bluetoothctl unavailable"
+fi
+
+if have steam-devices; then
+    pass "Steam devices rules" "steam-devices command present"
+elif rpm -q steam-devices >/dev/null 2>&1; then
+    pass "Steam devices rules" "steam-devices package installed"
+else
+    warn "Steam devices rules" "steam-devices package not detected"
+fi
+
+if [[ -e /dev/uinput ]]; then
+    pass "uinput" "/dev/uinput present"
+else
+    warn "uinput" "/dev/uinput missing; some remappers may not work"
+fi
+
+if have flatpak && flatpak info com.valvesoftware.Steam >/dev/null 2>&1; then
+    pass "Steam" "installed"
+else
+    warn "Steam" "not installed"
+fi
+
+if [[ "$FAILURES" -gt 0 ]]; then
+    echo
+    echo "Result: controller readiness has failures."
+    exit 2
+fi
+if [[ "$WARNINGS" -gt 0 ]]; then
+    echo
+    echo "Result: controller readiness has warnings."
+    exit 1
+fi
+echo
+echo "Result: controller readiness looks good."
