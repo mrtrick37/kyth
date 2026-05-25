@@ -181,16 +181,16 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     nss.i686 \
     steam-devices \
     kdeplasma-addons \
-    rom-properties-kf6 \
     input-remapper
 
 # ── Optional PC gaming peripheral stack ──────────────────────────────────────
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
 # RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
-# dependency conflict, the image should still ship the core Steam/Gamescope/
-# MangoHud/GameMode stack. Each package is attempted independently so one flaky
-# package does not prevent the rest from landing.
+# dependency conflict or mirror outage, the image should still ship the core
+# Steam/Gamescope/MangoHud/GameMode stack. Each package is attempted
+# independently so one flaky package does not prevent the rest from landing.
 optional_gaming_packages=(
+    rom-properties-kf6
     game-devices-udev
     xpadneo
     xone
