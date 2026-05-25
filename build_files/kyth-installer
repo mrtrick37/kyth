@@ -1024,19 +1024,19 @@ _HTML = r"""<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#091019;--surface:#0d1723;--surface2:#111b29;--border:#243754;
-  --accent:#3e86ff;--accent-hi:#7cb2ff;--text:#edf3ff;--muted:#8896ab;
-  --green:#5ee6c1;--red:#ff7892;--amber:#ffbf61;
+  --bg:#0d1117;--surface:#1f242b;--surface2:#24292f;--border:#30363d;
+  --accent:#007acc;--accent-hi:#65b0ff;--text:#d4d4dc;--muted:#8b93a8;
+  --green:#56d5b6;--red:#ff6a82;--amber:#f4b955;
   --sidebar-w:200px;--radius:10px;
-  --font:'Noto Sans','Segoe UI',sans-serif;
+  --font:'Segoe UI',Roboto,Arial,sans-serif;
   --mono:'JetBrains Mono','Liberation Mono',monospace;
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;overflow:hidden}
 #app{display:flex;height:100vh;width:100vw}
 
 /* sidebar */
-#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:linear-gradient(180deg,#081018,#060b12);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0 20px;z-index:10}
-.logo{padding:0 20px 24px;font-size:20px;font-weight:800;background:linear-gradient(135deg,#3e86ff,#7cb2ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:linear-gradient(180deg,#11161e,#0b0f16);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0 20px;z-index:10}
+.logo{padding:0 20px 24px;font-size:20px;font-weight:800;background:linear-gradient(135deg,#8b8f98,#c6cbd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .steps{flex:1;padding:0 10px}
 .step{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;margin-bottom:2px}
 .step-num{width:24px;height:24px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--muted);flex-shrink:0;transition:all .2s}
@@ -1060,7 +1060,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 
 /* status */
 .status-box{padding:14px 18px;border-radius:8px;font-size:13px;white-space:pre-line;line-height:1.6}
-.status-info{background:#0c1e35;border:1px solid #1e3a5a;color:#7cb2ff}
+.status-info{background:#181f28;border:1px solid #2c3a46;color:#9ec8ff}
 .status-ok{background:#0a1f14;border:1px solid #1a4a2a;color:var(--green)}
 .status-err{background:#1a080f;border:1px solid #4a1020;color:var(--red)}
 
@@ -1175,8 +1175,8 @@ select{cursor:pointer}
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
-        <span style="color:var(--amber)">Connect to Wi-Fi or Ethernet before you install.</span><br>
-        Use the network icon in the bottom-right panel to join wireless first. The installer will keep your choices if you need to leave and connect.<br><br>
+        <span style="color:var(--amber)">A network connection is required to install KythOS.</span><br>
+        Connect using the network icon in the bottom-right panel before clicking Start Install. Your disk, account, timezone, and kernel selections will remain if you need to reconnect.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
         &nbsp; 2. Choose your kernel<br>
@@ -1319,7 +1319,7 @@ select{cursor:pointer}
       <div id="done-sb-notice" style="display:none;text-align:left;margin-top:28px">
         <div class="status-box status-info">
           <strong>One more step: Secure Boot key enrollment</strong><br><br>
-          On your first reboot, a blue screen will appear before KythOS loads.
+          On your first reboot, a one-time Secure Boot enrollment screen will appear before KythOS loads.
           This is normal — it is a one-time security setup:<br><br>
           &nbsp;&nbsp;1. Press any key when prompted<br>
           &nbsp;&nbsp;2. Select <strong>Enroll MOK</strong><br>
