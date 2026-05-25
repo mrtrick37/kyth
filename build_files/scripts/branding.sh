@@ -126,6 +126,8 @@ FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,a
 [General]
 highlightNewlyInstalledApps=false
 KICKOFFEOF
+mkdir -p /etc/xdg
+install -m 0644 /etc/skel/.config/kickoffrc /etc/xdg/kickoffrc
 
 # ── Screen lock timeout ───────────────────────────────────────────────────────
 # Default auto-lock after 15 minutes of inactivity. KDE's stock default is 5
@@ -310,12 +312,21 @@ fi
 # their categories without green dots or "New!" labels.
 cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
-import os, re, subprocess
+import os, re, shutil, subprocess
 
 aprc = os.path.expanduser("~/.config/plasma-org.kde.plasma.desktop-appletsrc")
 autostart = os.path.expanduser("~/.config/autostart/kyth-set-kickoff-icon.desktop")
+kwriteconfig = shutil.which('kwriteconfig6')
 
-if os.path.exists(aprc):
+if kwriteconfig:
+    subprocess.run([
+        kwriteconfig, '--file', 'kickoffrc',
+        '--group', 'General',
+        '--key', 'highlightNewlyInstalledApps',
+        '--type', 'bool', 'false',
+    ], check=False)
+
+if kwriteconfig and os.path.exists(aprc):
     content = open(aprc).read()
     for m in re.finditer(
         r'^\[Containments\]\[(\d+)\]\[Applets\]\[(\d+)\]',
@@ -327,14 +338,14 @@ if os.path.exists(aprc):
         body = content[body_start: body_start + nxt.start()] if nxt else content[body_start:]
         if 'plugin=org.kde.plasma.kickoff' in body:
             subprocess.run([
-                'kwriteconfig6', '--file', aprc,
+                kwriteconfig, '--file', aprc,
                 '--group', 'Containments', '--group', cont,
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
                 '--key', 'icon', 'kyth-kickoff',
             ], check=False)
             subprocess.run([
-                'kwriteconfig6', '--file', aprc,
+                kwriteconfig, '--file', aprc,
                 '--group', 'Containments', '--group', cont,
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
@@ -372,7 +383,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v3"
+version="v4"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -523,6 +534,12 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
     kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
 
+    # Keep Kickoff categories quiet after first-boot Flatpak/app installs.
+    kwriteconfig6 --file kickoffrc \
+        --group General \
+        --key highlightNewlyInstalledApps \
+        --type bool false
+
     # Clipboard history — Win+V equivalent. Klipper ships enabled but history
     # is off by default; turn it on with a 25-item buffer.
     kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
@@ -536,6 +553,10 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
     kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+fi
+
+if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
+    /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1 || true
 fi
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
