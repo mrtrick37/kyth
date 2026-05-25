@@ -350,6 +350,8 @@ RUN mkdir -p \
        fi \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Network Reminder\nExec=/usr/bin/kyth-live-network-hint\nX-KDE-autostart-after=panel\nHidden=false\nNoDisplay=true\n' \
         > /home/liveuser/.config/autostart/kyth-live-network-hint.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS: Set display resolution\nHidden=true\nNoDisplay=true\n' \
+        > /home/liveuser/.config/autostart/kyth-set-resolution.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop /home/liveuser/Desktop/system-hub.desktop \
     && python3 -c "import os; [os.setxattr(path, 'user.metadata::trusted', b'yes') for path in ('/home/liveuser/Desktop/install-kyth.desktop', '/home/liveuser/Desktop/system-hub.desktop')]" \
     && (update-desktop-database /usr/share/applications/ 2>/dev/null || true) \
@@ -359,6 +361,7 @@ RUN mkdir -p \
            xwaylandvideobridge \
            org.kde.kaccess \
            kaccess \
+           kyth-set-resolution \
            org.kde.plasma-xembedsniproxy \
            xembedsniproxy \
            org.kde.gmenudbusmenuproxy; do \
@@ -581,12 +584,10 @@ fi
 title="Connect to a network first"
 body="KythOS needs internet access before installation. Use the network icon in the bottom-right panel to join Wi-Fi, or plug in Ethernet, then start Install KythOS."
 
-if command -v notify-send >/dev/null 2>&1; then
-    notify-send --urgency=critical --app-name="KythOS Live" "$title" "$body" >/dev/null 2>&1 || true
-fi
-
 if command -v kdialog >/dev/null 2>&1; then
     kdialog --title "$title" --passivepopup "$body" 30 >/dev/null 2>&1 || true
+elif command -v notify-send >/dev/null 2>&1; then
+    notify-send --urgency=critical --app-name="KythOS Live" "$title" "$body" >/dev/null 2>&1 || true
 fi
 NETEOF
 RUN chmod +x /usr/bin/kyth-live-network-hint
