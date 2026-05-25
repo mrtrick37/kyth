@@ -695,7 +695,7 @@ menuentry "Try KythOS Live (Hardware GL Test)" --class fedora --class gnu-linux 
 }
 
 menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz rd.plymouth=0 plymouth.enable=0 root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 systemd.crash_reboot=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0
+    linux /images/pxeboot/vmlinuz rd.plymouth=0 plymouth.enable=0 root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 systemd.crash_reboot=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0 kyth.live=1
     initrd /images/pxeboot/initrd.img
 }
 
