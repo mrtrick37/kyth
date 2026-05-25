@@ -12,6 +12,11 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 # Raise parallel download slots from the default 3 to 10 — same value used by
 # UBlue, Bazzite, and recommended in Fedora documentation.
 echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
+# CountMe adds an anonymous weekly age bucket to one repository metadata request.
+# This lets Fedora-style mirror logs estimate active systems without user
+# accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
+# aggregate trend in the README when exported CountMe data is available.
+echo 'countme=True' >> /etc/dnf/dnf.conf
 
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
@@ -176,16 +181,16 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
     nss.i686 \
     steam-devices \
     kdeplasma-addons \
-    rom-properties-kf6 \
     input-remapper
 
 # ── Optional PC gaming peripheral stack ──────────────────────────────────────
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
 # RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
-# dependency conflict, the image should still ship the core Steam/Gamescope/
-# MangoHud/GameMode stack. Each package is attempted independently so one flaky
-# package does not prevent the rest from landing.
+# dependency conflict or mirror outage, the image should still ship the core
+# Steam/Gamescope/MangoHud/GameMode stack. Each package is attempted
+# independently so one flaky package does not prevent the rest from landing.
 optional_gaming_packages=(
+    rom-properties-kf6
     game-devices-udev
     xpadneo
     xone

@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """kyth-exe-handler — intercept Windows .exe/.msi files and suggest Linux alternatives.
 
-Registered as the default MIME handler for application/x-ms-dos-executable so that
-double-clicking a Windows installer in Dolphin shows a curated suggestion dialog
-instead of silently failing or opening a hex editor.
+Registered as the default MIME handler for common Windows executable and
+installer MIME types so that double-clicking a file in Dolphin shows a curated
+suggestion dialog instead of silently failing or opening a hex editor.
 """
 
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -33,6 +34,8 @@ _APP_DB = [
     (r"onenote",                "Microsoft OneNote",        "Access OneNote at onenote.com, or use Obsidian for local notes.",      None),
     (r"teams",                  "Microsoft Teams",          "Use Teams in the browser, or pin it as a Web App via WebApp Manager.", "io.github.vikdevelop.WebApp"),
     (r"onedrive",               "OneDrive",                 "Access OneDrive through KDE's Online Accounts in System Settings.",    None),
+    (r"visio",                  "Microsoft Visio",          "Use diagrams.net in the browser, or install LibreOffice Draw.",        "org.libreoffice.LibreOffice"),
+    (r"project",                "Microsoft Project",        "Use ProjectLibre or browser-based project tools for project plans.",   None),
     # Communication
     (r"discord",                "Discord",                  "Install the native Linux Discord app.",                                "com.discordapp.Discord"),
     (r"slack",                  "Slack",                    "Install Slack from Flathub.",                                         "com.slack.Slack"),
@@ -41,10 +44,12 @@ _APP_DB = [
     (r"signal",                 "Signal",                   "Install Signal from Flathub.",                                        "org.signal.Signal"),
     (r"telegram",               "Telegram",                 "Install Telegram from Flathub.",                                      "org.telegram.desktop"),
     (r"whatsapp",               "WhatsApp",                 "Pin WhatsApp Web as a desktop app via WebApp Manager.",               "io.github.vikdevelop.WebApp"),
+    (r"messenger",              "Messenger",                "Use Messenger in the browser, or pin it with WebApp Manager.",        "io.github.vikdevelop.WebApp"),
     # Browsers
     (r"chrome|googlechrome",    "Google Chrome",            "Install Chrome from Flathub.",                                        "com.google.Chrome"),
     (r"firefox",                "Firefox",                  "Firefox is available from Flathub.",                                  "org.mozilla.firefox"),
     (r"brave",                  "Brave",                    "Install Brave from Flathub.",                                         "com.brave.Browser"),
+    (r"opera",                  "Opera",                    "Install Opera from Flathub.",                                         "com.opera.Opera"),
     # Adobe Creative Cloud
     (r"photoshop",              "Adobe Photoshop",          "Use GIMP for photo editing — it handles many Photoshop files.",       "org.gimp.GIMP"),
     (r"premiere",               "Adobe Premiere",           "Use Kdenlive or DaVinci Resolve for video editing.",                  "org.kde.kdenlive"),
@@ -59,8 +64,16 @@ _APP_DB = [
     (r"battle.?net|blizzard",   "Battle.net",               "Run Battle.net through Lutris or Bottles.",                          "net.lutris.Lutris"),
     (r"origin|eaapp|ea.?app",   "EA App / Origin",          "Use Heroic Games Launcher to access your EA library.",                "com.heroicgameslauncher.hgl"),
     (r"uplay|ubisoft.?connect", "Ubisoft Connect",          "Use Heroic Games Launcher to access your Ubisoft library.",           "com.heroicgameslauncher.hgl"),
+    (r"curseforge",             "CurseForge",               "Use Prism Launcher for Minecraft modpacks when possible.",            "org.prismlauncher.PrismLauncher"),
+    (r"minecraft",              "Minecraft Launcher",       "Use Prism Launcher for Minecraft and modpacks.",                      "org.prismlauncher.PrismLauncher"),
+    (r"vortex|nexusmods?",      "Vortex / Nexus Mods",      "Use SteamTinkerLaunch for per-game MO2, or Bottles for standalone mod tools.", None),
+    (r"modorganizer|mo2",       "Mod Organizer 2",          "Install MO2 per game through SteamTinkerLaunch, or isolate it in Bottles.", None),
     # Productivity / tools
     (r"notepad\+\+|npp\b",      "Notepad++",                "Use Kate (already installed) or VS Code for text editing.",           None),
+    (r"code|vscode|visual.?studio.?code", "Visual Studio Code", "VS Code is available from the app menu or KythOS System Hub.",       None),
+    (r"visual.?studio(?!.*code)", "Visual Studio",           "Use VS Code, JetBrains Toolbox, or a Windows VM for full Visual Studio projects.", None),
+    (r"putty",                  "PuTTY",                    "Use Konsole with ssh, or search Flathub if you specifically want PuTTY.", None),
+    (r"winscp",                 "WinSCP",                   "Use Dolphin's sftp:// support or FileZilla from Flathub.",            "org.filezillaproject.Filezilla"),
     (r"7z|7-?zip",              "7-Zip",                    "p7zip is already installed — right-click any archive in Dolphin.",    None),
     (r"winrar",                 "WinRAR",                   "p7zip is already installed — right-click any archive in Dolphin.",    None),
     (r"obs.?studio|obs64",      "OBS Studio",               "Install OBS Studio from Flathub.",                                    "com.obsproject.Studio"),
@@ -68,10 +81,21 @@ _APP_DB = [
     (r"spotify",                "Spotify",                   "Install Spotify from Flathub.",                                      "com.spotify.Client"),
     (r"bitwarden",              "Bitwarden",                "Install Bitwarden from Flathub.",                                     "com.bitwarden.desktop"),
     (r"1password",              "1Password",                "Install 1Password from Flathub.",                                     "com.onepassword.OnePassword"),
+    (r"obsidian",               "Obsidian",                 "Install Obsidian from Flathub.",                                      "md.obsidian.Obsidian"),
+    (r"notion",                 "Notion",                   "Use Notion in the browser, or pin it as a Web App.",                  "io.github.vikdevelop.WebApp"),
+    (r"qbittorrent",            "qBittorrent",              "Install qBittorrent from Flathub.",                                   "org.qbittorrent.qBittorrent"),
+    (r"plex",                   "Plex",                     "Install Plex Desktop from Flathub.",                                  "tv.plex.PlexDesktop"),
+    (r"calibre",                "Calibre",                  "Install Calibre from Flathub.",                                      "com.calibre_ebook.calibre"),
+    (r"audacity",               "Audacity",                 "Install Audacity from Flathub.",                                     "org.audacityteam.Audacity"),
     (r"resolve|davinci",        "DaVinci Resolve",          "Install DaVinci Resolve via KythOS System Hub → Software.",           None),
     (r"gimp",                   "GIMP",                     "Install GIMP from Flathub.",                                          "org.gimp.GIMP"),
     (r"inkscape",               "Inkscape",                 "Install Inkscape from Flathub.",                                      "org.inkscape.Inkscape"),
     (r"blender",                "Blender",                  "Install Blender from Flathub.",                                       "org.blender.Blender"),
+    # Hardware utilities that often have no clean Linux equivalent.
+    (r"logi|logitech|ghub|g.?hub", "Logitech G HUB",         "Use Piper or OpenRGB when your device is supported.",                 "org.freedesktop.Piper"),
+    (r"razer|synapse",          "Razer Synapse",            "Use OpenRGB for lighting and OpenRazer-supported tools where available.", "org.openrgb.OpenRGB"),
+    (r"elgato|stream.?deck",    "Elgato / Stream Deck",     "Use OpenDeck from KythOS System Hub for Stream Deck workflows.",       None),
+    (r"voicemeeter|go.?xlr",    "Audio routing utility",    "Use PipeWire audio routing tools; check System Settings > Audio first.", None),
 ]
 
 _QSS = """
@@ -95,11 +119,18 @@ QPushButton#primary:hover { background: #1177bb; }
 
 def _normalise(filename: str) -> str:
     stem = os.path.splitext(os.path.basename(filename))[0].lower()
-    # Strip trailing version/arch tokens: -x64, _win64, -1.2.3, _v2, _amd64
-    stem = re.sub(r"[-_](x64|x86|x86_64|amd64|win64|win32|arm64|v?\d[\d.]*)$", "", stem)
-    # Strip leading/trailing setup / install wrappers
-    stem = re.sub(r"^(setup[-_]?|install[-_]?)", "", stem)
-    stem = re.sub(r"([-_]?setup|[-_]?install|[-_]?installer)$", "", stem)
+    stem = re.sub(r"[\s.]+", "-", stem)
+    # Strip common wrappers and release tokens repeatedly:
+    # "Setup_Discord-1.2.3-x64.exe" -> "discord".
+    wrapper = r"(setup|install|installer|update|updater|launcher)"
+    token = r"(x64|x86|x86_64|amd64|win64|win32|windows|pc|arm64|online|offline|stable|v?\d[\d.]*)"
+    for _ in range(4):
+        old = stem
+        stem = re.sub(rf"^({wrapper})[-_]+", "", stem)
+        stem = re.sub(rf"[-_]+({wrapper})$", "", stem)
+        stem = re.sub(rf"[-_]+({token})$", "", stem)
+        if stem == old:
+            break
     return stem
 
 
@@ -123,7 +154,13 @@ def _launch_install(flatpak_id: str):
         (t for t in ("konsole", "gnome-terminal", "xterm") if shutil.which(t)),
         None,
     )
-    cmd = ["flatpak", "install", "--noninteractive", "flathub", flatpak_id]
+    cmd = [
+        "bash", "-lc",
+        "flatpak remote-add --if-not-exists --user flathub "
+        "https://dl.flathub.org/repo/flathub.flatpakrepo && "
+        "flatpak install -y --noninteractive --user flathub "
+        + shlex.quote(flatpak_id),
+    ]
     if terminal == "konsole":
         subprocess.Popen(["konsole", "-e"] + cmd)
     elif terminal == "gnome-terminal":
@@ -214,11 +251,9 @@ def main():
     bottles_btn.setToolTip("Run Windows apps in an isolated Wine environment")
     bottles_btn.clicked.connect(
         lambda: (
-            subprocess.Popen(
-                ["flatpak", "run", "com.usebottles.bottles"]
-                if bottles_installed
-                else ["flatpak", "install", "--noninteractive", "flathub", "com.usebottles.bottles"]
-            ),
+            subprocess.Popen(["flatpak", "run", "com.usebottles.bottles"])
+            if bottles_installed
+            else _launch_install("com.usebottles.bottles"),
             dlg.accept(),
         )
     )

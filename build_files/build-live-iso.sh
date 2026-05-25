@@ -82,6 +82,11 @@ SOURCE_HASH="$(
         build_files/Containerfile.live \
         build_files/kyth-installer \
         build_files/kyth-launch-installer \
+        build_files/kyth-welcome/kyth-welcome \
+        build_files/kyth-welcome/kyth-welcome-launch \
+        build_files/kyth-exe-handler \
+        build_files/kyth-exe-handler.desktop \
+        build_files/kyth-session-snapshot \
         build_files/plymouth/kyth.plymouth \
         build_files/plymouth/kyth.script \
         build_files/wallpaper/kyth-wallpaper.svg \

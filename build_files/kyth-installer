@@ -13,6 +13,7 @@ import re
 import secrets
 import shutil
 import select
+import socket
 import subprocess
 import threading
 import time
@@ -30,6 +31,10 @@ SESSION_TOKEN = secrets.token_urlsafe(32)
 SKIP_FETCH_CHECK = os.environ.get("KYTH_INSTALL_SKIP_FETCH_CHECK", "0").lower() in (
     "1", "true", "yes", "on"
 )
+# Present when running from the live ISO (written by build-live-iso.sh / Containerfile.live).
+# Absent on a running installed system — used to gate operations that only make sense
+# from a live environment (e.g. wiping the running disk).
+_IS_LIVE_SESSION = Path("/etc/kyth-installer.env").exists()
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -42,8 +47,43 @@ def _human_size(n: int) -> str:
     return f"{n:.1f} PB"
 
 
+def _running_system_disk() -> str:
+    try:
+        source = subprocess.check_output(
+            ["findmnt", "-n", "-o", "SOURCE", "/"],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        ).strip()
+    except Exception:
+        return ""
+    if not source or not source.startswith("/dev/"):
+        return ""
+    try:
+        pkname = subprocess.check_output(
+            ["lsblk", "-n", "-o", "PKNAME", source],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        ).strip().splitlines()
+        parent = next((line.strip() for line in pkname if line.strip()), "")
+        if parent:
+            return f"/dev/{parent}"
+    except Exception:
+        pass
+    try:
+        disk = subprocess.check_output(
+            ["lsblk", "-n", "-o", "NAME,TYPE", source],
+            text=True, stderr=subprocess.DEVNULL, timeout=5,
+        )
+        for line in disk.splitlines():
+            parts = line.split()
+            if len(parts) >= 2 and parts[1] == "disk":
+                return f"/dev/{parts[0].lstrip('└─├─')}"
+    except Exception:
+        pass
+    return ""
+
+
 def list_disks() -> list[dict]:
     try:
+        running_disk = _running_system_disk()
         out = subprocess.check_output(
             ["lsblk", "--json", "--bytes", "--nodeps",
              "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA"],
@@ -60,6 +100,7 @@ def list_disks() -> list[dict]:
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
                     "tran":  d.get("tran") or "",
+                    "current": f"/dev/{d['name']}" == running_disk,
                 })
         return result
     except Exception:
@@ -261,6 +302,11 @@ def _lsblk_target_mounts(disk: str) -> list[tuple[str, str]]:
     return mounts
 
 
+# Mountpoints that must never receive a lazy unmount — they are part of the
+# running system and detaching them would destabilize the OS.
+_CRITICAL_MOUNTS = frozenset({"/", "/boot", "/boot/efi", "/efi", "/home", "/var"})
+
+
 def unmount_target_disk(disk: str, log) -> None:
     """Unmount any live-session mounts that would block wiping disk."""
     log(f"Unmounting any existing mounts on {disk} ...")
@@ -282,7 +328,10 @@ def unmount_target_disk(disk: str, log) -> None:
         if result.returncode != 0:
             err = (result.stderr or result.stdout or "").strip()
             log(f"Normal unmount failed for {mount}: {err}")
-            subprocess.run(_as_root(["umount", "-l", mount]), check=False)
+            if mount in _CRITICAL_MOUNTS:
+                log(f"Skipping lazy unmount of running system mount: {mount}")
+            else:
+                subprocess.run(_as_root(["umount", "-l", mount]), check=False)
 
     try:
         remaining = _lsblk_target_mounts(disk)
@@ -377,6 +426,66 @@ def _source_imgref(image: str) -> str:
     if re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", image):
         return image
     return f"docker://{image}"
+
+
+def _imgref_needs_network(imgref: str) -> bool:
+    return imgref.startswith("docker://")
+
+
+def _registry_host(imgref: str) -> str:
+    image = imgref.removeprefix("docker://")
+    return image.split("/", 1)[0].split("@", 1)[0].rsplit(":", 1)[0]
+
+
+def _friendly_network_error(extra: str = "") -> str:
+    detail = f"\n\nDetails: {extra}" if extra else ""
+    return (
+        "KythOS needs an internet connection before it can install.\n\n"
+        "Connect to Wi-Fi or plug in Ethernet from the live desktop, then return "
+        "to this installer and click Start Install again. Your disk, account, "
+        "timezone, and kernel choices will stay here while you connect.\n\n"
+        "Tip: use the network icon in the bottom-right panel to join Wi-Fi."
+        f"{detail}"
+    )
+
+
+def _network_preflight(imgref: str) -> str | None:
+    """Return a friendly error message if the selected install source needs
+    the network and the live session cannot reach its registry yet."""
+    if not _imgref_needs_network(imgref):
+        return None
+
+    host = _registry_host(imgref)
+    if not host:
+        return _friendly_network_error("The selected image registry could not be determined.")
+
+    try:
+        route = subprocess.run(
+            ["ip", "route", "show", "default"],
+            capture_output=True, text=True, timeout=3,
+        )
+        if route.returncode != 0 or not route.stdout.strip():
+            return _friendly_network_error("No active default network route was found.")
+    except Exception:
+        # Keep going: DNS/connect checks below are a better user-facing signal.
+        pass
+
+    try:
+        socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except socket.gaierror:
+        return _friendly_network_error(
+            f"The live session is not resolving {host}. Wi-Fi may not be connected yet."
+        )
+    except Exception as exc:
+        return _friendly_network_error(f"DNS check for {host} failed: {exc}")
+
+    try:
+        with socket.create_connection((host, 443), timeout=5):
+            return None
+    except OSError:
+        return _friendly_network_error(
+            f"The live session cannot reach {host}:443 yet."
+        )
 
 
 def _install_images(kernel: str) -> tuple[str, str]:
@@ -504,6 +613,7 @@ def _run_install() -> None:
 
         STALL_TIMEOUT = 600
         last_output   = time.monotonic()
+        recent_output: list[str] = []
         while True:
             ready, _, _ = select.select([proc.stdout], [], [], 30)
             if ready:
@@ -513,6 +623,8 @@ def _run_install() -> None:
                 last_output = time.monotonic()
                 stripped = line.rstrip()
                 log(stripped)
+                recent_output.append(stripped)
+                recent_output = recent_output[-30:]
                 if "layers needed:" in stripped:
                     try:
                         m = stripped.split("layers needed:")[1]
@@ -532,6 +644,25 @@ def _run_install() -> None:
         monitor_thread.join(timeout=2)
         proc.wait()
         if proc.returncode != 0:
+            lowered = "\n".join(recent_output).lower()
+            network_tokens = (
+                "network is unreachable",
+                "no route to host",
+                "temporary failure in name resolution",
+                "name or service not known",
+                "could not resolve",
+                "connection timed out",
+                "i/o timeout",
+                "tls handshake timeout",
+                "connection reset",
+                "connection refused",
+            )
+            if any(token in lowered for token in network_tokens):
+                raise RuntimeError(
+                    _friendly_network_error(
+                        "The image download lost network access before it finished."
+                    )
+                )
             raise RuntimeError(
                 f"Command failed (exit {proc.returncode}):\n  {' '.join(full_cmd)}"
             )
@@ -568,6 +699,8 @@ def _run_install() -> None:
         root_part = get_root_partition(disk)
         mount     = "/var/tmp/kyth-install-root"
         Path(mount).mkdir(parents=True, exist_ok=True)
+        # Detach any stale mount left by a previously crashed install attempt.
+        subprocess.run(_as_root(["umount", "-l", mount]), check=False, capture_output=True)
         subprocess.run(_as_root(["mount", root_part, mount]), check=True)
         progress(93)
 
@@ -739,13 +872,24 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(body)
         elif path == "/api/config":
-            self._json({"source_image": SOURCE_IMAGE, "session_token": SESSION_TOKEN})
+            self._json({"source_image": SOURCE_IMAGE, "session_token": SESSION_TOKEN, "is_live": _IS_LIVE_SESSION})
         elif path == "/api/disks":
             self._json(list_disks())
         elif path == "/api/timezones":
             self._json(list_timezones())
         elif path == "/api/stream":
             self._sse()
+        elif path == "/api/log":
+            try:
+                text = LOG_FILE.read_text(errors="replace")
+            except Exception as exc:
+                text = f"Could not read installer log: {exc}\n"
+            body = text.encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/plain; charset=utf-8")
+            self.send_header("Content-Length", len(body))
+            self.end_headers()
+            self.wfile.write(body)
         else:
             self.send_error(404)
 
@@ -774,12 +918,42 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_error(400, "Invalid hostname")
                 return
             disk = body.get("disk", "")
-            if disk not in {d["name"] for d in list_disks()}:
+            disks = {d["name"]: d for d in list_disks()}
+            if disk not in disks:
                 self.send_error(400, "Invalid disk")
+                return
+            if not body.get("confirm_backup") or not body.get("confirm_erase"):
+                self._json({
+                    "started": False,
+                    "message": "Please confirm that your files are backed up and that the selected disk will be erased.",
+                }, status=409)
+                return
+            if disks[disk].get("current") and not _IS_LIVE_SESSION:
+                self._json({
+                    "started": False,
+                    "message": (
+                        "This is the disk running the current KythOS session.\n\n"
+                        "The running root filesystem cannot be unmounted, so reinstalling "
+                        "onto this disk requires the KythOS live ISO.\n\n"
+                        "Boot from the live ISO to reinstall onto this disk. "
+                        "You can download it from the Repair page in kyth-welcome."
+                    ),
+                }, status=409)
+                return
+            if disks[disk].get("current") and not body.get("confirm_current"):
+                self._json({
+                    "started": False,
+                    "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
+                }, status=409)
                 return
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
+            src_ref, _ = _install_images(kernel)
+            network_error = _network_preflight(src_ref)
+            if network_error:
+                self._json({"started": False, "message": network_error}, status=409)
+                return
             _state.update({
                 "disk":     disk,
                 "hostname": hostname,
@@ -793,14 +967,18 @@ class Handler(BaseHTTPRequestHandler):
             threading.Thread(target=_run_install, daemon=True).start()
             self._json({"started": True})
         elif path == "/api/reboot":
-            subprocess.Popen(_as_root(["reboot"]))
+            for cmd in (["plymouth", "--show-splash"], ["systemctl", "--no-block", "reboot"]):
+                try:
+                    subprocess.Popen(_as_root(cmd), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except Exception:
+                    pass
             self._json({"ok": True})
         else:
             self.send_error(404)
 
-    def _json(self, data: object) -> None:
+    def _json(self, data: object, status: int = 200) -> None:
         body = json.dumps(data).encode()
-        self.send_response(200)
+        self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", len(body))
         self.end_headers()
@@ -846,19 +1024,19 @@ _HTML = r"""<!DOCTYPE html>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#091019;--surface:#0d1723;--surface2:#111b29;--border:#243754;
-  --accent:#3e86ff;--accent-hi:#7cb2ff;--text:#edf3ff;--muted:#8896ab;
-  --green:#5ee6c1;--red:#ff7892;--amber:#ffbf61;
+  --bg:#0d1117;--surface:#1f242b;--surface2:#24292f;--border:#30363d;
+  --accent:#007acc;--accent-hi:#65b0ff;--text:#d4d4dc;--muted:#8b93a8;
+  --green:#56d5b6;--red:#ff6a82;--amber:#f4b955;
   --sidebar-w:200px;--radius:10px;
-  --font:'Noto Sans','Segoe UI',sans-serif;
+  --font:'Segoe UI',Roboto,Arial,sans-serif;
   --mono:'JetBrains Mono','Liberation Mono',monospace;
 }
 html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;overflow:hidden}
 #app{display:flex;height:100vh;width:100vw}
 
 /* sidebar */
-#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:linear-gradient(180deg,#081018,#060b12);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0 20px;z-index:10}
-.logo{padding:0 20px 24px;font-size:20px;font-weight:800;background:linear-gradient(135deg,#3e86ff,#7cb2ff);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
+#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:linear-gradient(180deg,#11161e,#0b0f16);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0 20px;z-index:10}
+.logo{padding:0 20px 24px;font-size:20px;font-weight:800;background:linear-gradient(135deg,#8b8f98,#c6cbd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
 .steps{flex:1;padding:0 10px}
 .step{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;margin-bottom:2px}
 .step-num{width:24px;height:24px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--muted);flex-shrink:0;transition:all .2s}
@@ -882,7 +1060,7 @@ html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--f
 
 /* status */
 .status-box{padding:14px 18px;border-radius:8px;font-size:13px;white-space:pre-line;line-height:1.6}
-.status-info{background:#0c1e35;border:1px solid #1e3a5a;color:#7cb2ff}
+.status-info{background:#181f28;border:1px solid #2c3a46;color:#9ec8ff}
 .status-ok{background:#0a1f14;border:1px solid #1a4a2a;color:var(--green)}
 .status-err{background:#1a080f;border:1px solid #4a1020;color:var(--red)}
 
@@ -923,6 +1101,10 @@ select{cursor:pointer}
 .review-table td:first-child{color:var(--muted);width:40%;font-size:13px}
 .review-table td:last-child{font-weight:500;padding-left:16px}
 .review-wipe{background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px 16px;font-size:13px;color:var(--red);margin:16px 0}
+.review-confirm{display:flex;gap:10px;align-items:flex-start;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:8px 0;color:var(--text);font-size:13px;line-height:1.5}
+.review-confirm input{margin-top:3px}
+.review-current{background:#241609;border-color:#6b4514;color:var(--amber)}
+.mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
 
 /* progress */
 .progress-wrap{margin:20px 0}
@@ -993,6 +1175,8 @@ select{cursor:pointer}
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
+        <span style="color:var(--amber)">A network connection is required to install KythOS.</span><br>
+        Connect using the network icon in the bottom-right panel before clicking Start Install. Your disk, account, timezone, and kernel selections will remain if you need to reconnect.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
         &nbsp; 2. Choose your kernel<br>
@@ -1072,10 +1256,29 @@ select{cursor:pointer}
       <div class="card-sub">Confirm settings — installation begins immediately after you click Install</div>
       <hr class="divider">
       <table class="review-table" id="review-table"></table>
-      <div class="review-wipe">⚠ Everything on the selected disk will be permanently erased.</div>
+      <div class="review-wipe" id="review-wipe">⚠ Everything on the selected disk will be permanently erased.</div>
+      <label class="review-confirm">
+        <input type="checkbox" id="confirm-backup" onchange="updateInstallReady()">
+        <span>I have backed up anything I want to keep from the selected disk.</span>
+      </label>
+      <label class="review-confirm">
+        <input type="checkbox" id="confirm-erase" onchange="updateInstallReady()">
+        <span>I understand KythOS will erase the selected disk and install a fresh system.</span>
+      </label>
+      <label class="review-confirm review-current" id="confirm-current-wrap" style="display:none">
+        <input type="checkbox" id="confirm-current" onchange="updateInstallReady()">
+        <span>This appears to be the disk currently running this session. I understand reinstalling it will replace this KythOS install.</span>
+      </label>
+      <div class="status-box status-info" id="live-iso-required" style="display:none">
+        <strong>Live ISO required to reinstall this disk</strong><br><br>
+        This is the disk running the current KythOS session. The running root filesystem
+        cannot be unmounted, so reinstalling onto it requires booting from the live ISO.<br><br>
+        Download the live ISO from the <strong>Repair</strong> page in kyth-welcome,
+        write it to a USB drive, and boot from it to reinstall.
+      </div>
       <div class="btn-row">
         <button onclick="goto('config')">← Back</button>
-        <button class="primary" onclick="startInstall()">Install Now</button>
+        <button class="primary" id="install-now" onclick="startInstall()" disabled>Install Now</button>
       </div>
     </div>
   </div>
@@ -1097,6 +1300,10 @@ select{cursor:pointer}
         <span class="log-arrow" id="log-arrow">▶</span> Show install log
       </button>
       <div class="log-wrap" id="log-wrap"></div>
+      <div class="mini-actions">
+        <button onclick="copyVisibleLog()">Copy Visible Log</button>
+        <button onclick="copyFullLog()">Copy Full Log</button>
+      </div>
     </div>
   </div>
 
@@ -1112,7 +1319,7 @@ select{cursor:pointer}
       <div id="done-sb-notice" style="display:none;text-align:left;margin-top:28px">
         <div class="status-box status-info">
           <strong>One more step: Secure Boot key enrollment</strong><br><br>
-          On your first reboot, a blue screen will appear before KythOS loads.
+          On your first reboot, a one-time Secure Boot enrollment screen will appear before KythOS loads.
           This is normal — it is a one-time security setup:<br><br>
           &nbsp;&nbsp;1. Press any key when prompted<br>
           &nbsp;&nbsp;2. Select <strong>Enroll MOK</strong><br>
@@ -1137,6 +1344,7 @@ select{cursor:pointer}
       <p style="font-size:12px;color:var(--muted)">Full log saved to /tmp/kyth-installer.log</p>
       <div class="btn-row">
         <button class="primary" onclick="goto('review')">← Back to Installer</button>
+        <button onclick="copyFullLog()">Copy Full Log</button>
       </div>
     </div>
   </div>
@@ -1145,7 +1353,7 @@ select{cursor:pointer}
 </div><!-- #app -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora' };
+const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
 let SESSION_TOKEN = '';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
 
@@ -1199,7 +1407,7 @@ function loadDisks(attempt) {
         <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
         <div class="disk-info">
           <div class="disk-name">${d.name}</div>
-          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}</div>
+          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.current ? ' · current system disk' : ''}</div>
         </div>
         <div class="disk-size">${d.size}</div>
       </div>`).join('');
@@ -1213,6 +1421,11 @@ function selectDisk(idx) {
   S.disk = _disks[idx];
   document.getElementById('disk-next').disabled = false;
   document.getElementById('disk-warn').style.display = 'block';
+  document.getElementById('disk-warn').textContent = S.disk.current
+    ? (S.isLive
+        ? '⚠ This appears to be the disk currently running this session. Reinstalling will replace it.'
+        : '⚠ This is the running system disk. To reinstall this disk, boot from the KythOS live ISO.')
+    : '⚠ All data on this disk will be permanently destroyed.';
 }
 
 // ── Kernel ────────────────────────────────────────────────────────────────────
@@ -1313,6 +1526,30 @@ function buildReview() {
   ];
   document.getElementById('review-table').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+  document.getElementById('confirm-backup').checked = false;
+  document.getElementById('confirm-erase').checked = false;
+  document.getElementById('confirm-current').checked = false;
+  const isCurrentNonLive = S.disk && S.disk.current && !S.isLive;
+  const isCurrentLive    = S.disk && S.disk.current && S.isLive;
+  document.getElementById('confirm-current-wrap').style.display = isCurrentLive ? 'flex' : 'none';
+  document.getElementById('live-iso-required').style.display    = isCurrentNonLive ? 'block' : 'none';
+  document.getElementById('review-wipe').textContent = isCurrentNonLive
+    ? '⚠ This is the running system disk — see notice below.'
+    : (S.disk && S.disk.current
+        ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
+        : '⚠ Everything on the selected disk will be permanently erased.');
+  updateInstallReady();
+}
+
+function updateInstallReady() {
+  if (S.disk && S.disk.current && !S.isLive) {
+    document.getElementById('install-now').disabled = true;
+    return;
+  }
+  const backup    = document.getElementById('confirm-backup').checked;
+  const erase     = document.getElementById('confirm-erase').checked;
+  const currentOk = !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
+  document.getElementById('install-now').disabled = !(backup && erase && currentOk);
 }
 
 // ── Install ───────────────────────────────────────────────────────────────────
@@ -1320,14 +1557,10 @@ let _startTime = 0;
 let _elapsedTimer = null;
 
 function startInstall() {
-  goto('install');
-  _startTime = Date.now();
-  _elapsedTimer = setInterval(() => {
-    const s = Math.floor((Date.now() - _startTime) / 1000);
-    const m = Math.floor(s / 60), sec = s % 60;
-    document.getElementById('install-elapsed').textContent =
-      m > 0 ? `${m}m ${sec}s` : `${sec}s`;
-  }, 1000);
+  const btn = document.getElementById('install-now');
+  if (btn.disabled) return;
+  btn.disabled = true;
+  btn.textContent = 'Starting…';
 
   apiFetch('/api/start', {
     method: 'POST',
@@ -1336,11 +1569,33 @@ function startInstall() {
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
       kernel: S.kernel,
+      confirm_backup: document.getElementById('confirm-backup').checked,
+      confirm_erase: document.getElementById('confirm-erase').checked,
+      confirm_current: document.getElementById('confirm-current').checked,
     }),
   }).then(r => {
-    if (!r.ok) return r.text().then(t => showError('Failed to start install: ' + t)).catch(() => showError('Install request failed (status ' + r.status + ')'));
+    if (!r.ok) {
+      btn.disabled = false;
+      btn.textContent = 'Install Now';
+      return r.json()
+        .then(j => showError(j.message || ('Install request failed (status ' + r.status + ')')))
+        .catch(() => r.text().then(t => showError('Failed to start install: ' + t))
+          .catch(() => showError('Install request failed (status ' + r.status + ')')));
+    }
+    goto('install');
+    _startTime = Date.now();
+    _elapsedTimer = setInterval(() => {
+      const s = Math.floor((Date.now() - _startTime) / 1000);
+      const m = Math.floor(s / 60), sec = s % 60;
+      document.getElementById('install-elapsed').textContent =
+        m > 0 ? `${m}m ${sec}s` : `${sec}s`;
+    }, 1000);
     listenSSE();
-  }).catch(e => showError('Network error: ' + e));
+  }).catch(e => {
+    btn.disabled = false;
+    btn.textContent = 'Install Now';
+    showError('The installer could not talk to its local backend: ' + e);
+  });
 }
 
 function listenSSE() {
@@ -1395,6 +1650,30 @@ function appendLog(text) {
   wrap.scrollTop = wrap.scrollHeight;
 }
 
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(text || '');
+  } catch (e) {
+    const area = document.createElement('textarea');
+    area.value = text || '';
+    document.body.appendChild(area);
+    area.select();
+    document.execCommand('copy');
+    document.body.removeChild(area);
+  }
+}
+
+function copyVisibleLog() {
+  copyText(document.getElementById('log-wrap').innerText || '');
+}
+
+function copyFullLog() {
+  apiFetch('/api/log')
+    .then(r => r.text())
+    .then(t => copyText(t))
+    .catch(() => copyVisibleLog());
+}
+
 function toggleLog() {
   const wrap  = document.getElementById('log-wrap');
   const arrow = document.getElementById('log-arrow');
@@ -1417,6 +1696,7 @@ function showError(msg) {
 }
 
 function reboot() {
+  document.body.innerHTML = '<div id="app"><div id="content" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div></div>';
   apiFetch('/api/reboot', {method:'POST'}).catch(()=>{});
 }
 
@@ -1424,6 +1704,7 @@ function reboot() {
 fetch('/api/config').then(r=>r.json()).then(cfg => {
   SESSION_TOKEN = cfg.session_token;
   S._sourceImage = cfg.source_image;
+  S.isLive = cfg.is_live !== false;
 });
 goto('welcome');
 </script>
@@ -1450,8 +1731,12 @@ def main() -> None:
     # to the original user; fall back to running Chromium directly if not set
     # (e.g. when testing as root without sudo).
     sudo_user = os.environ.get("SUDO_USER", "")
+    chromium_bin = next(
+        (b for b in ("chromium", "chromium-browser", "chromium-bin") if shutil.which(b)),
+        "chromium",
+    )
     chromium_cmd = [
-        "chromium-browser",
+        chromium_bin,
         f"--app=http://127.0.0.1:{PORT}",
         "--disable-dev-shm-usage",
         "--disable-extensions",
