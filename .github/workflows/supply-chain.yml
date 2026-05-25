@@ -141,7 +141,8 @@ jobs:
           IMAGE="${{ steps.meta.outputs.image }}"
           TAG="${{ steps.meta.outputs.tag }}"
           SBOM="kyth-${TAG}-${{ steps.image.outputs.current_version }}.syft.json"
-          "${SYFT_CMD}" "registry:${IMAGE}:${TAG}" \
+          docker image inspect "${IMAGE}:${TAG}" >/dev/null
+          "${SYFT_CMD}" "docker:${IMAGE}:${TAG}" \
             --source-name "${IMAGE}@${{ steps.image.outputs.current_digest }}" \
             -o "syft-json=${SBOM}"
           echo "path=${SBOM}" >> "$GITHUB_OUTPUT"

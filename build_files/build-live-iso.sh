@@ -344,7 +344,6 @@ verify_efi_image_boot_chain() {
     local efi_img="$1"
     local verify_dir="${WORK}/verify-efi"
     local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
-    local required_file
 
     mkdir -p "${verify_dir}"
     rm -f "${verify_dir}"/*.efi 2>/dev/null || true

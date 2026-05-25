@@ -86,6 +86,7 @@ check_static_sources() {
         || fail "ujust switch-kernel recipe must be shipped"
     grep -q '^search --no-floppy --label --set=root' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "main GRUB menu must force root to the ISO volume before loading vmlinuz"
+    # shellcheck disable=SC2016
     grep -q '^configfile (\\$root)/boot/grub2/grub.cfg' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "EFI GRUB stubs must redirect to the ISO GRUB menu"
     pass "live ISO Secure Boot policy checks passed"

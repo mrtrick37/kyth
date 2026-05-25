@@ -146,6 +146,7 @@ create_user() {
 	pw_hash="$(openssl passwd -6 -stdin <<<"$password")"
 	shadow_path="$deploy_etc/shadow"
 	tmp_shadow="$(mktemp)"
+	# shellcheck disable=SC2016
 	as_root awk -F: -v OFS=: -v user="$username" -v hash="$pw_hash" '
 		$1 == user { $2 = hash; found = 1 }
 		{ print }
