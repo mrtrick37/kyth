@@ -41,6 +41,12 @@ Vulkan, Flatpaks, and desktop audio. `nvidia-status`, `controller-check`, and
 
 A release candidate should pass these before being called daily-driver ready:
 
+- Live ISO reaches the desktop automatically, does not open System Hub, clearly
+  prompts for network setup, and exposes only trusted **Install KythOS** and
+  **System Hub** desktop shortcuts.
+- Live ISO mirrors installed-user comfort polish: KythOS wallpaper, dark theme,
+  double-click file behavior, familiar user folders, document templates, app
+  defaults, System Hub favorites, and Windows `.exe` / `.msi` helper handling.
 - Fresh install reaches the desktop without manual terminal work.
 - `ujust smoke-check --strict` has no failures on at least one AMD or Intel
   system.

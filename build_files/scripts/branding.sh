@@ -122,7 +122,12 @@ PLASMAEOF
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
 FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
+
+[General]
+highlightNewlyInstalledApps=false
 KICKOFFEOF
+mkdir -p /etc/xdg
+install -m 0644 /etc/skel/.config/kickoffrc /etc/xdg/kickoffrc
 
 # ── Screen lock timeout ───────────────────────────────────────────────────────
 # Default auto-lock after 15 minutes of inactivity. KDE's stock default is 5
@@ -278,9 +283,10 @@ gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 
-# ── Kickoff plasmoid default icon ──────────────────────────────────────────────
+# ── Kickoff plasmoid defaults ─────────────────────────────────────────────────
 # Patch Kickoff's KConfig XML so every new widget instance defaults to
-# kyth-kickoff without any per-user config file or first-login script.
+# kyth-kickoff and quiet newly-installed app badges before any per-user config
+# file or first-login script exists.
 # The empty <default></default> is the upstream fallback that causes Kickoff
 # to use start-here-kde-plasma from the icon theme; we replace it with the
 # named icon so the plasmoid's own default wins unconditionally.
@@ -291,20 +297,36 @@ if [[ -f "${_kickoff_cfg}" ]]; then
             s|<default></default>|<default>kyth-kickoff</default>|
         }' \
         "${_kickoff_cfg}"
+    sed -i \
+        '/<entry name="highlightNewlyInstalledApps" type="Bool">/,/<\/entry>/ {
+            s|<default>true</default>|<default>false</default>|
+        }' \
+        "${_kickoff_cfg}"
 fi
 
-# ── First-login script: set Kickoff launcher icon to KythOS logo ────────────────
+# ── First-login script: polish Kickoff launcher defaults ──────────────────────
 # Belt-and-suspenders: the icon theme install above should be enough, but this
 # also writes the icon key directly into each user's Kickoff applet config in
-# case the theme lookup is overridden by a previously cached value.
+# case the theme lookup is overridden by a previously cached value. It also
+# disables Plasma's newly-installed app badges so KythOS launchers land in
+# their categories without green dots or "New!" labels.
 cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
-import os, re, subprocess
+import os, re, shutil, subprocess
 
 aprc = os.path.expanduser("~/.config/plasma-org.kde.plasma.desktop-appletsrc")
 autostart = os.path.expanduser("~/.config/autostart/kyth-set-kickoff-icon.desktop")
+kwriteconfig = shutil.which('kwriteconfig6')
 
-if os.path.exists(aprc):
+if kwriteconfig:
+    subprocess.run([
+        kwriteconfig, '--file', 'kickoffrc',
+        '--group', 'General',
+        '--key', 'highlightNewlyInstalledApps',
+        '--type', 'bool', 'false',
+    ], check=False)
+
+if kwriteconfig and os.path.exists(aprc):
     content = open(aprc).read()
     for m in re.finditer(
         r'^\[Containments\]\[(\d+)\]\[Applets\]\[(\d+)\]',
@@ -316,11 +338,19 @@ if os.path.exists(aprc):
         body = content[body_start: body_start + nxt.start()] if nxt else content[body_start:]
         if 'plugin=org.kde.plasma.kickoff' in body:
             subprocess.run([
-                'kwriteconfig6', '--file', aprc,
+                kwriteconfig, '--file', aprc,
                 '--group', 'Containments', '--group', cont,
                 '--group', 'Applets', '--group', applet,
                 '--group', 'Configuration', '--group', 'General',
                 '--key', 'icon', 'kyth-kickoff',
+            ], check=False)
+            subprocess.run([
+                kwriteconfig, '--file', aprc,
+                '--group', 'Containments', '--group', cont,
+                '--group', 'Applets', '--group', applet,
+                '--group', 'Configuration', '--group', 'General',
+                '--key', 'highlightNewlyInstalledApps',
+                '--type', 'bool', 'false',
             ], check=False)
 
 try:
@@ -353,7 +383,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v2"
+version="v4"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -423,6 +453,9 @@ org.kde.ark.desktop|application/x-tar
 kyth-exe-handler.desktop|application/x-ms-dos-executable
 kyth-exe-handler.desktop|application/x-msdos-program
 kyth-exe-handler.desktop|application/x-dosexec
+kyth-exe-handler.desktop|application/x-msi
+kyth-exe-handler.desktop|application/x-msdownload
+kyth-exe-handler.desktop|application/vnd.microsoft.portable-executable
 com.brave.Browser.desktop|x-scheme-handler/http
 com.brave.Browser.desktop|x-scheme-handler/https
 com.getmailspring.Mailspring.desktop|x-scheme-handler/mailto
@@ -499,7 +532,13 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
 
     # Double-click to open files — KDE defaults to single-click; Windows users
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
-    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool --notify false
+    kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
+
+    # Keep Kickoff categories quiet after first-boot Flatpak/app installs.
+    kwriteconfig6 --file kickoffrc \
+        --group General \
+        --key highlightNewlyInstalledApps \
+        --type bool false
 
     # Clipboard history — Win+V equivalent. Klipper ships enabled but history
     # is off by default; turn it on with a 25-item buffer.
@@ -514,6 +553,10 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
     kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+fi
+
+if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
+    /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1 || true
 fi
 
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
@@ -608,6 +651,20 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+install -m 0755 /ctx/kyth-installer /usr/bin/kyth-installer
+install -m 0755 /ctx/kyth-launch-installer /usr/bin/kyth-launch-installer
+install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
+
+cat > /usr/share/applications/kyth-install.desktop <<'INSTALLDESKTOPEOF'
+[Desktop Entry]
+Name=Install or Reinstall KythOS
+Comment=Install KythOS to a disk using the guided installer
+Exec=/usr/bin/kyth-launch-installer
+Icon=kyth
+Terminal=false
+Type=Application
+Categories=System;
+INSTALLDESKTOPEOF
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.
@@ -751,6 +808,9 @@ application/x-tar=org.kde.ark.desktop;ark.desktop;
 application/x-ms-dos-executable=kyth-exe-handler.desktop
 application/x-msdos-program=kyth-exe-handler.desktop
 application/x-dosexec=kyth-exe-handler.desktop
+application/x-msi=kyth-exe-handler.desktop
+application/x-msdownload=kyth-exe-handler.desktop
+application/vnd.microsoft.portable-executable=kyth-exe-handler.desktop
 x-scheme-handler/http=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/https=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/mailto=com.getmailspring.Mailspring.desktop
@@ -774,6 +834,7 @@ chmod +x /etc/skel/Templates/"Shell Script.sh"
 chmod +x /etc/skel/Templates/"Python Script.py"
 
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
+install -m 0755 /ctx/kyth-session-snapshot /usr/bin/kyth-session-snapshot
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service

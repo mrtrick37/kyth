@@ -143,6 +143,19 @@ KythOS is gaming-first, but not gaming-only.
 
 ---
 
+## User Count
+
+KythOS enables DNF CountMe in the image so aggregate repository metadata requests
+can estimate active installs without account tracking or per-machine IDs.
+
+![KythOS reported user count](docs/metrics/kythos-users.svg)
+
+The graph is generated from [`docs/metrics/kythos-users.csv`](docs/metrics/kythos-users.csv).
+CountMe has just been enabled for KythOS, so the checked-in graph starts at zero
+until the first aggregate export is available.
+
+---
+
 ## Technical Details
 
 This is the part for builders, testers, and people who want to know exactly what is inside the image.

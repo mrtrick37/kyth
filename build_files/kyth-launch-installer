@@ -23,7 +23,7 @@ export KYTH_SOURCE_IMAGE="${KYTH_SOURCE_IMAGE:-ghcr.io/mrtrick37/kyth:latest}"
 export KYTH_TARGET_IMAGE="${KYTH_TARGET_IMAGE:-${KYTH_SOURCE_IMAGE}}"
 export KYTH_INSTALL_SKIP_FETCH_CHECK="${KYTH_INSTALL_SKIP_FETCH_CHECK:-0}"
 
-INSTALLER_CMD=(sudo -n env)
+ENV_ARGS=()
 for key in \
 	DISPLAY \
 	WAYLAND_DISPLAY \
@@ -37,14 +37,27 @@ for key in \
 do
 	val=${!key-}
 	if [ -n "${val}" ]; then
-		INSTALLER_CMD+=("${key}=${val}")
+		ENV_ARGS+=("${key}=${val}")
 	fi
 done
-INSTALLER_CMD+=(/usr/bin/kyth-installer "$@")
 
-if ! "${INSTALLER_CMD[@]}" >> "${LAUNCH_LOG}" 2>&1; then
-	msg="KythOS installer failed to launch. See /tmp/kyth-installer-launch.log"
-	command -v kdialog >/dev/null 2>&1 && kdialog --error "${msg}" || true
-	command -v zenity  >/dev/null 2>&1 && zenity --error --text "${msg}" || true
-	exit 1
+if sudo -n env "${ENV_ARGS[@]}" /usr/bin/kyth-installer "$@" >> "${LAUNCH_LOG}" 2>&1; then
+	exit 0
 fi
+
+if command -v pkexec >/dev/null 2>&1; then
+	if pkexec env "SUDO_USER=$(id -un)" "${ENV_ARGS[@]}" /usr/bin/kyth-installer "$@" >> "${LAUNCH_LOG}" 2>&1; then
+		exit 0
+	fi
+fi
+
+if command -v sudo >/dev/null 2>&1; then
+	if sudo env "${ENV_ARGS[@]}" /usr/bin/kyth-installer "$@" >> "${LAUNCH_LOG}" 2>&1; then
+		exit 0
+	fi
+fi
+
+msg="KythOS installer failed to launch. See /tmp/kyth-installer-launch.log"
+command -v kdialog >/dev/null 2>&1 && kdialog --error "${msg}" || true
+command -v zenity  >/dev/null 2>&1 && zenity --error --text "${msg}" || true
+exit 1
