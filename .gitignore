@@ -24,3 +24,4 @@ core.*
 
 # Local Claude/Codex agent permissions and machine-specific settings
 .claude/settings.local.json
+mrtrick/
