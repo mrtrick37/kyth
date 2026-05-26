@@ -72,7 +72,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 OUTPUT_DIR="${KYTH_ISO_OUTPUT:-${REPO_ROOT}/output/live-iso}"
 ISO_NAME="kyth-live-${SOURCE_TAG}.iso"
-VOLID="KythOS-44-Live"
+# Keep this ISO9660-safe and uppercase. dracut's root=live:CDLABEL= lookup
+# resolves through /dev/disk/by-label in the initramfs and is less forgiving
+# than GRUB's label search.
+VOLID="KYTHOS-44-LIVE"
 
 # Hash relevant installer sources so cached container rebuilds when these files
 # change (even if the base image timestamp does not).
@@ -344,7 +347,6 @@ verify_efi_image_boot_chain() {
     local efi_img="$1"
     local verify_dir="${WORK}/verify-efi"
     local cert="${SCRIPT_DIR}/secureboot/kyth-secureboot.cer"
-    local required_file
 
     mkdir -p "${verify_dir}"
     rm -f "${verify_dir}"/*.efi 2>/dev/null || true
@@ -696,7 +698,7 @@ menuentry "Try KythOS Live (Hardware GL Test)" --class fedora --class gnu-linux 
 }
 
 menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz rd.plymouth=0 plymouth.enable=0 root=live:CDLABEL=${VOLID} rd.live.image rd.retry=60 systemd.crash_reboot=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} rd.plymouth=0 plymouth.enable=0 rd.debug loglevel=7 console=ttyS0,115200 console=tty0
     initrd /images/pxeboot/initrd.img
 }
 
@@ -961,6 +963,14 @@ XORRISO_ARGS+=("${ISO_DIR}")
 
 sudo xorriso "${XORRISO_ARGS[@]}"
 sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/${ISO_NAME}"
+
+if command -v blkid >/dev/null 2>&1; then
+    actual_volid="$(blkid -o value -s LABEL "${OUTPUT_DIR}/${ISO_NAME}" 2>/dev/null || true)"
+    if [[ "${actual_volid}" != "${VOLID}" ]]; then
+        echo "ERROR: ISO volume label mismatch: expected '${VOLID}', got '${actual_volid:-<none>}'" >&2
+        exit 1
+    fi
+fi
 
 ISO_SIZE=$(du -sh "${OUTPUT_DIR}/${ISO_NAME}" | cut -f1)
 ISO_PATH=$(readlink -f "${OUTPUT_DIR}/${ISO_NAME}")
