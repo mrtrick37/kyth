@@ -168,6 +168,12 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     systemsettings \
     bluedevil \
     bluez \
+    NetworkManager \
+    NetworkManager-wifi \
+    NetworkManager-tui \
+    wpa_supplicant \
+    iw \
+    wireless-regdb \
     plasma-nm \
     sddm-breeze \
     breeze-icon-theme \
@@ -221,19 +227,11 @@ RUN --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/
     install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der; \
     echo "secureboot-live: cert staged for optional custom-kernel MOK enrollment"
 
-# ── System setup: live user, autologin, mask setup service ───────────────────
-# Autologin strategy — two independent layers so one backs up the other:
-#
-#   Layer 1 — SDDM graphical autologin (primary):
-#     SDDM reads /etc/sddm.conf.d/autologin.conf and starts the plasmax11
-#     session directly.  The sddm.service drop-in injects software-rendering
-#     env vars so the SDDM greeter itself doesn't crash in QEMU (it renders
-#     its own QML UI with the same Mesa stack).
-#
-#   Layer 2 — getty/console autologin (fallback):
-#     If SDDM fails for any reason, secondary tty/console getty autologs in as
-#     liveuser.  .bash_profile then execs startx so the user still reaches
-#     the desktop without any manual typing.
+# ── System setup: live user, autologin, network, mask setup service ──────────
+# The live ISO should be a normal KythOS desktop with a reliable installer
+# shortcut, not a special shell that constantly rewrites Plasma state. SDDM is
+# the primary path. Console autologin remains only as a fallback and is guarded
+# by ~/.bash_profile so it cannot spawn a second Plasma session over SDDM.
 RUN groupadd -r autologin 2>/dev/null || true \
     && useradd -c "Live User" -G autologin,wheel liveuser \
     && passwd -d liveuser \
@@ -242,7 +240,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
         > /etc/sudoers.d/liveuser-installer \
     && chmod 0440 /etc/sudoers.d/liveuser-installer \
     && mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=true\n' \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=false\n' \
         > /etc/sddm.conf.d/autologin.conf \
     && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
@@ -262,6 +260,10 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
     && ln -sf /usr/lib/systemd/system/sddm.service \
               /etc/systemd/system/multi-user.target.wants/sddm.service \
+    && ln -sf /usr/lib/systemd/system/NetworkManager.service \
+              /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
+    && ln -sf /usr/lib/systemd/system/wpa_supplicant.service \
+              /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
     && mkdir -p /etc/systemd/system/default.target.wants \
     && ln -sf /usr/lib/systemd/system/spice-vdagentd.service \
               /etc/systemd/system/default.target.wants/spice-vdagentd.service \
@@ -284,9 +286,10 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && rm -rf /home/liveuser/.config/autostart \
     && mkdir -p /home/liveuser/.config/autostart \
-    && printf '[ -z "$DISPLAY" ] && [ -z "$WAYLAND_DISPLAY" ] && exec startx -- :0 vt1 -nolisten tcp\n' \
+    && printf '#!/usr/bin/env bash\nset -u\n# Fallback only: SDDM is expected to start the live desktop. If it already did,\n# never spawn a second Plasma session from the console autologin.\nif [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$(tty 2>/dev/null || true)" = "/dev/tty2" ]; then\n    if pgrep -u "$(id -u)" -x plasmashell >/dev/null 2>&1 || pgrep -u "$(id -u)" -f "startplasma|kwin_x11|kwin_wayland" >/dev/null 2>&1; then\n        exit 0\n    fi\n    exec startx -- :0 vt2 -nolisten tcp\nfi\n' \
         > /home/liveuser/.bash_profile \
-    && printf '#!/bin/bash\nexport XDG_SESSION_TYPE=x11\nuid="$(id -u)"\n# Ensure runtime dir exists even when falling back to console startx.\nif [ -z "${XDG_RUNTIME_DIR:-}" ]; then\n    if [ -d "/run/user/${uid}" ]; then\n        export XDG_RUNTIME_DIR="/run/user/${uid}"\n    else\n        export XDG_RUNTIME_DIR="/tmp/runtime-liveuser"\n        mkdir -p "$XDG_RUNTIME_DIR"\n        chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true\n    fi\nfi\n# Stability-first live session rendering defaults.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n# Ensure a valid user bus/session for PipeWire/portal services.\nif command -v dbus-run-session >/dev/null 2>&1; then\n    exec dbus-run-session -- startplasma-x11\nfi\nexec startplasma-x11\n' \
+    && chmod +x /home/liveuser/.bash_profile \
+    && printf '#!/usr/bin/env bash\nset -u\nif [ -z "${XDG_RUNTIME_DIR:-}" ]; then\n    uid="$(id -u)"\n    if [ -d "/run/user/${uid}" ]; then\n        export XDG_RUNTIME_DIR="/run/user/${uid}"\n    else\n        export XDG_RUNTIME_DIR="/tmp/runtime-liveuser-${uid}"\n        mkdir -p "$XDG_RUNTIME_DIR"\n        chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true\n    fi\nfi\nexport XDG_SESSION_TYPE=x11\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\nexec startplasma-x11\n' \
         > /home/liveuser/.xinitrc \
     && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
@@ -309,7 +312,7 @@ RUN mkdir -p \
         > /home/liveuser/.config/plasma-welcomerc \
     && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
         > /home/liveuser/.config/autostart/spice-vdagent.desktop \
-    && printf '[Module-kscreen]\nautoload=false\n\n[Module-plasma-welcome]\nautoload=false\n\n[Module-bluedevil]\nautoload=false\n\n[Module-networkstatus]\nautoload=false\n\n[Module-bolt]\nautoload=false\n\n[Module-device_automounter]\nautoload=false\n' \
+    && printf '[Module-plasma-welcome]\nautoload=false\n\n[Module-bolt]\nautoload=false\n' \
         > /home/liveuser/.config/kded6rc \
     && printf '[Compositing]\nEnabled=false\n' \
         > /home/liveuser/.config/kwinrc \
@@ -332,21 +335,18 @@ RUN mkdir -p \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /home/liveuser/Desktop/install-kyth.desktop \
-    && printf '[Desktop Entry]\nName=System Hub\nComment=Open KythOS System Hub\nExec=/usr/bin/kyth-welcome-launch --page Welcome\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
-        > /home/liveuser/Desktop/system-hub.desktop \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
         > /usr/share/applications/kyth-install.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/kyth-welcome.desktop,/usr/share/applications/kyth-install.desktop,/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop\n\n[General]\nhighlightNewlyInstalledApps=false\n' \
         > /home/liveuser/.config/kickoffrc \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=KythOS: Set Kickoff Icon\nHidden=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS: Set Kickoff Icon\nHidden=true\nNoDisplay=true\n' \
         > /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=KythOS: User Comfort Polish\nHidden=true\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS: User Comfort Polish\nHidden=true\nNoDisplay=true\n' \
         > /home/liveuser/.config/autostart/kyth-user-polish.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && chmod +x /home/liveuser/Desktop/system-hub.desktop \
-    && python3 -c "import os; [os.setxattr(p, 'user.metadata::trusted', b'yes') for p in ('/home/liveuser/Desktop/install-kyth.desktop', '/home/liveuser/Desktop/system-hub.desktop')]" \
+    && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && mkdir -p /etc/xdg/autostart \
     && for svc in \
@@ -364,19 +364,84 @@ RUN mkdir -p \
                > "/etc/xdg/autostart/${svc}.desktop"; \
        done
 
+# ── Live session guard: network first, no Plasma churn ───────────────────────
+# Runs at KDE login and fixes only the things a live USB must have ready:
+# NetworkManager/Wi-Fi radio, Bluetooth power, installer shortcut trust, and
+# the installer's baked source-image env. It intentionally does not restart
+# Plasma, rewrite applets, or run installed-system first-login polish.
+RUN cat > /usr/bin/kyth-live-session-prepare <<'LIVEPREPEOF'
+#!/usr/bin/env bash
+set -u
+
+log_file="${XDG_RUNTIME_DIR:-/tmp}/kyth-live-session.log"
+log() { printf '[%s] %s\n' "$(date -Is)" "$*" >> "${log_file}" 2>/dev/null || true; }
+
+log "live session prepare start"
+
+if command -v systemctl >/dev/null 2>&1; then
+    sudo -n systemctl start NetworkManager.service >/dev/null 2>&1 || true
+    sudo -n systemctl start wpa_supplicant.service >/dev/null 2>&1 || true
+    sudo -n systemctl start bluetooth.service >/dev/null 2>&1 || true
+fi
+
+if command -v rfkill >/dev/null 2>&1; then
+    sudo -n rfkill unblock wlan >/dev/null 2>&1 || true
+    sudo -n rfkill unblock wifi >/dev/null 2>&1 || true
+    sudo -n rfkill unblock bluetooth >/dev/null 2>&1 || true
+fi
+
+if command -v nmcli >/dev/null 2>&1; then
+    nmcli networking on >/dev/null 2>&1 || true
+    nmcli radio wifi on >/dev/null 2>&1 || true
+    nmcli radio wwan on >/dev/null 2>&1 || true
+    log "NetworkManager: $(nmcli -t -f RUNNING general 2>/dev/null || echo unknown)"
+    nmcli -t -f DEVICE,TYPE,STATE device status >> "${log_file}" 2>/dev/null || true
+fi
+
+installer="${HOME}/Desktop/install-kyth.desktop"
+if [ -f "${installer}" ]; then
+    chmod +x "${installer}" 2>/dev/null || true
+    python3 - "${installer}" <<'PYEOF' >/dev/null 2>&1 || true
+import os, sys
+path = sys.argv[1]
+try:
+    os.setxattr(path, "user.metadata::trusted", b"yes")
+except OSError:
+    pass
+PYEOF
+fi
+
+if [ -f /etc/kyth-installer.env ]; then
+    log "installer env: $(tr '\n' ' ' </etc/kyth-installer.env)"
+fi
+
+log "live session prepare done"
+LIVEPREPEOF
+RUN chmod +x /usr/bin/kyth-live-session-prepare \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Live Session Prepare\nExec=/usr/bin/kyth-live-session-prepare\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\nNoDisplay=true\n' \
+        > /etc/xdg/autostart/kyth-live-session-prepare.desktop
+
 # ── Live first-impression audit ──────────────────────────────────────────────
 # Fail the image if the live desktop stops looking like KythOS or loses the
-# obvious install/System Hub path. These checks are cheap and catch regressions
+# obvious install path. These checks are cheap and catch regressions
 # before anyone boots a disappointing USB.
 RUN echo "==> Live first-impression audit:" \
     && test -x /home/liveuser/Desktop/install-kyth.desktop \
-    && test -x /home/liveuser/Desktop/system-hub.desktop \
+    && test ! -e /home/liveuser/Desktop/system-hub.desktop \
+    && test "$(find /home/liveuser/Desktop -maxdepth 1 -type f -name '*.desktop' | wc -l)" -eq 1 \
     && test -f /usr/share/applications/kyth-install.desktop \
     && test -f /usr/share/applications/kyth-welcome.desktop \
     && test ! -e /home/liveuser/Desktop/explore-kyth.desktop \
     && test ! -e /usr/share/applications/kyth-explore.desktop \
     && test -f /usr/share/applications/code.desktop \
     && command -v code >/dev/null 2>&1 \
+    && command -v nmcli >/dev/null 2>&1 \
+    && test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
+    && test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
+    && test -x /usr/bin/kyth-live-session-prepare \
+    && test -f /etc/xdg/autostart/kyth-live-session-prepare.desktop \
+    && ! grep -q 'Module-networkstatus' /home/liveuser/.config/kded6rc \
+    && ! grep -q 'Module-bluedevil' /home/liveuser/.config/kded6rc \
     && grep -q '/usr/share/applications/kyth-welcome.desktop' /home/liveuser/.config/kickoffrc \
     && grep -q '/usr/share/applications/kyth-install.desktop' /home/liveuser/.config/kickoffrc \
     && grep -q '/usr/share/applications/code.desktop' /home/liveuser/.config/kickoffrc \
@@ -388,7 +453,7 @@ RUN echo "==> Live first-impression audit:" \
     && test -d /home/liveuser/Games \
     && test -f '/home/liveuser/Templates/Plain Text.txt' \
     && test -x '/home/liveuser/Templates/Shell Script.sh' \
-    && python3 -c 'import os, sys; paths=("/home/liveuser/Desktop/system-hub.desktop", "/home/liveuser/Desktop/install-kyth.desktop"); bad=[]; [bad.append(path) for path in paths if os.getxattr(path, "user.metadata::trusted") != b"yes"]; sys.exit("untrusted desktop shortcuts: " + ", ".join(bad) if bad else 0)'
+    && python3 -c 'import os, sys; path="/home/liveuser/Desktop/install-kyth.desktop"; sys.exit("untrusted desktop shortcut: " + path if os.getxattr(path, "user.metadata::trusted") != b"yes" else 0)'
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
@@ -570,18 +635,20 @@ fi
 DIAGEOF
 RUN chmod +x /usr/bin/kyth-plasma-welcome-diag
 
-# ── WiFi: disable power-save and BT coexistence ──────────────────────────────
+# ── WiFi: disable power-save without breaking Bluetooth coexistence ──────────
 # iwlwifi defaults to power_save=1 which allows passive scanning but drops
 # associations during the connect handshake — the symptom is scan works but
-# connect never completes.  bt_coex_active=1 causes retransmit storms on the
-# 2.4 GHz band when Bluetooth is also active.  mt7921e ASPM causes PCIe
-# link state transitions mid-association on some boards.
+# connect never completes. Keep Bluetooth coexistence enabled; it is safer for
+# mixed 2.4 GHz Wi-Fi plus Bluetooth and matches the installed image. mt7921e
+# ASPM causes PCIe link state transitions mid-association on some boards.
 # NM wifi.powersave=2 (disable) is belt-and-suspenders at the connection level.
 RUN mkdir -p /etc/NetworkManager/conf.d /etc/modprobe.d \
     && printf '[connection]\nwifi.powersave = 2\n' \
         > /etc/NetworkManager/conf.d/wifi-powersave-off.conf \
-    && printf 'options iwlwifi power_save=0 bt_coex_active=0\n' \
+    && printf 'options iwlwifi power_save=0 uapsd_disable=3 bt_coex_active=1\n' \
         > /etc/modprobe.d/iwlwifi-kyth.conf \
+    && printf 'options iwlmvm power_scheme=1\n' \
+        > /etc/modprobe.d/iwlmvm-kyth.conf \
     && printf 'options mt7921e disable_aspm=1\n' \
         > /etc/modprobe.d/mt7921-kyth.conf \
     && printf 'options rtw89_pci disable_clkreq=1 disable_aspm_l1=1 disable_aspm_l1ss=1\n' \
