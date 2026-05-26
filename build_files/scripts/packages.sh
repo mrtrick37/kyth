@@ -402,6 +402,8 @@ dnf5 install -y --skip-unavailable \
     distrobox \
     unzip \
     git \
+    ShellCheck \
+    shfmt \
     spice-vdagent \
     virt-viewer \
     kscreen \
