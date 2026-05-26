@@ -303,7 +303,7 @@ RUN mkdir -p \
         > /home/liveuser/.config/autostart/plasma-welcome.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome\nHidden=true\n' \
         > /home/liveuser/.config/autostart/org.kde.plasma.welcome.desktop \
-    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome Diagnostic\nExec=/usr/bin/kyth-plasma-welcome-diag\nX-KDE-autostart-phase=0\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=Plasma Welcome Diagnostic\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-plasma-welcome-diag.desktop \
     && printf '[General]\nLastSeenVersion=99.0\nShowUpdatePage=false\n' \
         > /home/liveuser/.config/plasma-welcomerc \
@@ -338,14 +338,15 @@ RUN mkdir -p \
         > /usr/share/applications/kyth-install.desktop \
     && printf '[Favorites]\nFavoriteURLs=/usr/share/applications/kyth-welcome.desktop,/usr/share/applications/kyth-install.desktop,/usr/share/applications/code.desktop,/usr/share/applications/chromium-browser.desktop,/usr/share/applications/org.kde.dolphin.desktop,/usr/share/applications/systemsettings.desktop,/usr/share/applications/org.kde.konsole.desktop\n\n[General]\nhighlightNewlyInstalledApps=false\n' \
         > /home/liveuser/.config/kickoffrc \
-    && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nExec=plasma-apply-wallpaperimage /usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nX-KDE-autostart-after=panel\n' \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS Wallpaper\nHidden=true\n' \
         > /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
-    && if [ -f /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop ]; then \
-           cp /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
-              /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
-       fi \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS: Set Kickoff Icon\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
+    && printf '[Desktop Entry]\nType=Application\nName=KythOS: User Comfort Polish\nHidden=true\n' \
+        > /home/liveuser/.config/autostart/kyth-user-polish.desktop \
     && chmod +x /home/liveuser/Desktop/install-kyth.desktop \
-    && python3 -c "import os; os.setxattr('/home/liveuser/Desktop/install-kyth.desktop', 'user.metadata::trusted', b'yes')" \
+    && chmod +x /home/liveuser/Desktop/system-hub.desktop \
+    && python3 -c "import os; [os.setxattr(p, 'user.metadata::trusted', b'yes') for p in ('/home/liveuser/Desktop/install-kyth.desktop', '/home/liveuser/Desktop/system-hub.desktop')]" \
     && chown -R liveuser:liveuser /home/liveuser/ \
     && mkdir -p /etc/xdg/autostart \
     && for svc in \
