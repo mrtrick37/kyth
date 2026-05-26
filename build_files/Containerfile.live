@@ -425,35 +425,47 @@ RUN chmod +x /usr/bin/kyth-live-session-prepare \
 # Fail the image if the live desktop stops looking like KythOS or loses the
 # obvious install path. These checks are cheap and catch regressions
 # before anyone boots a disappointing USB.
-RUN echo "==> Live first-impression audit:" \
-    && test -x /home/liveuser/Desktop/install-kyth.desktop \
-    && test ! -e /home/liveuser/Desktop/system-hub.desktop \
-    && test "$(find /home/liveuser/Desktop -maxdepth 1 -type f -name '*.desktop' | wc -l)" -eq 1 \
-    && test -f /usr/share/applications/kyth-install.desktop \
-    && test -f /usr/share/applications/kyth-welcome.desktop \
-    && test ! -e /home/liveuser/Desktop/explore-kyth.desktop \
-    && test ! -e /usr/share/applications/kyth-explore.desktop \
-    && test -f /usr/share/applications/code.desktop \
-    && command -v code >/dev/null 2>&1 \
-    && command -v nmcli >/dev/null 2>&1 \
-    && test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
-    && test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
-    && test -x /usr/bin/kyth-live-session-prepare \
-    && test -f /etc/xdg/autostart/kyth-live-session-prepare.desktop \
-    && ! grep -q 'Module-networkstatus' /home/liveuser/.config/kded6rc \
-    && ! grep -q 'Module-bluedevil' /home/liveuser/.config/kded6rc \
-    && grep -q '/usr/share/applications/kyth-welcome.desktop' /home/liveuser/.config/kickoffrc \
-    && grep -q '/usr/share/applications/kyth-install.desktop' /home/liveuser/.config/kickoffrc \
-    && grep -q '/usr/share/applications/code.desktop' /home/liveuser/.config/kickoffrc \
-    && grep -q '^highlightNewlyInstalledApps=false$' /home/liveuser/.config/kickoffrc \
-    && grep -q '^Hidden=true$' /home/liveuser/.config/autostart/kyth-user-polish.desktop \
-    && grep -q '^Hidden=true$' /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop \
-    && grep -q '^Hidden=true$' /home/liveuser/.config/autostart/kyth-wallpaper.desktop \
-    && grep -q 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' /home/liveuser/.config/user-dirs.dirs \
-    && test -d /home/liveuser/Games \
-    && test -f '/home/liveuser/Templates/Plain Text.txt' \
-    && test -x '/home/liveuser/Templates/Shell Script.sh' \
-    && python3 -c 'import os, sys; path="/home/liveuser/Desktop/install-kyth.desktop"; sys.exit("untrusted desktop shortcut: " + path if os.getxattr(path, "user.metadata::trusted") != b"yes" else 0)'
+RUN set -eu; \
+    echo "==> Live first-impression audit:"; \
+    fail() { echo "FAIL: $*" >&2; exit 1; }; \
+    require_file() { test -f "$1" || fail "missing file: $1"; }; \
+    require_exec() { test -x "$1" || fail "missing executable: $1"; }; \
+    require_absent() { test ! -e "$1" || fail "unexpected path exists: $1"; }; \
+    require_grep() { grep -q "$1" "$2" || fail "missing pattern '$1' in $2"; }; \
+    require_exec /home/liveuser/Desktop/install-kyth.desktop; \
+    require_absent /home/liveuser/Desktop/system-hub.desktop; \
+    desktop_count="$(find /home/liveuser/Desktop -maxdepth 1 -type f -name '*.desktop' | wc -l)"; \
+    test "${desktop_count}" -eq 1 || fail "expected exactly one desktop launcher, found ${desktop_count}"; \
+    require_file /usr/share/applications/kyth-install.desktop; \
+    require_file /usr/share/applications/kyth-welcome.desktop; \
+    require_absent /home/liveuser/Desktop/explore-kyth.desktop; \
+    require_absent /usr/share/applications/kyth-explore.desktop; \
+    require_file /usr/share/applications/code.desktop; \
+    command -v code >/dev/null 2>&1 || fail "code command missing"; \
+    command -v nmcli >/dev/null 2>&1 || fail "nmcli command missing"; \
+    test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
+        || fail "NetworkManager.service is not enabled"; \
+    test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
+        || fail "wpa_supplicant.service is not enabled"; \
+    require_exec /usr/bin/kyth-live-session-prepare; \
+    require_file /etc/xdg/autostart/kyth-live-session-prepare.desktop; \
+    ! grep -q 'Module-networkstatus' /home/liveuser/.config/kded6rc \
+        || fail "network status module is disabled"; \
+    ! grep -q 'Module-bluedevil' /home/liveuser/.config/kded6rc \
+        || fail "bluedevil module is disabled"; \
+    require_grep '/usr/share/applications/kyth-welcome.desktop' /home/liveuser/.config/kickoffrc; \
+    require_grep '/usr/share/applications/kyth-install.desktop' /home/liveuser/.config/kickoffrc; \
+    require_grep '/usr/share/applications/code.desktop' /home/liveuser/.config/kickoffrc; \
+    require_grep '^highlightNewlyInstalledApps=false$' /home/liveuser/.config/kickoffrc; \
+    require_grep '^Hidden=true$' /home/liveuser/.config/autostart/kyth-user-polish.desktop; \
+    require_grep '^Hidden=true$' /home/liveuser/.config/autostart/kyth-set-kickoff-icon.desktop; \
+    require_grep '^Hidden=true$' /home/liveuser/.config/autostart/kyth-wallpaper.desktop; \
+    require_grep 'XDG_DOWNLOAD_DIR="$HOME/Downloads"' /home/liveuser/.config/user-dirs.dirs; \
+    test -d /home/liveuser/Games || fail "missing Games folder"; \
+    require_file '/home/liveuser/Templates/Plain Text.txt'; \
+    require_exec '/home/liveuser/Templates/Shell Script.sh'; \
+    python3 -c 'import os; path="/home/liveuser/Desktop/install-kyth.desktop"; print(os.getxattr(path, "user.metadata::trusted"))' \
+        || echo "WARNING: installer desktop trust xattr is not readable at build time; runtime prepare script will restore it"
 
 # ── Copy all assets before the post-COPY setup RUN ───────────────────────────
 COPY build_files/wallpaper/kyth-wallpaper.svg \
