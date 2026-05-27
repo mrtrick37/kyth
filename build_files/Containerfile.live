@@ -258,6 +258,11 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/getty.target.wants \
     && ln -sf /usr/lib/systemd/system/getty@.service \
               /etc/systemd/system/getty.target.wants/getty@tty2.service \
+    && ln -sf /usr/lib/systemd/system/sddm.service \
+              /etc/systemd/system/display-manager.service \
+    && mkdir -p /etc/systemd/system/graphical.target.wants \
+    && ln -sf /etc/systemd/system/display-manager.service \
+              /etc/systemd/system/graphical.target.wants/display-manager.service \
     && ln -sf /usr/lib/systemd/system/graphical.target \
               /etc/systemd/system/default.target \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
@@ -448,6 +453,12 @@ RUN set -eu; \
     command -v code >/dev/null 2>&1 || fail "code command missing"; \
     command -v nmcli >/dev/null 2>&1 || fail "nmcli command missing"; \
     command -v sbverify >/dev/null 2>&1 || fail "sbverify command missing"; \
+    test -L /etc/systemd/system/display-manager.service \
+        || fail "display-manager.service alias is missing"; \
+    test -e /etc/systemd/system/graphical.target.wants/display-manager.service \
+        || fail "display-manager.service is not enabled for graphical.target"; \
+    test "$(readlink -f /etc/systemd/system/default.target)" = "/usr/lib/systemd/system/graphical.target" \
+        || fail "default.target is not graphical.target"; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
     test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
