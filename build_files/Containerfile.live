@@ -137,6 +137,7 @@ RUN dnf5 install -y --skip-unavailable \
 # Base image (Kinoite) already has KDE — these fill gaps for live session + ISO build.
 RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     syslinux grub2-efi-x64 grub2-efi-x64-cdboot grub2-efi-x64-modules grub2-pc shim-x64 \
+    sbsigntools \
     gparted gdisk podman \
     plymouth-plugin-script librsvg2-tools \
     spice-vdagent \
@@ -185,11 +186,13 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && (test -f /usr/lib/kyth/efi/shimx64.efi && cp /usr/lib/kyth/efi/shimx64.efi /usr/lib/kyth/efi/BOOTX64.EFI || true) \
     && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || find /usr/share/shim /usr/lib/efi/shim -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI || true) \
     && (find /usr/share/shim /usr/lib/efi/shim -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   || true) \
-    && (find /usr/share/grub /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
+    && (find /usr/share/grub /usr/lib/efi/grub2 -name "gcdx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
+    && (test -f /usr/lib/kyth/efi/grubx64.efi || find /usr/share/grub /usr/lib/efi/grub2 -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi || true) \
     && (test -f /usr/lib/kyth/efi/shimx64.efi || find /boot/efi/EFI/fedora -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || test ! -f /usr/lib/kyth/efi/shimx64.efi || cp /usr/lib/kyth/efi/shimx64.efi /usr/lib/kyth/efi/BOOTX64.EFI) \
     && (test -f /usr/lib/kyth/efi/BOOTX64.EFI || find /boot/efi/EFI/BOOT -name "BOOTX64.EFI" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/BOOTX64.EFI 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/mmx64.efi   || find /boot/efi/EFI/fedora -name "mmx64.efi"   2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/mmx64.efi   2>/dev/null || true) \
+    && (test -f /usr/lib/kyth/efi/grubx64.efi || find /boot/efi/EFI/fedora -name "gcdx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
     && (test -f /usr/lib/kyth/efi/grubx64.efi || find /boot/efi/EFI/fedora -name "grubx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/grubx64.efi 2>/dev/null || true) \
     && (chmod 0644 /usr/lib/kyth/efi/*.efi 2>/dev/null || true) \
     && echo "==> EFI staging:" \
@@ -444,6 +447,7 @@ RUN set -eu; \
     require_file /usr/share/applications/code.desktop; \
     command -v code >/dev/null 2>&1 || fail "code command missing"; \
     command -v nmcli >/dev/null 2>&1 || fail "nmcli command missing"; \
+    command -v sbverify >/dev/null 2>&1 || fail "sbverify command missing"; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
     test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
