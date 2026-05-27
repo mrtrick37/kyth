@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="build_files/branding/kyth-logo.svg" alt="KythOS" width="360">
-
 # KythOS
 
 ### A friendly desktop OS for games, creative work, tinkering, and everyday life.
