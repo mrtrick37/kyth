@@ -52,8 +52,8 @@ if [[ ! -f "${VMLINUZ}" ]]; then
     exit 1
 fi
 
-# ── Install sbsigntools, sign, clean up ──────────────────────────────────────
-echo "secureboot: installing sbsigntools"
+# ── Ensure signing tools are present, then sign ──────────────────────────────
+echo "secureboot: ensuring sbsigntools is installed"
 dnf5 install -y sbsigntools
 
 echo "secureboot: signing ${VMLINUZ} (kernel ${KVER})"
@@ -78,7 +78,6 @@ sbsign --key "${MOK_KEY_FILE}" \
 mv "${VMLINUZ}.signed" "${VMLINUZ}"
 sbverify --cert "${CERT}" "${VMLINUZ}"
 
-dnf5 remove -y sbsigntools
 dnf5 clean all
 
 echo "secureboot: vmlinuz signed successfully"
