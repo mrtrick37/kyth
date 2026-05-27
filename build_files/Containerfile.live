@@ -250,9 +250,10 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/sddm.service.d \
     && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\n' \
         > /etc/systemd/system/sddm.service.d/live-rendering.conf \
-    && mkdir -p /etc/systemd/system/console-getty.service.d \
+    && mkdir -p /etc/systemd/system/getty@tty2.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
-        > /etc/systemd/system/console-getty.service.d/autologin.conf \
+        > /etc/systemd/system/getty@tty2.service.d/autologin.conf \
+    && ln -sf /dev/null /etc/systemd/system/console-getty.service \
     && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
     && rm -f /etc/systemd/system/getty@tty2.service \
     && mkdir -p /etc/systemd/system/getty.target.wants \
@@ -459,6 +460,9 @@ RUN set -eu; \
         || fail "display-manager.service is not enabled for graphical.target"; \
     test "$(readlink -f /etc/systemd/system/default.target)" = "/usr/lib/systemd/system/graphical.target" \
         || fail "default.target is not graphical.target"; \
+    test "$(readlink /etc/systemd/system/console-getty.service)" = "/dev/null" \
+        || fail "console-getty.service is not masked"; \
+    require_file /etc/systemd/system/getty@tty2.service.d/autologin.conf; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
     test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
