@@ -541,7 +541,8 @@ KVER=$(
     find "${ROOTFS}/usr/lib/modules" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
         | grep -v cachyos \
         | sort -V \
-        | tail -n 1
+        | tail -n 1 \
+        || true
 )
 if [[ -z "${KVER}" ]]; then
     echo "WARNING: no Fedora-signed kernel found in rootfs — falling back to the newest available kernel" >&2
