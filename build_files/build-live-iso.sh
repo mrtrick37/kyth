@@ -752,6 +752,12 @@ EMBEDEOF
         "${ISO_DIR}/EFI/BOOT/grubx64.efi" \
         "Secure Boot GRUB" \
         "${ROOTFS}/usr/lib/kyth/efi/grubx64.efi" \
+        "${ROOTFS}/usr/lib/kyth/efi/gcdx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/fedora/gcdx64.efi" \
+        "${ROOTFS}/boot/efi/EFI/BOOT/gcdx64.efi" \
+        "$(find_signed_efi "${ROOTFS}/usr/lib/efi/grub2" "gcdx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}/usr/share/grub" "gcdx64.efi")" \
+        "$(find_signed_efi "${ROOTFS}" "gcdx64.efi")" \
         "${ROOTFS}/boot/efi/EFI/fedora/grubx64.efi" \
         "${ROOTFS}/boot/efi/EFI/BOOT/grubx64.efi" \
         "$(find_signed_efi "${ROOTFS}/usr/lib/efi/grub2" "grubx64.efi")" \
