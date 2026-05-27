@@ -683,6 +683,15 @@ run-live-iso-native source_tag="latest":
     echo "QEMU debug log on host: ${qemu_log}"
     echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
+    _qemu_devices="$(qemu-system-x86_64 -device help 2>/dev/null || true)"
+    if [[ "${_qemu_devices}" == *'name "qxl-vga"'* ]]; then
+        _video_args=(-device qxl-vga)
+        echo "==> QEMU video: qxl-vga"
+    else
+        _video_args=(-device virtio-vga)
+        echo "==> QEMU video: virtio-vga (qxl-vga unavailable)"
+    fi
+
     qemu-system-x86_64 \
         -enable-kvm \
         -cpu host \
@@ -695,7 +704,7 @@ run-live-iso-native source_tag="latest":
         -device ide-cd,bus=ahci.0,drive=liveiso,bootindex=2 \
         -drive "if=none,id=systemdisk,file=${disk_img},format=qcow2" \
         -device virtio-blk-pci,drive=systemdisk,bootindex=1 \
-        -device qxl-vga \
+        "${_video_args[@]}" \
         -display none \
         -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
@@ -783,6 +792,15 @@ run-live-iso-native-legacy source_tag="latest":
     echo "QEMU debug log on host: ${qemu_log}"
     echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
+    _qemu_devices="$(qemu-system-x86_64 -device help 2>/dev/null || true)"
+    if [[ "${_qemu_devices}" == *'name "qxl-vga"'* ]]; then
+        _video_args=(-device qxl-vga)
+        echo "==> QEMU video: qxl-vga"
+    else
+        _video_args=(-device virtio-vga)
+        echo "==> QEMU video: virtio-vga (qxl-vga unavailable)"
+    fi
+
     qemu-system-x86_64 \
         -enable-kvm \
         -cpu host \
@@ -795,7 +813,7 @@ run-live-iso-native-legacy source_tag="latest":
         -cdrom "${image_file}" \
         -boot order=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device qxl-vga \
+        "${_video_args[@]}" \
         -display none \
         -spice port=5932,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
