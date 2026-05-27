@@ -116,6 +116,11 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
+    xorriso \
+    squashfs-tools \
+    mtools \
+    dosfstools \
+    sbsigntools \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \

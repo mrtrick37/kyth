@@ -173,6 +173,26 @@ if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
     hash -r
 fi
 
+_missing_cmds=()
+for _cmd in xorriso mksquashfs mkfs.fat mcopy mmd sbverify; do
+    command -v "${_cmd}" &>/dev/null || _missing_cmds+=("${_cmd}")
+done
+if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
+    for _cmd in sbsign openssl; do
+        command -v "${_cmd}" &>/dev/null || _missing_cmds+=("${_cmd}")
+    done
+fi
+if [[ ${#_missing_cmds[@]} -gt 0 ]]; then
+    echo "ERROR: required ISO build commands are still missing after package install: ${_missing_cmds[*]}" >&2
+    if command -v rpm-ostree &>/dev/null; then
+        echo "       On rpm-ostree systems, install the packages and reboot if apply-live did not expose them:" >&2
+        echo "       sudo rpm-ostree install xorriso squashfs-tools mtools dosfstools sbsigntools" >&2
+    else
+        echo "       Install: xorriso squashfs-tools mtools dosfstools sbsigntools" >&2
+    fi
+    exit 1
+fi
+
 mkdir -p \
     "${ROOTFS}" \
     "${ISO_DIR}/LiveOS" \
