@@ -67,6 +67,24 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
     dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
+    : "Ensure bootc can find the latest kernel initramfs under /usr/lib/modules" && \
+    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    test -n "${KVER}" && \
+    if [ ! -f "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then \
+        cp --no-preserve=all "/boot/vmlinuz-${KVER}" "/usr/lib/modules/${KVER}/vmlinuz"; \
+    fi && \
+    if [ -s "/boot/initramfs-${KVER}.img" ]; then \
+        cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
+    elif [ ! -f "/usr/lib/modules/${KVER}/initramfs" ]; then \
+        TMPDIR=/var/tmp dracut \
+            --no-hostonly \
+            --compress "zstd -1" \
+            --kver "${KVER}" \
+            --force \
+            "/usr/lib/modules/${KVER}/initramfs"; \
+    fi && \
+    test -s "/usr/lib/modules/${KVER}/vmlinuz" && \
+    test -s "/usr/lib/modules/${KVER}/initramfs" && \
     dnf5 clean all
 
 # Layer 4: Optional Mesa-git GPU drivers.
