@@ -248,7 +248,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
     && mkdir -p /etc/systemd/system/sddm.service.d \
-    && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\n' \
+    && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=llvmpipe"\nEnvironment="MESA_LOADER_DRIVER_OVERRIDE=llvmpipe"\n' \
         > /etc/systemd/system/sddm.service.d/live-rendering.conf \
     && mkdir -p /etc/systemd/system/getty@tty2.service.d \
     && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
@@ -339,7 +339,7 @@ RUN mkdir -p \
     && printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
         > '/home/liveuser/Templates/Python Script.py' \
     && chmod +x '/home/liveuser/Templates/Shell Script.sh' '/home/liveuser/Templates/Python Script.py' \
-    && printf '#!/bin/bash\n# Live environment hook kept for compatibility.\n# Rendering policy is applied in ~/.xinitrc for deterministic startup.\ntrue\n' \
+    && printf '#!/bin/bash\n# Prefer boring, portable software rendering in the live ISO. Hardware GL is opt-in\n# from the boot menu with kyth.live.hwgl=1.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \

@@ -72,6 +72,16 @@ check_static_sources() {
         || fail "Fedora-signed live media should default to the live desktop"
     grep -q 'GRUB_TIMEOUT=10' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "Fedora-signed live media should not wait indefinitely for MOK enrollment"
+    grep -q 'BASIC_GRAPHICS_ARGS=.*nomodeset' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must keep basic graphics as the default boot path"
+    grep -q 'GPU_DRIVER_BLACKLIST=.*amdgpu.*nouveau.*i915.*xe.*nvidia' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "basic graphics mode must avoid common accelerated GPU drivers"
+    grep -q 'Try KythOS Live (Console Fallback)' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must keep a console fallback boot entry"
+    grep -q 'plasma-workspace/env/live.sh' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must ship a Plasma software-rendering environment hook"
+    grep -q 'LIBGL_ALWAYS_SOFTWARE=1' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must force software rendering unless hardware GL is explicitly requested"
     grep -q 'mok_state' "${REPO_ROOT}/build_files/kyth-installer" \
         || fail "installer must report MOK enrollment state to the UI"
     grep -q '_try_stage_mok_enrollment(log, kernel)' "${REPO_ROOT}/build_files/kyth-installer" \
