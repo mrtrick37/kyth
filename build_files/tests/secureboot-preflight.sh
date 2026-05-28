@@ -76,8 +76,34 @@ check_static_sources() {
         || fail "live ISO must keep basic graphics as the default boot path"
     grep -q 'GPU_DRIVER_BLACKLIST=.*amdgpu.*nouveau.*i915.*xe.*nvidia' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "basic graphics mode must avoid common accelerated GPU drivers"
-    grep -q 'Try KythOS Live (Console Fallback)' "${REPO_ROOT}/build_files/build-live-iso.sh" \
-        || fail "live ISO must keep a console fallback boot entry"
+    grep -q 'menuentry "Try KythOS"' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must expose the single Try KythOS boot entry"
+    [[ "$(grep -c '^menuentry "' "${REPO_ROOT}/build_files/build-live-iso.sh")" -eq 1 ]] \
+        || fail "live ISO GRUB menu must contain exactly one boot entry"
+    [[ "$(grep -c '^label ' "${REPO_ROOT}/build_files/build-live-iso.sh")" -eq 1 ]] \
+        || fail "live ISO syslinux menu must contain exactly one boot entry"
+    ! grep -q 'Try KythOS Live (Accelerated Graphics)' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must not expose accelerated graphics as a boot option"
+    ! grep -q 'Try KythOS Live (AMD Compatibility)' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must not expose AMD compatibility as a boot option"
+    ! grep -q 'Try KythOS Live (Console Fallback)' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must not expose console fallback as a boot option"
+    ! grep -q 'Try KythOS Live (Debug' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "live ISO must not expose debug as a boot option"
+    ! grep -q 'agetty --autologin' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must not enable tty2 autologin that can race SDDM"
+    ! grep -q 'startx --' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must not start a fallback X session that can race SDDM"
+    grep -q 'remove .*xorg-x11-xinit' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must remove startx/xinit from the inherited base image"
+    ! grep -q 'startplasma-x11' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must not keep an alternate manual Plasma startup path"
+    ! grep -q 'multi-user.target.wants/sddm.service' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "SDDM must only be pulled by graphical.target/display-manager"
+    grep -q 'Session=plasmax11.desktop' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "SDDM autologin must name the explicit Plasma X11 session desktop file"
+    grep -q '"sudo", "-u", sudo_user, "env"' "${REPO_ROOT}/build_files/kyth-installer" \
+        || fail "installer must pass GUI environment explicitly to Chromium"
     grep -q 'plasma-workspace/env/live.sh' "${REPO_ROOT}/build_files/Containerfile.live" \
         || fail "live ISO must ship a Plasma software-rendering environment hook"
     grep -q 'LIBGL_ALWAYS_SOFTWARE=1' "${REPO_ROOT}/build_files/Containerfile.live" \
@@ -163,8 +189,20 @@ check_cached_live_image() {
         test -s "/usr/lib/modules/${fedora_kver}/vmlinuz"
         test -s "/usr/lib/modules/${fedora_kver}/initramfs-live"
         ! find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf "%f\n" | grep -q cachyos
+        grep -q "Session=plasmax11.desktop" /etc/sddm.conf.d/autologin.conf
+        test -L /etc/systemd/system/display-manager.service
+        test -e /etc/systemd/system/graphical.target.wants/display-manager.service
+        test ! -e /etc/systemd/system/multi-user.target.wants/sddm.service
+        test ! -e /etc/systemd/system/getty@tty2.service.d/autologin.conf
+        test ! -e /home/liveuser/.xinitrc
+        ! command -v startx >/dev/null 2>&1
+        test -x /usr/bin/kyth-launch-installer
+        test -x /usr/bin/kyth-installer
+        test -s /etc/kyth-installer.env
+        test "$(find /home/liveuser/Desktop -maxdepth 1 -type f -name "*.desktop" | wc -l)" -eq 1
+        test -x /home/liveuser/Desktop/install-kyth.desktop
     '
-    pass "cached live image contains EFI binaries and only the Fedora live kernel"
+    pass "cached live image contains EFI binaries, one desktop path, and installer launchers"
 }
 
 check_host_secureboot_db() {

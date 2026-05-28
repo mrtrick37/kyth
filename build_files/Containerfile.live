@@ -146,7 +146,6 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     plasma-desktop \
     sddm \
     xorg-x11-server-Xorg \
-    xorg-x11-xinit \
     xorg-x11-drv-evdev \
     xorg-x11-drv-libinput \
     xorg-x11-drv-vmware \
@@ -179,7 +178,7 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     sddm-breeze \
     breeze-icon-theme \
     breeze-cursor-theme \
-    && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora || rpm -e --nodeps plasma-welcome plasma-welcome-fedora) 2>/dev/null || true \
+    && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora xorg-x11-xinit || rpm -e --nodeps plasma-welcome plasma-welcome-fedora xorg-x11-xinit) 2>/dev/null || true \
     && dnf5 clean all \
     && mkdir -p /usr/lib/kyth/efi \
     && (find /usr/share/shim /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
@@ -233,8 +232,9 @@ RUN --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/
 # ── System setup: live user, autologin, network, mask setup service ──────────
 # The live ISO should be a normal KythOS desktop with a reliable installer
 # shortcut, not a special shell that constantly rewrites Plasma state. SDDM is
-# the primary path. Console autologin remains only as a fallback and is guarded
-# by ~/.bash_profile so it cannot spawn a second Plasma session over SDDM.
+# the primary path. Keep tty2 available for diagnostics, but do not autologin or
+# start a fallback X session; racing SDDM with startx can restart Plasma while
+# the installer is opening.
 RUN groupadd -r autologin 2>/dev/null || true \
     && useradd -c "Live User" -G autologin,wheel liveuser \
     && passwd -d liveuser \
@@ -243,16 +243,13 @@ RUN groupadd -r autologin 2>/dev/null || true \
         > /etc/sudoers.d/liveuser-installer \
     && chmod 0440 /etc/sudoers.d/liveuser-installer \
     && mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11\nRelogin=false\n' \
+    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11.desktop\nRelogin=false\n' \
         > /etc/sddm.conf.d/autologin.conf \
     && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
     && mkdir -p /etc/systemd/system/sddm.service.d \
     && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=llvmpipe"\nEnvironment="MESA_LOADER_DRIVER_OVERRIDE=llvmpipe"\n' \
         > /etc/systemd/system/sddm.service.d/live-rendering.conf \
-    && mkdir -p /etc/systemd/system/getty@tty2.service.d \
-    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear - linux\n' \
-        > /etc/systemd/system/getty@tty2.service.d/autologin.conf \
     && ln -sf /dev/null /etc/systemd/system/console-getty.service \
     && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
     && rm -f /etc/systemd/system/getty@tty2.service \
@@ -267,8 +264,6 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && ln -sf /usr/lib/systemd/system/graphical.target \
               /etc/systemd/system/default.target \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
-    && ln -sf /usr/lib/systemd/system/sddm.service \
-              /etc/systemd/system/multi-user.target.wants/sddm.service \
     && ln -sf /usr/lib/systemd/system/NetworkManager.service \
               /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
     && ln -sf /usr/lib/systemd/system/wpa_supplicant.service \
@@ -295,12 +290,9 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && rm -rf /home/liveuser/.config/autostart \
     && mkdir -p /home/liveuser/.config/autostart \
-    && printf '# Fallback only: SDDM is expected to start the live desktop. If it already did,\n# never spawn a second Plasma session from the console autologin.\n# This file is sourced by the login shell, so do not enable shell options here.\nif [ -z "${DISPLAY:-}" ] && [ -z "${WAYLAND_DISPLAY:-}" ] && [ "$(tty 2>/dev/null || true)" = "/dev/tty2" ]; then\n    if pgrep -u "$(id -u)" -x plasmashell >/dev/null 2>&1 || pgrep -u "$(id -u)" -f "startplasma|kwin_x11|kwin_wayland" >/dev/null 2>&1; then\n        return 0 2>/dev/null || exit 0\n    fi\n    exec startx -- :0 vt2 -nolisten tcp\nfi\n' \
+    && printf '# Live ISO: SDDM owns the Plasma session. Do not start a second X session from a shell.\n' \
         > /home/liveuser/.bash_profile \
     && chmod +x /home/liveuser/.bash_profile \
-    && printf '#!/usr/bin/env bash\nset -u\nif [ -z "${XDG_RUNTIME_DIR:-}" ]; then\n    uid="$(id -u)"\n    if [ -d "/run/user/${uid}" ]; then\n        export XDG_RUNTIME_DIR="/run/user/${uid}"\n    else\n        export XDG_RUNTIME_DIR="/tmp/runtime-liveuser-${uid}"\n        mkdir -p "$XDG_RUNTIME_DIR"\n        chmod 700 "$XDG_RUNTIME_DIR" 2>/dev/null || true\n    fi\nfi\nexport XDG_SESSION_TYPE=x11\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\nexec startplasma-x11\n' \
-        > /home/liveuser/.xinitrc \
-    && chmod +x /home/liveuser/.xinitrc \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
         > /home/liveuser/.config/autostart/steam.desktop \
     && printf '[Desktop Entry]\nType=Application\nName=Accessibility\nHidden=true\n' \
@@ -339,7 +331,7 @@ RUN mkdir -p \
     && printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
         > '/home/liveuser/Templates/Python Script.py' \
     && chmod +x '/home/liveuser/Templates/Shell Script.sh' '/home/liveuser/Templates/Python Script.py' \
-    && printf '#!/bin/bash\n# Prefer boring, portable software rendering in the live ISO. Hardware GL is opt-in\n# from the boot menu with kyth.live.hwgl=1.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n' \
+    && printf '#!/bin/bash\n# Prefer boring, portable software rendering in the live ISO. Hardware GL remains\n# available only by manually adding kyth.live.hwgl=1 to the kernel command line.\nif ! grep -qw '\''kyth.live.hwgl=1'\'' /proc/cmdline 2>/dev/null; then\n    export LIBGL_ALWAYS_SOFTWARE=1\n    export GALLIUM_DRIVER=llvmpipe\n    export MESA_LOADER_DRIVER_OVERRIDE=llvmpipe\n    export QT_QUICK_BACKEND=software\nfi\n' \
         > /home/liveuser/.config/plasma-workspace/env/live.sh \
     && chmod +x /home/liveuser/.config/plasma-workspace/env/live.sh \
     && printf '[Desktop Entry]\nName=Install KythOS\nComment=Install KythOS to this computer\nExec=/usr/bin/kyth-launch-installer\nIcon=kyth\nTerminal=false\nType=Application\nCategories=System;\n' \
@@ -458,11 +450,18 @@ RUN set -eu; \
         || fail "display-manager.service alias is missing"; \
     test -e /etc/systemd/system/graphical.target.wants/display-manager.service \
         || fail "display-manager.service is not enabled for graphical.target"; \
+    test ! -e /etc/systemd/system/multi-user.target.wants/sddm'.service' \
+        || fail "sddm.service must not be wanted directly by multi-user.target"; \
     test "$(readlink -f /etc/systemd/system/default.target)" = "/usr/lib/systemd/system/graphical.target" \
         || fail "default.target is not graphical.target"; \
     test "$(readlink /etc/systemd/system/console-getty.service)" = "/dev/null" \
         || fail "console-getty.service is not masked"; \
-    require_file /etc/systemd/system/getty@tty2.service.d/autologin.conf; \
+    test ! -e /etc/systemd/system/getty@tty2.service.d/autologin.conf \
+        || fail "tty2 autologin must not be enabled"; \
+    test ! -e /home/liveuser/.xinitrc \
+        || fail ".xinitrc must not be present in the live user home"; \
+    ! command -v startx >/dev/null 2>&1 \
+        || fail "startx must not be installed in the live image"; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
     test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \

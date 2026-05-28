@@ -628,8 +628,6 @@ QUIET_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-se
 VERBOSE_ARGS="rd.plymouth=0 plymouth.enable=0 rd.debug ignore_loglevel loglevel=7 systemd.show_status=true rd.systemd.show_status=true rd.udev.log_level=debug vt.global_cursor_default=1"
 GPU_DRIVER_BLACKLIST="amdgpu,radeon,nouveau,nova_core,i915,xe,nvidia,nvidia_drm,nvidia_modeset"
 BASIC_GRAPHICS_ARGS="${VERBOSE_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
-ACCELERATED_ARGS="${QUIET_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1"
-AMD_COMPAT_ARGS="${VERBOSE_ARGS} amdgpu.dc=0 kyth.live.hwgl=1 kyth.installer.hwgl=1"
 LIVE_ARGS="${LIVE_COMMON_ARGS} ${BASIC_GRAPHICS_ARGS}"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=10
@@ -650,7 +648,7 @@ terminal-border: "0"
     left   = 30%
     top    = 35%
     width  = 40%
-    height = 40%
+    height = 18%
     item_font               = "DejaVu Sans Regular 14"
     item_color              = "#abb2bf"
     selected_item_color     = "#ffffff"
@@ -716,29 +714,9 @@ else
     set menu_color_highlight=black/light-cyan
 fi
 
-# ── Boot entries ───────────────────────────────────────────────────────────────
-menuentry "Try KythOS Live (Basic Graphics)" --class fedora --class gnu-linux --class os {
+# ── Boot entry ────────────────────────────────────────────────────────────────
+menuentry "Try KythOS" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try KythOS Live (Accelerated Graphics)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${ACCELERATED_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try KythOS Live (AMD Compatibility)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${AMD_COMPAT_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try KythOS Live (Console Fallback)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} systemd.unit=multi-user.target
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${VERBOSE_ARGS} console=ttyS0,115200 console=tty0
     initrd /images/pxeboot/initrd.img
 }
 
@@ -951,30 +929,15 @@ menu color timeout    1;37;40  #c0ffffff #00000000 std
 menu color cmdline    37;40    #c0ffffff #00000000 std
 menu hshift 13
 menu margin 8
-menu rows 5
+menu rows 1
 menu vshift 12
 menu tabmsgrow 18
 menu helpmsgrow 20
 
 label live
-  menu label Try KythOS Live (Basic Graphics)
+  menu label Try KythOS
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
-
-label hwgl
-  menu label Try KythOS Live (Accelerated Graphics)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_COMMON_ARGS} ${ACCELERATED_ARGS}
-
-label amdcompat
-  menu label Try KythOS Live (AMD Compatibility)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_COMMON_ARGS} ${AMD_COMPAT_ARGS}
-
-label console
-  menu label Try KythOS Live (Console Fallback)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} systemd.unit=multi-user.target
 
 ISOLINUXEOF
     HAVE_ISOLINUX=true
