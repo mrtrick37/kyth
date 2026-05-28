@@ -94,8 +94,8 @@ check_static_sources() {
         || fail "live ISO must not enable tty2 autologin that can race SDDM"
     ! grep -q 'startx --' "${REPO_ROOT}/build_files/Containerfile.live" \
         || fail "live ISO must not start a fallback X session that can race SDDM"
-    grep -q 'remove .*xorg-x11-xinit' "${REPO_ROOT}/build_files/Containerfile.live" \
-        || fail "live ISO must remove startx/xinit from the inherited base image"
+    grep -q 'rm -f /usr/bin/startx /usr/bin/xinit' "${REPO_ROOT}/build_files/Containerfile.live" \
+        || fail "live ISO must remove startx/xinit entry points"
     ! grep -q 'startplasma-x11' "${REPO_ROOT}/build_files/Containerfile.live" \
         || fail "live ISO must not keep an alternate manual Plasma startup path"
     ! grep -q 'multi-user.target.wants/sddm.service' "${REPO_ROOT}/build_files/Containerfile.live" \
