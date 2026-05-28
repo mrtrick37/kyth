@@ -268,8 +268,6 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
     && ln -sf /usr/lib/systemd/system/NetworkManager.service \
               /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
-    && ln -sf /usr/lib/systemd/system/wpa_supplicant.service \
-              /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
     && mkdir -p /etc/systemd/system/default.target.wants \
     && ln -sf /usr/lib/systemd/system/spice-vdagentd.service \
               /etc/systemd/system/default.target.wants/spice-vdagentd.service \
@@ -384,7 +382,6 @@ log "live session prepare start"
 
 if command -v systemctl >/dev/null 2>&1; then
     sudo -n systemctl start NetworkManager.service >/dev/null 2>&1 || true
-    sudo -n systemctl start wpa_supplicant.service >/dev/null 2>&1 || true
     sudo -n systemctl start bluetooth.service >/dev/null 2>&1 || true
 fi
 
@@ -424,6 +421,109 @@ LIVEPREPEOF
 RUN chmod +x /usr/bin/kyth-live-session-prepare \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Live Session Prepare\nExec=/usr/bin/kyth-live-session-prepare\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\nNoDisplay=true\n' \
         > /etc/xdg/autostart/kyth-live-session-prepare.desktop
+
+RUN cat > /usr/bin/kyth-live-open-wifi <<'OPENWIFIEOF'
+#!/usr/bin/env bash
+set -u
+
+log_file="${XDG_RUNTIME_DIR:-/tmp}/kyth-live-session.log"
+log() { printf '[%s] open-wifi: %s\n' "$(date -Is)" "$*" >> "${log_file}" 2>/dev/null || true; }
+
+if ! grep -qw 'kyth.live' /proc/cmdline 2>/dev/null; then
+    echo "kyth-live-open-wifi is only intended for the live ISO." >&2
+    exit 2
+fi
+
+if ! command -v nmcli >/dev/null 2>&1; then
+    echo "nmcli is not available." >&2
+    exit 127
+fi
+
+ssid="${1:-}"
+if [ -z "${ssid}" ]; then
+    ssid="$(
+        nmcli -t -f SSID,SECURITY,SIGNAL device wifi list --rescan yes 2>/dev/null \
+            | awk -F: '($2 == "" || $2 == "--" || tolower($2) == "none" || tolower($2) ~ /owe/) && $1 != "" { print $3 "\t" $1 }' \
+            | sort -rn \
+            | awk 'NR == 1 { sub(/^[0-9]+\t/, ""); print; exit }'
+    )"
+fi
+
+if [ -z "${ssid}" ]; then
+    echo "No open Wi-Fi networks are visible." >&2
+    exit 1
+fi
+
+security="$(
+    nmcli -t -f SSID,SECURITY,SIGNAL device wifi list --rescan yes 2>/dev/null \
+        | awk -F: -v want="${ssid}" '$1 == want { sec = ($2 == "" ? "<open>" : $2); print sec "\t" $3; found=1 } END { exit(found ? 0 : 1) }' \
+        | sort -k2,2rn \
+        | awk 'NR == 1 { print $1; exit }'
+)"
+if [ -z "${security}" ]; then
+    echo "'${ssid}' is not currently visible." >&2
+    exit 1
+fi
+if [ "${security}" = "<open>" ]; then
+    security=""
+fi
+
+security_lc="$(printf '%s' "${security}" | tr '[:upper:]' '[:lower:]')"
+case "${security_lc}" in
+    ""|"--"|"none")
+        key_mgmt="none"
+        ;;
+    *owe*)
+        key_mgmt="owe"
+        ;;
+    *)
+        echo "'${ssid}' is advertised with security '${security}', not as an open/no-password network." >&2
+        exit 1
+        ;;
+esac
+
+device="$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | awk -F: '$2 == "wifi" { print $1; exit }')"
+if [ -z "${device}" ]; then
+    echo "No Wi-Fi device is visible to NetworkManager." >&2
+    exit 1
+fi
+
+nmcli networking on >/dev/null 2>&1 || true
+nmcli radio wifi on >/dev/null 2>&1 || true
+sudo -n rfkill unblock wlan >/dev/null 2>&1 || true
+sudo -n rfkill unblock wifi >/dev/null 2>&1 || true
+
+while IFS= read -r connection; do
+    [ -n "${connection}" ] || continue
+    log "removing stale profile for ${ssid}: ${connection}"
+    nmcli connection delete "${connection}" >/dev/null 2>&1 || true
+done < <(nmcli -t -f NAME,TYPE,802-11-wireless.ssid connection show 2>/dev/null \
+    | awk -F: -v want="${ssid}" '$2 == "802-11-wireless" && ($1 == want || $3 == want) { print $1 }')
+
+con_name="Kyth Live ${ssid}"
+nmcli connection delete "${con_name}" >/dev/null 2>&1 || true
+
+log "creating ${key_mgmt} profile ${con_name} for ${ssid} on ${device}"
+nmcli connection add \
+    type wifi \
+    ifname "${device}" \
+    con-name "${con_name}" \
+    ssid "${ssid}" \
+    wifi.mode infrastructure \
+    wifi.powersave disable \
+    wifi-sec.key-mgmt "${key_mgmt}" \
+    connection.autoconnect yes
+
+if [ "${key_mgmt}" = "none" ]; then
+    nmcli connection modify "${con_name}" \
+        wifi-sec.auth-alg open \
+        wifi-sec.wep-key-flags 4
+fi
+
+log "activating ${con_name}"
+nmcli connection up "${con_name}" ifname "${device}"
+OPENWIFIEOF
+RUN chmod +x /usr/bin/kyth-live-open-wifi
 
 # ── Live first-impression audit ──────────────────────────────────────────────
 # Fail the image if the live desktop stops looking like KythOS or loses the
@@ -466,9 +566,10 @@ RUN set -eu; \
         || fail "startx must not be installed in the live image"; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
-    test -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
-        || fail "wpa_supplicant.service is not enabled"; \
+    test ! -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
+        || fail "standalone wpa_supplicant.service should not be enabled"; \
     require_exec /usr/bin/kyth-live-session-prepare; \
+    require_exec /usr/bin/kyth-live-open-wifi; \
     require_file /etc/xdg/autostart/kyth-live-session-prepare.desktop; \
     ! grep -q 'Module-networkstatus' /home/liveuser/.config/kded6rc \
         || fail "network status module is disabled"; \

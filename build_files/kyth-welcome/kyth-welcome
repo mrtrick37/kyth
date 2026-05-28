@@ -3462,7 +3462,7 @@ def _health_command_report() -> str:
 
 def _health_recommendations(report: str) -> str:
     checks: list[tuple[str, str]] = [
-        ("kyth-default-flatpaks.service", "Default game apps are incomplete. Open Repair and click Retry Game Apps, or run: sudo systemctl restart kyth-default-flatpaks.service"),
+        ("kyth-default-flatpaks.service", "Default game apps are incomplete. Open Repair and click Retry Game Apps."),
         ("Vulkan", "Vulkan reported trouble. Open Hardware and check Graphics; reboot if a GPU driver was just updated."),
         ("PipeWire", "Desktop audio is not fully active. Open Repair and click Restart Audio."),
         ("WirePlumber", "Audio session management is not fully active. Open Repair and click Restart Audio."),
