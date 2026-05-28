@@ -257,7 +257,7 @@ Use this path for a new machine or a clean install:
    **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
    **Restore factory Secure Boot keys**.
 3. Boot the KythOS live USB.
-4. Choose **Try KythOS Live**.
+4. Choose **Try KythOS**.
 5. Run the installer from the desktop.
 
 Only enroll the KythOS MOK if you later switch to the advanced CachyOS
@@ -326,26 +326,18 @@ MokManager enrollment reboot, then enable Secure Boot again.
   current ISO and run the Secure Boot preflight below before flashing it.
 
 - `bad shim signature`, `verification failed`, or a return to GRUB when choosing
-  **Try KythOS Live**
+  **Try KythOS**
 
   The live ISO should be using Fedora-signed boot artifacts and should not need
   the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
   Boot preflight below before flashing it again.
 
-- Black screen, frozen splash, or reboot after choosing **Try KythOS Live**
+- Black screen, frozen splash, or reboot after choosing **Try KythOS**
 
-  The default live entry is **Try KythOS Live (Basic Graphics)**. It disables
-  the splash screen, uses software rendering, and avoids accelerated AMD, Intel,
-  NVIDIA, and nouveau kernel modesetting so the live ISO can prioritize booting
-  and installing over GPU performance. If Basic Graphics still fails, try
-  **Try KythOS Live (Console Fallback)** and use the visible boot message to
-  identify whether the failure is USB media, live image lookup, or storage.
-
-- Want to test GPU acceleration from the USB
-
-  Choose **Try KythOS Live (Accelerated Graphics)** from the boot menu. On
-  AMD-only laptops that dislike the normal display-core path, try
-  **Try KythOS Live (AMD Compatibility)**.
+  The live entry uses basic graphics. It disables the splash screen, uses
+  software rendering, and avoids accelerated AMD, Intel, NVIDIA, and nouveau
+  kernel modesetting so the live ISO can prioritize booting and installing over
+  GPU performance.
 
 #### Check an ISO before flashing
 
