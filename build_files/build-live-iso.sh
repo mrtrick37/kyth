@@ -17,7 +17,8 @@
 #
 # Host requirements:
 #   xorriso, squashfs-tools (mksquashfs), mtools, dosfstools
-#   Missing packages are installed automatically via rpm-ostree (Atomic) or dnf (classic).
+#   Missing packages are reported, not installed automatically. Layering host
+#   build tools with rpm-ostree makes bootc refuse future OS upgrades.
 
 set -euo pipefail
 
@@ -164,13 +165,15 @@ if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
 fi
 
 if [[ ${#_missing_pkgs[@]} -gt 0 ]]; then
-    echo "==> Installing missing ISO build tools: ${_missing_pkgs[*]}"
+    echo "ERROR: missing ISO build tools: ${_missing_pkgs[*]}" >&2
     if command -v rpm-ostree &>/dev/null; then
-        sudo rpm-ostree install --apply-live --idempotent "${_missing_pkgs[@]}"
+        echo "       This appears to be an rpm-ostree/bootc system." >&2
+        echo "       Do not layer ISO build tools on the host; that makes bootc upgrade refuse the deployment." >&2
+        echo "       Install these in a toolbox/distrobox or run the build on a mutable Fedora host." >&2
     else
-        sudo dnf install -y "${_missing_pkgs[@]}"
+        echo "       Install them with: sudo dnf install ${_missing_pkgs[*]}" >&2
     fi
-    hash -r
+    exit 1
 fi
 
 _missing_cmds=()
@@ -183,10 +186,9 @@ if [[ "${REQUIRE_SECUREBOOT_SIGNING:-0}" == "1" ]]; then
     done
 fi
 if [[ ${#_missing_cmds[@]} -gt 0 ]]; then
-    echo "ERROR: required ISO build commands are still missing after package install: ${_missing_cmds[*]}" >&2
+    echo "ERROR: required ISO build commands are missing: ${_missing_cmds[*]}" >&2
     if command -v rpm-ostree &>/dev/null; then
-        echo "       On rpm-ostree systems, install the packages and reboot if apply-live did not expose them:" >&2
-        echo "       sudo rpm-ostree install xorriso squashfs-tools mtools dosfstools sbsigntools" >&2
+        echo "       Use a toolbox/distrobox or a mutable Fedora host for ISO assembly dependencies." >&2
     else
         echo "       Install: xorriso squashfs-tools mtools dosfstools sbsigntools" >&2
     fi
