@@ -319,6 +319,17 @@ MokManager enrollment reboot, then enable Secure Boot again.
   the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
   Boot preflight below before flashing it again.
 
+- Black screen, frozen splash, or reboot after choosing **Try KythOS Live**
+
+  On some gaming laptops, especially AMD-only laptops with aggressive firmware
+  graphics handoff, the kernel can reach early GPU modesetting and never make it
+  to the desktop. Reboot, open the KythOS boot menu, and first try
+  **Try KythOS Live (AMD Compatibility)**. If that still fails, try
+  **Try KythOS Live (Safe Graphics)**. Both entries disable the splash screen so
+  boot messages stay readable; Safe Graphics also disables AMDGPU kernel
+  modesetting for the live session so you can confirm whether the problem is
+  graphics initialization rather than the ISO boot chain.
+
 #### Check an ISO before flashing
 
 Before you write a locally built ISO to USB, run:
