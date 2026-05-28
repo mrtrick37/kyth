@@ -164,6 +164,19 @@ This is the part for builders, testers, and people who want to know exactly what
 [![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
 [![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
 
+### Current Project State
+
+KythOS is actively developed on the `testing` branch, with `latest` used as the daily-use channel and `testing` used for ISO, installer, live-session, Secure Boot, and hardware-support work before it is promoted.
+
+The current tree builds:
+
+- A bootc OS image published as `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing`.
+- A live ISO with a graphical KythOS desktop, installer launcher, Fedora-signed live kernel path, and Secure Boot preflight coverage.
+- An installed KDE Plasma desktop with System Hub, gaming tools, creator tools, VPN/cloud helpers, hardware checks, repair actions, and post-update diagnostics.
+- Local build recipes for base images, OS images, live ISOs, VM testing, Secure Boot validation, and bootc-image-builder disk images.
+
+The active focus is making install, update, rollback, and live-USB testing boringly repeatable: reliable boot artifacts, clearer validation checks, signed release assets, and support tools that explain system state before users have to debug it manually.
+
 ### Core Stack
 
 | Layer | Detail |
@@ -482,11 +495,11 @@ docs/                             Gaming, migration, modding, validation docs
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-05-20 00:50:39 UTC
+- Last refreshed (UTC): 2026-05-27 12:09:12 UTC
 - Current branch: testing
-- HEAD commit: ca379f6
-- Last commit title: f
-- Last commit date: 2026-05-19T20:29:40-04:00
+- HEAD commit: 64e0032
+- Last commit title: live boot fixes
+- Last commit date: 2026-05-26T21:54:06-04:00
 - CI workflow files: 5
 - Build script files: 8
 
