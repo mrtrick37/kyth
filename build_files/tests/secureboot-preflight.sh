@@ -74,6 +74,10 @@ check_static_sources() {
         || fail "Fedora-signed live media should not wait indefinitely for MOK enrollment"
     grep -q 'BASIC_GRAPHICS_ARGS=.*nomodeset' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "live ISO must keep basic graphics as the default boot path"
+    grep -q 'BASIC_GRAPHICS_ARGS="${QUIET_ARGS}' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "single tester boot entry must use quiet Plymouth boot, not dracut debug output"
+    ! grep -q 'rd.debug' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+        || fail "single tester boot entry must not expose dracut debug output"
     grep -q 'GPU_DRIVER_BLACKLIST=.*amdgpu.*nouveau.*i915.*xe.*nvidia' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "basic graphics mode must avoid common accelerated GPU drivers"
     grep -q 'menuentry "Try KythOS"' "${REPO_ROOT}/build_files/build-live-iso.sh" \

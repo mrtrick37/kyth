@@ -625,9 +625,8 @@ echo "==> Writing GRUB config and theme"
 # location, then prints an interactive warning when it cannot find one.
 LIVE_COMMON_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on kyth.live=1"
 QUIET_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"
-VERBOSE_ARGS="rd.plymouth=0 plymouth.enable=0 rd.debug ignore_loglevel loglevel=7 systemd.show_status=true rd.systemd.show_status=true rd.udev.log_level=debug vt.global_cursor_default=1"
 GPU_DRIVER_BLACKLIST="amdgpu,radeon,nouveau,nova_core,i915,xe,nvidia,nvidia_drm,nvidia_modeset"
-BASIC_GRAPHICS_ARGS="${VERBOSE_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
+BASIC_GRAPHICS_ARGS="${QUIET_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
 LIVE_ARGS="${LIVE_COMMON_ARGS} ${BASIC_GRAPHICS_ARGS}"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=10
