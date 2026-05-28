@@ -334,14 +334,18 @@ MokManager enrollment reboot, then enable Secure Boot again.
 
 - Black screen, frozen splash, or reboot after choosing **Try KythOS Live**
 
-  On some gaming laptops, especially AMD-only laptops with aggressive firmware
-  graphics handoff, the kernel can reach early GPU modesetting and never make it
-  to the desktop. Reboot, open the KythOS boot menu, and first try
-  **Try KythOS Live (AMD Compatibility)**. If that still fails, try
-  **Try KythOS Live (Safe Graphics)**. Both entries disable the splash screen so
-  boot messages stay readable; Safe Graphics also disables AMDGPU kernel
-  modesetting for the live session so you can confirm whether the problem is
-  graphics initialization rather than the ISO boot chain.
+  The default live entry is **Try KythOS Live (Basic Graphics)**. It disables
+  the splash screen, uses software rendering, and avoids accelerated AMD, Intel,
+  NVIDIA, and nouveau kernel modesetting so the live ISO can prioritize booting
+  and installing over GPU performance. If Basic Graphics still fails, try
+  **Try KythOS Live (Console Fallback)** and use the visible boot message to
+  identify whether the failure is USB media, live image lookup, or storage.
+
+- Want to test GPU acceleration from the USB
+
+  Choose **Try KythOS Live (Accelerated Graphics)** from the boot menu. On
+  AMD-only laptops that dislike the normal display-core path, try
+  **Try KythOS Live (AMD Compatibility)**.
 
 #### Check an ISO before flashing
 

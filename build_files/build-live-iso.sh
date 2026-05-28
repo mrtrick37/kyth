@@ -623,10 +623,14 @@ echo "==> Writing GRUB config and theme"
 # Use a temporary OverlayFS upperdir for the live session. Do not set
 # rd.live.overlay=tmpfs: dracut treats rd.live.overlay as a persistent overlay
 # location, then prints an interactive warning when it cannot find one.
-LIVE_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0 root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on kyth.live=1"
+LIVE_COMMON_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on kyth.live=1"
+QUIET_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"
 VERBOSE_ARGS="rd.plymouth=0 plymouth.enable=0 rd.debug ignore_loglevel loglevel=7 systemd.show_status=true rd.systemd.show_status=true rd.udev.log_level=debug vt.global_cursor_default=1"
-AMD_COMPAT_ARGS="amdgpu.dc=0"
-SAFE_GRAPHICS_ARGS="rd.plymouth=0 plymouth.enable=0 nomodeset rd.driver.blacklist=amdgpu modprobe.blacklist=amdgpu"
+GPU_DRIVER_BLACKLIST="amdgpu,radeon,nouveau,nova_core,i915,xe,nvidia,nvidia_drm,nvidia_modeset"
+BASIC_GRAPHICS_ARGS="${VERBOSE_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
+ACCELERATED_ARGS="${QUIET_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1"
+AMD_COMPAT_ARGS="${VERBOSE_ARGS} amdgpu.dc=0 kyth.live.hwgl=1 kyth.installer.hwgl=1"
+LIVE_ARGS="${LIVE_COMMON_ARGS} ${BASIC_GRAPHICS_ARGS}"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=10
 
@@ -713,28 +717,28 @@ else
 fi
 
 # ── Boot entries ───────────────────────────────────────────────────────────────
-menuentry "Try KythOS Live" --class fedora --class gnu-linux --class os {
+menuentry "Try KythOS Live (Basic Graphics)" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try KythOS Live (Hardware GL Test)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
+menuentry "Try KythOS Live (Accelerated Graphics)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${ACCELERATED_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
 menuentry "Try KythOS Live (AMD Compatibility)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} ${VERBOSE_ARGS} ${AMD_COMPAT_ARGS}
+    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${AMD_COMPAT_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
-menuentry "Try KythOS Live (Safe Graphics)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} ${VERBOSE_ARGS} ${SAFE_GRAPHICS_ARGS}
+menuentry "Try KythOS Live (Console Fallback)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} systemd.unit=multi-user.target
     initrd /images/pxeboot/initrd.img
 }
 
 menuentry "Try KythOS Live (Debug — verbose boot)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS} ${VERBOSE_ARGS} console=ttyS0,115200 console=tty0
+    linux /images/pxeboot/vmlinuz ${LIVE_COMMON_ARGS} ${VERBOSE_ARGS} console=ttyS0,115200 console=tty0
     initrd /images/pxeboot/initrd.img
 }
 
@@ -953,24 +957,24 @@ menu tabmsgrow 18
 menu helpmsgrow 20
 
 label live
-  menu label Try KythOS Live
+  menu label Try KythOS Live (Basic Graphics)
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
 
 label hwgl
-  menu label Try KythOS Live (Hardware GL Test)
+  menu label Try KythOS Live (Accelerated Graphics)
   kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} kyth.live.hwgl=1 kyth.installer.hwgl=1
+  append initrd=/images/pxeboot/initrd.img ${LIVE_COMMON_ARGS} ${ACCELERATED_ARGS}
 
 label amdcompat
   menu label Try KythOS Live (AMD Compatibility)
   kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} ${VERBOSE_ARGS} ${AMD_COMPAT_ARGS}
+  append initrd=/images/pxeboot/initrd.img ${LIVE_COMMON_ARGS} ${AMD_COMPAT_ARGS}
 
-label safe
-  menu label Try KythOS Live (Safe Graphics)
+label console
+  menu label Try KythOS Live (Console Fallback)
   kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} ${VERBOSE_ARGS} ${SAFE_GRAPHICS_ARGS}
+  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS} systemd.unit=multi-user.target
 
 ISOLINUXEOF
     HAVE_ISOLINUX=true
