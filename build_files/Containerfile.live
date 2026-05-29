@@ -696,10 +696,15 @@ RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 
     && printf '[General]\nbackground=/usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nblur=false\n' \
         > /usr/share/sddm/themes/breeze/theme.conf.user \
     && plymouth-set-default-theme kyth \
-    && if [ -f /usr/lib/dracut/modules.d/90overlayfs/module-setup.sh ]; then \
-           sed -i 's/require_kernel_modules overlay/:/' \
-               /usr/lib/dracut/modules.d/90overlayfs/module-setup.sh; \
-       fi \
+    && _ovfs="$(find /usr/lib/dracut/modules.d -maxdepth 2 \
+                    -name module-setup.sh -path '*overlayfs*' 2>/dev/null \
+                | head -1)" \
+    && _ovfs="${_ovfs:-/usr/lib/dracut/modules.d/90overlayfs/module-setup.sh}" \
+    && mkdir -p "$(dirname "$_ovfs")" \
+    && printf '#!/bin/bash\ncheck() { return 0; }\ndepends() { return 0; }\ninstallkernel() { instmods overlay 2>/dev/null || return 0; }\ninstall() { return 0; }\n' \
+        > "$_ovfs" \
+    && chmod +x "$_ovfs" \
+    && echo "==> dracut overlayfs module patched: $_ovfs" \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --add "dmsquash-live plymouth" \
