@@ -28,6 +28,7 @@ RUN dnf5 -y versionlock clear 2>/dev/null || true \
     ntfsprogs \
     parted \
     mokutil \
+    xorg-x11-xinit \
     && mkdir -p /var/lib/rpm-state \
     && dnf5 clean all \
     && echo "==> Verifying critical packages:" \
@@ -267,7 +268,7 @@ RUN groupadd -r autologin 2>/dev/null || true \
     && useradd -c "Live User" -G autologin,nopasswdlogin,wheel liveuser \
     && passwd -d liveuser \
     && mkdir -p /etc/pam.d \
-    && printf '#%%PAM-1.0\nauth     required pam_env.so\nauth     required pam_permit.so\naccount  required pam_permit.so\npassword required pam_permit.so\nsession  required pam_limits.so\nsession  required pam_unix.so\nsession  optional pam_keyinit.so force revoke\n-session optional pam_systemd.so\n' \
+    && printf '#%%PAM-1.0\nauth     required pam_env.so\nauth     required pam_permit.so\naccount  required pam_permit.so\npassword required pam_permit.so\nsession  required pam_limits.so\nsession  optional pam_keyinit.so force revoke\n-session optional pam_systemd.so\n' \
         > /etc/pam.d/sddm-autologin \
     && mkdir -p /etc/sudoers.d \
     && printf 'liveuser ALL=(root) NOPASSWD: ALL\n' \
@@ -278,30 +279,23 @@ RUN groupadd -r autologin 2>/dev/null || true \
         > /etc/sddm.conf.d/autologin.conf \
     && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\nServerArguments=-nolisten tcp -ac\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
-    && mkdir -p /etc/systemd/system/sddm.service.d \
-    && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=llvmpipe"\nEnvironment="MESA_LOADER_DRIVER_OVERRIDE=llvmpipe"\n' \
-        > /etc/systemd/system/sddm.service.d/live-rendering.conf \
     && ln -sf /dev/null /etc/systemd/system/console-getty.service \
-    && ln -sf /dev/null /etc/systemd/system/getty@tty1.service \
-    && rm -f /etc/systemd/system/getty@tty2.service \
+    && ln -sf /dev/null /etc/systemd/system/sddm.service \
+    && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service \
+    && mkdir -p /etc/systemd/system/getty@tty1.service.d \
+    && printf '[Service]\nExecStart=\nExecStart=-/sbin/agetty --autologin liveuser --noclear %%I\nType=idle\n' \
+        > /etc/systemd/system/getty@tty1.service.d/autologin.conf \
     && mkdir -p /etc/systemd/system/getty.target.wants \
     && ln -sf /usr/lib/systemd/system/getty@.service \
-              /etc/systemd/system/getty.target.wants/getty@tty2.service \
-    && ln -sf /usr/lib/systemd/system/sddm.service \
-              /etc/systemd/system/display-manager.service \
-    && mkdir -p /etc/systemd/system/graphical.target.wants \
-    && ln -sf /etc/systemd/system/display-manager.service \
-              /etc/systemd/system/graphical.target.wants/display-manager.service \
-    && ln -sf /usr/lib/systemd/system/graphical.target \
+              /etc/systemd/system/getty.target.wants/getty@tty1.service \
+    && ln -sf /usr/lib/systemd/system/multi-user.target \
               /etc/systemd/system/default.target \
     && mkdir -p /etc/systemd/system/multi-user.target.wants \
     && ln -sf /usr/lib/systemd/system/NetworkManager.service \
               /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
     && mkdir -p /etc/systemd/system/default.target.wants \
     && ln -sf /usr/lib/systemd/system/spice-vdagentd.service \
-              /etc/systemd/system/default.target.wants/spice-vdagentd.service \
-    && mkdir -p /etc/systemd/system/kyth-sddm-setup.service.d \
-    && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service
+              /etc/systemd/system/default.target.wants/spice-vdagentd.service
 
 # ── Live user home: KDE config, autostarts, desktop shortcuts ────────────────
 RUN mkdir -p \
@@ -319,7 +313,7 @@ RUN mkdir -p \
         /home/liveuser/.config/plasma-workspace/env \
     && rm -rf /home/liveuser/.config/autostart \
     && mkdir -p /home/liveuser/.config/autostart \
-    && printf '# Live ISO: SDDM owns the Plasma session. Do not start a second X session from a shell.\n' \
+    && printf '#!/bin/bash\n[[ -z "${DISPLAY:-}" && "$(tty)" == "/dev/tty1" ]] && exec startx /usr/bin/startplasma-x11 -- -nolisten tcp -ac\n' \
         > /home/liveuser/.bash_profile \
     && chmod +x /home/liveuser/.bash_profile \
     && printf '[Desktop Entry]\nType=Application\nName=Steam\nHidden=true\n' \
@@ -587,22 +581,22 @@ RUN set -eu; \
     command -v code >/dev/null 2>&1 || fail "code command missing"; \
     command -v nmcli >/dev/null 2>&1 || fail "nmcli command missing"; \
     command -v sbverify >/dev/null 2>&1 || fail "sbverify command missing"; \
-    test -L /etc/systemd/system/display-manager.service \
-        || fail "display-manager.service alias is missing"; \
-    test -e /etc/systemd/system/graphical.target.wants/display-manager.service \
-        || fail "display-manager.service is not enabled for graphical.target"; \
-    test ! -e /etc/systemd/system/multi-user.target.wants/sddm'.service' \
-        || fail "sddm.service must not be wanted directly by multi-user.target"; \
-    test "$(readlink -f /etc/systemd/system/default.target)" = "/usr/lib/systemd/system/graphical.target" \
-        || fail "default.target is not graphical.target"; \
+    test "$(readlink /etc/systemd/system/sddm.service)" = "/dev/null" \
+        || fail "sddm.service must be masked in the live image"; \
+    test "$(readlink -f /etc/systemd/system/default.target)" = "/usr/lib/systemd/system/multi-user.target" \
+        || fail "default.target must be multi-user.target (getty autologin path)"; \
     test "$(readlink /etc/systemd/system/console-getty.service)" = "/dev/null" \
         || fail "console-getty.service is not masked"; \
+    test -f /etc/systemd/system/getty@tty1.service.d/autologin.conf \
+        || fail "tty1 autologin drop-in is missing"; \
+    grep -q 'autologin liveuser' /etc/systemd/system/getty@tty1.service.d/autologin.conf \
+        || fail "tty1 autologin is not configured for liveuser"; \
+    grep -q 'startplasma-x11' /home/liveuser/.bash_profile \
+        || fail ".bash_profile does not start KDE Plasma"; \
+    command -v startx >/dev/null 2>&1 \
+        || fail "startx must be installed (xorg-x11-xinit) for live autologin"; \
     test ! -e /etc/systemd/system/getty@tty2.service.d/autologin.conf \
         || fail "tty2 autologin must not be enabled"; \
-    test ! -e /home/liveuser/.xinitrc \
-        || fail ".xinitrc must not be present in the live user home"; \
-    ! command -v startx >/dev/null 2>&1 \
-        || fail "startx must not be installed in the live image"; \
     test -e /etc/systemd/system/multi-user.target.wants/NetworkManager.service \
         || fail "NetworkManager.service is not enabled"; \
     test ! -e /etc/systemd/system/multi-user.target.wants/wpa_supplicant.service \
