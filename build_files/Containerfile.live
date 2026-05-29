@@ -215,11 +215,25 @@ RUN dnf5 install -y --setopt=tsflags=noscripts \
     && FEDORA_KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
            -printf '%f\n' | grep -v cachyos | sort -V | tail -n 1) \
     && depmod -a "${FEDORA_KVER}" \
-    && if [ ! -f "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" ]; then \
-           cp --no-preserve=all "/boot/vmlinuz-${FEDORA_KVER}" \
-               "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" 2>/dev/null || true; \
+    && if [ ! -s "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" ]; then \
+           for _src in \
+               "/boot/vmlinuz-${FEDORA_KVER}" \
+               "/boot/linux-${FEDORA_KVER}" \
+               "/boot/vmlinuz"; do \
+               if [ -s "$_src" ]; then \
+                   cp --no-preserve=all "$_src" \
+                       "/usr/lib/modules/${FEDORA_KVER}/vmlinuz"; \
+                   echo "==> Copied vmlinuz from $_src"; \
+                   break; \
+               fi; \
+           done; \
        fi \
-    && echo "==> Fedora kernel for live boot: ${FEDORA_KVER}" \
+    && test -s "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" \
+        || { echo "ERROR: vmlinuz not found for ${FEDORA_KVER}" >&2; \
+             echo "==> /boot: $(ls -la /boot/ 2>&1)" >&2; \
+             echo "==> modules dir: $(ls /usr/lib/modules/${FEDORA_KVER}/ 2>&1)" >&2; \
+             exit 1; } \
+    && echo "==> Fedora kernel for live boot: ${FEDORA_KVER} (vmlinuz: $(du -h "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" | cut -f1))" \
     && dnf5 clean all
 
 # ── Secure Boot: stage cert for post-install enrollment ──────────────────────
