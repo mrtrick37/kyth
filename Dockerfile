@@ -62,7 +62,8 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
-    dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
+    dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='akmod-*' --exclude='kmod-*' \
+        --exclude='gamescope*' \
         --disablerepo='fedora-multimedia' \
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
@@ -77,7 +78,7 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     fi && \
     if [ -s "/boot/initramfs-${KVER}.img" ]; then \
         cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
-    elif [ ! -f "/usr/lib/modules/${KVER}/initramfs" ]; then \
+    elif [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
         printf 'force_add_dracutmodules+=" overlayfs "\n' \
             > /etc/dracut.conf.d/99-upgrade-overlayfs.conf && \
         TMPDIR=/var/tmp dracut \
