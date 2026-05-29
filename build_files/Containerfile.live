@@ -696,15 +696,18 @@ RUN KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 
     && printf '[General]\nbackground=/usr/share/wallpapers/kyth/contents/images/kyth-wallpaper.png\nblur=false\n' \
         > /usr/share/sddm/themes/breeze/theme.conf.user \
     && plymouth-set-default-theme kyth \
+    && printf 'force_add_dracutmodules+=" overlayfs "\n' \
+        > /etc/dracut.conf.d/99-live-overlayfs.conf \
     && TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --add "dmsquash-live plymouth" \
+        --add "dmsquash-live overlayfs plymouth" \
         --add-drivers "overlay squashfs iso9660 loop virtio_gpu qxl bochs" \
         --filesystems "squashfs iso9660" \
         --kver "$KVER" \
         --force \
         "/usr/lib/modules/$KVER/initramfs-live" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) \
+    && rm -f /etc/dracut.conf.d/99-live-overlayfs.conf \
     && echo "Live initramfs built for $KVER (Plymouth: kyth)"
 
 # ── Live-session I/O scheduler override ──────────────────────────────────────
