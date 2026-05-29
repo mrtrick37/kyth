@@ -640,7 +640,8 @@ LIVE_COMMON_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overl
 QUIET_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"
 GPU_DRIVER_BLACKLIST="amdgpu,radeon,nouveau,nova_core,i915,xe,nvidia,nvidia_drm,nvidia_modeset"
 BASIC_GRAPHICS_ARGS="${QUIET_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
-LIVE_ARGS="${LIVE_COMMON_ARGS} ${BASIC_GRAPHICS_ARGS}"
+LIVE_ARGS="${LIVE_COMMON_ARGS} quiet loglevel=3"
+SAFE_ARGS="${LIVE_COMMON_ARGS} quiet loglevel=3 nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST}"
 GRUB_DEFAULT=0
 GRUB_TIMEOUT=8
 
