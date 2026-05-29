@@ -113,6 +113,9 @@ dnf5 remove -y librsvg2-tools || true
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth "
+# overlayfs: force-include even if check() fails (dracut-ng checks for overlay.ko
+# which may be built-in rather than a loadable module on some Fedora kernels).
+force_add_dracutmodules+=" overlayfs "
 # virtio_gpu/qxl/bochs: QEMU/KVM display paths. Keep all three available early
 # so local tests can switch between virtio, SPICE/QXL, and firmware fallback
 # without rebuilding the kernel/initramfs layer.
