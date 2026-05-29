@@ -1735,6 +1735,11 @@ def main() -> None:
         (b for b in ("chromium", "chromium-browser", "chromium-bin") if shutil.which(b)),
         "chromium",
     )
+    # --no-sandbox is required in the live ISO's overlayfs environment where
+    # unprivileged user namespaces (needed by Chromium's sandbox) may be
+    # unavailable. --disable-gpu is intentionally omitted: it kills the renderer
+    # in Fedora's Chromium build (blank gray window). Software GL is provided by
+    # Mesa llvmpipe via LIBGL_ALWAYS_SOFTWARE forwarded from the live session env.
     chromium_cmd = [
         chromium_bin,
         f"--app=http://127.0.0.1:{PORT}",
@@ -1742,10 +1747,7 @@ def main() -> None:
         "--disable-extensions",
         "--disable-translate",
         "--no-first-run",
-        # Force software rendering: the GPU process crashes in QEMU virtio-gpu
-        # with Mesa's EGL/ANGLE backend, which kills the whole Chromium window.
-        "--disable-gpu",
-        "--use-gl=swiftshader",
+        "--no-sandbox",
         "--window-size=1280,800",
         "--window-position=0,0",
     ]
@@ -1768,9 +1770,7 @@ def main() -> None:
                 gui_env.append(f"{key}={value}")
         proc = subprocess.Popen(["sudo", "-u", sudo_user, "env", *gui_env, *chromium_cmd])
     else:
-        # Running Chromium directly as root — the Linux user-namespace sandbox
-        # requires a non-root UID to work, so disable it only in this path.
-        proc = subprocess.Popen([chromium_cmd[0], "--no-sandbox", *chromium_cmd[1:]])
+        proc = subprocess.Popen(chromium_cmd)
 
     # Wait for Chromium to exit so the process and port are released cleanly.
     # This means re-launching the installer from the desktop always gets a fresh server.
