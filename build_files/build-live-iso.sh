@@ -580,7 +580,20 @@ echo "    Kernel: ${KVER}"
 VMLINUZ="${ROOTFS}/usr/lib/modules/${KVER}/vmlinuz"
 INITRD="${ROOTFS}/usr/lib/modules/${KVER}/initramfs-live"
 
-[[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ}" >&2; exit 1; }
+# Fallback: kernel-install scriptlets may have been skipped (tsflags=noscripts),
+# leaving vmlinuz in /boot/ rather than the modules tree.
+if [[ ! -f "${VMLINUZ}" ]]; then
+    for _src in \
+        "${ROOTFS}/boot/vmlinuz-${KVER}" \
+        "${ROOTFS}/boot/linux-${KVER}"; do
+        if [[ -s "$_src" ]]; then
+            echo "==> vmlinuz not in modules tree; copying from ${_src}"
+            cp --no-preserve=all "$_src" "${VMLINUZ}"
+            break
+        fi
+    done
+fi
+[[ -f "${VMLINUZ}" ]] || { echo "ERROR: vmlinuz not found at ${VMLINUZ} or in /boot/" >&2; exit 1; }
 [[ -f "${INITRD}"  ]] || { echo "ERROR: live initramfs not found at ${INITRD}" >&2; exit 1; }
 
 if [[ "${KVER}" != *".fc"* || "${KVER}" == *cachyos* ]]; then
