@@ -68,32 +68,36 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
     dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
-    : "Ensure bootc can find the latest kernel initramfs under /usr/lib/modules" && \
-    echo "==> /usr/lib/modules after upgrade: $(ls /usr/lib/modules/ 2>&1 || echo EMPTY)" && \
+    : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
     KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
-    echo "==> KVER=${KVER:-EMPTY}" && \
-    test -n "${KVER}" && \
-    if [ ! -f "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then \
+    test -n "${KVER}" \
+        || { echo "ERROR: no kernel found in /usr/lib/modules after upgrade; contents: $(ls /usr/lib/modules/ 2>&1)" >&2; exit 1; } && \
+    echo "==> kernel: ${KVER}" && \
+    if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then \
         cp --no-preserve=all "/boot/vmlinuz-${KVER}" "/usr/lib/modules/${KVER}/vmlinuz"; \
     fi && \
-    if [ -s "/boot/initramfs-${KVER}.img" ]; then \
-        cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
-    elif [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
-        printf 'force_add_dracutmodules+=" overlayfs "\n' \
-            > /etc/dracut.conf.d/99-upgrade-overlayfs.conf && \
-        TMPDIR=/var/tmp dracut \
-            --no-hostonly \
-            --compress "zstd -1" \
-            --kver "${KVER}" \
-            --force \
-            "/usr/lib/modules/${KVER}/initramfs" \
-            2> >(grep -Ev 'xattr|fail to copy' >&2) && \
-        rm -f /etc/dracut.conf.d/99-upgrade-overlayfs.conf; \
+    depmod -a "${KVER}" 2>/dev/null || true && \
+    if [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
+        if [ -s "/boot/initramfs-${KVER}.img" ]; then \
+            cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
+        else \
+            printf 'force_add_dracutmodules+=" overlayfs "\n' \
+                > /etc/dracut.conf.d/99-upgrade-overlayfs.conf && \
+            TMPDIR=/var/tmp dracut \
+                --no-hostonly \
+                --compress "zstd -1" \
+                --kver "${KVER}" \
+                --force \
+                "/usr/lib/modules/${KVER}/initramfs" \
+                2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+            rm -f /etc/dracut.conf.d/99-upgrade-overlayfs.conf; \
+        fi; \
     fi && \
-    echo "==> vmlinuz: $(ls -lh "/usr/lib/modules/${KVER}/vmlinuz" 2>&1)" && \
-    echo "==> initramfs: $(ls -lh "/usr/lib/modules/${KVER}/initramfs" 2>&1)" && \
-    test -s "/usr/lib/modules/${KVER}/vmlinuz" && \
-    test -s "/usr/lib/modules/${KVER}/initramfs" && \
+    test -s "/usr/lib/modules/${KVER}/vmlinuz" \
+        || { echo "ERROR: vmlinuz missing/empty for ${KVER}" >&2; exit 1; } && \
+    test -s "/usr/lib/modules/${KVER}/initramfs" \
+        || { echo "ERROR: initramfs missing/empty for ${KVER}" >&2; exit 1; } && \
+    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)" && \
     dnf5 clean all
 
 # Layer 4: Optional Mesa-git GPU drivers.
