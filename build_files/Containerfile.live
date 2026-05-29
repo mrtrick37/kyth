@@ -240,16 +240,20 @@ RUN --mount=type=bind,source=build_files/secureboot/kyth-secureboot.cer,target=/
 # start a fallback X session; racing SDDM with startx can restart Plasma while
 # the installer is opening.
 RUN groupadd -r autologin 2>/dev/null || true \
-    && useradd -c "Live User" -G autologin,wheel liveuser \
+    && groupadd -r nopasswdlogin 2>/dev/null || true \
+    && useradd -c "Live User" -G autologin,nopasswdlogin,wheel liveuser \
     && passwd -d liveuser \
+    && mkdir -p /etc/pam.d \
+    && printf '#%%PAM-1.0\nauth     required pam_env.so\nauth     required pam_permit.so\naccount  required pam_permit.so\npassword required pam_permit.so\nsession  required pam_limits.so\nsession  required pam_unix.so\nsession  optional pam_keyinit.so force revoke\n-session optional pam_systemd.so\n' \
+        > /etc/pam.d/sddm-autologin \
     && mkdir -p /etc/sudoers.d \
     && printf 'liveuser ALL=(root) NOPASSWD: ALL\n' \
         > /etc/sudoers.d/liveuser-installer \
     && chmod 0440 /etc/sudoers.d/liveuser-installer \
     && mkdir -p /etc/sddm.conf.d \
-    && printf '[Autologin]\nUser=liveuser\nSession=plasmax11.desktop\nRelogin=false\n' \
+    && printf '[Autologin]\nUser=liveuser\nSession=kyth-live\nRelogin=false\n' \
         > /etc/sddm.conf.d/autologin.conf \
-    && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\n' \
+    && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\nServerArguments=-nolisten tcp -ac\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
     && mkdir -p /etc/systemd/system/sddm.service.d \
     && printf '[Service]\nEnvironment="QT_QUICK_BACKEND=software"\nEnvironment="LIBGL_ALWAYS_SOFTWARE=1"\nEnvironment="GALLIUM_DRIVER=llvmpipe"\nEnvironment="MESA_LOADER_DRIVER_OVERRIDE=llvmpipe"\n' \
@@ -423,6 +427,16 @@ LIVEPREPEOF
 RUN chmod +x /usr/bin/kyth-live-session-prepare \
     && printf '[Desktop Entry]\nType=Application\nName=KythOS Live Session Prepare\nExec=/usr/bin/kyth-live-session-prepare\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\nNoDisplay=true\n' \
         > /etc/xdg/autostart/kyth-live-session-prepare.desktop
+
+# Wrapper that fixes SDDM autologin not propagating DISPLAY.
+# SDDM starts the autologin session before the display name is assigned to the
+# session object, leaving $DISPLAY empty. Default to :0 (the only X server in
+# the live session), then hand off to the standard Xsession wrapper normally.
+RUN printf '#!/bin/bash\n[ -z "${DISPLAY:-}" ] && export DISPLAY=:0\nexec /etc/X11/xinit/Xsession /usr/bin/startplasma-x11\n' \
+        > /usr/bin/kyth-live-startplasma \
+    && chmod +x /usr/bin/kyth-live-startplasma \
+    && printf '[Desktop Entry]\nType=XSession\nExec=/usr/bin/kyth-live-startplasma\nTryExec=startplasma-x11\nDesktopNames=KDE\nName=KythOS Live\nComment=KDE Plasma for the KythOS live session\n' \
+        > /usr/share/xsessions/kyth-live.desktop
 
 RUN cat > /usr/bin/kyth-live-open-wifi <<'OPENWIFIEOF'
 #!/usr/bin/env bash
@@ -833,7 +847,14 @@ RUN echo "uninitialized" > /etc/machine-id \
         virtqemud.socket \
         scxd.service \
         ananicy-cpp.service \
-        plasmalogin.service; do \
+        plasmalogin.service \
+        akmods.service \
+        akmods-keygen@akmods-keygen.service \
+        plasma-setup.service \
+        plymouth.service \
+        plymouth-quit.service \
+        plymouth-quit-wait.service \
+        plymouth-read-write.service; do \
         ln -sf /dev/null "/etc/systemd/system/${unit}"; \
     done \
     && for unit in \
