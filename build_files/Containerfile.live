@@ -183,7 +183,6 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     breeze-icon-theme \
     breeze-cursor-theme \
     && (dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora || rpm -e --nodeps plasma-welcome plasma-welcome-fedora) 2>/dev/null || true \
-    && rm -f /usr/bin/startx /usr/bin/xinit \
     && dnf5 clean all \
     && mkdir -p /usr/lib/kyth/efi \
     && (find /usr/share/shim /usr/lib/efi/shim -name "shimx64.efi" 2>/dev/null | head -1 | xargs -r -I{} cp {} /usr/lib/kyth/efi/shimx64.efi || true) \
