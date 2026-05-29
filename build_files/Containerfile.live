@@ -213,14 +213,15 @@ RUN dnf5 install -y --setopt=tsflags=noscripts \
         kernel-modules-core \
         kernel-modules \
     && for kver in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
-               -printf '%f\n' | grep -v cachyos | sort -rV); do \
+               -printf '%f\n' | grep -v cachyos); do \
            [ -f "/usr/lib/modules/${kver}/modules.order" ] \
-               && FEDORA_KVER="$kver" && break; \
+               || { echo "==> Removing incomplete kernel dir: ${kver}"; \
+                    rm -rf "/usr/lib/modules/${kver}"; }; \
        done \
+    && FEDORA_KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
+           -printf '%f\n' | grep -v cachyos | sort -V | tail -n 1) \
     && test -n "${FEDORA_KVER:-}" \
-        || { echo "ERROR: no complete non-CachyOS kernel found" >&2; \
-             find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d >&2; \
-             exit 1; } \
+        || { echo "ERROR: no complete non-CachyOS kernel found" >&2; exit 1; } \
     && echo "==> Selected kernel: ${FEDORA_KVER}" \
     && depmod -a "${FEDORA_KVER}" \
     && if [ ! -s "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" ]; then \
