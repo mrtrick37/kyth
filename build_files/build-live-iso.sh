@@ -626,10 +626,12 @@ echo "==> Writing GRUB config and theme"
 LIVE_COMMON_ARGS="root=live:CDLABEL=${VOLID} rd.live.image rd.live.overlay.overlayfs=1 rd.retry=60 systemd.crash_reboot=0 inst.nokill random.trust_cpu=on kyth.live=1 selinux=0"
 QUIET_ARGS="quiet rhgb splash rd.plymouth=1 plymouth.enable=1 plymouth.ignore-serial-consoles systemd.show_status=false rd.systemd.show_status=false loglevel=3 rd.udev.log_level=3 vt.global_cursor_default=0"
 GPU_DRIVER_BLACKLIST="amdgpu,radeon,nouveau,nova_core,i915,xe,nvidia,nvidia_drm,nvidia_modeset"
-BASIC_GRAPHICS_ARGS="${QUIET_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
-LIVE_ARGS="${LIVE_COMMON_ARGS} ${BASIC_GRAPHICS_ARGS}"
+# Normal: GPU KMS drivers load for display output; GL rendering is still llvmpipe (set by live.sh + SDDM drop-in)
+LIVE_ARGS="${LIVE_COMMON_ARGS} ${QUIET_ARGS}"
+# Safe graphics: nomodeset + GPU blacklist for hardware that crashes during GPU init
+SAFE_ARGS="${LIVE_COMMON_ARGS} ${QUIET_ARGS} nomodeset rd.driver.blacklist=${GPU_DRIVER_BLACKLIST} modprobe.blacklist=${GPU_DRIVER_BLACKLIST} kyth.live.basic_graphics=1"
 GRUB_DEFAULT=0
-GRUB_TIMEOUT=5
+GRUB_TIMEOUT=8
 
 cat > "${ISO_DIR}/boot/grub2/themes/kyth/theme.txt" <<THEMEEOF
 # KythOS GRUB2 dark theme
@@ -716,6 +718,11 @@ fi
 # ── Boot entry ────────────────────────────────────────────────────────────────
 menuentry "Try KythOS" --class fedora --class gnu-linux --class os {
     linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
+    initrd /images/pxeboot/initrd.img
+}
+
+menuentry "Try KythOS (Safe Graphics)" --class fedora --class gnu-linux --class os {
+    linux /images/pxeboot/vmlinuz ${SAFE_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
@@ -937,6 +944,11 @@ label live
   menu label Try KythOS
   kernel /images/pxeboot/vmlinuz
   append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
+
+label live-safe
+  menu label Try KythOS (Safe Graphics)
+  kernel /images/pxeboot/vmlinuz
+  append initrd=/images/pxeboot/initrd.img ${SAFE_ARGS}
 
 ISOLINUXEOF
     HAVE_ISOLINUX=true
