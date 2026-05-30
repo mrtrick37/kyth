@@ -86,9 +86,21 @@ if [[ -z "${KVER}" ]]; then
     exit 1
 fi
 
-if [ ! -f "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then
-    cp --no-preserve=all "/boot/vmlinuz-${KVER}" "/usr/lib/modules/${KVER}/vmlinuz" 2>/dev/null || true
+if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then
+    _src=$(find /boot /usr/lib/kernel -name "vmlinuz*${KVER}*" -size +0c 2>/dev/null | head -1)
+    if [ -n "${_src}" ]; then
+        cp --no-preserve=all "${_src}" "/usr/lib/modules/${KVER}/vmlinuz"
+    else
+        echo "vmlinuz not found in /boot or /usr/lib/kernel for ${KVER} — installing kernel-core"
+        dnf5 install -y "kernel-core-${KVER%.x86_64}" 2>/dev/null || \
+            dnf5 install -y kernel-core 2>/dev/null || true
+        _src=$(find /boot "/usr/lib/modules/${KVER}" -name "vmlinuz*" -size +0c 2>/dev/null | head -1)
+        [ -n "${_src}" ] && [ "${_src}" != "/usr/lib/modules/${KVER}/vmlinuz" ] && \
+            cp --no-preserve=all "${_src}" "/usr/lib/modules/${KVER}/vmlinuz" 2>/dev/null || true
+    fi
 fi
+test -s "/usr/lib/modules/${KVER}/vmlinuz" \
+    || { echo "ERROR: cannot place vmlinuz for ${KVER} — base image is missing kernel" >&2; exit 1; }
 
 # ── Plymouth boot splash ─────────────────────────────────────────────────────
 # Install Plymouth here so the initramfs is built with the KythOS theme already
