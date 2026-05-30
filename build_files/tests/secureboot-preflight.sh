@@ -70,7 +70,7 @@ check_static_sources() {
         || fail "ISO assembler must prefer the Fedora-signed live kernel"
     grep -q 'GRUB_DEFAULT=0' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "Fedora-signed live media should default to the live desktop"
-    grep -q 'GRUB_TIMEOUT=10' "${REPO_ROOT}/build_files/build-live-iso.sh" \
+    grep -qE 'GRUB_TIMEOUT=[0-9]+' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "Fedora-signed live media should not wait indefinitely for MOK enrollment"
     grep -q 'BASIC_GRAPHICS_ARGS=.*nomodeset' "${REPO_ROOT}/build_files/build-live-iso.sh" \
         || fail "live ISO must keep basic graphics as the default boot path"

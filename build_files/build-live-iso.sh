@@ -729,12 +729,7 @@ fi
 
 # ── Boot entry ────────────────────────────────────────────────────────────────
 menuentry "Try KythOS" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${LIVE_ARGS}
-    initrd /images/pxeboot/initrd.img
-}
-
-menuentry "Try KythOS (Safe Graphics)" --class fedora --class gnu-linux --class os {
-    linux /images/pxeboot/vmlinuz ${SAFE_ARGS}
+    linux /images/pxeboot/vmlinuz ${BASIC_GRAPHICS_ARGS}
     initrd /images/pxeboot/initrd.img
 }
 
@@ -955,12 +950,7 @@ menu helpmsgrow 20
 label live
   menu label Try KythOS
   kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${LIVE_ARGS}
-
-label live-safe
-  menu label Try KythOS (Safe Graphics)
-  kernel /images/pxeboot/vmlinuz
-  append initrd=/images/pxeboot/initrd.img ${SAFE_ARGS}
+  append initrd=/images/pxeboot/initrd.img ${BASIC_GRAPHICS_ARGS}
 
 ISOLINUXEOF
     HAVE_ISOLINUX=true

@@ -247,6 +247,9 @@ RUN groupadd -r autologin 2>/dev/null || true \
         > /etc/sddm.conf.d/autologin.conf \
     && printf '[General]\nDisplayServer=x11\n\n[Theme]\nCurrent=breeze\n\n[X11]\nSessionDir=/usr/share/xsessions\nServerArguments=-nolisten tcp -ac\n' \
         > /etc/sddm.conf.d/20-live-x11.conf \
+    && mkdir -p /etc/xdg \
+    && printf '[Wallet]\nEnabled=false\nFirst Use=false\n' \
+        > /etc/xdg/kwalletrc \
     && ln -sf /dev/null /etc/systemd/system/console-getty.service \
     && ln -sf /dev/null /etc/systemd/system/sddm.service \
     && ln -sf /dev/null /etc/systemd/system/kyth-sddm-setup.service \
@@ -304,8 +307,10 @@ RUN mkdir -p \
         > /home/liveuser/.config/plasma-welcomerc \
     && printf '[Desktop Entry]\nType=Application\nName=SPICE Agent\nExec=/usr/bin/spice-vdagent\nOnlyShowIn=KDE;\nX-KDE-autostart-phase=1\n' \
         > /home/liveuser/.config/autostart/spice-vdagent.desktop \
-    && printf '[Module-plasma-welcome]\nautoload=false\n\n[Module-bolt]\nautoload=false\n' \
+    && printf '[Module-plasma-welcome]\nautoload=false\n\n[Module-bolt]\nautoload=false\n\n[Module-kwalletd]\nautoload=false\n' \
         > /home/liveuser/.config/kded6rc \
+    && printf '[Wallet]\nEnabled=false\nFirst Use=false\n' \
+        > /home/liveuser/.config/kwalletrc \
     && printf '[Compositing]\nEnabled=false\n' \
         > /home/liveuser/.config/kwinrc \
     && printf '[General]\nColorScheme=BreezeDark\n\n[KDE]\nLookAndFeelPackage=org.kde.breezedark.desktop\n' \
