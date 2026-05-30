@@ -94,7 +94,7 @@ fi
 # Install Plymouth here so the initramfs is built with the KythOS theme already
 # embedded — eliminating a second dracut run in the branding layer.
 # librsvg2-tools is installed temporarily to render the SVG logo to PNG.
-dnf5 install -y plymouth plymouth-plugin-script librsvg2-tools
+dnf5 install -y --exclude='kernel*' plymouth plymouth-plugin-script librsvg2-tools
 
 PLYMOUTH_DIR=/usr/share/plymouth/themes/kyth
 mkdir -p "${PLYMOUTH_DIR}"
