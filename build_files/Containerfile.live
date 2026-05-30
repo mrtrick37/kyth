@@ -201,49 +201,18 @@ RUN dnf5 install -y --allowerasing --skip-unavailable --skip-broken \
     && echo "==> EFI staging:" \
     && ls -la /usr/lib/kyth/efi/ || echo "WARNING: no EFI binaries staged to /usr/lib/kyth/efi/"
 
-# ── Fedora stock kernel for live boot ────────────────────────────────────────
-# Fedora's kernel vmlinuz is signed by Red Hat's production key, which is
-# embedded in Fedora's shim. Booting it requires zero MOK interaction — the
-# shim trusts it out of the box. The installed default image now uses Fedora's
-# kernel too; CachyOS is an advanced bootc image variant users can switch
-# to after install.
-# --setopt=tsflags=noscripts skips %posttrans scriptlets (same as CachyOS above).
-RUN dnf5 install -y --setopt=tsflags=noscripts \
-        kernel-core \
-        kernel-modules-core \
-        kernel-modules \
-    && for kver in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
-               -printf '%f\n' | grep -v cachyos); do \
-           [ -f "/usr/lib/modules/${kver}/modules.order" ] \
-               || { echo "==> Removing incomplete kernel dir: ${kver}"; \
-                    rm -rf "/usr/lib/modules/${kver}"; }; \
-       done \
-    && FEDORA_KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
-           -printf '%f\n' | grep -v cachyos | sort -V | tail -n 1) \
-    && test -n "${FEDORA_KVER:-}" \
-        || { echo "ERROR: no complete non-CachyOS kernel found" >&2; exit 1; } \
-    && echo "==> Selected kernel: ${FEDORA_KVER}" \
-    && depmod -a "${FEDORA_KVER}" \
-    && if [ ! -s "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" ]; then \
-           for _src in \
-               "/boot/vmlinuz-${FEDORA_KVER}" \
-               "/boot/linux-${FEDORA_KVER}" \
-               "/boot/vmlinuz"; do \
-               if [ -s "$_src" ]; then \
-                   cp --no-preserve=all "$_src" \
-                       "/usr/lib/modules/${FEDORA_KVER}/vmlinuz"; \
-                   echo "==> Copied vmlinuz from $_src"; \
-                   break; \
-               fi; \
-           done; \
-       fi \
-    && test -s "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" \
-        || { echo "ERROR: vmlinuz not found for ${FEDORA_KVER}" >&2; \
-             echo "==> /boot: $(ls -la /boot/ 2>&1)" >&2; \
-             echo "==> modules dir: $(ls /usr/lib/modules/${FEDORA_KVER}/ 2>&1)" >&2; \
-             exit 1; } \
-    && echo "==> Fedora kernel for live boot: ${FEDORA_KVER} (vmlinuz: $(du -h "/usr/lib/modules/${FEDORA_KVER}/vmlinuz" | cut -f1))" \
-    && dnf5 clean all
+# ── Kernel for live boot ─────────────────────────────────────────────────────
+# The base image already ships the Fedora kernel from kinoite-main with vmlinuz
+# at /usr/lib/modules/${KVER}/vmlinuz. No reinstall needed — just verify it.
+RUN set -euo pipefail; \
+    KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d \
+               -printf '%f\n' | sort -V | tail -n 1) \
+    && test -n "${KVER}" \
+        || { echo "ERROR: no kernel found in /usr/lib/modules" >&2; exit 1; } \
+    && test -s "/usr/lib/modules/${KVER}/vmlinuz" \
+        || { echo "ERROR: vmlinuz missing for ${KVER} — /boot: $(ls /boot/ 2>&1)" >&2; exit 1; } \
+    && depmod -a "${KVER}" 2>/dev/null || true \
+    && echo "==> Live kernel: ${KVER}"
 
 # ── Secure Boot: stage cert for post-install enrollment ──────────────────────
 # The live session and default install boot Fedora-signed kernels (no MOK needed).
