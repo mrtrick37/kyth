@@ -73,24 +73,22 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     test -n "${KVER}" \
         || { echo "ERROR: no kernel found in /usr/lib/modules after upgrade; contents: $(ls /usr/lib/modules/ 2>&1)" >&2; exit 1; } && \
     echo "==> kernel: ${KVER}" && \
-    if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ] && [ -f "/boot/vmlinuz-${KVER}" ]; then \
-        cp --no-preserve=all "/boot/vmlinuz-${KVER}" "/usr/lib/modules/${KVER}/vmlinuz"; \
+    if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then \
+        _src=$(find /boot /usr/lib/kernel -name "vmlinuz-${KVER}" -o -name "vmlinuz" 2>/dev/null | head -1); \
+        [ -n "${_src}" ] && cp --no-preserve=all "${_src}" "/usr/lib/modules/${KVER}/vmlinuz" || true; \
     fi && \
     depmod -a "${KVER}" 2>/dev/null || true && \
     if [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
         if [ -s "/boot/initramfs-${KVER}.img" ]; then \
             cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
         else \
-            printf 'force_add_dracutmodules+=" overlayfs "\n' \
-                > /etc/dracut.conf.d/99-upgrade-overlayfs.conf && \
             TMPDIR=/var/tmp dracut \
                 --no-hostonly \
                 --compress "zstd -1" \
                 --kver "${KVER}" \
                 --force \
                 "/usr/lib/modules/${KVER}/initramfs" \
-                2> >(grep -Ev 'xattr|fail to copy' >&2) && \
-            rm -f /etc/dracut.conf.d/99-upgrade-overlayfs.conf; \
+                2> >(grep -Ev 'xattr|fail to copy' >&2); \
         fi; \
     fi && \
     test -s "/usr/lib/modules/${KVER}/vmlinuz" \
