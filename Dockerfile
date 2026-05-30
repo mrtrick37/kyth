@@ -62,11 +62,56 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
-    dnf5 upgrade -y --refresh --exclude='kernel*' --exclude='gamescope*' \
+    dnf5 upgrade -y --refresh --exclude='akmod-*' --exclude='kmod-*' \
+        --exclude='gamescope*' \
         --disablerepo='fedora-multimedia' \
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
     dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
+    : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
+    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    test -n "${KVER}" \
+        || { echo "ERROR: no kernel found in /usr/lib/modules after upgrade; contents: $(ls /usr/lib/modules/ 2>&1)" >&2; exit 1; } && \
+    echo "==> kernel: ${KVER}" && \
+    if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then \
+        _src=$(find /boot -name "vmlinuz-${KVER}" 2>/dev/null | head -1); \
+        if [ -n "${_src}" ] && [ -s "${_src}" ]; then \
+            echo "  Found vmlinuz at ${_src}, copying..."; \
+            cp --no-preserve=all "${_src}" "/usr/lib/modules/${KVER}/vmlinuz"; \
+        else \
+            echo "  vmlinuz not found in /boot, checking /usr/lib/kernel..."; \
+            _src=$(find /usr/lib/kernel -name "vmlinuz*" 2>/dev/null | head -1); \
+            if [ -n "${_src}" ] && [ -s "${_src}" ]; then \
+                echo "  Found vmlinuz at ${_src}, copying..."; \
+                cp --no-preserve=all "${_src}" "/usr/lib/modules/${KVER}/vmlinuz"; \
+            fi; \
+        fi; \
+    fi && \
+    depmod -a "${KVER}" 2>/dev/null || true && \
+    if [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
+        if [ -s "/boot/initramfs-${KVER}.img" ]; then \
+            cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
+        else \
+            TMPDIR=/var/tmp dracut \
+                --no-hostonly \
+                --compress "zstd -1" \
+                --kver "${KVER}" \
+                --force \
+                "/usr/lib/modules/${KVER}/initramfs" \
+                2> >(grep -Ev 'xattr|fail to copy' >&2); \
+        fi; \
+    fi && \
+    if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then \
+        echo "ERROR: vmlinuz missing/empty for ${KVER}"; \
+        echo "  Available files in /boot:"; \
+        ls -la /boot/vmlinuz* 2>/dev/null || echo "    (none)"; \
+        echo "  Contents of /usr/lib/modules/${KVER}:"; \
+        ls -la "/usr/lib/modules/${KVER}/" 2>&1 | head -20; \
+        exit 1; \
+    fi && \
+    test -s "/usr/lib/modules/${KVER}/initramfs" \
+        || { echo "ERROR: initramfs missing/empty for ${KVER}" >&2; exit 1; } && \
+    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)" && \
     dnf5 clean all
 
 # Layer 4: Optional Mesa-git GPU drivers.
@@ -110,3 +155,4 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     /ctx/scripts/branding.sh
+
