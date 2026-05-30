@@ -1748,6 +1748,8 @@ def main() -> None:
         "--disable-translate",
         "--no-first-run",
         "--no-sandbox",
+        "--disable-setuid-sandbox",
+        "--password-store=basic",
         "--window-size=1280,800",
         "--window-position=0,0",
     ]
