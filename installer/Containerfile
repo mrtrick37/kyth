@@ -1,0 +1,18 @@
+# KythOS live ISO installer image.
+# Built on top of the same image the installer writes to disk — the live
+# desktop is a real preview of KythOS, not a separate shell.
+#
+# Build with:
+#   sudo podman build --cap-add SYS_ADMIN --security-opt label=disable \
+#     --build-arg BASE_IMAGE=ghcr.io/mrtrick37/kyth:latest \
+#     --build-arg SOURCE_TAG=latest \
+#     -t kyth-live:build -f installer/Containerfile .
+
+ARG BASE_IMAGE=ghcr.io/mrtrick37/kyth:latest
+FROM ${BASE_IMAGE}
+ARG BASE_IMAGE
+ARG SOURCE_TAG=latest
+
+RUN --mount=type=bind,source=./,target=/src \
+    env BASE_IMAGE="${BASE_IMAGE}" SOURCE_TAG="${SOURCE_TAG}" \
+    bash /src/installer/build.sh

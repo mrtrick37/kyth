@@ -1,5 +1,5 @@
 name: Build Live ISO
-run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || (github.event.workflow_run.event == 'schedule' && 'scheduled latest + testing' || github.event.workflow_run.head_branch) }}"
+run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || github.event.workflow_run.head_branch }}"
 
 on:
   workflow_run:
@@ -18,200 +18,33 @@ on:
           - testing
 
 env:
-  # Opt into Node.js 24 for all actions — required before June 2026 when Node 20 is dropped.
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ── Job 1: Build the live container and push it to GHCR ──────────────────────
-  # Uses docker buildx (BuildKit) which:
-  #   • Has no 128-layer overlay2 limit — no need to flatten the base image
-  #   • Streams layers directly to GHCR with --push, storing nothing locally
-  build-live-container:
-    name: Build live container (${{ matrix.source_tag }})
+  build-iso:
+    name: Build ISO (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
-    env:
-      DOCKER_CONFIG: /tmp/kyth-docker-config
     if: >
       github.event_name == 'workflow_dispatch' ||
       github.event.workflow_run.conclusion != 'cancelled'
-    concurrency:
-      group: build-live-container-${{ matrix.source_tag }}
-      cancel-in-progress: true
-    strategy:
-      fail-fast: false
-      matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
-    permissions:
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
-
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
-
-      - name: Prepare Docker auth config
-        run: |
-          mkdir -p "${DOCKER_CONFIG}"
-          printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
-
-      - name: Log in to GHCR
-        run: |
-          retry() {
-            local description="$1"
-            local delay="$2"
-            shift 2
-            for attempt in 1 2 3 4 5; do
-              if "$@"; then
-                return 0
-              fi
-              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
-              sleep $((attempt * delay))
-            done
-            "$@"
-          }
-
-          ghcr_login() {
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          }
-
-          retry "GHCR login" 20 ghcr_login
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
-
-      - name: Build and push live container directly to GHCR
-        # BuildKit has no 128-layer limit and --push streams finished layers
-        # straight to GHCR — nothing is written to local storage.
-        # SOURCE_TAG is passed so the embedded kyth-installer.env URL matches the tag.
-        # Live ISOs are built only from the Fedora-kernel :latest/:testing images.
-        # Fedora-signed boot artifacts avoid MOK enrollment for new users.
-        run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          # The live ISO should be a true preview of KythOS, so build the live
-          # environment from the same image that the installer writes to disk.
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          CACHE_REF="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-buildcache-${SOURCE_TAG}"
-          SOURCE_HASH="$(
-            sha256sum \
-              build_files/Containerfile.live \
-              build_files/kyth-installer \
-              build_files/kyth-launch-installer \
-              build_files/plymouth/kyth.plymouth \
-              build_files/plymouth/kyth.script \
-              build_files/wallpaper/kyth-wallpaper.svg \
-              build_files/branding/kyth-logo.svg \
-              build_files/branding/kyth-logo-transparent.svg \
-              build_files/secureboot/kyth-secureboot.cer \
-            | sha256sum \
-            | awk '{print $1}'
-          )"
-          echo "==> Live container base image: ${BASE_IMAGE}"
-          docker buildx imagetools inspect "${BASE_IMAGE}" --format '==> Base digest: {{ .Manifest.Digest }}'
-          echo "==> Live container source hash: ${SOURCE_HASH}"
-
-          docker buildx build \
-            --tag "${IMAGE}" \
-            --build-arg BASE_IMAGE="${BASE_IMAGE}" \
-            --build-arg SOURCE_TAG="${SOURCE_TAG}" \
-            --build-arg SOURCE_HASH="${SOURCE_HASH}" \
-            --build-arg SECUREBOOT_SIGNING_REQUESTED="0" \
-            --cache-from "type=registry,ref=${CACHE_REF}" \
-            --cache-to   "type=registry,ref=${CACHE_REF},mode=max" \
-            -f build_files/Containerfile.live \
-            --push \
-            .
-
-          echo "==> Live container built from Fedora-kernel image ${BASE_IMAGE}"
-
-      - name: Flatten live container to a single layer
-        # The live image inherits 100+ layers from the kyth base image.
-        # docker pull in Job 2 hits Docker's 128-layer overlay2 limit before
-        # it can even finish pulling. We flatten here so Job 2 pulls a single layer.
-        #
-        # crane flatten was replaced because it uploads a single merged layer over
-        # the network — on large images the connection drops mid-upload and crane
-        # cannot retry (stream already consumed). Instead we:
-        #   1. Enable Docker's containerd snapshotter (no 128-layer limit) so we
-        #      can pull the just-built multi-layer image into the local daemon.
-        #   2. Flatten with docker export | docker import — runs locally, no
-        #      network upload until the final push of the single-layer image.
-        run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-
-          # Switch Docker to the containerd snapshotter so pulling 100+ layer
-          # images doesn't hit the kernel overlay2 limit of 128 lower dirs.
-          sudo systemctl stop docker docker.socket 2>/dev/null || true
-          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
-          sudo systemctl start docker
-
-          retry() {
-            local description="$1"
-            local delay="$2"
-            shift 2
-            for attempt in 1 2 3 4 5; do
-              if "$@"; then
-                return 0
-              fi
-              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
-              sleep $((attempt * delay))
-            done
-            "$@"
-          }
-
-          ghcr_login() {
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          }
-
-          retry "GHCR login" 20 ghcr_login
-
-          # Pull the multi-layer image, flatten to one layer locally, push back.
-          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
-          CID=$(docker create "${IMAGE}" /bin/true)
-          docker export "${CID}" | docker import - "${IMAGE}"
-          docker rm "${CID}"
-          retry "Docker push ${IMAGE}" 30 docker push "${IMAGE}"
-
-  # ── Job 2: Pull the container, export rootfs, build squashfs + ISO ───────────
-  # Fresh runner — Docker image is pulled then immediately removed after export
-  # so overlay2 storage doesn't overlap with the large squashfs + ISO on disk.
-  build-iso:
-    name: Build ISO (${{ matrix.source_tag }})
-    needs: build-live-container
-    runs-on: ubuntu-24.04
-    env:
-      DOCKER_CONFIG: /tmp/kyth-docker-config
     concurrency:
       group: build-live-iso-${{ matrix.source_tag }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
     permissions:
       contents: write
       packages: read
       id-token: write
       attestations: write
-      artifact-metadata: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.event != 'schedule' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -225,112 +58,56 @@ jobs:
 
       - name: Install dependencies
         run: |
-          sudo apt-get update
+          sudo apt-get update -q
           sudo apt-get install -y \
-            xorriso squashfs-tools mtools dosfstools git \
-            grub-common grub-pc-bin grub-efi-amd64-bin sbsigntool
-          # Install just from a pinned release with checksum verification.
-          # To update: bump JUST_VER and JUST_SHA256 together.
-          JUST_VER="1.49.0"
-          JUST_SHA256="05eb2f068b641b06e5b318796c2e27d4dcca608e65b34329a08c1b9f582611bd"
-          JUST_TARBALL="just-${JUST_VER}-x86_64-unknown-linux-musl.tar.gz"
-          curl -fsSL \
-            "https://github.com/casey/just/releases/download/${JUST_VER}/${JUST_TARBALL}" \
-            -o "/tmp/${JUST_TARBALL}"
-          echo "${JUST_SHA256}  /tmp/${JUST_TARBALL}" | sha256sum --check --strict
-          tar -xf "/tmp/${JUST_TARBALL}" -C /tmp just
-          sudo install -m 0755 /tmp/just /usr/local/bin/just
-          rm -f "/tmp/${JUST_TARBALL}" /tmp/just
-          sudo ln -sf /usr/bin/grub-mkimage /usr/local/bin/grub2-mkimage
-          sudo ln -sf /usr/bin/grub-mkfont  /usr/local/bin/grub2-mkfont
+            xorriso squashfs-tools mtools dosfstools podman \
+            grub-common grub-pc-bin grub-efi-amd64-bin
 
-      - name: Prepare Docker auth config
+      - name: Authenticate podman to GHCR
         run: |
-          mkdir -p "${DOCKER_CONFIG}"
-          printf '{"auths":{}}\n' > "${DOCKER_CONFIG}/config.json"
+          echo "${{ secrets.GITHUB_TOKEN }}" \
+            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Pull pre-built live container
-        # Import with the tag name build-live-iso.sh expects:
-        #   latest  → kyth-live:build
-        #   testing → kyth-live:build-testing
+      - name: Pull source image
         run: |
-          retry() {
-            local description="$1"
-            local delay="$2"
-            shift 2
-            for attempt in 1 2 3 4 5; do
-              if "$@"; then
-                return 0
-              fi
-              echo "${description} attempt ${attempt} failed; retrying in $((attempt * delay))s..."
-              sleep $((attempt * delay))
-            done
-            "$@"
-          }
-
-          ghcr_login() {
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
-          }
-
-          retry "GHCR login" 20 ghcr_login
-
           SOURCE_TAG="${{ matrix.source_tag }}"
-          if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            LIVE_TAG="kyth-live:build"
-          else
-            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
-          fi
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
+          echo "==> Pulling ${BASE_IMAGE}"
+          sudo podman pull "${BASE_IMAGE}"
 
-          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:live-build-${SOURCE_TAG}"
-          retry "Docker pull ${IMAGE}" 30 docker pull "${IMAGE}"
-          docker tag "${IMAGE}" "${LIVE_TAG}"
-          docker rmi "${IMAGE}" || true
-
-      - name: Ensure permissions and directories
+      - name: Build installer container + assemble ISO
+        env:
+          SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
+          SOURCE_TAG="${{ matrix.source_tag }}"
+          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
+          LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
+
           mkdir -p output/live-iso
-          chmod -R 777 output
-          chmod -R 777 build_files
-          chmod +x build_files/build-live-iso.sh
 
-      - name: Build Live ISO
-        # SKIP_REBUILD=1: kyth-live:build was pre-built in job 1 and
-        # imported above — skip the staleness check and go straight to
-        # container export + squashfs + ISO.
-        # Prune Docker storage right after container export to reclaim the
-        # overlay2 footprint before mksquashfs runs.
-        env:
-          SKIP_REBUILD: "1"
-          REQUIRE_SECUREBOOT_SIGNING: "0"
-        run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          if [[ "${SOURCE_TAG}" == "latest" ]]; then
-            LIVE_TAG="kyth-live:build"
-          else
-            LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
-          fi
+          # Build the installer container with SYS_ADMIN so dracut can run
+          echo "==> Building installer container"
+          sudo podman build \
+            --cap-add SYS_ADMIN \
+            --security-opt label=disable \
+            --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+            --build-arg "SOURCE_TAG=${SOURCE_TAG}" \
+            --tag "${LIVE_TAG}" \
+            -f installer/Containerfile \
+            .
 
-          just build-live-iso "${SOURCE_TAG}" &
-          BUILD_PID=$!
+          echo "==> Installer container built — assembling ISO"
+          # SKIP_REBUILD=1: container is already built above
+          SKIP_REBUILD=1 \
+          CONTAINER_ENGINE=podman \
+          INSTALLER_BASE_IMAGE="${BASE_IMAGE}" \
+          KYTH_ISO_OUTPUT="${PWD}/output/live-iso" \
+            bash build_files/build-live-iso.sh
 
-          while kill -0 $BUILD_PID 2>/dev/null; do
-            ROOTFS=$(find /var/tmp -maxdepth 2 -name rootfs -type d 2>/dev/null | head -1)
-            if [[ -n "${ROOTFS}" && -f "${ROOTFS}/etc/os-release" ]]; then
-              echo "==> Container exported to ${ROOTFS} — pruning Docker overlay2"
-              docker rmi "${LIVE_TAG}" || true
-              docker system prune -f || true
-              break
-            fi
-            sleep 5
-          done
-
-          wait $BUILD_PID
-
-      - name: Secure Boot preflight
-        env:
-          REQUIRE_SECUREBOOT_SIGNING: "0"
-        run: |
-          SOURCE_TAG="${{ matrix.source_tag }}" bash build_files/tests/secureboot-preflight.sh
+          # Release podman storage now that the rootfs has been exported and
+          # squashfs + ISO are building — reclaims ~8 GB on the runner
+          sudo podman rmi "${LIVE_TAG}" 2>/dev/null || true
+          sudo podman system prune -f 2>/dev/null || true
 
       - name: Generate ISO checksum
         run: |
@@ -356,39 +133,37 @@ jobs:
           subject-path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso
 
       - name: Generate ISO metadata
+        env:
+          SOURCE_TAG: ${{ matrix.source_tag }}
+          ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
         run: |
           ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
-          export SHA256="$(sha256sum "${ISO}" | awk '{print $1}')"
-          export BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-          python3 - <<'PY'
-          import json
-          import os
+          SHA256="$(sha256sum "${ISO}" | awk '{print $1}')"
+          BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          python3 - <<PY
+          import json, os
           from pathlib import Path
-
-          iso = Path(f"output/live-iso/kyth-live-{os.environ['SOURCE_TAG']}.iso")
+          tag = os.environ["SOURCE_TAG"]
+          iso = Path(f"output/live-iso/kyth-live-{tag}.iso")
           metadata = {
               "iso": iso.name,
-              "sha256": os.environ["SHA256"],
+              "sha256": "${SHA256}",
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
               "checksum": iso.name + "-CHECKSUM",
               "attestation_url": os.environ.get("ATTESTATION_URL", ""),
-              "source_image": f"ghcr.io/{os.environ['GITHUB_REPOSITORY']}:live-build-{os.environ['SOURCE_TAG']}",
-              "source_tag": os.environ["SOURCE_TAG"],
-              "build_date": os.environ["BUILD_DATE"],
+              "source_image": f"ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:{tag}",
+              "source_tag": tag,
+              "build_date": "${BUILD_DATE}",
           }
-          Path(str(iso) + ".json").write_text(json.dumps(metadata, indent=2) + "\n", encoding="utf-8")
+          Path(str(iso) + ".json").write_text(json.dumps(metadata, indent=2) + "\n")
           PY
-        env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
-          ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
 
       - name: Upload ISO artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: kyth-live-iso-${{ matrix.source_tag }}
-          path: |
-            output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
+          path: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso*
           if-no-files-found: error
 
       - name: Upload ISO to Cloudflare R2
@@ -413,36 +188,16 @@ jobs:
           TAG="${{ matrix.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
           ISO_URL="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-${SOURCE_TAG}.iso"
           CHECKSUM_URL="${ISO_URL}-CHECKSUM"
-          SIG_URL="${ISO_URL}.sig"
-          BUNDLE_URL="${ISO_URL}.bundle"
-          META_URL="${ISO_URL}.json"
-
           if [ "${SOURCE_TAG}" = "testing" ]; then
             TITLE="Kyth Live ISO — Testing"
-            NOTES=$(printf 'Built from the `testing` branch. May be unstable.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from `testing`. May be unstable.\n\n**[Download ISO](%s)**  |  [Checksum](%s)' "${ISO_URL}" "${CHECKSUM_URL}")
             PRERELEASE="--prerelease"
           else
             TITLE="Kyth Live ISO — Stable"
-            NOTES=$(printf 'Built from the `main` branch.\n\n**Download:** [ISO](%s)\n**Checksum:** [SHA256](%s)\n**Signature:** [cosign signature](%s)\n**Bundle:** [cosign bundle](%s)\n**Metadata:** [JSON](%s)' "${ISO_URL}" "${CHECKSUM_URL}" "${SIG_URL}" "${BUNDLE_URL}" "${META_URL}")
+            NOTES=$(printf 'Built from `main`.\n\n**[Download ISO](%s)**  |  [Checksum](%s)' "${ISO_URL}" "${CHECKSUM_URL}")
             PRERELEASE="--latest"
           fi
-
-          # Recreate the rolling release so GitHub shows the new publish date
-          # and moves the rolling tag to the commit that produced this ISO.
           gh release delete "${TAG}" --yes --cleanup-tag 2>/dev/null || true
-          gh release create "${TAG}" \
-            --title "${TITLE}" \
-            --notes "${NOTES}" \
-            ${PRERELEASE}
-
-          # Upload the metadata artifacts as release assets so the Assets section
-          # shows the current build date (the auto-generated source archives always
-          # reflect the commit date, which lags behind the publish date).
-          # The ISO itself stays on R2 — at several GB it would hit GitHub's 2 GB
-          # per-asset limit on large builds.
+          gh release create "${TAG}" --title "${TITLE}" --notes "${NOTES}" ${PRERELEASE}
           ISO="output/live-iso/kyth-live-${SOURCE_TAG}.iso"
-          gh release upload "${TAG}" \
-            "${ISO}-CHECKSUM" \
-            "${ISO}.sig" \
-            "${ISO}.bundle" \
-            "${ISO}.json"
+          gh release upload "${TAG}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"

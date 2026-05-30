@@ -531,6 +531,7 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # Build a live ISO with the KythOS web installer. The live desktop is based on
 # the same KythOS image that will be installed, then pulls that image from the
 # registry at install time via bootc install to-disk.
+# Build the live ISO from the given source tag.
 # Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]
 build-live-iso source_tag="latest":
@@ -538,32 +539,22 @@ build-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Fast Secure Boot validation that does not build a new ISO.
-# Checks source policy, the cached Fedora-kernel live image when present, and
-# any existing output/live-iso ISO.
-[group('Build Virtual Machine Image')]
-secureboot-preflight source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} bash build_files/tests/secureboot-preflight.sh
-
-# Force a full rebuild of the live ISO, ignoring the cached container layer.
-# Use after changing Containerfile.live or any file it COPYs.
+# Force a full rebuild of the live ISO (re-runs installer/build.sh).
+# Use after changing installer/Containerfile, installer/build.sh, or any
+# file those scripts install into the live image.
 [group('Build Virtual Machine Image')]
 rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
+    SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Build a live ISO that embeds localhost/kyth:latest and installs that exact
-# local image. This is the QEMU development path for validating boot fixes
-# before pushing anything to GHCR.
+# Build a live ISO from localhost/kyth:latest for local QEMU testing.
 [group('Build Virtual Machine Image')]
 rebuild-live-iso-local:
     #!/usr/bin/env bash
     set -euo pipefail
     just build
-    SOURCE_TAG=local REBUILD_IMAGE=1 INSTALLER_BASE_IMAGE=localhost/kyth:latest EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+    SOURCE_TAG=local INSTALLER_BASE_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
 
 # Build the local embedded ISO and boot it in native QEMU with a fresh disk.
 [group('Run Virtual Machine')]
