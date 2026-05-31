@@ -1,11 +1,7 @@
 name: Build Live ISO
-run-name: "Build Live ISO — ${{ github.event_name == 'workflow_dispatch' && inputs.source_tag || github.event.workflow_run.head_branch }}"
+run-name: "Build Live ISO — ${{ inputs.source_tag }}"
 
 on:
-  workflow_run:
-    workflows: ["Build container image"]
-    types: [completed]
-    branches: [main, testing]
   workflow_dispatch:
     inputs:
       source_tag:
@@ -24,16 +20,13 @@ jobs:
   build-iso:
     name: Build ISO (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
-    if: >
-      github.event_name == 'workflow_dispatch' ||
-      github.event.workflow_run.conclusion != 'cancelled'
     concurrency:
       group: build-live-iso-${{ matrix.source_tag }}
       cancel-in-progress: true
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest')) }}
+        source_tag: ${{ fromJSON(format('["{0}"]', inputs.source_tag)) }}
     permissions:
       contents: write
       packages: read
@@ -44,7 +37,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_sha || (matrix.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
