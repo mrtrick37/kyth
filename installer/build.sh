@@ -42,6 +42,13 @@ Categories=System;
 EOF
 chmod +x /etc/skel/Desktop/install-kyth.desktop
 
+# The live user is ephemeral, so do not interrupt Wi-Fi setup with KWallet's
+# first-use encryption wizard. Installed users keep the normal encrypted wallet.
+cat > /etc/skel/.config/kwalletrc <<'EOF'
+[Wallet]
+Enabled=false
+EOF
+
 cat > /etc/skel/.config/autostart/kyth-installer.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
