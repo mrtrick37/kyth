@@ -47,7 +47,21 @@ chmod +x /etc/skel/Desktop/install-kyth.desktop
 cat > /etc/skel/.config/kwalletrc <<'EOF'
 [Wallet]
 Enabled=false
+First Use=false
 EOF
+
+# Plasma normally starts the PAM wallet bridge during login. The live account
+# has no persistent secrets, so keep that bridge out of its autologin session.
+for pam_file in /etc/pam.d/sddm-autologin /usr/lib/pam.d/plasmalogin-autologin; do
+    [ -f "${pam_file}" ] && sed -i '/pam_kwallet/d' "${pam_file}"
+done
+mkdir -p /etc/xdg/autostart /etc/systemd/user
+cat > /etc/xdg/autostart/pam_kwallet_init.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Hidden=true
+EOF
+ln -sf /dev/null /etc/systemd/user/plasma-kwallet-pam.service
 
 cat > /etc/skel/.config/autostart/kyth-installer.desktop <<'EOF'
 [Desktop Entry]
@@ -79,6 +93,13 @@ rm -f \
     /home/liveuser/Desktop/system-hub.desktop \
     /home/liveuser/.config/autostart/kyth-welcome.desktop \
     2>/dev/null || true
+mkdir -p /home/liveuser/.config
+cat > /home/liveuser/.config/kwalletrc <<'WALLETRC'
+[Wallet]
+Enabled=false
+First Use=false
+WALLETRC
+chown liveuser:liveuser /home/liveuser/.config/kwalletrc
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF

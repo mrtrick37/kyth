@@ -5,6 +5,7 @@ set -uo pipefail
 
 APP_NAME="KythOS Post-Update Check"
 STAMP_DIR="${HOME}/.local/share/kyth"
+WELCOME_DONE="${HOME}/.config/kyth-welcome-done"
 FORCE=0
 NOTIFY=1
 
@@ -60,6 +61,13 @@ while [[ $# -gt 0 ]]; do
     esac
     shift
 done
+
+# First login belongs to the onboarding wizard. Run automatic confidence checks
+# after the user has completed or skipped it; --force keeps manual diagnostics
+# available from the System Hub and ujust.
+if [[ "$FORCE" -ne 1 && ! -f "${WELCOME_DONE}" ]]; then
+    exit 0
+fi
 
 CAN_STAMP=1
 mkdir -p "${STAMP_DIR}" 2>/dev/null || CAN_STAMP=0

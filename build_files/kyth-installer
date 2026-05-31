@@ -86,21 +86,29 @@ def list_disks() -> list[dict]:
         running_disk = _running_system_disk()
         out = subprocess.check_output(
             ["lsblk", "--json", "--bytes", "--nodeps",
-             "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA"],
+             "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA,RM"],
             text=True, stderr=subprocess.DEVNULL,
         )
         result = []
         for d in json.loads(out).get("blockdevices", []):
             size = int(d.get("size", 0))
-            if d.get("type") == "disk" and size > 0:
+            name = d.get("name") or ""
+            tran = (d.get("tran") or "").lower()
+            if (
+                d.get("type") == "disk"
+                and size > 0
+                and not name.startswith("zram")
+                and tran != "usb"
+                and not bool(d.get("rm"))
+            ):
                 result.append({
-                    "name":  f"/dev/{d['name']}",
+                    "name":  f"/dev/{name}",
                     "model": (d.get("model") or "Unknown Disk").strip(),
                     "size":  _human_size(size),
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
-                    "tran":  d.get("tran") or "",
-                    "current": f"/dev/{d['name']}" == running_disk,
+                    "tran":  tran,
+                    "current": f"/dev/{name}" == running_disk,
                 })
         return result
     except Exception:
@@ -356,7 +364,7 @@ def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
     """
     force_stage = os.environ.get("KYTH_STAGE_MOK", "0").lower() in ("1", "true", "yes", "on")
     if kernel != "cachy" and not force_stage:
-        log("Secure Boot: Fedora kernel selected — custom-kernel MOK enrollment not staged")
+        log("Secure Boot: standard KythOS kernel selected — custom-kernel MOK enrollment not staged")
         return "skipped"
 
     cert_der = Path("/usr/share/kyth/secureboot/kyth-secureboot.der")
@@ -410,7 +418,7 @@ def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
             input="kyth\n", text=True, capture_output=True, timeout=15,
         )
         if result.returncode == 0:
-            log("Secure Boot: enrollment staged — confirm it on first boot before the CachyOS kernel starts")
+            log("Secure Boot: enrollment staged — confirm it on first boot before the KythOS performance kernel starts")
             return "staged"
         log(f"Secure Boot: mokutil import failed (exit {result.returncode}): {result.stderr.strip()}")
         return "failed"
@@ -1171,7 +1179,7 @@ select{cursor:pointer}
   <div class="page active" id="page-welcome">
     <div class="card">
       <div class="card-title">Welcome to KythOS</div>
-      <div class="card-sub">Immutable gaming &amp; development desktop — Fedora Kinoite</div>
+      <div class="card-sub">Immutable gaming &amp; development desktop — KythOS</div>
       <hr class="divider">
       <p style="color:var(--muted);line-height:1.8">
         This installer will guide you through installing KythOS on your computer.<br><br>
@@ -1430,10 +1438,10 @@ function selectDisk(idx) {
 
 // ── Kernel ────────────────────────────────────────────────────────────────────
 const KERNELS = [
-  { id: 'fedora', icon: '🐧', name: 'Fedora',
-    desc: 'Stock Fedora kernel &middot; Signed by Red Hat &middot; Works with Secure Boot out of the box',
+  { id: 'fedora', icon: '🐧', name: 'KythOS Standard',
+    desc: 'Standard KythOS kernel &middot; Works with Secure Boot out of the box',
     badge: 'Default' },
-  { id: 'cachy',  icon: '⚡', name: 'CachyOS',
+  { id: 'cachy',  icon: '⚡', name: 'KythOS Performance',
     desc: 'BORE scheduler &middot; sched-ext &middot; BBRv3 &middot; NTSYNC &middot; Optimized for gaming &amp; low-latency workloads',
     note: 'Secure Boot: the installer stages the KythOS signing key and you confirm enrollment on first boot' },
 ];
@@ -1504,7 +1512,7 @@ function saveConfig() {
 
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
-  const kernelLabels = { fedora: 'Fedora', cachy: 'CachyOS' };
+  const kernelLabels = { fedora: 'KythOS Standard', cachy: 'KythOS Performance' };
   const targetImage = (() => {
     const base = S._sourceImage || '';
     if (!base || S.kernel === 'fedora') return base || '—';
@@ -1749,6 +1757,7 @@ def main() -> None:
         "--no-first-run",
         "--no-sandbox",
         "--disable-setuid-sandbox",
+        "--test-type",
         "--password-store=basic",
         "--window-size=1280,800",
         "--window-position=0,0",
