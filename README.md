@@ -17,6 +17,18 @@ KythOS is a ready-to-install Linux desktop for people who want their games, tool
 
 It starts from a live USB, installs with a real graphical installer, and opens into a polished KDE Plasma desktop with gaming tools, creator tools, driver helpers, update controls, and a first-run **System Hub** to help you settle in.
 
+## KythOS Is Officially Released
+
+**Calling all testers: KythOS is ready for you.**
+
+The `main` branch is now the official KythOS release line. This is the moment to
+download the stable ISO, boot it on real hardware, install it, update it, play
+games, try your daily workflow, and tell us where the rough edges still are.
+
+Every test helps make the release better. Please report bugs, hardware results,
+installer surprises, and gaming wins or misses through the
+[KythOS issue tracker](https://github.com/mrtrick37/kyth/issues).
+
 ## Download
 
 | Channel | Best for | Download |
@@ -166,7 +178,10 @@ This is the part for builders, testers, and people who want to know exactly what
 
 ### Current Project State
 
-KythOS is actively developed on the `testing` branch, with `latest` used as the daily-use channel and `testing` used for ISO, installer, live-session, Secure Boot, and hardware-support work before it is promoted.
+The `main` branch is the official KythOS release line. The `latest` channel is
+the stable daily-use release, while `testing` remains the proving ground for
+new ISO, installer, live-session, Secure Boot, and hardware-support work before
+it is promoted.
 
 The current tree builds:
 
