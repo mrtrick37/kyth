@@ -49,58 +49,49 @@ jobs:
           docker-images: true
           swap-storage: true
 
-      - name: Install dependencies
+      - name: Mount compressed Podman storage
         run: |
-          sudo apt-get update -q
-          sudo apt-get install -y \
-            xorriso squashfs-tools mtools dosfstools podman \
-            grub-common grub-pc-bin grub-efi-amd64-bin
+          sudo truncate -s 70G /mnt/podman-storage.img
+          sudo mkfs.btrfs -f /mnt/podman-storage.img
+          sudo podman system reset --force
+          sudo systemctl stop podman.service
+          sudo mount -o compress-force=zstd:2 /mnt/podman-storage.img /var/lib/containers/storage
+          sudo systemctl start podman.service
 
       - name: Authenticate podman to GHCR
         run: |
           echo "${{ secrets.GITHUB_TOKEN }}" \
             | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
 
-      - name: Pull source image
-        run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
-          echo "==> Pulling ${BASE_IMAGE}"
-          sudo podman pull "${BASE_IMAGE}"
-
-      - name: Build installer container + assemble ISO
+      - name: Build live payload container
         env:
           SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
           SOURCE_TAG="${{ matrix.source_tag }}"
           BASE_IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}:${SOURCE_TAG}"
-          LIVE_TAG="kyth-live:build-${SOURCE_TAG}"
 
-          mkdir -p output/live-iso
-
-          # Build the installer container with SYS_ADMIN so dracut can run
-          echo "==> Building installer container"
+          # Titanoboa consumes this prepared live rootfs using the same
+          # container-native LiveCD contract as Bazzite.
           sudo podman build \
             --cap-add SYS_ADMIN \
             --security-opt label=disable \
             --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
             --build-arg "SOURCE_TAG=${SOURCE_TAG}" \
-            --tag "${LIVE_TAG}" \
+            --tag localhost/payload:latest \
             -f installer/Containerfile \
             .
 
-          echo "==> Installer container built — assembling ISO"
-          # SKIP_REBUILD=1: container is already built above
-          SKIP_REBUILD=1 \
-          CONTAINER_ENGINE=podman \
-          INSTALLER_BASE_IMAGE="${BASE_IMAGE}" \
-          KYTH_ISO_OUTPUT="${PWD}/output/live-iso" \
-            bash build_files/build-live-iso.sh
+      - name: Build ISO with Titanoboa
+        uses: Zeglius/titanoboa@7737f4748458252ac827dca14b3d6dd09298472a
+        with:
+          image-ref: localhost/payload:latest
+          iso-dest: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso
 
-          # Release podman storage now that the rootfs has been exported and
-          # squashfs + ISO are building — reclaims ~8 GB on the runner
-          sudo podman rmi "${LIVE_TAG}" 2>/dev/null || true
-          sudo podman system prune -f 2>/dev/null || true
+      - name: Verify ISO artifact
+        run: |
+          ISO="output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
+          test -s "${ISO}"
+          echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
 
       - name: Generate ISO checksum
         run: |

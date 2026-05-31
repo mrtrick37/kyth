@@ -31,7 +31,7 @@ SESSION_TOKEN = secrets.token_urlsafe(32)
 SKIP_FETCH_CHECK = os.environ.get("KYTH_INSTALL_SKIP_FETCH_CHECK", "0").lower() in (
     "1", "true", "yes", "on"
 )
-# Present when running from the live ISO (written by build-live-iso.sh / Containerfile.live).
+# Present when running from the live ISO (written by installer/build.sh).
 # Absent on a running installed system — used to gate operations that only make sense
 # from a live environment (e.g. wiping the running disk).
 _IS_LIVE_SESSION = Path("/etc/kyth-installer.env").exists()

@@ -35,8 +35,7 @@ build_base/             # Layer 1: CachyOS kernel + base Fedora Kinoite 44
   Dockerfile
   build.sh
 build_files/            # Layer 2+: packages, gaming tweaks, branding
-  build-live-iso.sh     # Assembles squashfs + GRUB2 + ISO
-  Containerfile.live    # Live session variant (custom installer)
+  build-live-iso.sh     # Local Titanoboa live ISO wrapper
   kyth-installer        # Graphical installer (PySide6 + Chromium kiosk)
   kyth-launch-installer # Desktop launcher for the installer
   branding/             # KythOS logos and branding CSS
@@ -44,6 +43,7 @@ build_files/            # Layer 2+: packages, gaming tweaks, branding
   just/kyth.just        # ujust recipes shipped in the OS
   kyth-welcome/         # First-boot welcome app
 disk_config/            # Bootc Image Builder configs
+installer/              # Bazzite-style live payload customization
 .github/workflows/      # CI: daily rebuilds at 10:05 UTC
 ```
 

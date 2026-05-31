@@ -339,17 +339,6 @@ MokManager enrollment reboot, then enable Secure Boot again.
   kernel modesetting so the live ISO can prioritize booting and installing over
   GPU performance.
 
-#### Check an ISO before flashing
-
-Before you write a locally built ISO to USB, run:
-
-```bash
-SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
-```
-
-Only flash the ISO if preflight passes. It checks the shim signature, GRUB
-handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
-
 ### Gaming Stack
 
 - Steam, Lutris, Heroic Games Launcher, ProtonUp-Qt, protontricks, GE-Proton, umu-launcher, winetricks, and libFAudio.
@@ -370,7 +359,7 @@ handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 
 ### Build Locally
 
-Requirements: `docker` and `just`.
+Requirements: `docker`, `podman`, `git`, and `just`.
 
 ```bash
 just build-base
@@ -379,36 +368,16 @@ just build-live-iso
 just run-live-iso-native
 ```
 
-#### Local Secure Boot ISO build
+#### Local Live ISO build
 
-If you want the local ISO to boot with Secure Boot enabled, you need the private
-key that matches `build_files/secureboot/kyth-secureboot.cer`. The easiest local
-setup is:
-
-```bash
-export MOK_KEY_FILE="$HOME/.config/kyth/secureboot/kyth-secureboot.key"
-```
-
-Then build and verify:
+The live ISO uses the stock Fedora-signed kernel and Fedora EFI artifacts staged
+by `installer/build.sh`. ISO assembly is delegated to Titanoboa, matching
+Bazzite's live ISO path:
 
 ```bash
-SOURCE_TAG=testing REBUILD_IMAGE=1 REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/build-live-iso.sh
-SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
+just build-live-iso
+just run-live-iso-native
 ```
-
-Do not flash the ISO unless preflight passes.
-
-Fast Secure Boot preflight, without waiting for a new ISO:
-
-```bash
-just secureboot-preflight
-SOURCE_TAG=testing just secureboot-preflight testing
-```
-
-The preflight checks the Secure Boot source policy, cached Fedora-kernel live
-image artifacts, and any existing `output/live-iso/kyth-live-*.iso`. It is meant
-to catch signing and boot-chain mistakes before flashing another USB. For deeper
-ISO inspection, install `xorriso`, `mtools`, and `sbsigntools`.
 
 If Docker says permission denied after you added yourself to the `docker` group,
 open a new terminal or run:
@@ -423,7 +392,6 @@ Useful recipes:
 just build-base
 just build
 just build-live-iso
-just secureboot-preflight
 just build-live-iso testing
 just rebuild-live-iso
 just run-live-iso
@@ -435,7 +403,7 @@ just clean-docker
 just lint && just format
 ```
 
-`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest` and embeds that same image as the install payload. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
+`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest`. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
 
 Optional build flags:
 
@@ -457,8 +425,7 @@ Justfile                          Build orchestration
 
 build_base/                       Fedora Kinoite base plus optional kernel flavor selection
 build_files/
-  build-live-iso.sh               Live ISO assembler
-  Containerfile.live              Live session image
+  build-live-iso.sh               Local Titanoboa live ISO wrapper
   kyth-installer                  Graphical installer
   kyth-install.sh                 bootc disk installer
   kyth-partition-install.sh       Existing-partition installer
@@ -468,6 +435,7 @@ build_files/
   kyth-welcome/                   KythOS System Hub
   kyth-vpn-connect/               Standalone OpenConnect VPN app
   kyth-vpn-status/                KDE VPN tray helper
+installer/                        Bazzite-style live payload customization
   just/kyth.just                  ujust recipes shipped in the OS
 
 disk_config/                      Bootc Image Builder configs
