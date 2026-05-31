@@ -81,6 +81,9 @@ jobs:
             -f installer/Containerfile \
             .
 
+      - name: Prepare ISO output directory
+        run: mkdir -p output/live-iso
+
       - name: Build ISO with Titanoboa
         uses: Zeglius/titanoboa@7737f4748458252ac827dca14b3d6dd09298472a
         with:
