@@ -88,7 +88,10 @@ jobs:
         uses: Zeglius/titanoboa@7737f4748458252ac827dca14b3d6dd09298472a
         with:
           image-ref: localhost/payload:latest
-          iso-dest: output/live-iso/kyth-live-${{ matrix.source_tag }}.iso
+          iso-dest: ${{ runner.temp }}/kyth-live-${{ matrix.source_tag }}.iso
+
+      - name: Move ISO into workspace
+        run: mv "${{ runner.temp }}/kyth-live-${{ matrix.source_tag }}.iso" "output/live-iso/kyth-live-${{ matrix.source_tag }}.iso"
 
       - name: Verify ISO artifact
         run: |
