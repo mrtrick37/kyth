@@ -1,12 +1,5 @@
 
-# Allow build scripts to be referenced without being copied into the final image
 ARG BASE_IMAGE=localhost/kyth-base:stable
-FROM scratch AS ctx
-# --chmod=0755 ensures scripts are executable regardless of git core.fileMode
-# settings in CI (actions/checkout with core.fileMode=false strips the execute
-# bit, causing a Permission Denied when the bind-mounted ctx layer is rebuilt
-# after a cache miss).
-COPY --chmod=0755 build_files /
 
 # Base Image
 ARG BASE_IMAGE
@@ -29,12 +22,12 @@ ARG ENABLE_MESA_GIT=0
 
 # Layer 1: All RPM package installs (~2-3 GB).
 # Stable — only re-run when packages.sh changes or the base image is updated.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/packages.sh \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/log,target=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_ANANICY=${ENABLE_ANANICY} \
-    /ctx/scripts/packages.sh
+    bash /ctx/packages.sh
 
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
@@ -42,11 +35,11 @@ RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
 # upgrade run.  GE-Proton is a fully self-contained wine bundle with no system
 # library dependencies, so ordering before the upgrade is safe.
 ARG GE_PROTON_VER=
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/ge-proton.sh,target=/ctx/ge-proton.sh \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
-    GE_PROTON_VER=${GE_PROTON_VER} /ctx/scripts/ge-proton.sh
+    GE_PROTON_VER=${GE_PROTON_VER} bash /ctx/ge-proton.sh
 
 # BUILD_DATE busts the cache for Layer 3 and all subsequent layers on every
 # daily build, ensuring dnf5 upgrade always runs even when the base image
@@ -87,7 +80,7 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
             fi; \
         fi; \
     fi && \
-    depmod -a "${KVER}" 2>/dev/null || true && \
+    { depmod -a "${KVER}" 2>/dev/null || true; } && \
     if [ ! -s "/usr/lib/modules/${KVER}/initramfs" ]; then \
         if [ -s "/boot/initramfs-${KVER}.img" ]; then \
             cp --no-preserve=all "/boot/initramfs-${KVER}.img" "/usr/lib/modules/${KVER}/initramfs"; \
@@ -118,41 +111,44 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
 # Disabled by default: the COPR tracks development snapshots and can regress
 # VA-API video decode even when Vulkan/OpenGL remain healthy. Set
 # ENABLE_MESA_GIT=1 for testing bleeding-edge RADV/RADEONSI.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-git.sh \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_MESA_GIT=${ENABLE_MESA_GIT} \
-    /ctx/scripts/mesa-git.sh
+    bash /ctx/mesa-git.sh
 
 # Layer 5: Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
 # Re-run on every daily build (sits after the upgrade layer). GitHub API calls
 # use the mounted token to avoid unauthenticated rate limits.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
-    ENABLE_SCX=${ENABLE_SCX} /ctx/scripts/thirdparty.sh
+    ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
 
 # Layer 6: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
 # Re-run on every daily build.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/sysconfig.sh,target=/ctx/sysconfig.sh \
+    --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/scripts/sysconfig.sh
+    bash /ctx/sysconfig.sh
 
 # Layer 7: Secure Boot — sign the CachyOS vmlinuz and install the enrollment service.
 # Skipped gracefully when MOK_KEY is not set (local builds without a signing key).
 # Pass the private key via: --secret id=mok_key,env=MOK_KEY
 ARG SECUREBOOT_SIGNING_REQUESTED=0
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secureboot.sh \
+    --mount=type=bind,source=build_files/secureboot,target=/ctx/secureboot \
+    --mount=type=bind,source=build_files/kyth-enroll-mok,target=/ctx/kyth-enroll-mok \
+    --mount=type=bind,source=build_files/kyth-enroll-mok.service,target=/ctx/kyth-enroll-mok.service \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=mok_key \
-    SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} /ctx/scripts/secureboot.sh
+    SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} bash /ctx/secureboot.sh
 
 # Layer 8: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-run on every daily build.
-RUN --mount=type=bind,from=ctx,source=/,target=/ctx \
+RUN --mount=type=bind,source=build_files,target=/ctx \
     --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
-    /ctx/scripts/branding.sh
-
+    bash /ctx/scripts/branding.sh

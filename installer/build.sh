@@ -17,10 +17,14 @@ install -Dm755 /src/build_files/kyth-partition-install.sh /usr/bin/kyth-partitio
 printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
     "${SOURCE_TAG}" "${SOURCE_TAG}" > /etc/kyth-installer.env
 
-# The graphical installer serves its UI locally and opens it in Chromium.
-# Browsers from the installed image are intentionally deferred to Flatpak
-# first-boot setup, so the live payload must carry its own browser.
-dnf install -y chromium
+# Install live-only packages in one transaction so dependency solving and
+# repository metadata work happen once. Browsers from the installed image are
+# intentionally deferred to Flatpak first-boot setup.
+dnf install -y \
+    chromium \
+    dracut-live \
+    grub2-efi-x64-cdboot \
+    livesys-scripts
 
 # ── Live desktop: installer shortcut + software rendering (via /etc/skel) ────
 # The installed image seeds System Hub for a user's first login. The live
@@ -47,7 +51,21 @@ chmod +x /etc/skel/Desktop/install-kyth.desktop
 cat > /etc/skel/.config/kwalletrc <<'EOF'
 [Wallet]
 Enabled=false
+First Use=false
 EOF
+
+# Plasma normally starts the PAM wallet bridge during login. The live account
+# has no persistent secrets, so keep that bridge out of its autologin session.
+for pam_file in /etc/pam.d/sddm-autologin /usr/lib/pam.d/plasmalogin-autologin; do
+    [ -f "${pam_file}" ] && sed -i '/pam_kwallet/d' "${pam_file}"
+done
+mkdir -p /etc/xdg/autostart /etc/systemd/user
+cat > /etc/xdg/autostart/pam_kwallet_init.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Hidden=true
+EOF
+ln -sf /dev/null /etc/systemd/user/plasma-kwallet-pam.service
 
 cat > /etc/skel/.config/autostart/kyth-installer.desktop <<'EOF'
 [Desktop Entry]
@@ -79,13 +97,19 @@ rm -f \
     /home/liveuser/Desktop/system-hub.desktop \
     /home/liveuser/.config/autostart/kyth-welcome.desktop \
     2>/dev/null || true
+mkdir -p /home/liveuser/.config
+cat > /home/liveuser/.config/kwalletrc <<'WALLETRC'
+[Wallet]
+Enabled=false
+First Use=false
+WALLETRC
+chown liveuser:liveuser /home/liveuser/.config/kwalletrc
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF
 chmod +x /var/lib/livesys/livesys-session-extra
 
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
-dnf install -y dracut-live
 kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
     | grep -v cachyos | sort -V | tail -n 1)
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
@@ -93,7 +117,6 @@ DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
 
 # ── livesys-scripts ───────────────────────────────────────────────────────────
-dnf install -y livesys-scripts
 sed -i 's/^livesys_session=.*/livesys_session="kde"/' /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service
 
@@ -153,7 +176,6 @@ ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 echo "uninitialized" > /etc/machine-id
 
 # ── EFI binaries for ISO boot (exactly as Bazzite does it) ───────────────────
-dnf install -y grub2-efi-x64-cdboot
 mkdir -p /boot/efi
 cp -av /usr/lib/efi/*/*/EFI /boot/efi/
 cp -v /boot/efi/EFI/fedora/grubx64.efi /boot/efi/EFI/BOOT/fbx64.efi || true

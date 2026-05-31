@@ -322,6 +322,10 @@ else
 fi
 check_system_unit_enabled display-manager.service "Login manager"
 check_file /usr/share/wallpapers/kyth/metadata.json "KythOS wallpaper"
+check_file_contains /etc/plymouth/plymouthd.conf "Theme=kyth" "Plymouth theme" "KythOS boot splash selected"
+check_file /usr/share/plymouth/themes/kyth/kyth-logo.png "Plymouth KythOS logo"
+check_file /usr/share/plymouth/themes/spinner/watermark.png "Plymouth BGRT fallback badge"
+check_file /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "Plymouth initramfs migration"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /usr/bin/kyth-installer "KythOS installer"
 check_file /usr/bin/kyth-launch-installer "KythOS installer launcher"
@@ -336,6 +340,7 @@ check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "Use
 check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
 check_file /etc/xdg/mimeapps.list "Default app associations"
 check_file /usr/bin/kyth-post-update-check "Post-update confidence"
+check_file_contains /usr/bin/kyth-post-update-check "kyth-welcome-done" "Post-update onboarding quieting" "automatic notifications wait for first-run onboarding"
 check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
 check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
@@ -379,6 +384,13 @@ if is_live_session; then
     check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
     check_file "${HOME}/.config/autostart/kyth-installer.desktop" "Installer desktop autostart"
     check_file_contains "${HOME}/.config/kwalletrc" "Enabled=false" "Live wallet prompts" "disabled for ephemeral live user"
+    check_file_contains "${HOME}/.config/kwalletrc" "First Use=false" "Live wallet first-use wizard" "disabled for ephemeral live user"
+    check_file_contains /etc/xdg/autostart/pam_kwallet_init.desktop "Hidden=true" "Live wallet PAM autostart" "disabled for ephemeral live user"
+    if [[ "$(readlink /etc/systemd/user/plasma-kwallet-pam.service 2>/dev/null)" == /dev/null ]]; then
+        pass "Live wallet PAM service" "masked for ephemeral live user"
+    else
+        fail "Live wallet PAM service" "not masked for ephemeral live user"
+    fi
     check_file_contains /etc/sddm.conf.d/20-kyth-live-autologin.conf "User=liveuser" "Live desktop autologin" "SDDM logs straight into the live desktop"
     if [[ -e "${HOME}/Desktop/kyth-welcome.desktop" || -e "${HOME}/Desktop/system-hub.desktop" || -e "${HOME}/Desktop/explore-kyth.desktop" || -e /usr/share/applications/kyth-explore.desktop || -e "${HOME}/.config/autostart/kyth-welcome.desktop" ]]; then
         fail "Live desktop shortcuts" "System Hub or Explore shortcut is still present"

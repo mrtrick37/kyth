@@ -876,9 +876,11 @@ install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
 
 # Replace the Fedora badge in the bgrt/spinner fallback theme so the ASUS
 # firmware logo ("In search of incredible") is followed by the KythOS lockup
-# rather than a Fedora logo during early-boot BGRT rendering.
+# rather than a Fedora logo during early-boot BGRT rendering. Fedora's bgrt
+# theme reads its watermark from the shared spinner image directory.
 for _spinner_dir in \
     /usr/share/plymouth/themes/spinner \
+    /usr/share/plymouth/themes/bgrt \
     /usr/share/plymouth/themes/bgrt-fedora; do
     if [ -d "${_spinner_dir}" ]; then
         rsvg-convert -w 260 /ctx/branding/kyth-boot-badge.svg \
@@ -888,6 +890,41 @@ done
 unset _spinner_dir
 
 plymouth-set-default-theme --rebuild-initrd kyth
+
+# bootc installs the initramfs payload stored beside the kernel under
+# /usr/lib/modules. Rebuild that exact payload after installing the KythOS
+# theme; otherwise a fresh install can inherit Fedora's upstream BGRT splash.
+for _kernel_dir in /usr/lib/modules/*; do
+    [ -d "${_kernel_dir}" ] || continue
+    _kernel_ver=$(basename "${_kernel_dir}")
+    TMPDIR=/var/tmp dracut \
+        --no-hostonly \
+        --compress "zstd -1" \
+        --kver "${_kernel_ver}" \
+        --force \
+        "${_kernel_dir}/initramfs" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2)
+    lsinitrd "${_kernel_dir}/initramfs" \
+        | grep 'usr/share/plymouth/themes/kyth/kyth-logo.png' >/dev/null
+done
+unset _kernel_dir _kernel_ver
+
+# Existing deployments already have an initramfs in /boot. Repair it once
+# after the updated image boots so subsequent reboots use KythOS branding too.
+cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
+[Unit]
+Description=Refresh KythOS boot splash initramfs
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v1
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v1'
+
+[Install]
+WantedBy=multi-user.target
+SPLASHINITRDEOF
+systemctl enable kyth-boot-splash-initramfs.service 2>/dev/null || true
 
 # First-boot notice: shown once via Plymouth message_callback, then sentinel
 # gates it so subsequent boots skip the message.
@@ -901,7 +938,7 @@ ConditionPathExists=!/var/lib/kyth/first-boot-done
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/first-boot-done && plymouth message --text="Setting up KythOS for the first time — this may take a minute…"'
+ExecStart=/usr/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/first-boot-done && plymouth message --text="After login, open the KythOS System Hub to finish installing your preferred software."'
 
 [Install]
 WantedBy=sysinit.target

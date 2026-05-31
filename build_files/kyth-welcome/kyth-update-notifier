@@ -25,6 +25,7 @@ REGISTRY = "ghcr.io/mrtrick37/kyth"
 CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000   # 4 hours
 _LOCK_FILE = Path.home() / ".cache" / "kyth" / "kyth-update-notifier.lock"
 _NOTIFIED_DIGEST_FILE = Path.home() / ".config" / "kyth-update-notified-digest"
+_WELCOME_DONE_FILE = Path.home() / ".config" / "kyth-welcome-done"
 
 
 # ── Helpers (duplicated from kyth-welcome to keep notifier self-contained) ────
@@ -318,6 +319,11 @@ def _acquire_lock() -> bool:
 
 
 def main():
+    # Keep first login focused on onboarding. The notifier starts normally on
+    # the next login after the wizard is completed or skipped.
+    if not _WELCOME_DONE_FILE.exists():
+        sys.exit(0)
+
     if not _acquire_lock():
         sys.exit(0)
 
