@@ -539,9 +539,7 @@ build-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Force a full rebuild of the live ISO (re-runs installer/build.sh).
-# Use after changing installer/Containerfile, installer/build.sh, or any
-# file those scripts install into the live image.
+# Rebuild the live ISO payload and assemble it with Titanoboa.
 [group('Build Virtual Machine Image')]
 rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
