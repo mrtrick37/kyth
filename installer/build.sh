@@ -18,7 +18,13 @@ printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/m
     "${SOURCE_TAG}" "${SOURCE_TAG}" > /etc/kyth-installer.env
 
 # ── Live desktop: installer shortcut + software rendering (via /etc/skel) ────
-mkdir -p /etc/skel/Desktop
+# The installed image seeds System Hub for a user's first login. The live
+# session should open the installer instead and keep the desktop uncluttered.
+rm -f \
+    /etc/skel/Desktop/kyth-welcome.desktop \
+    /etc/skel/Desktop/system-hub.desktop \
+    /etc/skel/.config/autostart/kyth-welcome.desktop
+mkdir -p /etc/skel/Desktop /etc/skel/.config/autostart
 cat > /etc/skel/Desktop/install-kyth.desktop <<'EOF'
 [Desktop Entry]
 Name=Install KythOS
@@ -30,6 +36,16 @@ Type=Application
 Categories=System;
 EOF
 chmod +x /etc/skel/Desktop/install-kyth.desktop
+
+cat > /etc/skel/.config/autostart/kyth-installer.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Install KythOS
+Exec=/usr/bin/kyth-launch-installer
+X-KDE-autostart-after=panel
+Hidden=false
+NoDisplay=true
+EOF
 
 mkdir -p /etc/skel/.config/plasma-workspace/env
 cat > /etc/skel/.config/plasma-workspace/env/live.sh <<'EOF'
@@ -45,7 +61,12 @@ chmod +x /etc/skel/.config/plasma-workspace/env/live.sh
 mkdir -p /var/lib/livesys
 cat > /var/lib/livesys/livesys-session-extra <<'EOF'
 #!/bin/sh
-rm -f /home/liveuser/Desktop/liveinst.desktop 2>/dev/null || true
+rm -f \
+    /home/liveuser/Desktop/liveinst.desktop \
+    /home/liveuser/Desktop/kyth-welcome.desktop \
+    /home/liveuser/Desktop/system-hub.desktop \
+    /home/liveuser/.config/autostart/kyth-welcome.desktop \
+    2>/dev/null || true
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF
@@ -63,6 +84,15 @@ DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
 dnf install -y livesys-scripts
 sed -i 's/^livesys_session=.*/livesys_session="kde"/' /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service
+
+# ── Log straight into the live desktop ────────────────────────────────────────
+mkdir -p /etc/sddm.conf.d
+cat > /etc/sddm.conf.d/20-kyth-live-autologin.conf <<'EOF'
+[Autologin]
+User=liveuser
+Session=plasmax11.desktop
+Relogin=false
+EOF
 
 # ── Disable services inappropriate for live ───────────────────────────────────
 for unit in \
