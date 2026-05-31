@@ -29,14 +29,20 @@ if [[ "${BASE_IMAGE}" == localhost/* ]] \
 fi
 
 if [[ ! -d "${TITANOBOA_DIR}/.git" ]]; then
-    echo "==> Cloning Titanoboa"
+    echo "==> Initializing Titanoboa cache"
     mkdir -p "$(dirname "${TITANOBOA_DIR}")"
-    git clone https://github.com/Zeglius/titanoboa.git "${TITANOBOA_DIR}"
+    git init "${TITANOBOA_DIR}"
+    git -C "${TITANOBOA_DIR}" remote add origin https://github.com/Zeglius/titanoboa.git
 fi
 
-echo "==> Checking out Titanoboa ${TITANOBOA_REF}"
-git -C "${TITANOBOA_DIR}" fetch --depth 1 origin "${TITANOBOA_REF}"
-git -C "${TITANOBOA_DIR}" checkout --detach "${TITANOBOA_REF}"
+if ! git -C "${TITANOBOA_DIR}" cat-file -e "${TITANOBOA_REF}^{commit}" 2>/dev/null; then
+    echo "==> Fetching Titanoboa ${TITANOBOA_REF}"
+    git -C "${TITANOBOA_DIR}" fetch --depth 1 origin "${TITANOBOA_REF}"
+fi
+if [[ "$(git -C "${TITANOBOA_DIR}" rev-parse HEAD 2>/dev/null || true)" != "${TITANOBOA_REF}" ]]; then
+    echo "==> Checking out Titanoboa ${TITANOBOA_REF}"
+    git -C "${TITANOBOA_DIR}" checkout --detach "${TITANOBOA_REF}"
+fi
 
 echo "==> Building KythOS live payload from ${BASE_IMAGE}"
 sudo podman build \

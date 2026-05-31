@@ -17,10 +17,14 @@ install -Dm755 /src/build_files/kyth-partition-install.sh /usr/bin/kyth-partitio
 printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
     "${SOURCE_TAG}" "${SOURCE_TAG}" > /etc/kyth-installer.env
 
-# The graphical installer serves its UI locally and opens it in Chromium.
-# Browsers from the installed image are intentionally deferred to Flatpak
-# first-boot setup, so the live payload must carry its own browser.
-dnf install -y chromium
+# Install live-only packages in one transaction so dependency solving and
+# repository metadata work happen once. Browsers from the installed image are
+# intentionally deferred to Flatpak first-boot setup.
+dnf install -y \
+    chromium \
+    dracut-live \
+    grub2-efi-x64-cdboot \
+    livesys-scripts
 
 # ── Live desktop: installer shortcut + software rendering (via /etc/skel) ────
 # The installed image seeds System Hub for a user's first login. The live
@@ -106,7 +110,6 @@ EOF
 chmod +x /var/lib/livesys/livesys-session-extra
 
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
-dnf install -y dracut-live
 kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
     | grep -v cachyos | sort -V | tail -n 1)
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
@@ -114,7 +117,6 @@ DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
 
 # ── livesys-scripts ───────────────────────────────────────────────────────────
-dnf install -y livesys-scripts
 sed -i 's/^livesys_session=.*/livesys_session="kde"/' /etc/sysconfig/livesys
 systemctl enable livesys.service livesys-late.service
 
@@ -174,7 +176,6 @@ ln -sf /usr/share/zoneinfo/UTC /etc/localtime
 echo "uninitialized" > /etc/machine-id
 
 # ── EFI binaries for ISO boot (exactly as Bazzite does it) ───────────────────
-dnf install -y grub2-efi-x64-cdboot
 mkdir -p /boot/efi
 cp -av /usr/lib/efi/*/*/EFI /boot/efi/
 cp -v /boot/efi/EFI/fedora/grubx64.efi /boot/efi/EFI/BOOT/fbx64.efi || true

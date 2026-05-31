@@ -938,7 +938,7 @@ ConditionPathExists=!/var/lib/kyth/first-boot-done
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/first-boot-done && plymouth message --text="Setting up KythOS for the first time — this may take a minute…"'
+ExecStart=/usr/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/first-boot-done && plymouth message --text="After login, open the KythOS System Hub to finish installing your preferred software."'
 
 [Install]
 WantedBy=sysinit.target
