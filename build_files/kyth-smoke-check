@@ -374,6 +374,7 @@ fi
 
 if is_live_session; then
     section "Live ISO First Impression"
+    check_command chromium "Installer browser"
     check_file "${HOME}/Desktop/install-kyth.desktop" "Install desktop shortcut"
     check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
     check_file "${HOME}/.config/autostart/kyth-installer.desktop" "Installer desktop autostart"

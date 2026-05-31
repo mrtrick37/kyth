@@ -17,6 +17,11 @@ install -Dm755 /src/build_files/kyth-partition-install.sh /usr/bin/kyth-partitio
 printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
     "${SOURCE_TAG}" "${SOURCE_TAG}" > /etc/kyth-installer.env
 
+# The graphical installer serves its UI locally and opens it in Chromium.
+# Browsers from the installed image are intentionally deferred to Flatpak
+# first-boot setup, so the live payload must carry its own browser.
+dnf install -y chromium
+
 # ── Live desktop: installer shortcut + software rendering (via /etc/skel) ────
 # The installed image seeds System Hub for a user's first login. The live
 # session should open the installer instead and keep the desktop uncluttered.
