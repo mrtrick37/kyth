@@ -12,6 +12,10 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 # Raise parallel download slots from the default 3 to 10 — same value used by
 # UBlue, Bazzite, and recommended in Fedora documentation.
 echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
+# Prevent any package dependency from pulling in a new kernel (e.g. akmod deps
+# installing kernel-modules without kernel-core, which leaves a modules dir
+# with no vmlinuz and breaks the bootc kernel check downstream).
+echo 'excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*' >> /etc/dnf/dnf.conf
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
 # accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
@@ -116,11 +120,17 @@ dnf5 install -y --skip-unavailable \
     ntfsprogs \
     cifs-utils \
     rsync \
+    xorriso \
+    squashfs-tools \
+    mtools \
+    dosfstools \
+    sbsigntools \
     qemu-char-spice \
     qemu-device-display-virtio-gpu \
     qemu-device-display-virtio-vga \
     qemu-device-usb-redirect \
     qemu-img \
+    qemu-system-aarch64 \
     qemu-system-x86-core \
     util-linux-script \
     tmux \

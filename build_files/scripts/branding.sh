@@ -713,35 +713,17 @@ NoDisplay=true
 X-KDE-autostart-after=panel
 STEAMEXPORTAUTOSTARTEOF
 
-# Smoke-test the helper during the build so startup regressions fail the image
-# instead of surfacing only after first login.
-# timeout 30: pages run synchronous subprocess calls (bootc status, flatpak info)
-# in __init__ that can block for minutes in a container. We only care that the
-# app imports and constructs without crashing — not that hardware probes finish.
-# Exit 124 = timed out (treat as pass). Any other non-zero = real crash, fail build.
-smoke_exit=0
-timeout 30 python3 -c '
-import importlib.machinery, importlib.util, pathlib, os
-import sys
-os.environ["QT_QPA_PLATFORM"] = "offscreen"
+# Import-smoke the helper during the build so syntax errors, missing Python
+# dependencies, and top-level failures fail the image without running slow
+# desktop and hardware probes inside the build container.
+python3 -c '
+import importlib.machinery, importlib.util, pathlib
 path = pathlib.Path("/usr/bin/kyth-welcome")
 loader = importlib.machinery.SourceFileLoader("kyth_welcome_smoke", str(path))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 module = importlib.util.module_from_spec(spec)
 loader.exec_module(module)
-app = module.QApplication([])
-win = module.MainWindow()
-win.close()
-wizard = module.WizardWindow()
-wizard.close()
-os._exit(0)
-' || smoke_exit=$?
-if [ "${smoke_exit}" -eq 124 ]; then
-    echo "smoke-test: timed out after 30s (background threads still running) — treating as pass"
-elif [ "${smoke_exit}" -ne 0 ]; then
-    echo "smoke-test: FAILED with exit code ${smoke_exit}"
-    exit 1
-fi
+'
 
 install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-gamescope /usr/bin/kyth-gamescope

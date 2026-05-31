@@ -374,14 +374,16 @@ fi
 
 if is_live_session; then
     section "Live ISO First Impression"
+    check_command chromium "Installer browser"
     check_file "${HOME}/Desktop/install-kyth.desktop" "Install desktop shortcut"
-    check_file "${HOME}/Desktop/system-hub.desktop" "System Hub desktop shortcut"
     check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
-    check_desktop_trusted "${HOME}/Desktop/system-hub.desktop" "System Hub shortcut trust"
-    if [[ -e "${HOME}/Desktop/explore-kyth.desktop" || -e /usr/share/applications/kyth-explore.desktop ]]; then
-        fail "Explore shortcut removed" "Explore KythOS shortcut is still present"
+    check_file "${HOME}/.config/autostart/kyth-installer.desktop" "Installer desktop autostart"
+    check_file_contains "${HOME}/.config/kwalletrc" "Enabled=false" "Live wallet prompts" "disabled for ephemeral live user"
+    check_file_contains /etc/sddm.conf.d/20-kyth-live-autologin.conf "User=liveuser" "Live desktop autologin" "SDDM logs straight into the live desktop"
+    if [[ -e "${HOME}/Desktop/kyth-welcome.desktop" || -e "${HOME}/Desktop/system-hub.desktop" || -e "${HOME}/Desktop/explore-kyth.desktop" || -e /usr/share/applications/kyth-explore.desktop || -e "${HOME}/.config/autostart/kyth-welcome.desktop" ]]; then
+        fail "Live desktop shortcuts" "System Hub or Explore shortcut is still present"
     else
-        pass "Explore shortcut removed" "live desktop only exposes Install KythOS and System Hub"
+        pass "Live desktop shortcuts" "live desktop only exposes and opens Install KythOS"
     fi
     check_file /usr/share/applications/kyth-install.desktop "Install app launcher"
     check_command code "VS Code command"

@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="build_files/branding/kyth-logo.svg" alt="KythOS" width="360">
-
 # KythOS
 
 ### A friendly desktop OS for games, creative work, tinkering, and everyday life.
@@ -166,6 +164,19 @@ This is the part for builders, testers, and people who want to know exactly what
 [![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
 [![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
 
+### Current Project State
+
+KythOS is actively developed on the `testing` branch, with `latest` used as the daily-use channel and `testing` used for ISO, installer, live-session, Secure Boot, and hardware-support work before it is promoted.
+
+The current tree builds:
+
+- A bootc OS image published as `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing`.
+- A live ISO with a graphical KythOS desktop, installer launcher, Fedora-signed live kernel path, and Secure Boot preflight coverage.
+- An installed KDE Plasma desktop with System Hub, gaming tools, creator tools, VPN/cloud helpers, hardware checks, repair actions, and post-update diagnostics.
+- Local build recipes for base images, OS images, live ISOs, VM testing, Secure Boot validation, and bootc-image-builder disk images.
+
+The active focus is making install, update, rollback, and live-USB testing boringly repeatable: reliable boot artifacts, clearer validation checks, signed release assets, and support tools that explain system state before users have to debug it manually.
+
 ### Core Stack
 
 | Layer | Detail |
@@ -246,7 +257,7 @@ Use this path for a new machine or a clean install:
    **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
    **Restore factory Secure Boot keys**.
 3. Boot the KythOS live USB.
-4. Choose **Try KythOS Live**.
+4. Choose **Try KythOS**.
 5. Run the installer from the desktop.
 
 Only enroll the KythOS MOK if you later switch to the advanced CachyOS
@@ -315,22 +326,18 @@ MokManager enrollment reboot, then enable Secure Boot again.
   current ISO and run the Secure Boot preflight below before flashing it.
 
 - `bad shim signature`, `verification failed`, or a return to GRUB when choosing
-  **Try KythOS Live**
+  **Try KythOS**
 
   The live ISO should be using Fedora-signed boot artifacts and should not need
   the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
   Boot preflight below before flashing it again.
 
-#### Check an ISO before flashing
+- Black screen, frozen splash, or reboot after choosing **Try KythOS**
 
-Before you write a locally built ISO to USB, run:
-
-```bash
-SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
-```
-
-Only flash the ISO if preflight passes. It checks the shim signature, GRUB
-handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
+  The live entry uses basic graphics. It disables the splash screen, uses
+  software rendering, and avoids accelerated AMD, Intel, NVIDIA, and nouveau
+  kernel modesetting so the live ISO can prioritize booting and installing over
+  GPU performance.
 
 ### Gaming Stack
 
@@ -352,7 +359,7 @@ handoff, kernel/initramfs paths, MokManager certificate, and kernel signature.
 
 ### Build Locally
 
-Requirements: `docker` and `just`.
+Requirements: `docker`, `podman`, `git`, and `just`.
 
 ```bash
 just build-base
@@ -361,36 +368,16 @@ just build-live-iso
 just run-live-iso-native
 ```
 
-#### Local Secure Boot ISO build
+#### Local Live ISO build
 
-If you want the local ISO to boot with Secure Boot enabled, you need the private
-key that matches `build_files/secureboot/kyth-secureboot.cer`. The easiest local
-setup is:
-
-```bash
-export MOK_KEY_FILE="$HOME/.config/kyth/secureboot/kyth-secureboot.key"
-```
-
-Then build and verify:
+The live ISO uses the stock Fedora-signed kernel and Fedora EFI artifacts staged
+by `installer/build.sh`. ISO assembly is delegated to Titanoboa, matching
+Bazzite's live ISO path:
 
 ```bash
-SOURCE_TAG=testing REBUILD_IMAGE=1 REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/build-live-iso.sh
-SOURCE_TAG=testing REQUIRE_SECUREBOOT_SIGNING=1 bash build_files/tests/secureboot-preflight.sh
+just build-live-iso
+just run-live-iso-native
 ```
-
-Do not flash the ISO unless preflight passes.
-
-Fast Secure Boot preflight, without waiting for a new ISO:
-
-```bash
-just secureboot-preflight
-SOURCE_TAG=testing just secureboot-preflight testing
-```
-
-The preflight checks the Secure Boot source policy, cached Fedora-kernel live
-image artifacts, and any existing `output/live-iso/kyth-live-*.iso`. It is meant
-to catch signing and boot-chain mistakes before flashing another USB. For deeper
-ISO inspection, install `xorriso`, `mtools`, and `sbsigntools`.
 
 If Docker says permission denied after you added yourself to the `docker` group,
 open a new terminal or run:
@@ -405,7 +392,6 @@ Useful recipes:
 just build-base
 just build
 just build-live-iso
-just secureboot-preflight
 just build-live-iso testing
 just rebuild-live-iso
 just run-live-iso
@@ -417,7 +403,7 @@ just clean-docker
 just lint && just format
 ```
 
-`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest` and embeds that same image as the install payload. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
+`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest`. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
 
 Optional build flags:
 
@@ -439,8 +425,7 @@ Justfile                          Build orchestration
 
 build_base/                       Fedora Kinoite base plus optional kernel flavor selection
 build_files/
-  build-live-iso.sh               Live ISO assembler
-  Containerfile.live              Live session image
+  build-live-iso.sh               Local Titanoboa live ISO wrapper
   kyth-installer                  Graphical installer
   kyth-install.sh                 bootc disk installer
   kyth-partition-install.sh       Existing-partition installer
@@ -450,6 +435,7 @@ build_files/
   kyth-welcome/                   KythOS System Hub
   kyth-vpn-connect/               Standalone OpenConnect VPN app
   kyth-vpn-status/                KDE VPN tray helper
+installer/                        Bazzite-style live payload customization
   just/kyth.just                  ujust recipes shipped in the OS
 
 disk_config/                      Bootc Image Builder configs
@@ -473,11 +459,11 @@ docs/                             Gaming, migration, modding, validation docs
 <!-- AUTO-README-START -->
 ## Auto Project Snapshot
 
-- Last refreshed (UTC): 2026-05-20 00:50:39 UTC
+- Last refreshed (UTC): 2026-05-27 12:09:12 UTC
 - Current branch: testing
-- HEAD commit: ca379f6
-- Last commit title: f
-- Last commit date: 2026-05-19T20:29:40-04:00
+- HEAD commit: 64e0032
+- Last commit title: live boot fixes
+- Last commit date: 2026-05-26T21:54:06-04:00
 - CI workflow files: 5
 - Build script files: 8
 

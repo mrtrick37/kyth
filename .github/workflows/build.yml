@@ -43,6 +43,7 @@ jobs:
     permissions:
       contents: read
       packages: write
+      actions: write
 
     steps:
       - name: Prepare environment
@@ -207,3 +208,17 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           MOK_KEY: ${{ secrets.MOK_KEY }}
+
+      - name: Trigger live ISO build
+        # Only the fedora-kernel image is used for the live ISO.
+        # Dispatch directly so the ISO workflow runs from the correct branch,
+        # not from main (which is what workflow_run would use).
+        if: matrix.kernel_flavor == 'fedora'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          SOURCE_TAG="${DEFAULT_TAG}"
+          echo "==> Dispatching live ISO build for ${SOURCE_TAG} on ${{ matrix.branch }}"
+          gh workflow run build-live-iso.yml \
+            --ref "${{ matrix.branch }}" \
+            --field "source_tag=${SOURCE_TAG}"

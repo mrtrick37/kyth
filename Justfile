@@ -531,6 +531,7 @@ build-iso $target_image=("localhost/" + image_name) $tag=default_tag: && (_build
 # Build a live ISO with the KythOS web installer. The live desktop is based on
 # the same KythOS image that will be installed, then pulls that image from the
 # registry at install time via bootc install to-disk.
+# Build the live ISO from the given source tag.
 # Pass source_tag to target a different branch: just build-live-iso testing
 [group('Build Virtual Machine Image')]
 build-live-iso source_tag="latest":
@@ -538,32 +539,20 @@ build-live-iso source_tag="latest":
     set -euo pipefail
     SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Fast Secure Boot validation that does not build a new ISO.
-# Checks source policy, the cached Fedora-kernel live image when present, and
-# any existing output/live-iso ISO.
-[group('Build Virtual Machine Image')]
-secureboot-preflight source_tag="latest":
-    #!/usr/bin/env bash
-    set -euo pipefail
-    SOURCE_TAG={{ source_tag }} bash build_files/tests/secureboot-preflight.sh
-
-# Force a full rebuild of the live ISO, ignoring the cached container layer.
-# Use after changing Containerfile.live or any file it COPYs.
+# Rebuild the live ISO payload and assemble it with Titanoboa.
 [group('Build Virtual Machine Image')]
 rebuild-live-iso source_tag="latest":
     #!/usr/bin/env bash
     set -euo pipefail
-    SOURCE_TAG={{ source_tag }} REBUILD_IMAGE=1 bash build_files/build-live-iso.sh
+    SOURCE_TAG={{ source_tag }} bash build_files/build-live-iso.sh
 
-# Build a live ISO that embeds localhost/kyth:latest and installs that exact
-# local image. This is the QEMU development path for validating boot fixes
-# before pushing anything to GHCR.
+# Build a live ISO from localhost/kyth:latest for local QEMU testing.
 [group('Build Virtual Machine Image')]
 rebuild-live-iso-local:
     #!/usr/bin/env bash
     set -euo pipefail
     just build
-    SOURCE_TAG=local REBUILD_IMAGE=1 INSTALLER_BASE_IMAGE=localhost/kyth:latest EMBED_LOCAL_IMAGE=1 LOCAL_INSTALL_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
+    SOURCE_TAG=local INSTALLER_BASE_IMAGE=localhost/kyth:latest bash build_files/build-live-iso.sh
 
 # Build the local embedded ISO and boot it in native QEMU with a fresh disk.
 [group('Run Virtual Machine')]
@@ -683,6 +672,15 @@ run-live-iso-native source_tag="latest":
     echo "QEMU debug log on host: ${qemu_log}"
     echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
+    _qemu_devices="$(qemu-system-x86_64 -device help 2>/dev/null || true)"
+    if [[ "${_qemu_devices}" == *'name "qxl-vga"'* ]]; then
+        _video_args=(-device qxl-vga)
+        echo "==> QEMU video: qxl-vga"
+    else
+        _video_args=(-device virtio-vga)
+        echo "==> QEMU video: virtio-vga (qxl-vga unavailable)"
+    fi
+
     qemu-system-x86_64 \
         -enable-kvm \
         -cpu host \
@@ -695,7 +693,7 @@ run-live-iso-native source_tag="latest":
         -device ide-cd,bus=ahci.0,drive=liveiso,bootindex=2 \
         -drive "if=none,id=systemdisk,file=${disk_img},format=qcow2" \
         -device virtio-blk-pci,drive=systemdisk,bootindex=1 \
-        -device qxl-vga \
+        "${_video_args[@]}" \
         -display none \
         -spice port=5931,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \
@@ -783,6 +781,15 @@ run-live-iso-native-legacy source_tag="latest":
     echo "QEMU debug log on host: ${qemu_log}"
     echo "In VM, run: sudo mkdir -p /var/mnt/hostshare && sudo mount -t 9p -o trans=virtio,version=9p2000.L,cache=none hostshare /var/mnt/hostshare"
 
+    _qemu_devices="$(qemu-system-x86_64 -device help 2>/dev/null || true)"
+    if [[ "${_qemu_devices}" == *'name "qxl-vga"'* ]]; then
+        _video_args=(-device qxl-vga)
+        echo "==> QEMU video: qxl-vga"
+    else
+        _video_args=(-device virtio-vga)
+        echo "==> QEMU video: virtio-vga (qxl-vga unavailable)"
+    fi
+
     qemu-system-x86_64 \
         -enable-kvm \
         -cpu host \
@@ -795,7 +802,7 @@ run-live-iso-native-legacy source_tag="latest":
         -cdrom "${image_file}" \
         -boot order=d \
         -drive file="${disk_img}",if=virtio,format=qcow2 \
-        -device qxl-vga \
+        "${_video_args[@]}" \
         -display none \
         -spice port=5932,disable-ticketing=on,disable-copy-paste=off,disable-agent-file-xfer=off \
         -device virtio-serial \

@@ -1,0 +1,10 @@
+label: "KYTHOS-44-LIVE"
+grub2:
+  timeout: 10
+  entries:
+    - name: "Try KythOS Live"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=KYTHOS-44-LIVE rd.live.image kyth.live=1 enforcing=0"
+      initrd: "/images/pxeboot/initrd.img"
+    - name: "Try KythOS Live (Basic Graphics)"
+      linux: "/images/pxeboot/vmlinuz quiet rhgb root=live:CDLABEL=KYTHOS-44-LIVE rd.live.image kyth.live=1 enforcing=0 nomodeset"
+      initrd: "/images/pxeboot/initrd.img"
