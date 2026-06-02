@@ -64,8 +64,9 @@ kernel.nmi_watchdog = 0
 # Scheduler
 kernel.sched_autogroup_enabled = 1
 
-# Disable split-lock mitigation — some older/ported games use split-lock ops
-kernel.split_lock_mitigate = 0
+# Keep split-lock mitigation enabled system-wide. GameMode temporarily disables
+# it while a game is running for compatibility with older ports that need it.
+kernel.split_lock_mitigate = 1
 
 # MTU probing — detect and recover from MTU black holes that can cause online
 # game connections to stall silently on some ISPs and VPN paths with BBR.
@@ -78,10 +79,10 @@ net.ipv4.tcp_mtu_probing = 1
 # 1 is the safe middle ground used by most gaming-focused distros.
 kernel.perf_event_paranoid = 1
 
-# Kill the task that triggered OOM rather than hunting for the "best victim"
-# via a costly process-tree scan. Eliminates multi-second stutter spikes when
-# RAM fills up during shader compilation while a game is running.
-vm.oom_kill_allocating_task = 1
+# Let the kernel choose the memory hog when userspace oomd does not act first.
+# Killing the allocating task can take out an unrelated desktop service that
+# happened to request memory while a game or browser was consuming the RAM.
+vm.oom_kill_allocating_task = 0
 
 # RT throttle — allow real-time threads ~98% of CPU time instead of the default
 # 95%. GameMode elevates game threads to SCHED_FIFO; the 5% headroom reserves
@@ -387,6 +388,9 @@ renice = 10
 ioprio = 0
 # Inhibit screensaver during gameplay — prevents blanking during cutscenes/loads
 inhibit_screensaver = 1
+# Older ports may issue split locks. Relax the mitigation only while GameMode is
+# active, then restore the secure system-wide default when the game exits.
+disable_splitlock = 1
 # Promote game threads to SCHED_FIFO via rtkit when conditions allow.
 # 'auto' only engages when the system is not under memory pressure.
 softrealtime = auto
@@ -499,20 +503,13 @@ IWLMVMEOF
 
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
-# 'none' on NVMe — the drive's own internal queues are better than any kernel
-#   scheduler overhead; multi-queue hardware makes mq-deadline redundant.
+# Keep NVMe on kernel defaults. Testers can opt into the experimental KythOS
+# profile with `ujust nvme-tuning kyth` and compare it against a clean reboot
+# after `ujust nvme-tuning default`.
 # 'mq-deadline' on SATA SSD — adds deadline fairness with minimal latency.
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
 cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
-# NVMe: bypass scheduler entirely (DEVTYPE==disk excludes partition nodes which lack queue/scheduler)
-ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/scheduler}="none"
-# NVMe: 2 MB read-ahead — speeds up large sequential reads (shader cache warm,
-# game map loads) without noticeable cost on random-heavy workloads.
-ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/read_ahead_kb}="2048"
-# NVMe: disable write-back throttle — wbt was designed for HDDs; on NVMe it adds
-# latency for writes that the drive's own QoS already manages better.
-ACTION=="add|change", KERNEL=="nvme[0-9]*", DEVTYPE=="disk", ATTR{queue/wbt_lat_usec}="0"
 # SATA SSDs (non-rotational): deadline with low latency + 1 MB read-ahead
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/read_ahead_kb}="1024"
@@ -554,7 +551,6 @@ mkdir -p /etc/environment.d
 cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
-AMD_VULKAN_ICD=RADV
 PROTON_USE_NTSYNC=1
 # esync/fsync: fallback sync primitives used when NTSYNC is unavailable (module
 # not loaded, older kernel, or non-kyth install). Proton checks in priority order:
@@ -562,16 +558,6 @@ PROTON_USE_NTSYNC=1
 # is active, and keeps Wine/Proton fast on any system this image runs on.
 WINEFSYNC=1
 WINEESYNC=1
-# RADV Graphics Pipeline Library — pre-compiles pipeline variants in the background
-# instead of stalling the render thread. Eliminates most shader compilation stutter
-# in DX11/DX12 games without requiring a warm shader cache. No regressions reported
-# on current Mesa-git; disable per-game with RADV_PERFTEST= if needed.
-RADV_PERFTEST=gpl
-VKD3D_CONFIG=dxr
-# Advertise DX12 Ultimate feature level (12_2) so VKD3D-Proton exposes DXR 1.1,
-# mesh shaders, and sampler feedback. Must be paired with VKD3D_CONFIG=dxr above.
-# Hardware that doesn't support a feature silently skips it; no harm on older GPUs.
-VKD3D_FEATURE_LEVEL=12_2
 mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
 # run at native resolution get AMD FidelityFX Super Resolution upscaling.

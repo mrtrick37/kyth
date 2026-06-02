@@ -70,8 +70,12 @@ fi
 
 # ── NVIDIA GPU detection → akmod build ───────────────────────────────────────
 if lspci 2>/dev/null | grep -qi nvidia; then
+    KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+
     if modinfo nvidia &>/dev/null; then
-        log "NVIDIA kernel module already loaded — nothing to build"
+        log "NVIDIA kernel module already built — enabling it for the next boot"
+        grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null \
+            || log "grubby could not update kernel args (non-fatal — kargs.d applies on next deployment)"
         touch "${FLAG}"
         exit 0
     fi
@@ -85,13 +89,12 @@ if lspci 2>/dev/null | grep -qi nvidia; then
 
     log "NVIDIA GPU detected — building kernel module via akmods (5–15 min)"
 
-    # Blacklist nouveau/nova_core and enable DRM modesetting so Wayland/SDDM
-    # can use the NVIDIA KMS path after the first reboot with the new module.
-    KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+    akmods --force --kernels "$(uname -r)"
+
+    # Keep nouveau available if akmods fails. Only switch the next boot to the
+    # proprietary driver after its module has compiled successfully.
     grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null \
         || log "grubby could not update kernel args (non-fatal — kargs.d applies on next deployment)"
-
-    akmods --force --kernels "$(uname -r)"
 
     touch "${FLAG}"
     log "NVIDIA setup complete — reboot to activate drivers"

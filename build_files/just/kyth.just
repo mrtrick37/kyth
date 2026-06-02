@@ -287,6 +287,14 @@ scx action="status" scheduler="":
         /usr/bin/kyth-scx "{{ action }}"
     fi
 
+# Show or change the experimental NVMe queue tuning profile.
+# Usage: ujust nvme-tuning status | ujust nvme-tuning kyth | ujust nvme-tuning default
+[group('KythOS')]
+nvme-tuning profile="status":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    /usr/bin/kyth-nvme-tuning "{{ profile }}"
+
 # Run an OpenGL app through Zink.
 [group('KythOS')]
 zink-run +args:
@@ -1284,6 +1292,9 @@ install-nvidia-driver:
 
     # ── Module already built — reboot to activate ─────────────────────────────
     if modinfo nvidia &>/dev/null; then
+        KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
+        sudo grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null || \
+            echo "  (grubby: non-fatal — kargs.d applies on next deployment)"
         echo "  Kernel module is already built. Reboot to activate the driver."
         echo "    systemctl reboot"
         exit 0
@@ -1294,12 +1305,15 @@ install-nvidia-driver:
     echo "  This may take 5–15 minutes on first compile…"
     echo
 
+    sudo rm -f /var/lib/kyth/hw-setup-done
+    sudo akmods --force --kernels "$(uname -r)"
+
+    # Keep nouveau available if compilation fails. Only switch the next boot to
+    # the proprietary driver after its module has compiled successfully.
     KARGS="rd.driver.blacklist=nouveau,nova_core modprobe.blacklist=nouveau,nova_core nvidia-drm.modeset=1"
     sudo grubby --update-kernel=ALL --args="${KARGS}" 2>/dev/null || \
         echo "  (grubby: non-fatal — kargs.d applies on next deployment)"
 
-    sudo rm -f /var/lib/kyth/hw-setup-done
-    sudo akmods --force --kernels "$(uname -r)"
     sudo touch /var/lib/kyth/hw-setup-done
 
     echo

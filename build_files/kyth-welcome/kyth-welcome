@@ -5880,8 +5880,9 @@ class NvidiaPage(Page):
         cmd = [
             "sudo", "bash", "-c",
             "rm -f /var/lib/kyth/hw-setup-done && "
-            f"grubby --update-kernel=ALL --args='{kargs}' ; "
-            'akmods --force --kernels "$(uname -r)"',
+            'akmods --force --kernels "$(uname -r)" && '
+            f"{{ grubby --update-kernel=ALL --args='{kargs}' || "
+            "echo 'grubby: non-fatal — kargs.d applies on next deployment'; }",
         ]
         self._log.clear()
         self._log.append("→ Building NVIDIA kernel module via akmods…\n")

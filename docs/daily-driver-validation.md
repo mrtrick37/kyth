@@ -107,6 +107,10 @@ Do these intentionally. Evangelists are made when recovery works.
    a game.
 8. Try to copy a helper into `/usr/bin` on an installed system and confirm the
    project docs/System Hub messaging explain that the OS image is immutable.
+9. On an NVMe system, benchmark a game while downloading or unpacking a large
+   file. Record `ujust nvme-tuning status`, then compare the kernel-default
+   profile against `ujust nvme-tuning kyth`. Return to defaults with
+   `ujust nvme-tuning default` and reboot before the baseline run.
 
 ## Result Template
 

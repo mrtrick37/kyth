@@ -359,7 +359,7 @@ MokManager enrollment reboot, then enable Secure Boot again.
 - Steam, Lutris, Heroic Games Launcher, ProtonUp-Qt, protontricks, GE-Proton, umu-launcher, winetricks, and libFAudio.
 - GameMode, Gamescope, MangoHud, vkBasalt, LatencyFleX, obs-vkcapture, scx schedulers, system76-scheduler, and ananicy-cpp.
 - Controller and peripheral support through steam-devices, game-devices rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB, and input-remapper.
-- Helper commands include `kyth-gamescope`, `game-performance`, `kyth-performance-mode`, `kyth-scx`, `zink-run`, `kyth-kerver`, and `kyth-device-info`.
+- Helper commands include `kyth-gamescope`, `game-performance`, `kyth-performance-mode`, `kyth-scx`, `kyth-nvme-tuning`, `zink-run`, `kyth-kerver`, and `kyth-device-info`.
 - `kyth-smoke-check` / `ujust smoke-check` verifies the daily-driver basics after install or update.
 - `ujust post-update-check`, `ujust controller-check`, and `ujust resume-check` cover targeted confidence checks for updates, controllers, and suspend/resume.
 - `ujust nvidia-status` explains NVIDIA driver/build/reboot state without changing the system.
