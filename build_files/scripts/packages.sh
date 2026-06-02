@@ -22,6 +22,11 @@ echo 'excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modul
 # aggregate trend in the README when exported CountMe data is available.
 echo 'countme=True' >> /etc/dnf/dnf.conf
 
+# KythOS is its own distribution identity. Replace the inherited Fedora artwork
+# package with Fedora's generic drop-in before installing desktop components so
+# upstream boot watermarks and launcher icons cannot leak into the final image.
+dnf5 swap -y --allowerasing fedora-logos generic-logos
+
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
 # (docker_t, container_t, etc.) — required for Docker to work under enforcing.

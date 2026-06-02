@@ -929,12 +929,12 @@ unset _kernel_dir _kernel_ver
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v2
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v3
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v2'
+ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v3'
 
 [Install]
 WantedBy=multi-user.target
