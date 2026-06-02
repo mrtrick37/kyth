@@ -359,6 +359,7 @@ check_file /usr/bin/kyth-exe-handler "Windows app helper"
 check_file /usr/bin/kyth-session-snapshot "Session snapshot helper"
 check_file_contains /etc/dnf/dnf.conf "countme=True" "DNF CountMe" "anonymous weekly CountMe reporting enabled"
 check_file_contains /usr/local/share/applications/mpv.desktop "Hidden=true" "Launcher expert-tool quieting" "backend and expert tools are hidden from the app launcher"
+check_file_contains /etc/xdg/menus/applications-merged/kyth-game-tools.menu "com.valvesoftware.Steam.desktop" "Game tools menu grouping" "launchers and helpers stay under Games > Tools"
 check_file_contains /etc/xdg/menus/applications-merged/kyth-libreoffice.menu "org.libreoffice.LibreOffice.math.desktop" "LibreOffice menu grouping" "LibreOffice launchers stay grouped under Office"
 if is_live_session; then
     if systemctl is-enabled --quiet rpm-ostree-countme.timer 2>/dev/null; then

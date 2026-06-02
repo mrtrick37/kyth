@@ -51,6 +51,9 @@ A release candidate should pass these before being called daily-driver ready:
 - Fresh install reaches the desktop without manual terminal work.
 - The installed app launcher keeps expert-only helpers quiet: no live installer,
   terminal-only monitors, mpv backend entry, or guided hardware diagnostics.
+- The Games launcher category keeps playable titles at its root and places
+  storefronts, launcher managers, compatibility helpers, and save tools under
+  Games > Tools.
 - LibreOffice launchers appear under Office only; Draw is not duplicated under
   Graphics and Math is not duplicated under Education or Science.
 - Dolphin does not expose KDE's broken Google Drive KIO worker; Google Drive
