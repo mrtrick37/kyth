@@ -4,22 +4,24 @@
 #   • system (dnf5) disabled — OS is read-only bootc, not managed by dnf
 #   • distrobox disabled (distrobox-upgrade fails without a PTY)
 #   • containers disabled (podman container updates fail on bootc)
+#   • Topgrade self-update disabled (the binary is managed by the OS image)
 #   • bootc upgrade used as the system update command (with sudo -n)
 #   • pinned mutable tools refreshed via a custom command (rclone)
 #
 # v1 → v2: added distrobox to disable list and sudo -n to the custom command.
 # v2 → v3: rpm_ostree renamed to system in topgrade v17; added containers.
 # v3 → v4: added custom command for kyth-rclone-update.
+# v4 → v5: disabled Topgrade self-update; the image refreshes /usr/bin/topgrade.
 #
 # Run once at boot via kyth-topgrade-migrate.service; state is tracked in
-# /var/lib/kyth/migrations/topgrade-v4.done so it never runs again.
+# /var/lib/kyth/migrations/topgrade-v5.done so it never runs again.
 
 import os
 import re
 import sys
 
 STATE_DIR = "/var/lib/kyth/migrations"
-STATE_FILE = os.path.join(STATE_DIR, "topgrade-v4.done")
+STATE_FILE = os.path.join(STATE_DIR, "topgrade-v5.done")
 
 SKEL_CONFIG = "/etc/skel/.config/topgrade.toml"
 
@@ -30,6 +32,8 @@ TOPGRADE_DISABLE_BLOCK = """
 # system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
 # distrobox-upgrade fails without a PTY; update containers manually instead.
 # containers (podman) updates fail on a bootc read-only system.
+# topgrade is baked into the KythOS image; refresh it through image updates.
+no_self_update = true
 disable = ["system", "distrobox", "containers"]
 
 [commands]
@@ -54,6 +58,7 @@ def needs_patch(path):
         ('"system"' not in content and "rpm_ostree" not in content)
         or '"distrobox"' not in content
         or '"containers"' not in content
+        or not re.search(r"^\s*no_self_update\s*=\s*true\s*$", content, re.MULTILINE)
         or "sudo -n bootc upgrade" not in content
         or "sudo -n /usr/bin/kyth-rclone-update" not in content
     )
@@ -103,6 +108,18 @@ def patch_config(path):
             r'(disable\s*=\s*\[)([^\]]+)(\])',
             lambda m: m.group(1) + m.group(2).rstrip() + ', "containers"' + m.group(3),
             content,
+        )
+        changed = True
+
+    # v4 config: the image owns /usr/bin/topgrade, so do not overwrite it from
+    # a mutable self-update step. Insert the setting into the existing table.
+    if not re.search(r"^\s*no_self_update\s*=\s*true\s*$", content, re.MULTILINE):
+        content = re.sub(
+            r"^(\[misc\]\s*\n)",
+            r"\1# topgrade is baked into the KythOS image; refresh it through image updates.\nno_self_update = true\n",
+            content,
+            count=1,
+            flags=re.MULTILINE,
         )
         changed = True
 

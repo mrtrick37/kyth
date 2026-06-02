@@ -89,6 +89,8 @@ cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 # containers: podman container updates fail on a bootc read-only system.
 # toolbx: kyth-dev is managed via ujust, not topgrade; toolbx version-compat
 #   checks will fail the whole topgrade run if the container needs recreation.
+# topgrade is baked into the KythOS image; refresh it through image updates.
+no_self_update = true
 disable = ["system", "distrobox", "containers", "toolbx"]
 
 [commands]
