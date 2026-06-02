@@ -60,7 +60,6 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
         --disablerepo='fedora-multimedia' \
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
-    dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
     : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
     KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
     test -n "${KVER}" \

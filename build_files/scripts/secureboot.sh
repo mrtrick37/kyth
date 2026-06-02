@@ -15,7 +15,9 @@ KERNEL_FLAVOR="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
 # ── Install runtime enrollment artifacts in every image ─────────────────────
 # Fedora is trusted by Fedora shim without Kyth signing, but users may switch to
 # a custom kernel image later and need the public cert available beforehand.
-dnf5 install -y openssl
+# openssl and sbsigntools are installed in the stable package layer so this
+# daily layer does not need to refresh DNF metadata.
+command -v openssl >/dev/null
 install -Dm 0644 "${CERT}" /usr/share/kyth/secureboot/kyth-secureboot.cer
 openssl x509 -in "${CERT}" -outform DER -out /tmp/kyth-secureboot.der
 install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der
@@ -24,7 +26,6 @@ install -Dm 0644 /ctx/kyth-enroll-mok.service /usr/lib/systemd/system/kyth-enrol
 
 if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
     echo "secureboot: Fedora kernel flavor uses Fedora-signed boot artifacts — Kyth MOK signing skipped"
-    dnf5 clean all
     exit 0
 fi
 
@@ -35,7 +36,6 @@ if [[ ! -f "${MOK_KEY_FILE}" ]]; then
     fi
     echo "secureboot: no MOK key provided — Secure Boot signing skipped"
     echo "secureboot: set MOK_KEY env var and pass --secret id=mok_key,env=MOK_KEY to enable"
-    dnf5 clean all
     exit 0
 fi
 
@@ -52,10 +52,8 @@ if [[ ! -f "${VMLINUZ}" ]]; then
     exit 1
 fi
 
-# ── Ensure signing tools are present, then sign ──────────────────────────────
-echo "secureboot: ensuring sbsigntools is installed"
-dnf5 install -y sbsigntools
-
+# ── Sign the custom kernel ───────────────────────────────────────────────────
+command -v sbsign >/dev/null
 echo "secureboot: signing ${VMLINUZ} (kernel ${KVER})"
 KEY_MD5=$(openssl rsa -in "${MOK_KEY_FILE}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
 CERT_MD5=$(openssl x509 -in "${CERT}" -noout -modulus 2>/dev/null | openssl md5 | awk '{print $2}' || echo "UNREADABLE")
@@ -77,8 +75,6 @@ sbsign --key "${MOK_KEY_FILE}" \
        "${VMLINUZ}"
 mv "${VMLINUZ}.signed" "${VMLINUZ}"
 sbverify --cert "${CERT}" "${VMLINUZ}"
-
-dnf5 clean all
 
 echo "secureboot: vmlinuz signed successfully"
 

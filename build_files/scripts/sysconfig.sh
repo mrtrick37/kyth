@@ -724,7 +724,7 @@ FONTCONFIGEOF
 # on bootc/ostree systems and always fails with exit status 32. Mask it.
 systemctl mask systemd-remount-fs.service
 
-# Re-enforce display-manager and default target symlinks here (layer 5).
+# Re-enforce display-manager and default target symlinks here (layer 6).
 # The dnf5 upgrade in layer 3 can re-apply systemd presets and reset the
 # display-manager alias.  Use explicit symlinks — systemctl enable is a
 # no-op in a container build (no running systemd bus, silently swallowed

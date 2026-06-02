@@ -268,12 +268,9 @@ for sz in 16 22 24 32 48 64 128 256; do
         mkdir -p "${dir}"
         rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
             -o "${dir}/kyth-kickoff.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here-kde.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here-kde-plasma.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
     done
 done
 
@@ -858,8 +855,8 @@ WELCOMEEOF
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
-cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0"]
+cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
 # Existing installs may still have older KythOS boot entries with serial/TTY
@@ -893,18 +890,22 @@ install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
 # logo is not followed by distro branding during early-boot BGRT rendering.
 # Fedora's bgrt theme reads its watermark from the shared spinner image
 # directory. The KythOS theme takes over once Plymouth loads it.
+rsvg-convert /ctx/branding/transparent-watermark.svg \
+    -o /tmp/kyth-transparent-watermark.png
 for _spinner_dir in \
     /usr/share/plymouth/themes/spinner \
     /usr/share/plymouth/themes/bgrt \
     /usr/share/plymouth/themes/bgrt-fedora; do
     if [ -d "${_spinner_dir}" ]; then
-        rsvg-convert /ctx/branding/transparent-watermark.svg \
-            -o "${_spinner_dir}/watermark.png"
+        install -m 0644 /tmp/kyth-transparent-watermark.png \
+            "${_spinner_dir}/watermark.png"
     fi
 done
+rm -f /tmp/kyth-transparent-watermark.png
 unset _spinner_dir
 
-plymouth-set-default-theme --rebuild-initrd kyth
+# The explicit loop below rebuilds the packaged bootc initramfs payloads.
+plymouth-set-default-theme kyth
 
 # bootc installs the initramfs payload stored beside the kernel under
 # /usr/lib/modules. Rebuild that exact payload after installing the KythOS

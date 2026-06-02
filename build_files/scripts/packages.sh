@@ -140,6 +140,7 @@ dnf5 install -y --skip-unavailable \
     util-linux-script \
     tmux \
     gh \
+    openssl \
     fwupd
 
 # Enable COPRs for gaming packages
@@ -459,20 +460,6 @@ done
 # OpenRGB stays opt-in through System Hub so hardware-specific controls do not
 # clutter a fresh desktop. The Flatpak install path grants device access.
 # input-remapper is already installed in the gaming packages block above.
-
-# Wire up SDDM and graphical boot via explicit symlinks.
-# systemctl enable/set-default are unreliable inside a container build (no
-# running systemd bus) and silently no-op when they fail.  Direct symlinks are
-# the only guaranteed approach; this matches what Universal Blue and other
-# bootc-based distros do.
-ln -sf /usr/lib/systemd/system/sddm.service \
-    /etc/systemd/system/display-manager.service
-mkdir -p /etc/systemd/system/graphical.target.wants
-ln -sf /etc/systemd/system/display-manager.service \
-    /etc/systemd/system/graphical.target.wants/display-manager.service
-ln -sf /usr/lib/systemd/system/graphical.target \
-    /etc/systemd/system/default.target
-
 
 # ── VS Code ───────────────────────────────────────────────────────────────────
 # Bake VS Code native RPM into the image so it has full access to the local

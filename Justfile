@@ -304,7 +304,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
         --tag localhost/kyth-base:stable \
         build_base/
 
-# Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
+# Build the full KythOS image (packages → GE-Proton → upgrades → Mesa → thirdparty → sysconfig → Secure Boot → branding).
 # Requires build-base to have run first.
 # Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
 #
