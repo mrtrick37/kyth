@@ -18,7 +18,9 @@ if [[ "${ENABLE_MESA_GIT:-0}" == "0" ]]; then
     # can outrank Fedora's EVRs and leave AMD VA-API present but unable to
     # initialize. Layer 3's daily upgrade can reintroduce those packages, so
     # normalize the GPU userspace stack here on every build.
-    dnf5 distro-sync -y --refresh --allowerasing \
+    # Layer 3 refreshed the same stable repositories immediately before this
+    # script. Reuse that metadata instead of fetching it again.
+    dnf5 distro-sync -y --allowerasing \
         --disablerepo='fedora-multimedia' \
         mesa\* \
         libdrm \
@@ -72,13 +74,5 @@ else
     echo "mesa-dri-drivers version after mesa-git upgrade: ${mesa_ver}"
 fi
 
-# Upgrade GPU drivers from stable Fedora repos (amdgpu, nouveau, intel, etc.)
-dnf5 upgrade -y --skip-unavailable \
-    xorg-x11-drv-amdgpu \
-    xorg-x11-drv-nouveau \
-    xorg-x11-drv-intel \
-    xorg-x11-drv-vmware \
-    xorg-x11-drv-qxl \
-    xorg-x11-drv-nvidia \
-    || true
-dnf5 clean all
+# Layer 3 already upgrades the complete RPM set before this script runs. Keep
+# downloaded metadata and RPMs in Docker's /var/cache mount for later rebuilds.

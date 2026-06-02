@@ -11,16 +11,18 @@ echo '%_install_langs en_US' >> /etc/rpm/macros
 # ── DNF parallelism ───────────────────────────────────────────────────────────
 # Raise parallel download slots from the default 3 to 10 — same value used by
 # UBlue, Bazzite, and recommended in Fedora documentation.
-echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
 # Prevent any package dependency from pulling in a new kernel (e.g. akmod deps
 # installing kernel-modules without kernel-core, which leaves a modules dir
 # with no vmlinuz and breaks the bootc kernel check downstream).
-echo 'excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*' >> /etc/dnf/dnf.conf
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
 # accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
 # aggregate trend in the README when exported CountMe data is available.
-echo 'countme=True' >> /etc/dnf/dnf.conf
+cat >> /etc/dnf/dnf.conf <<'DNFCONFEOF'
+max_parallel_downloads=10
+excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
+countme=True
+DNFCONFEOF
 
 # KythOS is its own distribution identity. Replace the inherited Fedora artwork
 # package with Fedora's generic drop-in before installing desktop components so
@@ -203,8 +205,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
 # RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
 # dependency conflict or mirror outage, the image should still ship the core
-# Steam/Gamescope/MangoHud/GameMode stack. Each package is attempted
-# independently so one flaky package does not prevent the rest from landing.
+# Steam/Gamescope/MangoHud/GameMode stack. Install these together normally, then
+# retry individually if one flaky package prevents the batch from landing.
 optional_gaming_packages=(
     rom-properties-kf6
     game-devices-udev
@@ -222,14 +224,36 @@ optional_gaming_packages=(
     v4l2loopback
 )
 
-for pkg in "${optional_gaming_packages[@]}"; do
-    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable "${pkg}" || \
-            echo "WARNING: optional gaming package '${pkg}' failed to install; continuing." >&2
-    else
-        echo "optional gaming package '${pkg}' is unavailable in configured repos; skipping."
+install_available_optional_packages() {
+    local group_name=$1
+    shift
+
+    local pkg
+    local -a available_packages=()
+    for pkg in "$@"; do
+        if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+            available_packages+=("${pkg}")
+        else
+            echo "optional ${group_name} package '${pkg}' is unavailable in configured repos; skipping."
+        fi
+    done
+
+    ((${#available_packages[@]})) || return 0
+
+    # Use one transaction in the normal case. If one optional package has a
+    # transient conflict, retry individually so the rest still land.
+    if dnf5 install -y --skip-unavailable "${available_packages[@]}"; then
+        return 0
     fi
-done
+
+    echo "WARNING: optional ${group_name} package batch failed; retrying individually." >&2
+    for pkg in "${available_packages[@]}"; do
+        dnf5 install -y --skip-unavailable "${pkg}" || \
+            echo "WARNING: optional ${group_name} package '${pkg}' failed to install; continuing." >&2
+    done
+}
+
+install_available_optional_packages gaming "${optional_gaming_packages[@]}"
 
 # ── ASUS Linux hardware control ───────────────────────────────────────────────
 # asusctl/asusd expose ASUS ROG/TUF/Zephyrus/ProArt controls such as platform
@@ -390,19 +414,20 @@ test -e /usr/lib64/dri/radeonsi_drv_video.so
 # no-ops it on bare metal when the virtio-serial device is absent.
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
 
-# Remove plasma-welcome — plasma-login handles first-boot setup instead.
-dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
-
-# Remove the rpm-ostree backend for Discover. On a bootc system the OS is
-# updated as a whole image via `bootc upgrade`; individual RPM updates shown
-# by Discover are phantom/unactionable and confuse users. Keep Discover itself
-# so Flatpak management still works.
-dnf5 remove -y --no-autoremove plasma-discover-rpm-ostree 2>/dev/null || true
-
-# KDE's Google Drive KIO worker currently cannot access Drive: Google denied
-# KDE's API authorization, so Dolphin exposes an account entry that fails with
-# "Access denied to .". System Hub provides the supported rclone OAuth wizard.
-dnf5 remove -y --no-autoremove kio-gdrive 2>/dev/null || true
+# Remove unwanted desktop packages in one solver transaction:
+# - plasma-welcome: plasma-login handles first-boot setup instead.
+# - plasma-discover-rpm-ostree: bootc updates the whole OS image; individual RPM
+#   updates shown by Discover are phantom/unactionable. Keep Discover itself so
+#   Flatpak management still works.
+# - kio-gdrive: Google denied KDE's Drive API authorization, so Dolphin exposes
+#   an account entry that fails with "Access denied to .". System Hub provides
+#   the supported rclone OAuth wizard.
+dnf5 remove -y --no-autoremove \
+    plasma-welcome \
+    plasma-welcome-fedora \
+    plasma-discover-rpm-ostree \
+    kio-gdrive \
+    2>/dev/null || true
 
 # Remove Firefox — Brave Browser is installed as a Flatpak on first boot
 # via kyth-default-flatpaks.service (avoids baking external repo keys into
@@ -411,8 +436,8 @@ dnf5 remove -y firefox || true
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # Keep required desktop helper packages in one transaction. Optional niceties
-# are installed individually below so a transient RPM/scriptlet issue in a font
-# or hardware utility does not block the image.
+# use a batched fast path with individual fallback so a transient RPM/scriptlet
+# issue in a font or hardware utility does not block the image.
 dnf5 install -y --skip-unavailable \
     python3-pyqt6 \
     python3-pyqt6-webengine \
@@ -443,14 +468,7 @@ optional_desktop_packages=(
     liberation-fonts-all
 )
 
-for pkg in "${optional_desktop_packages[@]}"; do
-    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable "${pkg}" || \
-            echo "WARNING: optional desktop package '${pkg}' failed to install; continuing." >&2
-    else
-        echo "optional desktop package '${pkg}' is unavailable in configured repos; skipping."
-    fi
-done
+install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
@@ -478,8 +496,5 @@ dnf5 install -y code
 # VS Code self-updates are not meaningful in an immutable image.
 dnf5 config-manager setopt code.enabled=0
 
-# Remove dnf transaction history and repo solver data from the image layer.
-# The download cache is already excluded via --mount=type=cache in the
-# Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates
-# ~30-60 MB of state that serves no purpose in the final OS image.
-dnf5 clean all
+# Keep downloaded metadata and RPMs in Docker's /var/cache mount. The cache is
+# excluded from the image layer automatically and speeds up later rebuilds.

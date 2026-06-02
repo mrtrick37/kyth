@@ -36,7 +36,6 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
 # library dependencies, so ordering before the upgrade is safe.
 ARG GE_PROTON_VER=
 RUN --mount=type=bind,source=build_files/scripts/ge-proton.sh,target=/ctx/ge-proton.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
     GE_PROTON_VER=${GE_PROTON_VER} bash /ctx/ge-proton.sh
@@ -103,8 +102,7 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     fi && \
     test -s "/usr/lib/modules/${KVER}/initramfs" \
         || { echo "ERROR: initramfs missing/empty for ${KVER}" >&2; exit 1; } && \
-    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)" && \
-    dnf5 clean all
+    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)"
 
 # Layer 4: Optional Mesa-git GPU drivers.
 # Disabled by default: the COPR tracks development snapshots and can regress
@@ -120,7 +118,6 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
 # Re-run on every daily build (sits after the upgrade layer). GitHub API calls
 # use the mounted token to avoid unauthenticated rate limits.
 RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
     ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
@@ -140,7 +137,6 @@ RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secur
     --mount=type=bind,source=build_files/secureboot,target=/ctx/secureboot \
     --mount=type=bind,source=build_files/kyth-enroll-mok,target=/ctx/kyth-enroll-mok \
     --mount=type=bind,source=build_files/kyth-enroll-mok.service,target=/ctx/kyth-enroll-mok.service \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=mok_key \
     SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} bash /ctx/secureboot.sh
@@ -148,6 +144,5 @@ RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secur
 # Layer 8: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-run on every daily build.
 RUN --mount=type=bind,source=build_files,target=/ctx \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/scripts/branding.sh

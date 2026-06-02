@@ -141,6 +141,11 @@ jobs:
       - name: Resolve latest CachyOS kernel version
         id: cachyos_kernel
         run: |
+          if [[ "${{ matrix.kernel_flavor }}" == "fedora" ]]; then
+            echo "version=unused" >> $GITHUB_OUTPUT
+            echo "Fedora kernel variant: skipping CachyOS metadata lookup"
+            exit 0
+          fi
           KVER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
             | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
             2>/dev/null || date +%Y-%m-%d)

@@ -23,7 +23,6 @@ install_cachyos_kernel() {
 
     local kver
     kver=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-    depmod -a "${kver}"
 
     dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
         kernel-cachyos \
