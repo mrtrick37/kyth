@@ -12933,7 +12933,6 @@ class SoftwarePage(Page):
             layout.addWidget(row_widget)
 
         layout.addStretch()
-        self._refresh_sec_status()
         return tab
 
     def _refresh_sec_status(self):

@@ -180,7 +180,7 @@ check_file_contains() {
     local pattern="$2"
     local label="$3"
     local detail="${4:-$pattern}"
-    if [[ -r "$path" ]] && grep -Fq "$pattern" "$path"; then
+    if [[ -r "$path" ]] && grep -Fq -- "$pattern" "$path"; then
         pass "$label" "$detail"
     else
         fail "$label" "$path does not contain expected entry"
@@ -324,12 +324,9 @@ check_system_unit_enabled display-manager.service "Login manager"
 check_file /usr/share/wallpapers/kyth/metadata.json "KythOS wallpaper"
 check_file_contains /etc/plymouth/plymouthd.conf "Theme=kyth" "Plymouth theme" "KythOS boot splash selected"
 check_file /usr/share/plymouth/themes/kyth/kyth-logo.png "Plymouth KythOS logo"
-check_file /usr/share/plymouth/themes/spinner/watermark.png "Plymouth BGRT fallback badge"
+check_file /usr/share/plymouth/themes/spinner/watermark.png "Plymouth BGRT hidden fallback watermark"
 check_file /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "Plymouth initramfs migration"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
-check_file /usr/bin/kyth-installer "KythOS installer"
-check_file /usr/bin/kyth-launch-installer "KythOS installer launcher"
-check_file /usr/share/applications/kyth-install.desktop "KythOS install launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
 check_file_contains /etc/skel/.config/kickoffrc "highlightNewlyInstalledApps=false" "Launcher badge quieting" "new-app badges disabled by default"
 check_file /etc/xdg/kickoffrc "System launcher defaults"
@@ -342,6 +339,7 @@ check_file /etc/xdg/mimeapps.list "Default app associations"
 check_file /usr/bin/kyth-post-update-check "Post-update confidence"
 check_file_contains /usr/bin/kyth-post-update-check "kyth-welcome-done" "Post-update onboarding quieting" "automatic notifications wait for first-run onboarding"
 check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
+check_file_contains /etc/xdg/autostart/kyth-post-update-check.desktop "--no-notify" "Post-update login quieting" "automatic checks run without desktop popups"
 check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
 check_file /etc/skel/Games "Games folder default"
@@ -349,6 +347,8 @@ check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 check_file /usr/bin/kyth-exe-handler "Windows app helper"
 check_file /usr/bin/kyth-session-snapshot "Session snapshot helper"
 check_file_contains /etc/dnf/dnf.conf "countme=True" "DNF CountMe" "anonymous weekly CountMe reporting enabled"
+check_file_contains /usr/local/share/applications/mpv.desktop "Hidden=true" "Launcher expert-tool quieting" "backend and expert tools are hidden from the app launcher"
+check_file_contains /etc/xdg/menus/applications-merged/kyth-libreoffice.menu "org.libreoffice.LibreOffice.math.desktop" "LibreOffice menu grouping" "LibreOffice launchers stay grouped under Office"
 if is_live_session; then
     if systemctl is-enabled --quiet rpm-ostree-countme.timer 2>/dev/null; then
         warn "CountMe timer" "enabled in live session"
@@ -380,6 +380,8 @@ fi
 if is_live_session; then
     section "Live ISO First Impression"
     check_command chromium "Installer browser"
+    check_file /usr/bin/kyth-installer "KythOS installer"
+    check_file /usr/bin/kyth-launch-installer "KythOS installer launcher"
     check_file "${HOME}/Desktop/install-kyth.desktop" "Install desktop shortcut"
     check_desktop_trusted "${HOME}/Desktop/install-kyth.desktop" "Install shortcut trust"
     check_file "${HOME}/.config/autostart/kyth-installer.desktop" "Installer desktop autostart"
@@ -408,6 +410,10 @@ if is_live_session; then
     check_file "${HOME}/Games" "Live Games folder"
     check_file "${HOME}/Templates/Plain Text.txt" "Live text template"
     check_file "${HOME}/Templates/Shell Script.sh" "Live shell template"
+elif [[ -e /usr/share/applications/kyth-install.desktop || -e /usr/bin/kyth-installer || -e /usr/bin/kyth-launch-installer ]]; then
+    fail "Installed system app menu" "live-ISO installer launcher is exposed on an installed system"
+else
+    pass "Installed system app menu" "live-ISO installer launcher is hidden"
 fi
 
 section "Core Daily-Driver Services"

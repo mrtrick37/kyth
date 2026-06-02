@@ -32,10 +32,11 @@ ujust controller-check
 ujust resume-check
 ```
 
-`post-update-check` is also launched automatically once per deployment after
-login. It confirms the current boot still has rollback visibility, graphics,
-Vulkan, Flatpaks, and desktop audio. `nvidia-status`, `controller-check`, and
-`resume-check` are manual validation helpers for hardware-specific testing.
+`post-update-check` is also launched silently once per deployment after login.
+It confirms the current boot still has rollback visibility, graphics, Vulkan,
+Flatpaks, and desktop audio without raising a popup for optional software.
+`nvidia-status`, `controller-check`, and `resume-check` are manual validation
+helpers for hardware-specific testing.
 
 ## Release Gates
 
@@ -48,6 +49,10 @@ A release candidate should pass these before being called daily-driver ready:
   double-click file behavior, familiar user folders, document templates, app
   defaults, System Hub favorites, and Windows `.exe` / `.msi` helper handling.
 - Fresh install reaches the desktop without manual terminal work.
+- The installed app launcher keeps expert-only helpers quiet: no live installer,
+  terminal-only monitors, mpv backend entry, or guided hardware diagnostics.
+- LibreOffice launchers appear under Office only; Draw is not duplicated under
+  Graphics and Math is not duplicated under Education or Science.
 - `ujust smoke-check --strict` has no failures on at least one AMD or Intel
   system.
 - NVIDIA hardware either loads the proprietary module or gives a clear

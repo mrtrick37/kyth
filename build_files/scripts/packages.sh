@@ -430,7 +430,6 @@ optional_desktop_packages=(
     jetbrains-mono-fonts
     cascadia-code-fonts
     liberation-fonts-all
-    openrgb
 )
 
 for pkg in "${optional_desktop_packages[@]}"; do
@@ -447,7 +446,8 @@ done
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
 #   SourceForge at install time, which is unreliable in CI builds.
-# openrgb: unified RGB lighting control for Corsair/ASUS/MSI/Razer/etc.
+# OpenRGB stays opt-in through System Hub so hardware-specific controls do not
+# clutter a fresh desktop. The Flatpak install path grants device access.
 # input-remapper is already installed in the gaming packages block above.
 
 # Wire up SDDM and graphical boot via explicit symlinks.

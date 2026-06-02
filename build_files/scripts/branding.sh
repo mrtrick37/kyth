@@ -651,20 +651,7 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
-install -m 0755 /ctx/kyth-installer /usr/bin/kyth-installer
-install -m 0755 /ctx/kyth-launch-installer /usr/bin/kyth-launch-installer
 install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
-
-cat > /usr/share/applications/kyth-install.desktop <<'INSTALLDESKTOPEOF'
-[Desktop Entry]
-Name=Install or Reinstall KythOS
-Comment=Install KythOS to a disk using the guided installer
-Exec=/usr/bin/kyth-launch-installer
-Icon=kyth
-Terminal=false
-Type=Application
-Categories=System;
-INSTALLDESKTOPEOF
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.
@@ -687,7 +674,7 @@ cat > /etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEO
 [Desktop Entry]
 Type=Application
 Name=KythOS Post-Update Check
-Exec=/usr/bin/kyth-post-update-check
+Exec=/usr/bin/kyth-post-update-check --no-notify
 NoDisplay=true
 X-KDE-autostart-after=panel
 POSTUPDATEAUTOSTARTEOF
@@ -763,6 +750,31 @@ install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
 install -m 0644 /ctx/kyth-exe-handler.desktop \
     /usr/share/applications/kyth-exe-handler.desktop
+
+# Keep expert tools installed without crowding a new user's app launcher.
+# System Hub still exposes the relevant guided actions, and every binary remains
+# available from a terminal. /usr/local/share takes precedence over RPM entries.
+mkdir -p /usr/local/share/applications
+for _hidden_desktop in \
+    com.gerbilsoft.rom-properties.rp-config.desktop \
+    htop.desktop \
+    jstest-gtk.desktop \
+    mpv.desktop \
+    nvim.desktop \
+    nvtop.desktop \
+    org.corectrl.CoreCtrl.desktop \
+    org.kde.drkonqi.coredump.gui.desktop \
+    org.kde.kdebugsettings.desktop \
+    org.kde.kjournaldbrowser.desktop \
+    remote-viewer.desktop; do
+    cat > "/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
+[Desktop Entry]
+Type=Application
+Name=Hidden expert tool
+Hidden=true
+HIDDENDESKTOPEOF
+done
+unset _hidden_desktop
 
 # Register as system-wide default for Windows executable MIME types.
 # /etc/xdg/mimeapps.list is the XDG-standard location for system defaults;
@@ -875,16 +887,16 @@ rsvg-convert -w 256 /ctx/branding/kyth-logo-transparent.svg \
 install -m 0644 /ctx/plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
 install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
 
-# Replace the Fedora badge in the bgrt/spinner fallback theme so the ASUS
-# firmware logo ("In search of incredible") is followed by the KythOS lockup
-# rather than a Fedora logo during early-boot BGRT rendering. Fedora's bgrt
-# theme reads its watermark from the shared spinner image directory.
+# Hide the Fedora badge in the bgrt/spinner fallback theme so the ASUS firmware
+# logo is not followed by distro branding during early-boot BGRT rendering.
+# Fedora's bgrt theme reads its watermark from the shared spinner image
+# directory. The KythOS theme takes over once Plymouth loads it.
 for _spinner_dir in \
     /usr/share/plymouth/themes/spinner \
     /usr/share/plymouth/themes/bgrt \
     /usr/share/plymouth/themes/bgrt-fedora; do
     if [ -d "${_spinner_dir}" ]; then
-        rsvg-convert -w 260 /ctx/branding/kyth-boot-badge.svg \
+        rsvg-convert /ctx/branding/transparent-watermark.svg \
             -o "${_spinner_dir}/watermark.png"
     fi
 done
@@ -915,12 +927,12 @@ unset _kernel_dir _kernel_ver
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v1
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v2
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v1'
+ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v2'
 
 [Install]
 WantedBy=multi-user.target
@@ -997,6 +1009,41 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
   </Menu>
 </Menu>
 SECMENUEOF
+
+# LibreOffice Flatpak launchers intentionally advertise multiple freedesktop
+# categories. Keep the suite together under Office instead of repeating Draw in
+# Graphics and Math throughout KDE's Education submenus.
+cat > /etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+  "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
+<Menu>
+  <Name>Applications</Name>
+  <Menu>
+    <Name>Graphics</Name>
+    <Exclude>
+      <Filename>org.libreoffice.LibreOffice.draw.desktop</Filename>
+    </Exclude>
+  </Menu>
+  <Menu>
+    <Name>Education</Name>
+    <Exclude>
+      <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+    </Exclude>
+    <Menu>
+      <Name>Mathematics</Name>
+      <Exclude>
+        <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+      </Exclude>
+    </Menu>
+    <Menu>
+      <Name>Science</Name>
+      <Exclude>
+        <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+      </Exclude>
+    </Menu>
+  </Menu>
+</Menu>
+LIBREOFFICEMENUEOF
 
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".

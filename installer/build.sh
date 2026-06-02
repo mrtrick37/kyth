@@ -14,6 +14,17 @@ install -Dm755 /src/build_files/kyth-installer        /usr/bin/kyth-installer
 install -Dm755 /src/build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
 install -Dm755 /src/build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
 
+cat > /usr/share/applications/kyth-install.desktop <<'EOF'
+[Desktop Entry]
+Name=Install KythOS
+Comment=Install KythOS to this computer
+Exec=/usr/bin/kyth-launch-installer
+Icon=kyth
+Terminal=false
+Type=Application
+Categories=System;
+EOF
+
 printf 'KYTH_SOURCE_IMAGE=ghcr.io/mrtrick37/kyth:%s\nKYTH_TARGET_IMAGE=ghcr.io/mrtrick37/kyth:%s\n' \
     "${SOURCE_TAG}" "${SOURCE_TAG}" > /etc/kyth-installer.env
 
