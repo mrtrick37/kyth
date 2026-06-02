@@ -114,7 +114,14 @@ cat > /home/liveuser/.config/kwalletrc <<'WALLETRC'
 Enabled=false
 First Use=false
 WALLETRC
-chown liveuser:liveuser /home/liveuser/.config/kwalletrc
+cat > /home/liveuser/.config/kscreenlockerrc <<'SCREENLOCKEOF'
+[Daemon]
+Autolock=false
+LockOnResume=false
+SCREENLOCKEOF
+chown liveuser:liveuser \
+    /home/liveuser/.config/kwalletrc \
+    /home/liveuser/.config/kscreenlockerrc
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF
