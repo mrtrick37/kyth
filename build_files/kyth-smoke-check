@@ -345,6 +345,7 @@ check_file_contains /etc/xdg/kickoffrc "highlightNewlyInstalledApps=false" "Syst
 check_file /etc/skel/.config/baloofilerc "Baloo quiet default"
 check_file /usr/bin/kyth-user-polish "User comfort polish"
 check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "User launcher badge quieting" "new-app badges disabled after updates"
+check_file_contains /usr/bin/kyth-user-polish "_powered=false" "Bluetooth login repair" "stale Plasma disabled state is cleared after updates"
 check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
 check_file /etc/xdg/mimeapps.list "Default app associations"
 check_file /usr/bin/kyth-post-update-check "Post-update confidence"
@@ -362,6 +363,9 @@ check_file_contains /etc/dnf/dnf.conf "countme=True" "DNF CountMe" "anonymous we
 check_file_contains /usr/local/share/applications/mpv.desktop "Hidden=true" "Launcher expert-tool quieting" "backend and expert tools are hidden from the app launcher"
 check_file_contains /etc/xdg/menus/applications-merged/kyth-game-tools.menu "com.valvesoftware.Steam.desktop" "Game tools menu grouping" "launchers and helpers stay under Games > Tools"
 check_file_contains /etc/xdg/menus/applications-merged/kyth-libreoffice.menu "org.libreoffice.LibreOffice.math.desktop" "LibreOffice menu grouping" "LibreOffice launchers stay grouped under Office"
+check_file_contains /etc/xdg/menus/applications-merged/kyth-web-apps.menu "X-KythWebApp" "Web app menu grouping" "browser-installed PWAs stay out of Lost and Found"
+check_file /usr/bin/kyth-web-app-categorize "Web app launcher categorizer"
+check_file /etc/systemd/user/kyth-web-app-categorize.path "Automatic web app categorization"
 if is_live_session; then
     if systemctl is-enabled --quiet rpm-ostree-countme.timer 2>/dev/null; then
         warn "CountMe timer" "enabled in live session"
@@ -480,8 +484,10 @@ fi
 if compgen -G "/sys/class/bluetooth/hci*" >/dev/null; then
     if have rfkill && rfkill list bluetooth 2>/dev/null | grep -qi 'Soft blocked: yes\|Hard blocked: yes'; then
         warn "Bluetooth adapter" "present but blocked by rfkill"
+    elif have bluetoothctl && ! timeout 5 bluetoothctl show 2>/dev/null | grep -q 'Powered: yes'; then
+        warn "Bluetooth adapter" "controller present but powered off"
     else
-        pass "Bluetooth adapter" "controller present"
+        pass "Bluetooth adapter" "controller present and powered on"
     fi
 elif have rfkill && rfkill list bluetooth >/dev/null 2>&1; then
     warn "Bluetooth adapter" "rfkill knows bluetooth, but no hci controller is exposed"

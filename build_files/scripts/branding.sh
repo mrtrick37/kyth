@@ -382,7 +382,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v4"
+version="v5"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -427,6 +427,18 @@ fi
 # Use xdg-mime so existing user choices are updated per MIME type without
 # clobbering unrelated custom associations.
 mkdir -p "${HOME}/.config"
+
+# BlueDevil persists adapter power state per-user and restores it after the
+# system boot helper runs. Clear stale disabled state once so an OS update does
+# not leave Bluetooth off at every login. Users can still disable it afterward.
+bluedevil_config="${HOME}/.config/bluedevilglobalrc"
+if [[ -f "${bluedevil_config}" ]]; then
+    sed -i -E '/^[[:xdigit:]:]+_powered=false$/d' "${bluedevil_config}"
+fi
+if command -v bluetoothctl >/dev/null 2>&1; then
+    bluetoothctl power on >/dev/null 2>&1 || true
+fi
+
 if command -v xdg-mime >/dev/null 2>&1; then
     while IFS='|' read -r desktop mime; do
         [[ -n "${desktop}" && -n "${mime}" ]] || continue
@@ -566,6 +578,10 @@ if command -v /usr/bin/kyth-steam-game-export >/dev/null 2>&1; then
     /usr/bin/kyth-steam-game-export >/dev/null 2>&1 || true
 fi
 
+if command -v /usr/bin/kyth-web-app-categorize >/dev/null 2>&1; then
+    /usr/bin/kyth-web-app-categorize >/dev/null 2>&1 || true
+fi
+
 touch "${stamp}"
 rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
 POLISHEOF
@@ -593,6 +609,65 @@ POLISHDESKTOPEOF
 # OS update too; the version stamp above prevents repeated preference churn.
 install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
     /etc/xdg/autostart/kyth-user-polish.desktop
+
+# ── Web app launcher grouping ─────────────────────────────────────────────────
+# Chromium-family browsers create PWA launchers without Categories=. KDE cannot
+# classify those launchers and drops them into Lost and Found. Add a custom
+# category only when the browser did not provide one, preserving any category a
+# user assigns later with the menu editor.
+cat > /usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_dir="${HOME}/.local/share/applications"
+[[ -d "${app_dir}" ]] || exit 0
+
+changed=0
+shopt -s nullglob
+for launcher in \
+    "${app_dir}"/chrome-*.desktop \
+    "${app_dir}"/chromium-*.desktop \
+    "${app_dir}"/brave-*.desktop \
+    "${app_dir}"/msedge-*.desktop \
+    "${app_dir}"/com.google.Chrome.flextop.*.desktop \
+    "${app_dir}"/org.chromium.Chromium.flextop.*.desktop \
+    "${app_dir}"/com.brave.Browser.flextop.*.desktop \
+    "${app_dir}"/com.microsoft.Edge.flextop.*.desktop; do
+    grep -Eq -- '--app(-id)?=' "${launcher}" || continue
+    grep -q '^Categories=' "${launcher}" && continue
+    sed -i '/^\[Desktop Entry\]$/a Categories=X-KythWebApp;' "${launcher}"
+    changed=1
+done
+
+if (( changed )) && command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+WEBAPPCATEGORIZEEOF
+chmod +x /usr/bin/kyth-web-app-categorize
+
+mkdir -p /etc/systemd/user/default.target.wants
+cat > /etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
+[Unit]
+Description=Place browser-installed web apps in the Web Apps launcher folder
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-web-app-categorize
+WEBAPPSERVICEEOF
+
+cat > /etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
+[Unit]
+Description=Watch for browser-installed web app launchers
+
+[Path]
+PathChanged=%h/.local/share/applications
+Unit=kyth-web-app-categorize.service
+
+[Install]
+WantedBy=default.target
+WEBAPPPATHEOF
+ln -sf /etc/systemd/user/kyth-web-app-categorize.path \
+    /etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
 
 # Seed the same familiar folder layout into fresh homes. The autostart helper
 # repairs these for existing users and for accounts created by unusual tools.
@@ -977,6 +1052,9 @@ Comment=Security and penetration testing tools
 Icon=security-high
 SECDIREF
 
+install -m 0644 /ctx/kyth-web-apps.directory \
+    /usr/share/desktop-directories/kyth-web-apps.directory
+
 mkdir -p /etc/xdg/menus/applications-merged
 cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
@@ -1001,6 +1079,7 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
     <Menuname>Settings</Menuname>
     <Menuname>System</Menuname>
     <Menuname>Utility</Menuname>
+    <Menuname>Web Apps</Menuname>
     <Merge type="menus"/>
   </Layout>
   <Menu>
@@ -1012,6 +1091,9 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
   </Menu>
 </Menu>
 SECMENUEOF
+
+install -m 0644 /ctx/kyth-web-apps.menu \
+    /etc/xdg/menus/applications-merged/kyth-web-apps.menu
 
 # ── Game Tools menu group ─────────────────────────────────────────────────────
 # Keep the Games root focused on playable titles. Flatpak launchers and gaming
