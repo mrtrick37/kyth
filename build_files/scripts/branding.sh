@@ -979,6 +979,37 @@ done
 rm -f /tmp/kyth-transparent-watermark.png
 unset _spinner_dir
 
+# Fedora's Plymouth dracut module intentionally installs only the text theme for
+# portable, non-hostonly initramfs images. Add the KythOS script theme back after
+# that module runs so early boot never falls through to upstream artwork.
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
+cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+#!/usr/bin/bash
+
+check() {
+    return 0
+}
+
+depends() {
+    echo plymouth
+    return 0
+}
+
+install() {
+    inst_libdir_file "plymouth/script.so"
+    inst_multiple \
+        /etc/plymouth/plymouthd.conf \
+        /usr/share/plymouth/themes/kyth/kyth.plymouth \
+        /usr/share/plymouth/themes/kyth/kyth.script \
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
+}
+KYTHPLYMOUTHEOF
+chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
+unset KYTH_PLYMOUTH_DRACUT_DIR
+
 # The explicit loop below rebuilds the packaged bootc initramfs payloads.
 plymouth-set-default-theme kyth
 
@@ -997,6 +1028,10 @@ for _kernel_dir in /usr/lib/modules/*; do
         2> >(grep -Ev 'xattr|fail to copy' >&2)
     lsinitrd "${_kernel_dir}/initramfs" \
         | grep 'usr/share/plymouth/themes/kyth/kyth-logo.png' >/dev/null
+    lsinitrd "${_kernel_dir}/initramfs" \
+        | grep 'usr/share/plymouth/themes/default.plymouth -> kyth/kyth.plymouth' >/dev/null
+    lsinitrd "${_kernel_dir}/initramfs" \
+        | grep 'etc/plymouth/plymouthd.conf' >/dev/null
 done
 unset _kernel_dir _kernel_ver
 
@@ -1005,12 +1040,12 @@ unset _kernel_dir _kernel_ver
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v3
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v4
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v3'
+ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v4'
 
 [Install]
 WantedBy=multi-user.target
