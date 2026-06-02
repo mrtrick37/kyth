@@ -10536,11 +10536,6 @@ class CloudStoragePage(Page):
         self._gd_wizard_btn.setObjectName("primary")
         self._gd_wizard_btn.clicked.connect(lambda: self._open_wizard("drive"))
         gd_btns.addWidget(self._gd_wizard_btn)
-        gd_kde_btn = QPushButton("KDE Online Accounts")
-        gd_kde_btn.clicked.connect(
-            lambda: subprocess.Popen(["kcmshell6", "kcm_kaccounts"])
-        )
-        gd_btns.addWidget(gd_kde_btn)
         gd_btns.addStretch()
         gd_layout.addLayout(gd_btns)
 

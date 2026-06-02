@@ -187,6 +187,16 @@ check_file_contains() {
     fi
 }
 
+check_rpm_absent() {
+    local package="$1"
+    local label="$2"
+    if rpm -q "$package" >/dev/null 2>&1; then
+        fail "$label" "$package should not be installed"
+    else
+        pass "$label" "$package absent"
+    fi
+}
+
 check_desktop_trusted() {
     local path="$1"
     local label="$2"
@@ -340,6 +350,7 @@ check_file /usr/bin/kyth-post-update-check "Post-update confidence"
 check_file_contains /usr/bin/kyth-post-update-check "kyth-welcome-done" "Post-update onboarding quieting" "automatic notifications wait for first-run onboarding"
 check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
 check_file_contains /etc/xdg/autostart/kyth-post-update-check.desktop "--no-notify" "Post-update login quieting" "automatic checks run without desktop popups"
+check_rpm_absent kio-gdrive "Broken KDE Google Drive worker"
 check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
 check_file /etc/skel/Games "Games folder default"

@@ -53,6 +53,8 @@ A release candidate should pass these before being called daily-driver ready:
   terminal-only monitors, mpv backend entry, or guided hardware diagnostics.
 - LibreOffice launchers appear under Office only; Draw is not duplicated under
   Graphics and Math is not duplicated under Education or Science.
+- Dolphin does not expose KDE's broken Google Drive KIO worker; Google Drive
+  setup uses the System Hub Cloud Storage `rclone` wizard.
 - `ujust smoke-check --strict` has no failures on at least one AMD or Intel
   system.
 - NVIDIA hardware either loads the proprietary module or gives a clear
