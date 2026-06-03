@@ -29,6 +29,20 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     bash /ctx/packages.sh
 
+# Plymouth boot splash + initramfs rebuild.
+# COPY tracks content hashes of theme files so Docker only re-runs the expensive
+# dracut step when the splash actually changes — not on every daily dnf upgrade.
+# Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
+# the kernel version is fixed from the base image and the initramfs built here is
+# the one that ships. Must sit before the BUILD_DATE cache-bust layer.
+COPY build_files/plymouth/kyth.plymouth             /tmp/kyth-plymouth/kyth.plymouth
+COPY build_files/plymouth/kyth.script               /tmp/kyth-plymouth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /tmp/kyth-branding/kyth-logo-transparent.svg
+COPY build_files/branding/transparent-watermark.svg /tmp/kyth-branding/transparent-watermark.svg
+COPY build_files/scripts/plymouth-setup.sh          /tmp/plymouth-setup.sh
+RUN bash /tmp/plymouth-setup.sh && \
+    rm -rf /tmp/kyth-plymouth /tmp/kyth-branding /tmp/plymouth-setup.sh
+
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
 # ge-proton.sh changes or GE_PROTON_VER changes — not on every daily dnf

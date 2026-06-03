@@ -230,8 +230,13 @@ install_available_optional_packages() {
 
     local pkg
     local -a available_packages=()
+
+    # One metadata load for all packages instead of N individual queries.
+    local available_set
+    available_set=$(dnf5 repoquery --available --qf '%{name}\n' "$@" 2>/dev/null | sort -u)
+
     for pkg in "$@"; do
-        if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
+        if grep -qx "${pkg}" <<< "${available_set}"; then
             available_packages+=("${pkg}")
         else
             echo "optional ${group_name} package '${pkg}' is unavailable in configured repos; skipping."
