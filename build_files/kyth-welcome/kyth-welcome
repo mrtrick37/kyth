@@ -413,6 +413,45 @@ QFrame#card-accent-err {
     border-radius: 4px;
 }
 
+QFrame#home-action-card {
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+}
+
+QFrame#home-action-card:hover {
+    background: #2d2d30;
+    border-color: #505050;
+}
+
+QLabel#home-action-icon {
+    font-size: 24px;
+    font-weight: 700;
+    color: #4fc1ff;
+}
+
+QLabel#home-action-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #f3f3f3;
+}
+
+QLabel#home-action-copy {
+    color: #a6a6a6;
+    line-height: 1.45;
+}
+
+QLabel#home-next-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#home-next-copy {
+    color: #b8c7d9;
+    line-height: 1.5;
+}
+
 QFrame#starter-pack {
     background: #202124;
     border: 1px solid #34363b;
@@ -3792,52 +3831,22 @@ class WelcomePage(Page):
         self._page_header(
             "System Hub",
             "Welcome to KythOS",
-            "A fast, atomic gaming desktop. Updates are atomic, rollbacks are instant.",
+            "Start with the next useful thing. The deeper tools are here when you need them.",
         )
 
-        if _IS_LIVE:
-            live_card, live_layout = _make_card("card-accent-ok")
-            live_title = QLabel("Try the real desktop before installing")
-            live_title.setObjectName("card-title")
-            live_layout.addWidget(live_title)
-            live_body = QLabel(
-                "This live session is built from the same KythOS image that gets installed. "
-                "Use it to check your hardware, see the gaming stack, inspect Windows migration tools, "
-                "and get a feel for the daily desktop. USB storage and software rendering can make it "
-                "slower than an installed system."
-            )
-            live_body.setObjectName("card-copy")
-            live_body.setWordWrap(True)
-            live_layout.addWidget(live_body)
-            live_btns = QHBoxLayout()
-            live_btns.setSpacing(8)
-            for label, page_key, primary in (
-                ("Check Hardware", "Hardware", True),
-                ("Gaming Stack", "Gaming", False),
-                ("Game Compatibility", "Compatibility", False),
-                ("Move From Windows", "Move From Windows", False),
-            ):
-                btn = QPushButton(label)
-                if primary:
-                    btn.setObjectName("primary")
-                btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
-                live_btns.addWidget(btn)
-            install_btn = QPushButton("Install KythOS")
-            install_btn.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
-            live_btns.addWidget(install_btn)
-            live_btns.addStretch()
-            live_layout.addLayout(live_btns)
-            self._add(live_card)
-
-        windows_card = self._make_windows_drive_welcome_card()
-        if windows_card is not None:
-            self._add(windows_card)
-        # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
-        ge_ver = _ge_proton_version() or "—"
+
+        self._add(self._make_recommended_card(staged, rollback))
+
+        if _IS_LIVE:
+            self._add(self._make_live_card())
+
+        windows_card = self._make_windows_drive_welcome_card()
+        if windows_card is not None:
+            self._add(windows_card)
 
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
@@ -3858,12 +3867,8 @@ class WelcomePage(Page):
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile, 1)
 
-        self._ge_tile = StatTile("GE-Proton", ge_ver)
-        tiles_row.addWidget(self._ge_tile, 1)
-
         self._add_layout(tiles_row)
 
-        # ── Staged update alert ──────────────────────────────────────────────
         if staged:
             alert, alert_layout = _make_card("card-update")
             alert_header = QHBoxLayout()
@@ -3894,10 +3899,6 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
-        # ── Rollback available notification ─────────────────────────────────
-        # Show when a previous deployment is stored — reinforces the "your system
-        # is always safe" message that keeps Windows users from feeling anxious
-        # about updates. Analogous to Mint's Timeshift indicator.
         if rollback:
             rb_card, rb_layout = _make_card()
             rb_header = QHBoxLayout()
@@ -3926,99 +3927,67 @@ class WelcomePage(Page):
             rb_layout.addLayout(rb_btn_row)
             self._add(rb_card)
 
-        # ── First-run chooser ────────────────────────────────────────────────
-        chooser, chooser_layout = _make_card("card-accent-ok")
-        chooser_title = QLabel("What do you want to do first?")
-        chooser_title.setObjectName("card-title")
-        chooser_layout.addWidget(chooser_title)
-        chooser_body = QLabel(
-            "Pick the path that matches why you booted KythOS today. You can come "
-            "back here anytime from the application menu."
-        )
-        chooser_body.setObjectName("card-copy")
-        chooser_body.setWordWrap(True)
-        chooser_layout.addWidget(chooser_body)
-        chooser_btns = QHBoxLayout()
-        chooser_btns.setSpacing(8)
-        for label, page_key in (
-            ("Move From Windows", "Move From Windows"),
-            ("Install Familiar Apps", "Software"),
-            ("Set Up Games", "Gaming"),
-            ("Check Hardware", "Hardware"),
-            ("Learn Updates", "Update"),
-        ):
-            btn = QPushButton(label)
-            if page_key == "Move From Windows":
-                btn.setObjectName("primary")
-            btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
-            chooser_btns.addWidget(btn)
-        chooser_btns.addStretch()
-        chooser_layout.addLayout(chooser_btns)
-        self._add(chooser)
-
-        # ── Getting started section ──────────────────────────────────────────
-        section_lbl = QLabel("Getting Started")
+        section_lbl = QLabel("Start Here")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
-        steps = [
-            ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
-            ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
-            ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
-            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
-            ("⌨", "Set up dev environment",    "Open Software for VS Code, dev boxes, and build tools.", "Software"),
-            ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",            "Software"),
-        ]
-        for num, (icon, title, desc, page_key) in enumerate(steps, 1):
-            self._add(self._make_step(num, icon, title, desc, page_key))
+        top_tasks = QHBoxLayout()
+        top_tasks.setSpacing(12)
+        top_tasks.addWidget(self._make_task_card(
+            "↻",
+            "Update",
+            "Apply the latest OS image and see rollback options.",
+            "Open Update",
+            "Update",
+            primary=staged,
+        ), 1)
+        top_tasks.addWidget(self._make_task_card(
+            "◈",
+            "Check Hardware",
+            "Graphics, audio, Wi-Fi, firmware, storage, and controllers.",
+            "Run Checks",
+            "Hardware",
+        ), 1)
+        self._add_layout(top_tasks)
+
+        bottom_tasks = QHBoxLayout()
+        bottom_tasks.setSpacing(12)
+        bottom_tasks.addWidget(self._make_task_card(
+            "◉",
+            "Set Up Games",
+            "Steam, Proton, launchers, performance tools, and game saves.",
+            "Open Gaming",
+            "Gaming",
+        ), 1)
+        bottom_tasks.addWidget(self._make_task_card(
+            "⬡",
+            "Install Apps",
+            "Find familiar apps, developer tools, and trusted Flatpaks.",
+            "Open Software",
+            "Software",
+        ), 1)
+        self._add_layout(bottom_tasks)
+
+        essentials = QHBoxLayout()
+        essentials.setSpacing(12)
+        essentials.addWidget(self._make_task_card(
+            "⇄",
+            "Move From Windows",
+            "Copy files, inspect Steam libraries, and keep Windows untouched.",
+            "Open Migration",
+            "Move From Windows",
+        ), 1)
+        essentials.addWidget(self._make_task_card(
+            "⚠",
+            "Fix Something",
+            "Start with a health report, repair tools, or controller checks.",
+            "Open Repair",
+            "Repair",
+        ), 1)
+        self._add_layout(essentials)
 
         self._divider()
-
-        # ── Backup card ──────────────────────────────────────────────────────
-        backup_card, backup_layout = _make_card()
-        backup_header = QHBoxLayout()
-        backup_title = QLabel("Back Up Your Personal Files")
-        backup_title.setObjectName("card-title")
-        backup_header.addWidget(backup_title)
-        backup_header.addStretch()
-        backup_layout.addLayout(backup_header)
-        backup_body = QLabel(
-            "OS rollbacks protect the system — they are not a substitute for personal file backups. "
-            "Keep game saves, projects, and documents in /home and copy them to an external drive "
-            "or cloud service regularly."
-        )
-        backup_body.setObjectName("card-copy")
-        backup_body.setWordWrap(True)
-        backup_layout.addWidget(backup_body)
-        backup_btn_row = QHBoxLayout()
-        backup_btn_row.setSpacing(10)
-        home_btn = QPushButton("Open Home Folder")
-        home_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~")))
-        )
-        cloud_btn = QPushButton("Cloud Storage Setup")
-        cloud_btn.clicked.connect(lambda: self._navigate("Cloud Storage"))
-        backup_btn_row.addWidget(home_btn)
-        backup_btn_row.addWidget(cloud_btn)
-        backup_btn_row.addStretch()
-        backup_layout.addLayout(backup_btn_row)
-        self._add(backup_card)
-
-        # ── Links ────────────────────────────────────────────────────────────
-        link_row = QHBoxLayout()
-        link_row.setSpacing(10)
-        gh_btn = QPushButton("GitHub")
-        gh_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))
-        )
-        issue_btn = QPushButton("Report an Issue")
-        issue_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))
-        )
-        link_row.addWidget(gh_btn)
-        link_row.addWidget(issue_btn)
-        link_row.addStretch()
-        self._add_layout(link_row)
+        self._add(self._make_compact_link_row())
 
         note_text = (
             "This window opens automatically in the live session. Reopen it anytime from the application menu."
@@ -4030,6 +3999,141 @@ class WelcomePage(Page):
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
+
+    def _make_recommended_card(self, staged: bool, rollback: bool) -> QFrame:
+        if _IS_LIVE:
+            title = "Try the desktop, then install when ready"
+            copy = (
+                "Start with hardware checks so you know graphics, networking, audio, "
+                "and storage look right before installing."
+            )
+            buttons = [("Check Hardware", "Hardware", True), ("Install KythOS", None, False)]
+        elif staged:
+            title = "Reboot to finish your update"
+            copy = (
+                "A new KythOS image is staged. Reboot when convenient; your previous "
+                "system remains available as a rollback target."
+            )
+            buttons = [("Reboot Now", "reboot", True), ("View Update", "Update", False)]
+        elif rollback:
+            title = "Your previous system is saved"
+            copy = (
+                "Rollback is available if a recent change does not feel right. "
+                "Otherwise, you can keep setting up apps and games."
+            )
+            buttons = [("View Rollback", "Update", True), ("Set Up Games", "Gaming", False)]
+        else:
+            title = "Everything starts here"
+            copy = (
+                "Pick a task below. The hub keeps setup, gaming, apps, and recovery "
+                "in one place without making you learn the whole system first."
+            )
+            buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "Software", False)]
+
+        card, layout = _make_card("card-accent-ok")
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("home-next-title")
+        layout.addWidget(title_lbl)
+
+        body = QLabel(copy)
+        body.setObjectName("home-next-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for label, key, primary in buttons:
+            btn = QPushButton(label)
+            if primary:
+                btn.setObjectName("primary")
+            if key == "reboot":
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["systemctl", "reboot"]))
+            elif key is None:
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
+            else:
+                btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_live_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Live session")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "You are using the same image that gets installed. USB storage and software "
+            "rendering can feel slower than an installed system."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        return card
+
+    def _make_task_card(
+        self,
+        icon: str,
+        title: str,
+        desc: str,
+        button_label: str,
+        page_key: str,
+        primary: bool = False,
+    ) -> QFrame:
+        card, layout = _make_card("home-action-card")
+        layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        top.setSpacing(12)
+        icon_lbl = QLabel(icon)
+        icon_lbl.setObjectName("home-action-icon")
+        icon_lbl.setFixedWidth(34)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        top.addWidget(icon_lbl)
+
+        text = QVBoxLayout()
+        text.setSpacing(5)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("home-action-title")
+        text.addWidget(title_lbl)
+        desc_lbl = QLabel(desc)
+        desc_lbl.setObjectName("home-action-copy")
+        desc_lbl.setWordWrap(True)
+        text.addWidget(desc_lbl)
+        top.addLayout(text, 1)
+        layout.addLayout(top)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn = QPushButton(button_label)
+        if primary:
+            btn.setObjectName("primary")
+        btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
+        btn_row.addWidget(btn)
+        layout.addLayout(btn_row)
+        return card
+
+    def _make_compact_link_row(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("More helpful places")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for label, action in (
+            ("Cloud Storage", lambda: self._navigate("Cloud Storage")),
+            ("Health Report", lambda: self._navigate("Diagnostics")),
+            ("Compatibility", lambda: self._navigate("Compatibility")),
+            ("GitHub", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))),
+            ("Report an Issue", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, fn=action: fn())
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
 
     def _make_windows_drive_welcome_card(self) -> QFrame | None:
         drives = _find_ntfs_drives()
@@ -15522,32 +15626,31 @@ class MainWindow(QMainWindow):
         page_specs: list[tuple[str, str, object]] = []
 
         nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
-            ("System", [
-                ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
-                ("↻", "Update",   "Update",   UpdatePage),
-                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
+            ("Start Here", [
+                ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+                ("↻", "Update", "Update", UpdatePage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+                ("◉", "Gaming", "Gaming", GamingPage),
+                ("⬡", "Software", "Software", SoftwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
-            ("Apps", [
-                ("◉", "Gaming",           "Gaming",           GamingPage),
-                ("◎", "Compatibility",    "Compatibility",    CompatibilityPage),
-                ("⎮", "Controllers",      "Controllers",      ControllerPage),
-                ("⬡", "Software",         "Software",         SoftwarePage),
+            ("Fix Something", [
+                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
+                ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
+                ("⎮", "Controllers", "Controllers", ControllerPage),
             ]),
-            ("Network", [
-                ("☁", "Cloud Storage",  "Cloud Storage",  CloudStoragePage),
+            ("More Tools", [
+                ("◎", "Compatibility", "Compatibility", CompatibilityPage),
+                ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
-                ("⬡", "VPN",            "VPN",            VpnPage),
+                ("⬡", "VPN", "VPN", VpnPage),
             ]),
         ]
 
-        # Conditionally add NVIDIA
         advanced_items: list[tuple[str, str, str, object]] = []
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
-        advanced_items.append(("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)))
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
