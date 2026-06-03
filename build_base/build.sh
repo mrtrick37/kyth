@@ -85,6 +85,41 @@ plymouth-set-default-theme kyth
 
 dnf5 remove -y librsvg2-tools || true
 
+# CachyOS rebuilds its initramfs in this base layer, before the main image layer
+# installs the reusable KythOS Plymouth guard. Provide the same dracut module
+# locally so dracut can resolve kyth-plymouth here too.
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
+cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+#!/usr/bin/bash
+
+check() {
+    return 0
+}
+
+depends() {
+    echo plymouth
+    return 0
+}
+
+install() {
+    inst_libdir_file "plymouth/script.so"
+    inst_multiple \
+        /etc/plymouth/plymouthd.conf \
+        /usr/share/plymouth/themes/kyth/kyth.plymouth \
+        /usr/share/plymouth/themes/kyth/kyth.script \
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
+}
+KYTHPLYMOUTHEOF
+chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
+unset KYTH_PLYMOUTH_DRACUT_DIR
+
 # Write dracut config — applies on next initramfs regeneration (bootc deploy,
 # or dracut run in the cachy path below).
 mkdir -p /etc/dracut.conf.d
@@ -105,6 +140,19 @@ if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
         --force \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
+    if command -v lsinitrd >/dev/null 2>&1; then
+        _initrd_listing="$(mktemp)"
+        lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${_initrd_listing}" || {
+            echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth theme" >&2
+            exit 1
+        }
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then
+            echo "ERROR: Fedora Plymouth fallback branding leaked into CachyOS initramfs" >&2
+            exit 1
+        fi
+        rm -f "${_initrd_listing}"
+    fi
 fi
 
 # ── Kernel args (bootc kargs.d) ───────────────────────────────────────────────
