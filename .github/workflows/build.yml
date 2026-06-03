@@ -165,6 +165,28 @@ jobs:
           echo "version=${GE_VER}" >> $GITHUB_OUTPUT
           echo "Resolved GE-Proton: ${GE_VER:-latest}"
 
+      - name: Resolve thirdparty tool versions
+        id: thirdparty_versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          _ver() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/$1/releases/latest" \
+              | python3 -c "import sys,json; print(json.load(sys).get('tag_name','unknown'))" \
+              2>/dev/null || echo unknown
+          }
+          TOPGRADE=$(_ver topgrade-rs/topgrade)
+          WINETRICKS=$(_ver Winetricks/winetricks)
+          UMU=$(_ver Open-Wine-Components/umu-launcher)
+          LFX=$(_ver ishitatsuyuki/LatencyFleX)
+          SCX=$(_ver sched-ext/scx)
+          HASH=$(printf '%s' "${TOPGRADE}${WINETRICKS}${UMU}${LFX}${SCX}" \
+                 | sha256sum | cut -c1-16)
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "Resolved thirdparty: topgrade=${TOPGRADE} winetricks=${WINETRICKS} umu=${UMU} lfx=${LFX} scx=${SCX} → hash=${HASH}"
+
       - name: Build base image
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
@@ -207,6 +229,7 @@ jobs:
             "${MOK_SECRET_ARG[@]}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
             --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
+            --build-arg THIRDPARTY_VERSIONS_HASH="${{ steps.thirdparty_versions.outputs.hash }}" \
             --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
             --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \

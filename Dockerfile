@@ -54,8 +54,21 @@ RUN --mount=type=bind,source=build_files/scripts/ge-proton.sh,target=/ctx/ge-pro
     --mount=type=secret,id=github_token \
     GE_PROTON_VER=${GE_PROTON_VER} bash /ctx/ge-proton.sh
 
-# BUILD_DATE busts the cache for Layer 3 and all subsequent layers on every
-# daily build, ensuring dnf5 upgrade always runs even when the base image
+# Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
+# Placed before BUILD_DATE so the layer is only re-run when a tool ships a new
+# release. THIRDPARTY_VERSIONS_HASH is resolved in CI by querying the GitHub
+# releases API for each tool; when all versions are unchanged the layer is a
+# registry cache hit and no downloads occur. The binaries are self-contained and
+# have no dependency on daily-upgraded RPMs, so ordering before the upgrade is safe.
+ARG THIRDPARTY_VERSIONS_HASH=unset
+RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
+    : "cache-bust=${THIRDPARTY_VERSIONS_HASH}" && \
+    ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
+
+# BUILD_DATE busts the cache for the upgrade layer and everything after it on
+# every daily build, ensuring dnf5 upgrade always runs even when the base image
 # digest and build_files/ contents haven't changed.
 # Pass as: --build-arg BUILD_DATE="$(date +%Y-%m-%d)"
 ARG BUILD_DATE=unset
@@ -128,15 +141,7 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
     ENABLE_MESA_GIT=${ENABLE_MESA_GIT} \
     bash /ctx/mesa-git.sh
 
-# Layer 5: Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
-# Re-run on every daily build (sits after the upgrade layer). GitHub API calls
-# use the mounted token to avoid unauthenticated rate limits.
-RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
-    --mount=type=tmpfs,dst=/tmp \
-    --mount=type=secret,id=github_token \
-    ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
-
-# Layer 6: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
+# Layer 5: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
 # Re-run on every daily build.
 RUN --mount=type=bind,source=build_files/scripts/sysconfig.sh,target=/ctx/sysconfig.sh \
     --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
