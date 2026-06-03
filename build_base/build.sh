@@ -89,7 +89,7 @@ dnf5 remove -y librsvg2-tools || true
 # or dracut run in the cachy path below).
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree drm plymouth "
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs overlay "
 DRACUTEOF
 

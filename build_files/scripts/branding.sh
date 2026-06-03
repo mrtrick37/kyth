@@ -934,6 +934,28 @@ cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
 kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
+# The early Plymouth layer runs before the daily dnf upgrade. Run the branding
+# guard again here, after every package transaction, so upgraded Plymouth theme
+# packages cannot restore upstream BGRT/spinner artwork into the final image.
+install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
+    /usr/libexec/kyth-plymouth-branding-guard
+/usr/libexec/kyth-plymouth-branding-guard \
+    /ctx/branding/transparent-watermark.svg
+
+mkdir -p /etc/dracut.conf.d
+if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
+    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
+        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
+            /etc/dracut.conf.d/99-kyth.conf
+        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    fi
+else
+    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+DRACUTEOF
+fi
+
 # Existing installs may still have older KythOS boot entries with serial/TTY
 # console arguments that make Plymouth fall back to visible boot text. This
 # one-shot migration fixes the bootloader entries after the updated image boots;
@@ -959,12 +981,12 @@ systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v4
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v5
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v4'
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v5'
 
 [Install]
 WantedBy=multi-user.target

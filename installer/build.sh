@@ -13,6 +13,8 @@ mount -o remount,rw /proc/sys
 install -Dm755 /src/build_files/kyth-installer        /usr/bin/kyth-installer
 install -Dm755 /src/build_files/kyth-launch-installer /usr/bin/kyth-launch-installer
 install -Dm755 /src/build_files/kyth-partition-install.sh /usr/bin/kyth-partition-install
+install -Dm755 /src/build_files/scripts/plymouth-branding-guard.sh \
+    /usr/libexec/kyth-plymouth-branding-guard
 
 cat > /usr/share/applications/kyth-install.desktop <<'EOF'
 [Desktop Entry]
@@ -130,9 +132,29 @@ chmod +x /var/lib/livesys/livesys-session-extra
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
 kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
     | grep -v cachyos | sort -V | tail -n 1)
+/usr/libexec/kyth-plymouth-branding-guard
+plymouth-set-default-theme kyth
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
-    --add "dmsquash-live dmsquash-live-autooverlay" \
+    --add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
+
+initrd_listing="$(mktemp)"
+if command -v lsinitrd >/dev/null 2>&1; then
+    lsinitrd "/usr/lib/modules/${kernel}/initramfs.img" > "${initrd_listing}"
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${initrd_listing}" || {
+        echo "ERROR: live initramfs does not contain KythOS Plymouth theme" >&2
+        exit 1
+    }
+    grep -q 'usr/share/plymouth/themes/default.plymouth' "${initrd_listing}" || {
+        echo "ERROR: live initramfs does not force the KythOS Plymouth default theme" >&2
+        exit 1
+    }
+    if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${initrd_listing}" >&2; then
+        echo "ERROR: Fedora Plymouth fallback branding leaked into live initramfs" >&2
+        exit 1
+    fi
+fi
+rm -f "${initrd_listing}"
 
 # ── livesys-scripts ───────────────────────────────────────────────────────────
 sed -i 's/^livesys_session=.*/livesys_session="kde"/' /etc/sysconfig/livesys

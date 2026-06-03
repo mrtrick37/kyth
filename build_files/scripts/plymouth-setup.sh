@@ -14,22 +14,13 @@ rsvg-convert -w 256 /tmp/kyth-branding/kyth-logo-transparent.svg \
 install -m 0644 /tmp/kyth-plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
 install -m 0644 /tmp/kyth-plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
 
-# Replace the Fedora watermark in bgrt/spinner fallback themes with a transparent
-# PNG so the ASUS firmware logo is not followed by distro branding during the
-# brief window before Plymouth loads the kyth theme.
-rsvg-convert /tmp/kyth-branding/transparent-watermark.svg \
-    -o /tmp/kyth-transparent-watermark.png
-for _spinner_dir in \
-    /usr/share/plymouth/themes/spinner \
-    /usr/share/plymouth/themes/bgrt \
-    /usr/share/plymouth/themes/bgrt-fedora; do
-    if [ -d "${_spinner_dir}" ]; then
-        install -m 0644 /tmp/kyth-transparent-watermark.png \
-            "${_spinner_dir}/watermark.png"
-    fi
-done
-rm -f /tmp/kyth-transparent-watermark.png
-unset _spinner_dir
+# Replace Fedora watermarks in every Plymouth fallback theme with transparent
+# assets. This guard is installed permanently and rerun after later package
+# transactions because dnf upgrades can restore upstream theme files.
+install -Dm0755 /tmp/plymouth-branding-guard.sh \
+    /usr/libexec/kyth-plymouth-branding-guard
+/usr/libexec/kyth-plymouth-branding-guard \
+    /tmp/kyth-branding/transparent-watermark.svg
 
 # Custom dracut module that explicitly forces Plymouth theme + script plugin
 # inclusion into the initramfs. Fedora's upstream 45plymouth module only
@@ -54,15 +45,34 @@ install() {
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /etc/plymouth/plymouthd.conf \
+        /usr/libexec/kyth-plymouth-branding-guard \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
         /usr/share/plymouth/themes/kyth/kyth.script \
         /usr/share/plymouth/themes/kyth/kyth-logo.png
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
 }
 KYTHPLYMOUTHEOF
 chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
 unset KYTH_PLYMOUTH_DRACUT_DIR
+
+mkdir -p /etc/dracut.conf.d
+if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
+    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
+        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
+            /etc/dracut.conf.d/99-kyth.conf
+        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    fi
+else
+    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+DRACUTEOF
+fi
 
 plymouth-set-default-theme kyth
 

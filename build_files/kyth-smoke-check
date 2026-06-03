@@ -175,6 +175,16 @@ check_file() {
     fi
 }
 
+check_path_absent() {
+    local path="$1"
+    local label="$2"
+    if [[ -e "$path" ]]; then
+        fail "$label" "$path should not exist"
+    else
+        pass "$label" "$path absent"
+    fi
+}
+
 check_file_contains() {
     local path="$1"
     local pattern="$2"
@@ -335,11 +345,14 @@ check_file /usr/share/wallpapers/kyth/metadata.json "KythOS wallpaper"
 check_file_contains /etc/plymouth/plymouthd.conf "Theme=kyth" "Plymouth theme" "KythOS boot splash selected"
 check_file /usr/share/plymouth/themes/kyth/kyth-logo.png "Plymouth KythOS logo"
 check_file /usr/share/plymouth/themes/spinner/watermark.png "Plymouth BGRT hidden fallback watermark"
+check_file /usr/share/plymouth/themes/spinner/watermark.svg "Plymouth SVG fallback watermark"
+check_path_absent /usr/share/plymouth/themes/bgrt-fedora "Fedora Plymouth BGRT theme"
 check_rpm_absent fedora-logos "Fedora branding package"
 check_file /usr/lib/dracut/modules.d/46kyth-plymouth/module-setup.sh "Plymouth initramfs KythOS theme injection"
 check_file_contains /usr/lib/dracut/modules.d/46kyth-plymouth/module-setup.sh "default.plymouth" "Plymouth initramfs default theme" "portable initramfs images force the KythOS splash"
+check_file_contains /etc/dracut.conf.d/99-kyth.conf "kyth-plymouth" "Plymouth dracut config" "KythOS splash module is explicit for future initramfs rebuilds"
 check_file /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "Plymouth initramfs migration"
-check_file_contains /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "boot-splash-initramfs-v4" "Plymouth initramfs migration version" "early-boot theme repair is scheduled"
+check_file_contains /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "boot-splash-initramfs-v5" "Plymouth initramfs migration version" "early-boot theme repair is scheduled"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
 check_file_contains /etc/skel/.config/kickoffrc "highlightNewlyInstalledApps=false" "Launcher badge quieting" "new-app badges disabled by default"
