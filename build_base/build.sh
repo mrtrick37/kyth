@@ -182,7 +182,8 @@ PLYMOUTHCONF
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
-        --install "/etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults" \
+        --include /etc/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf \
+        --include /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
     if command -v lsinitrd >/dev/null 2>&1; then

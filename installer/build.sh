@@ -143,7 +143,8 @@ EOF
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
     --add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
-    --install "/etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults" \
+    --include /etc/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf \
+    --include /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
 
 initrd_listing="$(mktemp)"
