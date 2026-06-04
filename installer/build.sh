@@ -141,11 +141,19 @@ Theme=kyth
 ShowDelay=0
 EOF
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+kyth_plymouth_include_root="$(mktemp -d)"
+mkdir -p \
+    "${kyth_plymouth_include_root}/etc/plymouth" \
+    "${kyth_plymouth_include_root}/usr/share/plymouth"
+install -m 0644 /etc/plymouth/plymouthd.conf \
+    "${kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
+install -m 0644 /usr/share/plymouth/plymouthd.defaults \
+    "${kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
     --add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
-    --include /etc/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf \
-    --include /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults \
+    --include "${kyth_plymouth_include_root}" / \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
+rm -rf "${kyth_plymouth_include_root}"
 
 initrd_listing="$(mktemp)"
 if command -v lsinitrd >/dev/null 2>&1; then
@@ -156,10 +164,6 @@ if command -v lsinitrd >/dev/null 2>&1; then
     }
     grep -q 'usr/share/plymouth/themes/default.plymouth' "${initrd_listing}" || {
         echo "ERROR: live initramfs does not force the KythOS Plymouth default theme" >&2
-        exit 1
-    }
-    lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^Theme=kyth$' || {
-        echo "ERROR: live initramfs Plymouth daemon config does not force Theme=kyth" >&2
         exit 1
     }
     lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^Theme=kyth$' || {

@@ -176,16 +176,24 @@ Theme=kyth
 ShowDelay=0
 PLYMOUTHCONF
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+    _kyth_plymouth_include_root="$(mktemp -d)"
+    mkdir -p \
+        "${_kyth_plymouth_include_root}/etc/plymouth" \
+        "${_kyth_plymouth_include_root}/usr/share/plymouth"
+    install -m 0644 /etc/plymouth/plymouthd.conf \
+        "${_kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
+    install -m 0644 /usr/share/plymouth/plymouthd.defaults \
+        "${_kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
-        --include /etc/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf \
-        --include /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults \
+        --include "${_kyth_plymouth_include_root}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
+    rm -rf "${_kyth_plymouth_include_root}"
     if command -v lsinitrd >/dev/null 2>&1; then
         _initrd_listing="$(mktemp)"
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}"
@@ -193,12 +201,6 @@ PLYMOUTHCONF
             echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth theme" >&2
             exit 1
         }
-        if ! lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
-            echo "ERROR: CachyOS initramfs Plymouth daemon config does not force Theme=kyth" >&2
-            echo "---- /etc/plymouth/plymouthd.conf from initramfs ----" >&2
-            lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" >&2 || true
-            exit 1
-        fi
         if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
             echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2

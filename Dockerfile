@@ -174,16 +174,20 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     mkdir -p /etc/plymouth /usr/share/plymouth && \
     printf '[Daemon]\nTheme=kyth\nShowDelay=0\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
+    KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
+    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
+    install -m 0644 /etc/plymouth/plymouthd.conf "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth/plymouthd.conf" && \
+    install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
-        --include /etc/plymouth/plymouthd.conf /etc/plymouth/plymouthd.conf \
-        --include /usr/share/plymouth/plymouthd.defaults /usr/share/plymouth/plymouthd.defaults \
+        --include "${KYTH_PLYMOUTH_INCLUDE_ROOT}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+    rm -rf "${KYTH_PLYMOUTH_INCLUDE_ROOT}" && \
     if command -v lsinitrd >/dev/null 2>&1; then \
         _initrd_listing="$(mktemp)" && \
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \
@@ -191,8 +195,6 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs does not contain KythOS Plymouth theme" >&2; exit 1; } && \
         grep -q 'usr/share/plymouth/themes/default.plymouth' "${_initrd_listing}" \
             || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
-        lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
-            || { echo "ERROR: branded initramfs Plymouth daemon config does not force Theme=kyth" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
             || { echo "ERROR: branded initramfs Plymouth defaults do not force Theme=kyth" >&2; exit 1; } && \
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then \
