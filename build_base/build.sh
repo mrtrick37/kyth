@@ -169,23 +169,22 @@ DRACUTEOF
 # the upstream base image already ships a valid initramfs; bootc regenerates
 # it on first deployment using the dracut.conf.d above.
 if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
-    _kyth_plymouth_conf="$(mktemp -p /var/tmp kyth-plymouthd.conf.XXXXXX)"
-    cat > "${_kyth_plymouth_conf}" <<'PLYMOUTHCONF'
+    mkdir -p /etc/plymouth /usr/share/plymouth
+    cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
 ShowDelay=0
 PLYMOUTHCONF
+    install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
-        --include "${_kyth_plymouth_conf}" /etc/plymouth/plymouthd.conf \
-        --include "${_kyth_plymouth_conf}" /usr/share/plymouth/plymouthd.defaults \
+        --install "/etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults" \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
-    rm -f "${_kyth_plymouth_conf}"
     if command -v lsinitrd >/dev/null 2>&1; then
         _initrd_listing="$(mktemp)"
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}"

@@ -134,18 +134,17 @@ kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' \
     | grep -v cachyos | sort -V | tail -n 1)
 /usr/libexec/kyth-plymouth-branding-guard
 plymouth-set-default-theme kyth
-kyth_plymouth_conf="$(mktemp -p /var/tmp kyth-plymouthd.conf.XXXXXX)"
-cat > "${kyth_plymouth_conf}" <<'EOF'
+mkdir -p /etc/plymouth /usr/share/plymouth
+cat > /etc/plymouth/plymouthd.conf <<'EOF'
 [Daemon]
 Theme=kyth
 ShowDelay=0
 EOF
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
     --add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
-    --include "${kyth_plymouth_conf}" /etc/plymouth/plymouthd.conf \
-    --include "${kyth_plymouth_conf}" /usr/share/plymouth/plymouthd.defaults \
+    --install "/etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults" \
     "/usr/lib/modules/${kernel}/initramfs.img" "${kernel}"
-rm -f "${kyth_plymouth_conf}"
 
 initrd_listing="$(mktemp)"
 if command -v lsinitrd >/dev/null 2>&1; then
