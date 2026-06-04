@@ -23,6 +23,16 @@ if [[ ! "${RCLONE_VERSION}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
 	exit 1
 fi
 
+RCLONE_TARGET_VERSION="${RCLONE_VERSION#v}"
+if [[ -x /usr/local/bin/rclone ]]; then
+	INSTALLED_VERSION=$(/usr/local/bin/rclone --version 2>/dev/null \
+		| awk 'NR == 1 && $1 == "rclone" && $2 == "v" { print $3 }')
+	if [[ "${INSTALLED_VERSION}" == "${RCLONE_TARGET_VERSION}" ]]; then
+		echo "rclone already current: v${INSTALLED_VERSION}"
+		exit 0
+	fi
+fi
+
 RCLONE_BASENAME="rclone-${RCLONE_VERSION}-linux-amd64"
 RCLONE_ZIP="${RCLONE_BASENAME}.zip"
 RCLONE_BASE="https://downloads.rclone.org/${RCLONE_VERSION}"

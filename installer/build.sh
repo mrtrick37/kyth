@@ -149,6 +149,14 @@ if command -v lsinitrd >/dev/null 2>&1; then
         echo "ERROR: live initramfs does not force the KythOS Plymouth default theme" >&2
         exit 1
     }
+    lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^Theme=kyth$' || {
+        echo "ERROR: live initramfs Plymouth daemon config does not force Theme=kyth" >&2
+        exit 1
+    }
+    lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^Theme=kyth$' || {
+        echo "ERROR: live initramfs Plymouth defaults do not force Theme=kyth" >&2
+        exit 1
+    }
     if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${initrd_listing}" >&2; then
         echo "ERROR: Fedora Plymouth fallback branding leaked into live initramfs" >&2
         exit 1

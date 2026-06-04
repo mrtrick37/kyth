@@ -989,12 +989,12 @@ systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v6
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v7
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v6'
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v7'
 
 [Install]
 WantedBy=multi-user.target

@@ -76,13 +76,25 @@ depends() {
 install() {
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
-        /etc/plymouth/plymouthd.conf \
         /etc/os-release \
         /usr/lib/os-release \
         /usr/libexec/kyth-plymouth-branding-guard \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
         /usr/share/plymouth/themes/kyth/kyth.script \
         /usr/share/plymouth/themes/kyth/kyth-logo.png
+    mkdir -p \
+        "${initdir}/etc/plymouth" \
+        "${initdir}/usr/share/plymouth/themes"
+    cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=0
+PLYMOUTHCONF
+    cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
+[Daemon]
+Theme=kyth
+ShowDelay=0
+PLYMOUTHDEFAULTS
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \

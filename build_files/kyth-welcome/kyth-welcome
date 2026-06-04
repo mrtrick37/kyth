@@ -1742,9 +1742,9 @@ def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
 
 
 def _image_tag_for_kernel(flavor: str) -> str:
-    if flavor == "cachy":
-        return "testing-cachy"
     channel = "testing" if (_current_branch() or "").startswith("testing") else "latest"
+    if flavor == "cachy":
+        return f"{channel}-cachy"
     return channel
 
 
@@ -6873,7 +6873,7 @@ class KernelPage(Page):
         warn_layout.addWidget(warn_title)
         warn_body = QLabel(
             "Kernel switches download a different KythOS image and apply after reboot. "
-            "The CachyOS kernel currently uses the testing image channel. "
+            "CachyOS follows your current Stable or Testing channel. "
             "Roll Back remains available from the boot menu and the Update page if a custom kernel causes trouble."
         )
         warn_body.setObjectName("card-copy")
