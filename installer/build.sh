@@ -80,6 +80,88 @@ Hidden=true
 EOF
 ln -sf /dev/null /etc/systemd/user/plasma-kwallet-pam.service
 
+install -Dm755 /dev/stdin /usr/libexec/kyth-live-owe-wifi-setup <<'EOF'
+#!/usr/bin/bash
+set -euo pipefail
+
+if ! grep -qw 'kyth.live=1' /proc/cmdline 2>/dev/null; then
+    exit 0
+fi
+
+command -v nmcli >/dev/null 2>&1 || exit 0
+
+# OWE/OWE transition-mode networks can look like plain open Wi-Fi in Plasma.
+# Seed explicit Enhanced Open profiles in the ephemeral live session so guest
+# networks of this type can be activated correctly.
+nmcli radio wifi on >/dev/null 2>&1 || true
+
+declare -A owe_ssids=()
+for _try in 1 2 3 4 5 6; do
+    while IFS=: read -r ssid security; do
+        [[ -n "${ssid}" && "${ssid}" != "--" ]] || continue
+        [[ "${security}" == *OWE* ]] || continue
+        owe_ssids["${ssid}"]=1
+    done < <(nmcli --escape no -t -f SSID,SECURITY device wifi list --rescan yes 2>/dev/null || true)
+
+    if [[ "${#owe_ssids[@]}" -gt 0 ]]; then
+        break
+    fi
+    sleep 2
+done
+
+if [[ "${#owe_ssids[@]}" -eq 0 ]]; then
+    exit 0
+fi
+
+for ssid in "${!owe_ssids[@]}"; do
+    con_name="Kyth OWE ${ssid}"
+    existing_key_mgmt="$(nmcli -g 802-11-wireless-security.key-mgmt connection show "${con_name}" 2>/dev/null || true)"
+    if [[ "${existing_key_mgmt}" == "owe" ]]; then
+        nmcli connection modify "${con_name}" \
+            802-11-wireless.ssid "${ssid}" \
+            wifi-sec.key-mgmt owe \
+            connection.autoconnect no \
+            connection.permissions "" \
+            >/dev/null 2>&1 || true
+        continue
+    fi
+
+    nmcli connection delete "${con_name}" >/dev/null 2>&1 || true
+    nmcli connection add \
+        type wifi \
+        ifname "*" \
+        con-name "${con_name}" \
+        ssid "${ssid}" \
+        wifi-sec.key-mgmt owe \
+        connection.autoconnect no \
+        connection.permissions "" \
+        >/dev/null 2>&1 || true
+done
+
+if [[ "${#owe_ssids[@]}" -eq 1 ]] \
+    && ! nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | grep -q ':wifi:connected'; then
+    for ssid in "${!owe_ssids[@]}"; do
+        nmcli connection up "Kyth OWE ${ssid}" >/dev/null 2>&1 || true
+    done
+fi
+EOF
+
+cat > /etc/systemd/system/kyth-live-owe-wifi.service <<'EOF'
+[Unit]
+Description=Seed live ISO OWE Wi-Fi profiles
+ConditionKernelCommandLine=kyth.live=1
+Wants=NetworkManager.service
+After=NetworkManager.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-live-owe-wifi-setup
+
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable kyth-live-owe-wifi.service
+
 cat > /etc/skel/.config/autostart/kyth-installer.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
@@ -124,6 +206,7 @@ SCREENLOCKEOF
 chown liveuser:liveuser \
     /home/liveuser/.config/kwalletrc \
     /home/liveuser/.config/kscreenlockerrc
+/usr/libexec/kyth-live-owe-wifi-setup >/dev/null 2>&1 &
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF
