@@ -171,14 +171,19 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
     test -n "${KVER}" \
         || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
+    _kyth_plymouth_conf="$(mktemp -p /var/tmp kyth-plymouthd.conf.XXXXXX)" && \
+    printf '[Daemon]\nTheme=kyth\nShowDelay=0\n' > "${_kyth_plymouth_conf}" && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
+        --include "${_kyth_plymouth_conf}" /etc/plymouth/plymouthd.conf \
+        --include "${_kyth_plymouth_conf}" /usr/share/plymouth/plymouthd.defaults \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+    rm -f "${_kyth_plymouth_conf}" && \
     if command -v lsinitrd >/dev/null 2>&1; then \
         _initrd_listing="$(mktemp)" && \
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \

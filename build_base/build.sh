@@ -169,13 +169,23 @@ DRACUTEOF
 # the upstream base image already ships a valid initramfs; bootc regenerates
 # it on first deployment using the dracut.conf.d above.
 if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
+    _kyth_plymouth_conf="$(mktemp -p /var/tmp kyth-plymouthd.conf.XXXXXX)"
+    cat > "${_kyth_plymouth_conf}" <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=0
+PLYMOUTHCONF
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
+        --add kyth-plymouth \
+        --include "${_kyth_plymouth_conf}" /etc/plymouth/plymouthd.conf \
+        --include "${_kyth_plymouth_conf}" /usr/share/plymouth/plymouthd.defaults \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
+    rm -f "${_kyth_plymouth_conf}"
     if command -v lsinitrd >/dev/null 2>&1; then
         _initrd_listing="$(mktemp)"
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}"
@@ -183,14 +193,18 @@ if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
             echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth theme" >&2
             exit 1
         }
-        lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' || {
+        if ! lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth daemon config does not force Theme=kyth" >&2
+            echo "---- /etc/plymouth/plymouthd.conf from initramfs ----" >&2
+            lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" >&2 || true
             exit 1
-        }
-        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' || {
+        fi
+        if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
+            echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
+            lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
             exit 1
-        }
+        fi
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then
             echo "ERROR: Fedora Plymouth fallback branding leaked into CachyOS initramfs" >&2
             exit 1
