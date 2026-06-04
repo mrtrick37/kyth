@@ -63,14 +63,6 @@ depends() {
 }
 
 install() {
-    inst_libdir_file "plymouth/script.so"
-    inst_multiple \
-        /etc/os-release \
-        /usr/lib/os-release \
-        /usr/libexec/kyth-plymouth-branding-guard \
-        /usr/share/plymouth/themes/kyth/kyth.plymouth \
-        /usr/share/plymouth/themes/kyth/kyth.script \
-        /usr/share/plymouth/themes/kyth/kyth-logo.png
     mkdir -p \
         "${initdir}/etc/plymouth" \
         "${initdir}/usr/share/plymouth/themes"
@@ -90,6 +82,15 @@ PLYMOUTHDEFAULTS
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \
         "${initdir}/usr/share/plymouth/themes/spinner"
+    inst_libdir_file "plymouth/script.so"
+    inst_multiple \
+        /usr/libexec/kyth-plymouth-branding-guard \
+        /usr/share/plymouth/themes/kyth/kyth.plymouth \
+        /usr/share/plymouth/themes/kyth/kyth.script \
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    inst_multiple -o \
+        /etc/os-release \
+        /usr/lib/os-release
 }
 KYTHPLYMOUTHEOF
 chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
