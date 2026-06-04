@@ -98,12 +98,28 @@ log() {
 
 log "Starting OWE Wi-Fi profile setup"
 
+# Wait for NetworkManager to be fully operational
+for _try in 1 2 3 4 5 6 7 8 9 10; do
+    if nmcli general status 2>/dev/null | grep -q 'connected\|disconnected'; then
+        log "NetworkManager is ready (attempt $_try/10)"
+        break
+    fi
+    if [[ $_try -eq 10 ]]; then
+        log "ERROR: NetworkManager did not become ready after 10 attempts (20 seconds)"
+        exit 1
+    fi
+    sleep 2
+done
+
 # OWE/OWE transition-mode networks can look like plain open Wi-Fi in Plasma.
 # Seed explicit Enhanced Open profiles in the ephemeral live session so guest
 # networks of this type can be activated correctly.
-nmcli radio wifi on >/dev/null 2>&1 || log "WARNING: nmcli radio wifi on failed"
+if ! nmcli radio wifi on 2>/dev/null; then
+    log "WARNING: nmcli radio wifi on failed"
+fi
+sleep 1
 
-# Wait for WiFi hardware and NM to be ready
+# Scan for OWE networks
 declare -A owe_ssids=()
 for _try in 1 2 3 4 5 6; do
     log "Scan attempt $_try/6"
@@ -115,6 +131,7 @@ for _try in 1 2 3 4 5 6; do
     done < <(nmcli --escape no -t -f SSID,SECURITY device wifi list --rescan yes 2>/dev/null || true)
 
     if [[ "${#owe_ssids[@]}" -gt 0 ]]; then
+        log "Found OWE networks on attempt $_try/6, proceeding"
         break
     fi
     sleep 2
@@ -192,16 +209,17 @@ cat > /etc/systemd/system/kyth-live-owe-wifi.service <<'EOF'
 Description=Seed live ISO OWE Wi-Fi profiles
 ConditionKernelCommandLine=kyth.live=1
 Wants=NetworkManager.service
-After=NetworkManager.service
-Before=network-online.target
+After=NetworkManager.service network-pre.target
+Before=network.target network-online.target
 
 [Service]
 Type=oneshot
-TimeoutStartSec=60
+TimeoutStartSec=120
+RemainAfterExit=yes
 ExecStart=/usr/libexec/kyth-live-owe-wifi-setup
 
 [Install]
-WantedBy=multi-user.target
+WantedBy=network.target
 EOF
 systemctl enable kyth-live-owe-wifi.service
 
@@ -265,7 +283,12 @@ cat > /etc/plymouth/plymouthd.conf <<'EOF'
 Theme=kyth
 ShowDelay=0
 EOF
-install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.conf
+cat > /usr/share/plymouth/plymouthd.defaults <<'EOF'
+[Daemon]
+Theme=kyth
+ShowDelay=0
+EOF
 kyth_plymouth_include_root="$(mktemp -d)"
 mkdir -p \
     "${kyth_plymouth_include_root}/etc/plymouth" \
