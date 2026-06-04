@@ -8,6 +8,23 @@ write_kernel_flavor() {
     printf '%s\n' "${KYTH_KERNEL_FLAVOR}" > /usr/share/kyth/kernel-flavor
 }
 
+write_kyth_os_release() {
+    local target=$1
+    mkdir -p "$(dirname "${target}")"
+    cat > "${target}" <<'EOF'
+NAME="KythOS"
+PRETTY_NAME="KythOS 44"
+ID=kythos
+VERSION="44"
+VERSION_ID="44"
+ANSI_COLOR="0;34"
+LOGO=kyth
+HOME_URL="https://github.com/mrtrick37/kyth"
+SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
+BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
+EOF
+}
+
 latest_kernel_version() {
     find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1
 }
@@ -67,6 +84,10 @@ case "${KYTH_KERNEL_FLAVOR}" in
 esac
 write_kernel_flavor
 
+write_kyth_os_release /usr/lib/os-release
+rm -f /etc/os-release
+write_kyth_os_release /etc/os-release
+
 KVER=$(latest_kernel_version)
 if [[ -z "${KVER}" ]]; then
     echo "ERROR: no kernel found in /usr/lib/modules" >&2
@@ -106,6 +127,8 @@ install() {
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /etc/plymouth/plymouthd.conf \
+        /etc/os-release \
+        /usr/lib/os-release \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
         /usr/share/plymouth/themes/kyth/kyth.script \
         /usr/share/plymouth/themes/kyth/kyth-logo.png

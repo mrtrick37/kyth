@@ -165,4 +165,30 @@ RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secur
 # Re-run on every daily build.
 RUN --mount=type=bind,source=build_files,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
-    bash /ctx/scripts/branding.sh
+    bash /ctx/scripts/branding.sh && \
+    : "── Rebuild boot splash initramfs after final branding ───────────────────" && \
+    /usr/libexec/kyth-plymouth-branding-guard /ctx/branding/transparent-watermark.svg && \
+    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    test -n "${KVER}" \
+        || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
+    TMPDIR=/var/tmp dracut \
+        --no-hostonly \
+        --compress "zstd -1" \
+        --kver "${KVER}" \
+        --force \
+        --add kyth-plymouth \
+        "/usr/lib/modules/${KVER}/initramfs" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+    if command -v lsinitrd >/dev/null 2>&1; then \
+        _initrd_listing="$(mktemp)" && \
+        lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth theme" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/default.plymouth' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then \
+            echo "ERROR: Fedora Plymouth fallback branding leaked into branded initramfs" >&2; \
+            exit 1; \
+        fi && \
+        rm -f "${_initrd_listing}"; \
+    fi

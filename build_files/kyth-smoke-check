@@ -301,6 +301,7 @@ if [[ -r /etc/os-release ]] && grep -q '^PRETTY_NAME="KythOS' /etc/os-release; t
 else
     fail "OS identity" "/etc/os-release does not advertise KythOS"
 fi
+check_file_contains /etc/os-release "ID=kythos" "OS identity ID" "boot metadata uses KythOS identity"
 
 check_command bootc "bootc"
 if have bootc; then
@@ -352,7 +353,7 @@ check_file /usr/lib/dracut/modules.d/46kyth-plymouth/module-setup.sh "Plymouth i
 check_file_contains /usr/lib/dracut/modules.d/46kyth-plymouth/module-setup.sh "default.plymouth" "Plymouth initramfs default theme" "portable initramfs images force the KythOS splash"
 check_file_contains /etc/dracut.conf.d/99-kyth.conf "kyth-plymouth" "Plymouth dracut config" "KythOS splash module is explicit for future initramfs rebuilds"
 check_file /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "Plymouth initramfs migration"
-check_file_contains /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "boot-splash-initramfs-v5" "Plymouth initramfs migration version" "early-boot theme repair is scheduled"
+check_file_contains /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "boot-splash-initramfs-v6" "Plymouth initramfs migration version" "early-boot theme repair is scheduled"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
 check_file_contains /etc/skel/.config/kickoffrc "highlightNewlyInstalledApps=false" "Launcher badge quieting" "new-app badges disabled by default"

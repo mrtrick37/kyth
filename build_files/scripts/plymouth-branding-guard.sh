@@ -77,6 +77,8 @@ install() {
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /etc/plymouth/plymouthd.conf \
+        /etc/os-release \
+        /usr/lib/os-release \
         /usr/libexec/kyth-plymouth-branding-guard \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
         /usr/share/plymouth/themes/kyth/kyth.script \

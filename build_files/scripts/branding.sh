@@ -59,14 +59,13 @@ except OSError:
 SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
-# Ensure the built image advertises the KythOS product name. Some boot/installer
-# menus derive their display strings from `/etc/os-release` or similar metadata.
-# We overwrite or create `/etc/os-release` with KythOS values so boot menus show
-# "KythOS" instead of upstream branding.
-cat > /etc/os-release <<'EOF' || true
+write_kyth_os_release() {
+    local target=$1
+    mkdir -p "$(dirname "${target}")"
+    cat > "${target}" <<'EOF'
 NAME="KythOS"
 PRETTY_NAME="KythOS 44"
-ID=fedora
+ID=kythos
 VERSION="44"
 VERSION_ID="44"
 ANSI_COLOR="0;34"
@@ -75,6 +74,15 @@ HOME_URL="https://github.com/mrtrick37/kyth"
 SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
+}
+
+# Ensure the built image advertises the KythOS product name. Some boot/installer
+# menus and early-boot overlays derive their display strings from os-release.
+# Fedora keeps the canonical file in /usr/lib, while some consumers read /etc
+# directly, so write both with only KythOS product identity.
+write_kyth_os_release /usr/lib/os-release
+rm -f /etc/os-release
+write_kyth_os_release /etc/os-release
 
 # ── Topgrade config for all new users ────────────────────────────────────────
 # Disable rpm-ostree step: on a bootc system rpm-ostree upgrade pulls from the
@@ -981,12 +989,12 @@ systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v5
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v6
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v5'
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v6'
 
 [Install]
 WantedBy=multi-user.target
