@@ -59,7 +59,8 @@ done
 rm -rf /usr/share/plymouth/themes/bgrt-fedora
 plymouth-set-default-theme kyth
 
-kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/46kyth-plymouth
+rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
+kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${kyth_plymouth_dracut_dir}"
 cat > "${kyth_plymouth_dracut_dir}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash

@@ -45,10 +45,11 @@ install -Dm0755 /tmp/plymouth-branding-guard.sh \
 
 # Custom dracut module that explicitly forces Plymouth theme + script plugin
 # inclusion into the initramfs. Fedora's upstream 45plymouth module only
-# installs whichever theme is the default at dracut run time; 46kyth-plymouth
-# runs after it and hard-wires the kyth theme so early-boot never falls back
-# to upstream artwork.
-KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+# installs whichever theme is the default at dracut run time; 99kyth-plymouth
+# runs late and hard-wires the kyth theme so early-boot never falls back to
+# upstream artwork.
+rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
 cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash

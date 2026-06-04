@@ -318,6 +318,14 @@ if command -v lsinitrd >/dev/null 2>&1; then
         echo "ERROR: live initramfs Plymouth defaults do not force Theme=kyth" >&2
         exit 1
     }
+    initrd_extract="$(mktemp -d)"
+    (cd "${initrd_extract}" && lsinitrd --unpack "/usr/lib/modules/${kernel}/initramfs.img" etc/plymouth/plymouthd.conf)
+    grep -q '^Theme=kyth$' "${initrd_extract}/etc/plymouth/plymouthd.conf" || {
+        echo "ERROR: live initramfs Plymouth daemon config does not force Theme=kyth" >&2
+        rm -rf "${initrd_extract}"
+        exit 1
+    }
+    rm -rf "${initrd_extract}"
     if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${initrd_listing}" >&2; then
         echo "ERROR: Fedora Plymouth fallback branding leaked into live initramfs" >&2
         exit 1
