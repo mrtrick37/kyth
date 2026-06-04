@@ -120,6 +120,9 @@ for ssid in "${!owe_ssids[@]}"; do
         nmcli connection modify "${con_name}" \
             802-11-wireless.ssid "${ssid}" \
             wifi-sec.key-mgmt owe \
+            ipv4.method auto \
+            ipv4.dhcp-send-hostname yes \
+            ipv4.ignore-auto-dns no \
             connection.autoconnect no \
             connection.permissions "" \
             >/dev/null 2>&1 || true
@@ -133,6 +136,9 @@ for ssid in "${!owe_ssids[@]}"; do
         con-name "${con_name}" \
         ssid "${ssid}" \
         wifi-sec.key-mgmt owe \
+        ipv4.method auto \
+        ipv4.dhcp-send-hostname yes \
+        ipv4.ignore-auto-dns no \
         connection.autoconnect no \
         connection.permissions "" \
         >/dev/null 2>&1 || true
@@ -152,9 +158,11 @@ Description=Seed live ISO OWE Wi-Fi profiles
 ConditionKernelCommandLine=kyth.live=1
 Wants=NetworkManager.service
 After=NetworkManager.service
+Before=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=60
 ExecStart=/usr/libexec/kyth-live-owe-wifi-setup
 
 [Install]
