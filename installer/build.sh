@@ -90,17 +90,28 @@ fi
 
 command -v nmcli >/dev/null 2>&1 || exit 0
 
+LOG_FILE="/var/log/kyth-live-owe-wifi-setup.log"
+
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*" >> "${LOG_FILE}"
+}
+
+log "Starting OWE Wi-Fi profile setup"
+
 # OWE/OWE transition-mode networks can look like plain open Wi-Fi in Plasma.
 # Seed explicit Enhanced Open profiles in the ephemeral live session so guest
 # networks of this type can be activated correctly.
-nmcli radio wifi on >/dev/null 2>&1 || true
+nmcli radio wifi on >/dev/null 2>&1 || log "WARNING: nmcli radio wifi on failed"
 
+# Wait for WiFi hardware and NM to be ready
 declare -A owe_ssids=()
 for _try in 1 2 3 4 5 6; do
+    log "Scan attempt $_try/6"
     while IFS=: read -r ssid security; do
         [[ -n "${ssid}" && "${ssid}" != "--" ]] || continue
         [[ "${security}" == *OWE* ]] || continue
         owe_ssids["${ssid}"]=1
+        log "Found OWE network: ${ssid}"
     done < <(nmcli --escape no -t -f SSID,SECURITY device wifi list --rescan yes 2>/dev/null || true)
 
     if [[ "${#owe_ssids[@]}" -gt 0 ]]; then
@@ -110,27 +121,23 @@ for _try in 1 2 3 4 5 6; do
 done
 
 if [[ "${#owe_ssids[@]}" -eq 0 ]]; then
+    log "No OWE networks found after 6 scans, exiting"
     exit 0
 fi
 
+log "Found ${#owe_ssids[@]} OWE network(s), setting up profiles"
+
 for ssid in "${!owe_ssids[@]}"; do
     con_name="Kyth OWE ${ssid}"
-    existing_key_mgmt="$(nmcli -g 802-11-wireless-security.key-mgmt connection show "${con_name}" 2>/dev/null || true)"
-    if [[ "${existing_key_mgmt}" == "owe" ]]; then
-        nmcli connection modify "${con_name}" \
-            802-11-wireless.ssid "${ssid}" \
-            wifi-sec.key-mgmt owe \
-            ipv4.method auto \
-            ipv4.dhcp-send-hostname yes \
-            ipv4.ignore-auto-dns no \
-            connection.autoconnect no \
-            connection.permissions "" \
-            >/dev/null 2>&1 || true
-        continue
+    log "Processing SSID: ${ssid} (connection: ${con_name})"
+    
+    # Always delete and recreate to avoid state corruption on reboot
+    if nmcli connection delete "${con_name}" 2>/dev/null; then
+        log "Deleted existing connection: ${con_name}"
     fi
 
-    nmcli connection delete "${con_name}" >/dev/null 2>&1 || true
-    nmcli connection add \
+    # Create the OWE profile with all required settings
+    if nmcli connection add \
         type wifi \
         ifname "*" \
         con-name "${con_name}" \
@@ -141,15 +148,43 @@ for ssid in "${!owe_ssids[@]}"; do
         ipv4.ignore-auto-dns no \
         connection.autoconnect no \
         connection.permissions "" \
-        >/dev/null 2>&1 || true
+        2>/tmp/kyth-owe-error.log; then
+        
+        # Validate the profile was created with correct settings
+        key_mgmt=$(nmcli -g 802-11-wireless-security.key-mgmt connection show "${con_name}" 2>/dev/null || echo "ERROR")
+        ipv4_method=$(nmcli -g ipv4.method connection show "${con_name}" 2>/dev/null || echo "ERROR")
+        
+        if [[ "${key_mgmt}" == "owe" && "${ipv4_method}" == "auto" ]]; then
+            log "✓ Profile created successfully: ${con_name}"
+        else
+            log "ERROR: Profile validation failed for ${con_name}"
+            log "  key-mgmt: ${key_mgmt}"
+            log "  ipv4.method: ${ipv4_method}"
+        fi
+    else
+        log "ERROR: Failed to create connection ${con_name}"
+        cat /tmp/kyth-owe-error.log >> "${LOG_FILE}" 2>/dev/null || true
+    fi
 done
 
-if [[ "${#owe_ssids[@]}" -eq 1 ]] \
-    && ! nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | grep -q ':wifi:connected'; then
+# Auto-connect if exactly one OWE network and no WiFi connected
+wifi_connected=$(nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null | grep -c ':wifi:connected' || echo 0)
+if [[ "${#owe_ssids[@]}" -eq 1 && "${wifi_connected}" -eq 0 ]]; then
     for ssid in "${!owe_ssids[@]}"; do
-        nmcli connection up "Kyth OWE ${ssid}" >/dev/null 2>&1 || true
+        con_name="Kyth OWE ${ssid}"
+        log "Single OWE network with no WiFi connected, attempting auto-connect: ${con_name}"
+        if nmcli connection up "${con_name}" 2>/tmp/kyth-owe-error.log; then
+            log "✓ Successfully brought up connection: ${con_name}"
+        else
+            log "ERROR: Failed to bring up ${con_name}"
+            cat /tmp/kyth-owe-error.log >> "${LOG_FILE}" 2>/dev/null || true
+        fi
     done
+else
+    log "Skipping auto-connect: ${#owe_ssids[@]} OWE networks, ${wifi_connected} WiFi connections active"
 fi
+
+log "OWE Wi-Fi profile setup complete"
 EOF
 
 cat > /etc/systemd/system/kyth-live-owe-wifi.service <<'EOF'
@@ -214,7 +249,6 @@ SCREENLOCKEOF
 chown liveuser:liveuser \
     /home/liveuser/.config/kwalletrc \
     /home/liveuser/.config/kscreenlockerrc
-/usr/libexec/kyth-live-owe-wifi-setup >/dev/null 2>&1 &
 [ -f /home/liveuser/Desktop/install-kyth.desktop ] && \
     chmod +x /home/liveuser/Desktop/install-kyth.desktop
 EOF
