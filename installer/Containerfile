@@ -13,6 +13,18 @@ FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
 ARG SOURCE_TAG=latest
 
+# Override dnf mirrors with direct URLs (faster, more reliable than mirror lists)
+RUN mkdir -p /etc/yum.repos.d.bak && \
+    mv /etc/yum.repos.d/*.repo /etc/yum.repos.d.bak/ 2>/dev/null || true && \
+    cat > /etc/yum.repos.d/fedora.repo <<'EOF'
+[fedora]
+name=Fedora $releasever - $basearch
+metalink=https://mirrors.fedoraproject.org/metalink?repo=fedora-$releasever&arch=$basearch
+enabled=1
+countme=1
+metadata_expire=7d
+EOF
+
 RUN --mount=type=bind,source=installer/build.sh,target=/src/installer/build.sh \
     --mount=type=bind,source=installer/iso.yaml,target=/src/installer/iso.yaml \
     --mount=type=bind,source=build_files/scripts/plymouth-branding-guard.sh,target=/src/build_files/scripts/plymouth-branding-guard.sh \

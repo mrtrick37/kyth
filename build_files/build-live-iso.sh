@@ -48,6 +48,7 @@ echo "==> Building KythOS live payload from ${BASE_IMAGE}"
 sudo podman build \
     --cap-add SYS_ADMIN \
     --security-opt label=disable \
+    --network host \
     --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
     --build-arg "SOURCE_TAG=${SOURCE_TAG}" \
     --tag "${LIVE_TAG}" \
