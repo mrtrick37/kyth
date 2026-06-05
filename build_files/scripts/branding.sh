@@ -671,6 +671,36 @@ POLISHDESKTOPEOF
 install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
     /etc/xdg/autostart/kyth-user-polish.desktop
 
+# ── Bluetooth session fix — runs every login ───────────────────────────────────
+# BlueDevil (KDE's Bluetooth applet) persists adapter power state as
+# "{adapter-mac}_powered=false" in ~/.config/bluedevilglobalrc when the user
+# explicitly turns off Bluetooth. On the next login BlueDevil restores this
+# state, overriding the system-level kyth-bluetooth-enable.service that already
+# unblocked the adapter before the session started. This script runs at every
+# login (no version stamp) to clear that saved disabled state and power the
+# adapter back on regardless of what the previous session did.
+cat > /usr/bin/kyth-bluetooth-session-fix <<'BTSESSIONEOF'
+#!/usr/bin/bash
+conf="${HOME}/.config/bluedevilglobalrc"
+if [[ -f "${conf}" ]]; then
+    sed -i -E '/^[[:xdigit:]:]+_powered=false$/d' "${conf}"
+fi
+if command -v bluetoothctl >/dev/null 2>&1; then
+    bluetoothctl power on >/dev/null 2>&1 || true
+fi
+BTSESSIONEOF
+chmod +x /usr/bin/kyth-bluetooth-session-fix
+
+mkdir -p /etc/xdg/autostart
+cat > /etc/xdg/autostart/kyth-bluetooth-session-fix.desktop <<'BTSESSIONDESKTOPEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS: Restore Bluetooth power state
+Exec=/usr/bin/kyth-bluetooth-session-fix
+X-KDE-autostart-after=panel
+NoDisplay=true
+BTSESSIONDESKTOPEOF
+
 # ── Web app launcher grouping ─────────────────────────────────────────────────
 # Chromium-family browsers create PWA launchers without Categories=. KDE cannot
 # classify those launchers and drops them into Lost and Found. Add a custom

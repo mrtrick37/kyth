@@ -100,8 +100,7 @@ PLYMOUTHDEFAULTS
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
-        "${initdir}/usr/share/plymouth/themes/bgrt" \
-        "${initdir}/usr/share/plymouth/themes/spinner"
+        "${initdir}/usr/share/plymouth/themes/bgrt"
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /usr/libexec/kyth-plymouth-branding-guard \
