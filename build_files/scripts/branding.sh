@@ -1096,15 +1096,75 @@ systemctl enable kyth-boot-branding.service 2>/dev/null || true
 
 # Existing deployments already have an initramfs in /boot. Repair it once
 # after the updated image boots so subsequent reboots use KythOS branding too.
+cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p /var/lib/kyth
+
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme kyth || true
+fi
+
+if [[ -x /usr/libexec/kyth-boot-branding-guard ]]; then
+    /usr/libexec/kyth-boot-branding-guard || true
+fi
+
+# On deployed ostree/bootc systems /usr is normally immutable. Only refresh
+# fallback assets when the filesystem is writable; the image build already
+# installs the Kyth Plymouth theme and dracut module into /usr.
+if [[ -w /usr/share/plymouth && -x /usr/libexec/kyth-plymouth-branding-guard ]]; then
+    /usr/libexec/kyth-plymouth-branding-guard || true
+fi
+
+boot_was_ro=0
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    mount -o remount,rw /boot
+    boot_was_ro=1
+fi
+
+cleanup() {
+    if [[ "${boot_was_ro}" -eq 1 ]]; then
+        mount -o remount,ro /boot || true
+    fi
+}
+trap cleanup EXIT
+
+shopt -s nullglob
+rebuilt=0
+for image in /boot/ostree/*/initramfs-*.img; do
+    kernel="${image##*/initramfs-}"
+    kernel="${kernel%.img}"
+    [[ -d "/usr/lib/modules/${kernel}" ]] || continue
+
+    dracut \
+        --no-hostonly \
+        --kver "${kernel}" \
+        --reproducible \
+        --force \
+        --add "ostree kyth-plymouth" \
+        "${image}" \
+        "${kernel}"
+    rebuilt=1
+done
+
+if [[ "${rebuilt}" -eq 0 ]]; then
+    dracut --regenerate-all --force --add "kyth-plymouth"
+fi
+
+touch /var/lib/kyth/boot-splash-initramfs-v9
+SPLASHINITRDSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
+
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v8
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v9
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard || true; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v8'
+ExecStart=/usr/libexec/kyth-refresh-boot-splash-initramfs
 
 [Install]
 WantedBy=multi-user.target
