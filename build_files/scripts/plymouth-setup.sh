@@ -71,11 +71,13 @@ install() {
 [Daemon]
 Theme=kyth
 ShowDelay=1
+UseFirmwareBackground=false
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
 ShowDelay=1
+UseFirmwareBackground=false
 PLYMOUTHDEFAULTS
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
