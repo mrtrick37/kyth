@@ -178,6 +178,12 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
     install -m 0644 /etc/plymouth/plymouthd.conf "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth/plymouthd.conf" && \
     install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
+    echo "=== PRE-DRACUT: host plymouthd.conf ===" >&2 && \
+    cat /etc/plymouth/plymouthd.conf >&2 && \
+    echo "=== PRE-DRACUT: include-root plymouthd.conf ===" >&2 && \
+    cat "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth/plymouthd.conf" >&2 && \
+    echo "=== PRE-DRACUT: 99kyth-plymouth module ===" >&2 && \
+    cat /usr/lib/dracut/modules.d/99kyth-plymouth/module-setup.sh >&2 && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
@@ -187,6 +193,10 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
         --include "${KYTH_PLYMOUTH_INCLUDE_ROOT}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+    echo "=== POST-DRACUT: plymouthd.conf from initramfs ===" >&2 && \
+    (lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
+    echo "=== POST-DRACUT: plymouthd.defaults from initramfs ===" >&2 && \
+    (lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
     rm -rf "${KYTH_PLYMOUTH_INCLUDE_ROOT}" && \
     if command -v lsinitrd >/dev/null 2>&1; then \
         _initrd_listing="$(mktemp)" && \
