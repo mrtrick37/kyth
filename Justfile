@@ -20,6 +20,18 @@ check:
     echo "Checking syntax: Justfile"
     just --unstable --fmt --check -f Justfile
 
+# Check Dockerfile frontend/build rules without requiring the local kyth-base image.
+[group('Build')]
+check-dockerfile check_base_image="ghcr.io/ublue-os/kinoite-main:44":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! id -nG | grep -qw docker; then
+        exec sg docker -c "just check-dockerfile '{{ check_base_image }}'"
+    fi
+    docker buildx build --check \
+        --build-arg BASE_IMAGE={{ check_base_image }} \
+        .
+
 # Fix Just Syntax
 [group('Just')]
 fix:

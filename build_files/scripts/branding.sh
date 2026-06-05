@@ -247,6 +247,10 @@ SDDMEOF
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
+# Boot and display-manager components resolve /etc/os-release LOGO=kyth through
+# the same icon stack, while GRUB themes key off BLS grub_class names. Install
+# both KythOS-native names and Fedora-compatible overrides so stale boot entries
+# cannot render the inherited Fedora badge.
 # Two failure modes to defeat:
 #   1. fedora-logos ships PNGs at exact pixel sizes; Qt/Plasma prefers an
 #      exact-size PNG over a scalable SVG, so the Fedora icon won at lookup.
@@ -263,24 +267,68 @@ for theme_dir in \
     mkdir -p "${theme_dir}"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 
-# PNGs at every standard size — beats fedora-logos exact-size PNG at lookup
+# PNGs at every standard size — beats inherited exact-size Fedora PNGs at lookup
 for sz in 16 22 24 32 48 64 128 256; do
     for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
         dir="${base}/${sz}x${sz}/apps"
         mkdir -p "${dir}"
         rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
             -o "${dir}/kyth-kickoff.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/kyth.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
     done
 done
+
+# Extra legacy lookup locations used by boot menus, display managers, and older
+# GTK/KDE code paths. The Fedora-named files intentionally contain KythOS art:
+# some existing BLS snippets still say grub_class=fedora until the migration
+# below has run.
+mkdir -p /usr/share/pixmaps
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kyth.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kythos.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/distributor-logo.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/fedora-logo-icon.svg
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kyth.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/kythos.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/distributor-logo.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/fedora-logo-icon.png
+
+for grub_icon_dir in \
+    /boot/grub2/themes/system/icons \
+    /boot/grub2/themes/starfield/icons \
+    /usr/share/grub/themes/system/icons \
+    /usr/share/grub/themes/starfield/icons; do
+    mkdir -p "${grub_icon_dir}"
+    for icon in kyth kythos fedora gnu-linux linux; do
+        rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
+            -o "${grub_icon_dir}/${icon}.png"
+    done
+done
+
+mkdir -p /etc/default
+if [[ -f /etc/default/grub ]]; then
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+    else
+        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
+    fi
+else
+    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
+fi
 
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
@@ -983,18 +1031,80 @@ WantedBy=multi-user.target
 SPLASHKARGSEOF
 systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 
+# Existing installs may also have bootloader metadata generated while the image
+# still identified as Fedora. Repair visual boot classes and theme icons once on
+# upgraded systems so a stale BLS grub_class=fedora cannot draw Fedora artwork.
+mkdir -p /usr/libexec
+cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
+    [[ -d "${bls_dir}" ]] || continue
+    while IFS= read -r -d '' entry; do
+        sed -i \
+            -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
+            -e 's/^title[[:space:]]Fedora/title KythOS/' \
+            -e 's/^grub_class[[:space:]].*/grub_class kythos/' \
+            "${entry}"
+        grep -q '^grub_class[[:space:]]' "${entry}" || printf 'grub_class kythos\n' >> "${entry}"
+    done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
+done
+
+if [[ -f /etc/default/grub ]]; then
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+    else
+        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
+    fi
+fi
+
+for grub_icon_dir in \
+    /boot/grub2/themes/system/icons \
+    /boot/grub2/themes/starfield/icons \
+    /usr/share/grub/themes/system/icons \
+    /usr/share/grub/themes/starfield/icons; do
+    [[ -d "${grub_icon_dir}" ]] || continue
+    if [[ -r /usr/share/pixmaps/kyth.png ]]; then
+        for icon in kyth kythos fedora gnu-linux linux; do
+            install -m 0644 /usr/share/pixmaps/kyth.png "${grub_icon_dir}/${icon}.png"
+        done
+    fi
+done
+
+if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub2 ]]; then
+    grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
+fi
+BOOTBRANDINGEOF
+chmod 0755 /usr/libexec/kyth-boot-branding-guard
+
+cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
+[Unit]
+Description=Refresh KythOS bootloader branding
+ConditionPathExists=!/var/lib/kyth/boot-branding-v1
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-branding-v1'
+
+[Install]
+WantedBy=multi-user.target
+BOOTBRANDINGSERVICEEOF
+systemctl enable kyth-boot-branding.service 2>/dev/null || true
+
 
 # Existing deployments already have an initramfs in /boot. Repair it once
 # after the updated image boots so subsequent reboots use KythOS branding too.
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v7
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v8
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v7'
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard || true; /usr/libexec/kyth-plymouth-branding-guard; plymouth-set-default-theme kyth; dracut --regenerate-all --force --add kyth-plymouth; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v8'
 
 [Install]
 WantedBy=multi-user.target
