@@ -175,15 +175,8 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
     KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
-    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
-    install -m 0644 /etc/plymouth/plymouthd.conf "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth/plymouthd.conf" && \
+    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
     install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
-    echo "=== PRE-DRACUT: host plymouthd.conf ===" >&2 && \
-    cat /etc/plymouth/plymouthd.conf >&2 && \
-    echo "=== PRE-DRACUT: include-root plymouthd.conf ===" >&2 && \
-    cat "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth/plymouthd.conf" >&2 && \
-    echo "=== PRE-DRACUT: 99kyth-plymouth module ===" >&2 && \
-    cat /usr/lib/dracut/modules.d/99kyth-plymouth/module-setup.sh >&2 && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
@@ -193,8 +186,6 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
         --include "${KYTH_PLYMOUTH_INCLUDE_ROOT}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) && \
-    echo "=== POST-DRACUT: plymouthd.conf from initramfs ===" >&2 && \
-    (lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
     echo "=== POST-DRACUT: plymouthd.defaults from initramfs ===" >&2 && \
     (lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
     rm -rf "${KYTH_PLYMOUTH_INCLUDE_ROOT}" && \
@@ -207,8 +198,6 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
             || { echo "ERROR: branded initramfs Plymouth defaults do not force Theme=kyth" >&2; exit 1; } && \
-        lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
-            || { echo "ERROR: branded initramfs plymouthd.conf is missing or does not force Theme=kyth" >&2; exit 1; } && \
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then \
             echo "ERROR: Fedora Plymouth fallback branding leaked into branded initramfs" >&2; \
             exit 1; \

@@ -72,17 +72,9 @@ depends() {
 }
 
 install() {
-    mkdir -p \
-        "${initdir}/etc/plymouth" \
-        "${initdir}/usr/share/plymouth/themes"
-    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
-        > "${initdir}/etc/plymouth/plymouthd.conf"
+    mkdir -p "${initdir}/usr/share/plymouth/themes"
     printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
         > "${initdir}/usr/share/plymouth/plymouthd.defaults"
-    echo "=== kyth-plymouth: plymouthd.conf ($(wc -c < "${initdir}/etc/plymouth/plymouthd.conf" 2>/dev/null || echo MISSING) bytes) ===" >&2
-    cat "${initdir}/etc/plymouth/plymouthd.conf" >&2 || true
-    echo "=== kyth-plymouth: plymouthd.defaults ($(wc -c < "${initdir}/usr/share/plymouth/plymouthd.defaults" 2>/dev/null || echo MISSING) bytes) ===" >&2
-    cat "${initdir}/usr/share/plymouth/plymouthd.defaults" >&2 || true
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \

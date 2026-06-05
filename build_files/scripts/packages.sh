@@ -129,6 +129,8 @@ dnf5 install -y --skip-unavailable \
 	rsync \
 	xorriso \
 	squashfs-tools \
+	fuse \
+	fuse3 \
 	mtools \
 	dosfstools \
 	sbsigntools \
