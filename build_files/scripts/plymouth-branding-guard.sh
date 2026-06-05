@@ -56,7 +56,13 @@ for theme_dir in \
     done
 done
 
+# Remove both Fedora-branded and plain bgrt themes from the system filesystem.
+# The bgrt theme (not just bgrt-fedora) can fall back to rendering the UEFI
+# BGRT ACPI table image — which may contain the Fedora logo written by the
+# original bootloader/shim.  Removing the directory makes the fallback
+# impossible; Plymouth can only use kyth, details, or text.
 rm -rf /usr/share/plymouth/themes/bgrt-fedora
+rm -rf /usr/share/plymouth/themes/bgrt
 plymouth-set-default-theme kyth
 
 rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth

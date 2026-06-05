@@ -427,9 +427,27 @@ sed -i -E 's/^[#[:space:]]*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.c
 grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
     printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
 
+# Udev rule: unblock Bluetooth the moment any rfkill device of type bluetooth
+# appears. This covers HP WMI and other drivers (common on HP ZBook) that expose
+# their rfkill device asynchronously — AFTER kyth-bluetooth-enable.service has
+# already run at boot. Without this rule those adapters boot soft-blocked and
+# nothing subsequently unblocks them until the user toggles Bluetooth manually.
+mkdir -p /etc/udev/rules.d
+cat > /etc/udev/rules.d/69-kyth-bluetooth.rules <<'BTUDEVEOF'
+# Unblock Bluetooth immediately when any rfkill bluetooth device appears.
+# Handles HP WMI and similar drivers that load their rfkill entry after the
+# kyth-bluetooth-enable systemd service has already executed.
+ACTION=="add", SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", RUN+="/usr/sbin/rfkill unblock bluetooth"
+BTUDEVEOF
+
 cat > /usr/libexec/kyth-enable-bluetooth <<'BTENABLEEOF'
 #!/usr/bin/bash
 set -uo pipefail
+
+# Clear any saved soft-block state that systemd-rfkill would restore on the
+# next boot.  The files are named after the rfkill index (e.g. "platform-xxx:bluetooth").
+# Removing them prevents systemd-rfkill from overriding our unblock on next boot.
+find /var/lib/systemd/rfkill -name "*bluetooth*" -delete 2>/dev/null || true
 
 if command -v rfkill >/dev/null 2>&1; then
     rfkill unblock bluetooth >/dev/null 2>&1 || true
@@ -447,6 +465,7 @@ cat > /usr/lib/systemd/system/kyth-bluetooth-enable.service <<'BTENABLEUNITEOF'
 [Unit]
 Description=Enable Bluetooth adapters at boot
 Documentation=https://github.com/mrtrick37/kyth
+# Run after systemd-rfkill has restored saved state so we can override it.
 After=bluetooth.service systemd-rfkill.service
 Wants=bluetooth.service
 

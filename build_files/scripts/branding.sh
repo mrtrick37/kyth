@@ -283,7 +283,10 @@ for sz in 16 22 24 32 48 64 128 256; do
         mkdir -p "${dir}"
         rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
             -o "${dir}/kyth-kickoff.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/kyth.png"
+        # kyth.png is the generic app icon (used by Icon=kyth in the System Hub desktop
+        # file). It must be the abstract logo, NOT the kickoff icon — they are distinct.
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
+            -o "${dir}/kyth.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
@@ -298,14 +301,16 @@ done
 # some existing BLS snippets still say grub_class=fedora until the migration
 # below has run.
 mkdir -p /usr/share/pixmaps
-cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kyth.svg
+# kyth.svg / kyth.png = abstract logo (used by Icon=kyth lookups, e.g. System Hub)
+# kythos / distributor-logo = kickoff icon (used by GRUB, boot menus, legacy paths)
+cp /ctx/branding/kyth-logo-transparent.svg /usr/share/pixmaps/kyth.svg
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-logo-transparent.svg -o /usr/share/pixmaps/kyth.png
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kythos.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/distributor-logo.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/fedora-logo-icon.svg
-rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kyth.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/kythos.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/distributor-logo.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/fedora-logo-icon.png
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kythos.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/distributor-logo.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/fedora-logo-icon.png
 
 for grub_icon_dir in \
     /boot/grub2/themes/system/icons \
@@ -1142,24 +1147,24 @@ for image in /boot/ostree/*/initramfs-*.img; do
         --kver "${kernel}" \
         --reproducible \
         --force \
-        --add "ostree kyth-plymouth" \
+        --add "drm plymouth ostree kyth-plymouth" \
         "${image}" \
         "${kernel}"
     rebuilt=1
 done
 
 if [[ "${rebuilt}" -eq 0 ]]; then
-    dracut --regenerate-all --force --add "kyth-plymouth"
+    dracut --regenerate-all --force --add "drm plymouth kyth-plymouth"
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v9
+touch /var/lib/kyth/boot-splash-initramfs-v10
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v9
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v10
 After=local-fs.target
 
 [Service]
