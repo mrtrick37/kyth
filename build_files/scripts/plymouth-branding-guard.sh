@@ -81,12 +81,12 @@ install() {
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 PLYMOUTHDEFAULTS
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"

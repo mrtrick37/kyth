@@ -130,12 +130,12 @@ install() {
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 PLYMOUTHDEFAULTS
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
@@ -173,7 +173,7 @@ if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
     cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 PLYMOUTHCONF
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
     _kyth_plymouth_include_root="$(mktemp -d)"

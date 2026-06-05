@@ -172,7 +172,7 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     test -n "${KVER}" \
         || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
     mkdir -p /etc/plymouth /usr/share/plymouth && \
-    printf '[Daemon]\nTheme=kyth\nShowDelay=0\n' > /etc/plymouth/plymouthd.conf && \
+    printf '[Daemon]\nTheme=kyth\nShowDelay=1\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
     KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
     mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/etc/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \

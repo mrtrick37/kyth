@@ -281,13 +281,13 @@ mkdir -p /etc/plymouth /usr/share/plymouth
 cat > /etc/plymouth/plymouthd.conf <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 EOF
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.conf
 cat > /usr/share/plymouth/plymouthd.defaults <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=0
+ShowDelay=1
 EOF
 kyth_plymouth_include_root="$(mktemp -d)"
 mkdir -p \
