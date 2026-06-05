@@ -21,35 +21,35 @@ command -v openssl >/dev/null
 install -Dm 0644 "${CERT}" /usr/share/kyth/secureboot/kyth-secureboot.cer
 openssl x509 -in "${CERT}" -outform DER -out /tmp/kyth-secureboot.der
 install -Dm 0644 /tmp/kyth-secureboot.der /usr/share/kyth/secureboot/kyth-secureboot.der
-install -Dm 0755 /ctx/kyth-enroll-mok         /usr/bin/kyth-enroll-mok
+install -Dm 0755 /ctx/kyth-enroll-mok /usr/bin/kyth-enroll-mok
 install -Dm 0644 /ctx/kyth-enroll-mok.service /usr/lib/systemd/system/kyth-enroll-mok.service
 
 if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
-    echo "secureboot: Fedora kernel flavor uses Fedora-signed boot artifacts — Kyth MOK signing skipped"
-    exit 0
+	echo "secureboot: Fedora kernel flavor uses Fedora-signed boot artifacts — Kyth MOK signing skipped"
+	exit 0
 fi
 
 if [[ ! -f "${MOK_KEY_FILE}" ]]; then
-    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
-        echo "secureboot: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2
-        exit 1
-    fi
-    echo "secureboot: no MOK key provided — Secure Boot signing skipped"
-    echo "secureboot: set MOK_KEY env var and pass --secret id=mok_key,env=MOK_KEY to enable"
-    exit 0
+	if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+		echo "secureboot: ERROR — SECUREBOOT_SIGNING_REQUESTED=1 but MOK_KEY secret is unavailable" >&2
+		exit 1
+	fi
+	echo "secureboot: no MOK key provided — Secure Boot signing skipped"
+	echo "secureboot: set MOK_KEY env var and pass --secret id=mok_key,env=MOK_KEY to enable"
+	exit 0
 fi
 
 # ── Find the installed custom kernel ─────────────────────────────────────────
 KVER=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' 2>/dev/null | sort -V | tail -n 1)
 if [[ -z "${KVER}" ]]; then
-    echo "secureboot: ERROR — no kernel found in /usr/lib/modules/" >&2
-    exit 1
+	echo "secureboot: ERROR — no kernel found in /usr/lib/modules/" >&2
+	exit 1
 fi
 
 VMLINUZ="/usr/lib/modules/${KVER}/vmlinuz"
 if [[ ! -f "${VMLINUZ}" ]]; then
-    echo "secureboot: ERROR — vmlinuz not found at ${VMLINUZ}" >&2
-    exit 1
+	echo "secureboot: ERROR — vmlinuz not found at ${VMLINUZ}" >&2
+	exit 1
 fi
 
 # ── Sign the custom kernel ───────────────────────────────────────────────────
@@ -60,19 +60,19 @@ CERT_MD5=$(openssl x509 -in "${CERT}" -noout -modulus 2>/dev/null | openssl md5 
 echo "secureboot: key modulus md5=${KEY_MD5}"
 echo "secureboot: cert modulus md5=${CERT_MD5}"
 if [[ "${KEY_MD5}" != "${CERT_MD5}" ]]; then
-    if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
-        echo "secureboot: ERROR — MOK_KEY secret does not match kyth-secureboot.cer in the repo." >&2
-        echo "secureboot: Update the MOK_KEY GitHub secret with the private key matching cert modulus ${CERT_MD5}." >&2
-        exit 1
-    fi
-    echo "secureboot: WARNING — MOK_KEY secret does not match kyth-secureboot.cer in the repo; signing skipped." >&2
-    echo "secureboot: Update the MOK_KEY GitHub secret with the private key matching cert modulus ${CERT_MD5} to re-enable signing." >&2
-    exit 0
+	if [[ "${SECUREBOOT_SIGNING_REQUESTED}" == "1" ]]; then
+		echo "secureboot: ERROR — MOK_KEY secret does not match kyth-secureboot.cer in the repo." >&2
+		echo "secureboot: Update the MOK_KEY GitHub secret with the private key matching cert modulus ${CERT_MD5}." >&2
+		exit 1
+	fi
+	echo "secureboot: WARNING — MOK_KEY secret does not match kyth-secureboot.cer in the repo; signing skipped." >&2
+	echo "secureboot: Update the MOK_KEY GitHub secret with the private key matching cert modulus ${CERT_MD5} to re-enable signing." >&2
+	exit 0
 fi
 sbsign --key "${MOK_KEY_FILE}" \
-       --cert "${CERT}" \
-       --output "${VMLINUZ}.signed" \
-       "${VMLINUZ}"
+	--cert "${CERT}" \
+	--output "${VMLINUZ}.signed" \
+	"${VMLINUZ}"
 mv "${VMLINUZ}.signed" "${VMLINUZ}"
 sbverify --cert "${CERT}" "${VMLINUZ}"
 

@@ -46,8 +46,8 @@ partition_parent_disk() {
 
 find_efi_partition() {
 	local disk="$1"
-	lsblk -lnpo NAME,FSTYPE,SIZE,PARTTYPE "$disk" \
-		| awk '
+	lsblk -lnpo NAME,FSTYPE,SIZE,PARTTYPE "$disk" |
+		awk '
 			tolower($2) == "vfat" && ($4 == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" || $3 ~ /M|G/) {
 				print $1
 				exit
@@ -57,9 +57,9 @@ find_efi_partition() {
 
 find_deploy_etc() {
 	local root="$1"
-	find "$root/ostree/deploy/default/deploy" -mindepth 2 -maxdepth 2 -type d -name etc 2>/dev/null \
-		| sort \
-		| tail -n1
+	find "$root/ostree/deploy/default/deploy" -mindepth 2 -maxdepth 2 -type d -name etc 2>/dev/null |
+		sort |
+		tail -n1
 }
 
 write_target_file() {
@@ -114,8 +114,8 @@ ensure_system_accounts() {
 		while IFS=: read -r name _; do
 			[[ -n "$name" && "$name" != "root" ]] || continue
 			if ! as_root grep -q "^${name}:" "$shadow_path"; then
-				printf '%s:!*:19700:0:99999:7:::\n' "$name" \
-					| as_root tee -a "$shadow_path" >/dev/null
+				printf '%s:!*:19700:0:99999:7:::\n' "$name" |
+					as_root tee -a "$shadow_path" >/dev/null
 			fi
 		done < <(as_root cat "$passwd_path")
 	fi
@@ -151,8 +151,8 @@ create_user() {
 		$1 == user { $2 = hash; found = 1 }
 		{ print }
 		END { if (!found) exit 42 }
-	' "$shadow_path" >"$tmp_shadow" \
-		|| {
+	' "$shadow_path" >"$tmp_shadow" ||
+		{
 			rm -f "$tmp_shadow"
 			die "Failed to update password hash for ${username}"
 		}
