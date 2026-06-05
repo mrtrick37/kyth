@@ -52,7 +52,7 @@ install -Dm0755 /tmp/plymouth-branding-guard.sh \
 # dracut's 45plymouth module (plymouth-populate-initrd) installs a non-empty
 # file, and the first-boot initramfs rebuild service finds the correct config.
 mkdir -p /etc/plymouth /usr/share/plymouth
-printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
+printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
 	>/etc/plymouth/plymouthd.conf
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 
@@ -73,7 +73,7 @@ depends() {
 
 install() {
     mkdir -p "${initdir}/usr/share/plymouth/themes"
-    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
+    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
         > "${initdir}/usr/share/plymouth/plymouthd.defaults"
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"

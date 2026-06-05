@@ -1073,8 +1073,25 @@ cat >/usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+boot_was_ro=0
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    if mount -o remount,rw /boot 2>/dev/null; then
+        boot_was_ro=1
+    else
+        echo "WARNING: /boot is read-only and could not be remounted; skipping bootloader file updates" >&2
+    fi
+fi
+
+cleanup() {
+    if [[ "${boot_was_ro}" -eq 1 ]]; then
+        mount -o remount,ro /boot || true
+    fi
+}
+trap cleanup EXIT
+
 for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     [[ -d "${bls_dir}" ]] || continue
+    [[ -w "${bls_dir}" ]] || continue
     while IFS= read -r -d '' entry; do
         sed -i \
             -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
@@ -1085,7 +1102,7 @@ for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
 done
 
-if [[ -f /etc/default/grub ]]; then
+if [[ -f /etc/default/grub && -w /etc/default/grub ]]; then
     if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
         sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
     else
@@ -1099,6 +1116,7 @@ for grub_icon_dir in \
     /usr/share/grub/themes/system/icons \
     /usr/share/grub/themes/starfield/icons; do
     [[ -d "${grub_icon_dir}" ]] || continue
+    [[ -w "${grub_icon_dir}" ]] || continue
     if [[ -r /usr/share/pixmaps/kyth.png ]]; then
         for icon in kyth kythos fedora gnu-linux linux; do
             install -m 0644 /usr/share/pixmaps/kyth.png "${grub_icon_dir}/${icon}.png"
@@ -1106,7 +1124,7 @@ for grub_icon_dir in \
     fi
 done
 
-if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub2 ]]; then
+if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -w /boot/grub2 ]]; then
     grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
 fi
 BOOTBRANDINGEOF
@@ -1150,23 +1168,43 @@ if [[ -w /usr/share/plymouth && -x /usr/libexec/kyth-plymouth-branding-guard ]];
     /usr/libexec/kyth-plymouth-branding-guard || true
 fi
 
+include_root="$(mktemp -d /tmp/kyth-plymouth-initramfs.XXXXXX)"
 boot_was_ro=0
-if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
-    mount -o remount,rw /boot
-    boot_was_ro=1
-fi
-
 cleanup() {
+    rm -rf "${include_root}"
     if [[ "${boot_was_ro}" -eq 1 ]]; then
         mount -o remount,ro /boot || true
     fi
 }
 trap cleanup EXIT
 
-mkdir -p /etc/plymouth /usr/share/plymouth
-printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
-    > /etc/plymouth/plymouthd.conf
-install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    if mount -o remount,rw /boot 2>/dev/null; then
+        boot_was_ro=1
+    else
+        echo "WARNING: /boot is read-only and could not be remounted; skipping initramfs refresh" >&2
+        exit 0
+    fi
+fi
+
+mkdir -p \
+    "${include_root}/etc/plymouth" \
+    "${include_root}/usr/share/plymouth" \
+    "${include_root}/usr/share/plymouth/themes"
+printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
+    > "${include_root}/etc/plymouth/plymouthd.conf"
+install -m 0644 \
+    "${include_root}/etc/plymouth/plymouthd.conf" \
+    "${include_root}/usr/share/plymouth/plymouthd.defaults"
+cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
+ln -sfn kyth/kyth.plymouth "${include_root}/usr/share/plymouth/themes/default.plymouth"
+
+if [[ -w /etc/plymouth ]]; then
+    install -m 0644 "${include_root}/etc/plymouth/plymouthd.conf" /etc/plymouth/plymouthd.conf
+fi
+if [[ -w /usr/share/plymouth ]]; then
+    install -m 0644 "${include_root}/usr/share/plymouth/plymouthd.defaults" /usr/share/plymouth/plymouthd.defaults
+fi
 
 shopt -s nullglob
 rebuilt=0
@@ -1175,29 +1213,43 @@ for image in /boot/ostree/*/initramfs-*.img; do
     kernel="${kernel%.img}"
     [[ -d "/usr/lib/modules/${kernel}" ]] || continue
 
-    dracut \
+    TMPDIR=/tmp dracut \
+        --tmpdir /tmp \
         --no-hostonly \
         --kver "${kernel}" \
         --reproducible \
         --force \
         --add "drm plymouth ostree kyth-plymouth" \
+        --include "${include_root}" / \
         "${image}" \
         "${kernel}"
+    if command -v lsinitrd >/dev/null 2>&1; then
+        defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
+        grep -q '^Theme=kyth$' "${defaults}"
+        grep -q '^DeviceTimeout=8$' "${defaults}"
+        rm -f "${defaults}"
+    fi
     rebuilt=1
 done
 
 if [[ "${rebuilt}" -eq 0 ]]; then
-    dracut --regenerate-all --force --add "drm plymouth kyth-plymouth"
+    TMPDIR=/tmp dracut \
+        --tmpdir /tmp \
+        --regenerate-all \
+        --force \
+        --add "drm plymouth kyth-plymouth" \
+        --include "${include_root}" /
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v11
+touch /var/lib/kyth/boot-splash-initramfs-v12
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat >/usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v11
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v12
 After=local-fs.target
 
 [Service]
