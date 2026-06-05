@@ -1242,14 +1242,14 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --include "${include_root}" /
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v12
+touch /var/lib/kyth/boot-splash-initramfs-v13
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat >/usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v12
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v13
 After=local-fs.target
 
 [Service]
