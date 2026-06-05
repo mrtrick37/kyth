@@ -4,7 +4,7 @@ set -euo pipefail
 
 # ── Kernel sysctl parameters ──────────────────────────────────────────────────
 mkdir -p /etc/sysctl.d
-cat > /etc/sysctl.d/99-kyth.conf <<'SYSCTLEOF'
+cat >/etc/sysctl.d/99-kyth.conf <<'SYSCTLEOF'
 # Memory
 # swappiness=180: with zram present the kernel should aggressively swap to the
 # fast compressed device rather than drop clean pages. The Fedora zram-generator
@@ -120,7 +120,7 @@ net.ipv4.udp_wmem_min = 8192
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
-echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
+echo 'tcp_bbr' >/etc/modules-load.d/bbr.conf
 
 # ── OpenRGB — i2c bus access ──────────────────────────────────────────────────
 # i2c-dev: exposes /dev/i2c-* devices to userspace so OpenRGB can talk to
@@ -128,7 +128,7 @@ echo 'tcp_bbr' > /etc/modules-load.d/bbr.conf
 # i2c-piix4: provides the SMBus (i2c) controller driver that covers the AMD
 # FCH/SB southbridge found on virtually all Ryzen gaming motherboards and many
 # Intel boards. Without it OpenRGB cannot enumerate most onboard RGB zones.
-printf 'i2c-dev\ni2c-piix4\n' > /etc/modules-load.d/openrgb.conf
+printf 'i2c-dev\ni2c-piix4\n' >/etc/modules-load.d/openrgb.conf
 
 # ── systemd-oomd hardening ────────────────────────────────────────────────────
 # By default systemd-oomd runs but monitors nothing — cgroups must explicitly
@@ -147,7 +147,7 @@ printf 'i2c-dev\ni2c-piix4\n' > /etc/modules-load.d/openrgb.conf
 # - SwapUsedLimit raised to 85%: zram compresses at ~3:1, so 85% of 14 GB of
 #   zram logical capacity still leaves physical RAM available for decompression.
 mkdir -p /etc/systemd/oomd.conf.d
-cat > /etc/systemd/oomd.conf.d/99-kyth.conf <<'OOMDEOF'
+cat >/etc/systemd/oomd.conf.d/99-kyth.conf <<'OOMDEOF'
 [OOM]
 SwapUsedLimit=85%
 DefaultMemoryPressureLimit=65%
@@ -158,7 +158,7 @@ OOMDEOF
 # the highest-OOM-score process inside user.slice when thresholds are breached,
 # sparing session-critical processes like dbus-broker and plasmashell.
 mkdir -p /etc/systemd/system/user.slice.d
-cat > /etc/systemd/system/user.slice.d/10-oomd-user.conf <<'OOMDSLICEEOF'
+cat >/etc/systemd/system/user.slice.d/10-oomd-user.conf <<'OOMDSLICEEOF'
 [Slice]
 ManagedOOMSwap=kill
 ManagedOOMMemoryPressure=kill
@@ -169,7 +169,7 @@ OOMDSLICEEOF
 # Force a 12-hour AM/PM clock by default on installed systems.
 # LANG keeps the desktop in US English; LC_TIME specifically controls date/time
 # formatting for Plasma, Qt, and libc-aware apps.
-cat > /etc/locale.conf <<'LOCALEEOF'
+cat >/etc/locale.conf <<'LOCALEEOF'
 LANG=en_US.UTF-8
 LC_TIME=en_US.UTF-8
 LOCALEEOF
@@ -178,7 +178,7 @@ LOCALEEOF
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
 mkdir -p /etc/tmpfiles.d
-cat > /etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
+cat >/etc/tmpfiles.d/kyth-thp.conf <<'THPEOF'
 w! /sys/kernel/mm/transparent_hugepage/enabled - - - - madvise
 w! /sys/kernel/mm/transparent_hugepage/defrag  - - - - defer+madvise
 THPEOF
@@ -188,7 +188,7 @@ THPEOF
 # in the bootc base only creates /var/lib/dbus, and /run is empty at every boot.
 # Without this, dbus.socket fails, which then takes down logind, polkit,
 # NetworkManager, and the SDDM greeter.
-cat > /etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
+cat >/etc/tmpfiles.d/kyth-dbus.conf <<'DBUSTMPFILEEOF'
 d /run/dbus 0755 root root -
 DBUSTMPFILEEOF
 
@@ -197,7 +197,7 @@ DBUSTMPFILEEOF
 # operate against the mutable /etc databases. If the installed /etc lacks those
 # accounts, dbus-broker cannot build its NSS cache and SDDM cannot resolve the
 # sddm greeter user, leaving QEMU at a black cursor after X starts.
-cat > /usr/lib/systemd/system/kyth-system-accounts.service <<'SYSACCOUNTUNITEOF'
+cat >/usr/lib/systemd/system/kyth-system-accounts.service <<'SYSACCOUNTUNITEOF'
 [Unit]
 Description=Ensure KythOS system accounts are visible in /etc
 DefaultDependencies=no
@@ -214,7 +214,7 @@ WantedBy=sysinit.target
 SYSACCOUNTUNITEOF
 
 install -d -m 0755 /usr/libexec
-cat > /usr/libexec/kyth-fix-system-accounts <<'SYSACCOUNTSCRIPTEOF'
+cat >/usr/libexec/kyth-fix-system-accounts <<'SYSACCOUNTSCRIPTEOF'
 #!/usr/bin/bash
 set -euo pipefail
 
@@ -277,7 +277,7 @@ systemctl enable kyth-system-accounts.service 2>/dev/null || true
 
 mkdir -p /etc/asusd
 
-cat > /usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
+cat >/usr/lib/systemd/system/kyth-dbus-runtime-dir.service <<'DBUSRUNDIREOF'
 [Unit]
 Description=Create D-Bus runtime directory
 DefaultDependencies=no
@@ -300,7 +300,7 @@ systemctl enable kyth-dbus-runtime-dir.service 2>/dev/null || true
 # remove audit integration from broker launch so lack of usable audit plumbing
 # cannot take down the desktop.
 mkdir -p /etc/systemd/system/dbus-broker.service.d
-cat > /etc/systemd/system/dbus-broker.service.d/10-kyth-no-audit.conf <<'DBUSBROKEREOF'
+cat >/etc/systemd/system/dbus-broker.service.d/10-kyth-no-audit.conf <<'DBUSBROKEREOF'
 [Service]
 ExecStart=
 ExecStart=/usr/bin/dbus-broker-launch --scope system
@@ -317,7 +317,7 @@ DBUSBROKEREOF
 # the GPU can claim most of system RAM as GTT under sustained gaming load, starving
 # CPU-side processes. Capping at 4096 MB leaves ≥10 GB reliably available for the
 # CPU without starving games that need GPU memory bandwidth.
-cat > /etc/modprobe.d/amdgpu-kyth.conf <<'AMDGPUEOF'
+cat >/etc/modprobe.d/amdgpu-kyth.conf <<'AMDGPUEOF'
 options amdgpu ppfeaturemask=0xffffffff
 options amdgpu gttsize=4096
 # noretry=0: allow the GPU to retry faulting memory accesses instead of
@@ -338,7 +338,7 @@ AMDGPUEOF
 #   this image, so nouveau must remain loadable to provide KMS/display output on
 #   NVIDIA hardware. If a user layers the proprietary driver via rpm-ostree they
 #   should add their own blacklist via /etc/modprobe.d/blacklist-nouveau.conf.
-cat > /etc/modprobe.d/nvidia-kyth.conf <<'NVEOF'
+cat >/etc/modprobe.d/nvidia-kyth.conf <<'NVEOF'
 options nvidia-drm modeset=1
 options nvidia NVreg_PreserveVideoMemoryAllocations=1
 NVEOF
@@ -351,7 +351,7 @@ NVEOF
 #   Required on some Gen 9/10 parts where HuC would otherwise be skipped.
 # These options are safe no-ops on Intel GPUs that use the xe driver (Arc /
 #   Meteor Lake+), which manages GuC/HuC independently of i915.
-cat > /etc/modprobe.d/i915-kyth.conf <<'I915EOF'
+cat >/etc/modprobe.d/i915-kyth.conf <<'I915EOF'
 options i915 enable_guc=3 enable_huc=2
 I915EOF
 
@@ -360,9 +360,9 @@ I915EOF
 # to /dev/ntsync so Wine/Proton can use NT synchronization primitives when the
 # module is available.
 mkdir -p /usr/lib/modules-load.d
-echo 'ntsync' > /usr/lib/modules-load.d/kyth-ntsync.conf
+echo 'ntsync' >/usr/lib/modules-load.d/kyth-ntsync.conf
 echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
-    > /usr/lib/udev/rules.d/99-ntsync.rules
+	>/usr/lib/udev/rules.d/99-ntsync.rules
 
 # zram-size = min(ram, 8192): logical size equals physical RAM up to 8 GB.
 # The old ram/2 formula gave only 7 GB on this 14 GB machine, which fills
@@ -371,7 +371,7 @@ echo 'KERNEL=="ntsync", GROUP="users", MODE="0660"' \
 # at ~3:1 zstd ratio mean 14 GB of logical space costs ~4–5 GB of real RAM
 # at peak, still cheaper than OOM-killing apps. swap-priority=100 ensures
 # zram is always chosen over any disk swap that might exist.
-cat > /etc/systemd/zram-generator.conf <<'ZRAMEOF'
+cat >/etc/systemd/zram-generator.conf <<'ZRAMEOF'
 [zram0]
 zram-size = min(ram, 8192)
 compression-algorithm = zstd
@@ -382,7 +382,7 @@ ZRAMEOF
 # Applied when a game calls gamemoderun or uses the gamemode SDL hook.
 # renice/ioprio: game process gets higher CPU + I/O scheduling priority.
 # gpu: switches AMD GPU to high-performance power profile during gameplay.
-cat > /etc/gamemode.ini <<'GAMEMODEEOF'
+cat >/etc/gamemode.ini <<'GAMEMODEEOF'
 [general]
 renice = 10
 ioprio = 0
@@ -424,8 +424,8 @@ GAMEMODEEOF
 mkdir -p /etc/bluetooth
 touch /etc/bluetooth/main.conf
 sed -i -E 's/^[#[:space:]]*AutoEnable=.*/AutoEnable=true/' /etc/bluetooth/main.conf
-grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
-    printf '\n[Policy]\nAutoEnable=true\n' >> /etc/bluetooth/main.conf
+grep -q '^AutoEnable=' /etc/bluetooth/main.conf ||
+	printf '\n[Policy]\nAutoEnable=true\n' >>/etc/bluetooth/main.conf
 
 # Udev rule: unblock Bluetooth the moment any rfkill device of type bluetooth
 # appears. This covers HP WMI and other drivers (common on HP ZBook) that expose
@@ -433,14 +433,20 @@ grep -q '^AutoEnable=' /etc/bluetooth/main.conf || \
 # already run at boot. Without this rule those adapters boot soft-blocked and
 # nothing subsequently unblocks them until the user toggles Bluetooth manually.
 mkdir -p /etc/udev/rules.d
-cat > /etc/udev/rules.d/69-kyth-bluetooth.rules <<'BTUDEVEOF'
+cat >/etc/udev/rules.d/69-kyth-bluetooth.rules <<'BTUDEVEOF'
 # Unblock Bluetooth immediately when any rfkill bluetooth device appears.
 # Handles HP WMI and similar drivers that load their rfkill entry after the
 # kyth-bluetooth-enable systemd service has already executed.
-ACTION=="add", SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", RUN+="/usr/sbin/rfkill unblock bluetooth"
+#
+# Use %s{index} (the numeric rfkill index) rather than the type-wide
+# "rfkill unblock bluetooth" to send RFKILL_OP_CHANGE to only this device.
+# This avoids triggering shared-rfkill hardware (e.g. HP WMI combined
+# wireless kill-switch) which would also unblock Wi-Fi and cause NM to
+# re-enable Wi-Fi even if the user had intentionally turned it off.
+ACTION=="add", SUBSYSTEM=="rfkill", ATTR{type}=="bluetooth", RUN+="/usr/sbin/rfkill unblock %s{index}"
 BTUDEVEOF
 
-cat > /usr/libexec/kyth-enable-bluetooth <<'BTENABLEEOF'
+cat >/usr/libexec/kyth-enable-bluetooth <<'BTENABLEEOF'
 #!/usr/bin/bash
 set -uo pipefail
 
@@ -449,8 +455,22 @@ set -uo pipefail
 # Removing them prevents systemd-rfkill from overriding our unblock on next boot.
 find /var/lib/systemd/rfkill -name "*bluetooth*" -delete 2>/dev/null || true
 
+# Snapshot Wi-Fi software state before unblocking Bluetooth. On systems with a
+# shared hardware kill-switch (e.g. HP WMI), rfkill unblock bluetooth can also
+# clear the Wi-Fi hard-block, which causes NetworkManager to re-enable Wi-Fi
+# even if the user had intentionally disabled it last session.
+_wifi_was_soft_blocked=0
+if rfkill list wifi 2>/dev/null | grep -q 'Soft blocked: yes'; then
+    _wifi_was_soft_blocked=1
+fi
+
 if command -v rfkill >/dev/null 2>&1; then
     rfkill unblock bluetooth >/dev/null 2>&1 || true
+fi
+
+# Restore Wi-Fi soft-block if it was user-disabled before we ran.
+if [[ "${_wifi_was_soft_blocked}" -eq 1 ]]; then
+    rfkill block wifi >/dev/null 2>&1 || true
 fi
 
 if command -v bluetoothctl >/dev/null 2>&1; then
@@ -461,7 +481,7 @@ exit 0
 BTENABLEEOF
 chmod 0755 /usr/libexec/kyth-enable-bluetooth
 
-cat > /usr/lib/systemd/system/kyth-bluetooth-enable.service <<'BTENABLEUNITEOF'
+cat >/usr/lib/systemd/system/kyth-bluetooth-enable.service <<'BTENABLEUNITEOF'
 [Unit]
 Description=Enable Bluetooth adapters at boot
 Documentation=https://github.com/mrtrick37/kyth
@@ -488,7 +508,7 @@ systemctl enable cups-browsed.service 2>/dev/null || true
 # sensitivity and causing apparent "weak signal" even close to the AP.
 # NetworkManager powersave=2 disables it at the connection level (all adapters).
 mkdir -p /etc/NetworkManager/conf.d
-cat > /etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
+cat >/etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 [connection]
 wifi.powersave = 2
 NMEOF
@@ -496,14 +516,14 @@ NMEOF
 # ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
-cat > /etc/modprobe.d/cfg80211-kyth.conf <<'CFG80211EOF'
+cat >/etc/modprobe.d/cfg80211-kyth.conf <<'CFG80211EOF'
 options cfg80211 ieee80211_regdom=US
 CFG80211EOF
 
 # MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
 # ASPM puts the PCIe device into a low-power state it may not reliably wake
 # from, causing sudden disconnects and requiring a driver reload or reboot.
-cat > /etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
+cat >/etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
 options mt7921e disable_aspm=1
 MT76EOF
 
@@ -512,14 +532,13 @@ MT76EOF
 # can scan successfully but fail or stall during WPA association when firmware
 # power-save enters the handshake. Keep Bluetooth coexistence enabled; it is
 # the safer default for mixed 2.4 GHz Wi-Fi plus Bluetooth office environments.
-cat > /etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
+cat >/etc/modprobe.d/iwlwifi-kyth.conf <<'IWLEOF'
 options iwlwifi power_save=0 uapsd_disable=3 bt_coex_active=1
 IWLEOF
 
-cat > /etc/modprobe.d/iwlmvm-kyth.conf <<'IWLMVMEOF'
+cat >/etc/modprobe.d/iwlmvm-kyth.conf <<'IWLMVMEOF'
 options iwlmvm power_scheme=1
 IWLMVMEOF
-
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
 # Keep NVMe on kernel defaults. Testers can opt into the experimental KythOS
@@ -528,7 +547,7 @@ IWLMVMEOF
 # 'mq-deadline' on SATA SSD — adds deadline fairness with minimal latency.
 # 'bfq' on rotational — budget fair queuing prevents seek storms.
 mkdir -p /etc/udev/rules.d
-cat > /etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
+cat >/etc/udev/rules.d/60-ioschedulers.rules <<'IOEOF'
 # SATA SSDs (non-rotational): deadline with low latency + 1 MB read-ahead
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/scheduler}="mq-deadline"
 ACTION=="add|change", KERNEL=="sd[a-z]*", ATTR{queue/rotational}=="0", ATTR{queue/read_ahead_kb}="1024"
@@ -544,7 +563,7 @@ IOEOF
 # min-quantum=32 lets pro-audio apps request sub-1 ms when needed.
 # Apps that need higher buffering (e.g. Bluetooth) negotiate up automatically.
 mkdir -p /etc/pipewire/pipewire.conf.d
-cat > /etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
+cat >/etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
 context.properties = {
     default.clock.rate          = 48000
     default.clock.quantum       = 128
@@ -567,7 +586,7 @@ PWEOF
 #   framerate in OpenGL games (Minecraft, older Source titles, etc.). Safe
 #   system-wide; Vulkan/DXVK games are unaffected.
 mkdir -p /etc/environment.d
-cat > /etc/environment.d/proton-radv.conf <<'PROTONEOF'
+cat >/etc/environment.d/proton-radv.conf <<'PROTONEOF'
 PROTON_FORCE_LARGE_ADDRESS_AWARE=1
 WINE_LARGE_ADDRESS_AWARE=1
 PROTON_USE_NTSYNC=1
@@ -595,7 +614,7 @@ PROTONEOF
 # obs-vkcapture: make game capture available by default for OBS users. The layer
 # is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
 # a Nobara-like "works without launch-option archaeology" setup.
-cat > /etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
+cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
 OBS_VKCAPTURE=1
 OBSVKCAPTUREEOF
 
@@ -622,9 +641,9 @@ NVAPIEOF
 # services and user sessions.
 mkdir -p /etc/systemd/system.conf.d /etc/systemd/user.conf.d
 echo '[Manager]
-DefaultLimitNOFILE=1048576' > /etc/systemd/system.conf.d/99-kyth-limits.conf
+DefaultLimitNOFILE=1048576' >/etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
-DefaultLimitNOFILE=1048576' > /etc/systemd/user.conf.d/99-kyth-limits.conf
+DefaultLimitNOFILE=1048576' >/etc/systemd/user.conf.d/99-kyth-limits.conf
 
 # ── VS Code: KWallet keyring integration ─────────────────────────────────────
 # Seed new users with argv.json pointing at kwallet6 so VS Code never prompts
@@ -636,7 +655,7 @@ HOME=/etc/skel /ctx/kyth-vscode-wallet
 # downloads, causing stutter mid-session. Disable it in the skel so new users
 # start with indexing off. Users can re-enable it from System Settings → Search.
 mkdir -p /etc/skel/.config
-cat > /etc/skel/.config/baloofilerc <<'BALOOEOF'
+cat >/etc/skel/.config/baloofilerc <<'BALOOEOF'
 [Basic Settings]
 Indexing-Enabled=false
 BALOOEOF
@@ -646,7 +665,7 @@ BALOOEOF
 # verbose game/driver output. Cap persistent storage at 500 MB and the in-memory
 # runtime journal (current boot) at 128 MB.
 mkdir -p /etc/systemd/journald.conf.d
-cat > /etc/systemd/journald.conf.d/99-kyth.conf <<'JOURNALDEOF'
+cat >/etc/systemd/journald.conf.d/99-kyth.conf <<'JOURNALDEOF'
 [Journal]
 SystemMaxUse=500M
 RuntimeMaxUse=128M
@@ -657,7 +676,7 @@ JOURNALDEOF
 # Users can override globally via ~/.config/MangoHud/MangoHud.conf or per-game
 # via the MANGOHUD_CONFIG env var / Steam launch options.
 mkdir -p /etc/skel/.config/MangoHud
-cat > /etc/skel/.config/MangoHud/MangoHud.conf <<'MANGOHUDEOF'
+cat >/etc/skel/.config/MangoHud/MangoHud.conf <<'MANGOHUDEOF'
 # KythOS default MangoHud overlay — toggle with Shift_R+F12
 # Full option reference: https://github.com/flightlessmango/MangoHud
 
@@ -710,13 +729,12 @@ MANGOHUDEOF
 # vkBasalt is only active when ENABLE_VKBASALT=1 is set (per-launch or globally).
 # Pre-configure CAS sharpening so there's a sensible default when users opt in.
 # casSharpness: 0.0 = maximum sharpening, 1.0 = no sharpening; 0.4 is a clean balance.
-cat > /etc/vkBasalt.conf <<'VKBASALTEOF'
+cat >/etc/vkBasalt.conf <<'VKBASALTEOF'
 effects = cas
 casSharpness = 0.4
 # Toggle the effect on/off in-game
 toggleKey = Home
 VKBASALTEOF
-
 
 # ── Font rendering — Windows ClearType-compatible defaults ────────────────────
 # Linux freetype defaults vary by distro; Fedora's are conservative. Tuning
@@ -725,7 +743,7 @@ VKBASALTEOF
 # are preserved, and colour fringing is suppressed by the LCD filter.
 # Users who prefer a different look can drop a file in ~/.config/fontconfig/.
 mkdir -p /etc/fonts/conf.d
-cat > /etc/fonts/local.conf <<'FONTCONFIGEOF'
+cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
 <?xml version="1.0"?>
 <!DOCTYPE fontconfig SYSTEM "fonts.dtd">
 <fontconfig>
@@ -749,12 +767,12 @@ systemctl mask systemd-remount-fs.service
 # no-op in a container build (no running systemd bus, silently swallowed
 # by 2>/dev/null || true).
 ln -sf /usr/lib/systemd/system/sddm.service \
-    /etc/systemd/system/display-manager.service
+	/etc/systemd/system/display-manager.service
 mkdir -p /etc/systemd/system/graphical.target.wants
 ln -sf /etc/systemd/system/display-manager.service \
-    /etc/systemd/system/graphical.target.wants/display-manager.service
+	/etc/systemd/system/graphical.target.wants/display-manager.service
 ln -sf /usr/lib/systemd/system/graphical.target \
-    /etc/systemd/system/default.target
+	/etc/systemd/system/default.target
 
 # ── SELinux: relabel /var/home after each new deployment ──────────────────────
 # bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
@@ -768,7 +786,7 @@ ln -sf /usr/lib/systemd/system/graphical.target \
 # last one we relabeled for. After first boot of a new deployment, subsequent
 # reboots skip it entirely. If a user needs to force a relabel, they can remove
 # /var/lib/kyth/selinux-relabel-home.stamp.
-cat > /usr/lib/systemd/system/kyth-selinux-relabel-home.service <<'RELABELEOF'
+cat >/usr/lib/systemd/system/kyth-selinux-relabel-home.service <<'RELABELEOF'
 [Unit]
 Description=SELinux relabel /var/home (once per deployment)
 DefaultDependencies=no
@@ -786,7 +804,7 @@ WantedBy=multi-user.target
 RELABELEOF
 
 install -d -m 0755 /usr/libexec
-cat > /usr/libexec/kyth-selinux-relabel-home <<'SCRIPTEOF'
+cat >/usr/libexec/kyth-selinux-relabel-home <<'SCRIPTEOF'
 #!/usr/bin/bash
 # Relabel /var/home only once per ostree/bootc deployment.
 # Keyed on the booted deployment checksum so a fresh deployment triggers one
@@ -832,7 +850,7 @@ systemctl enable kyth-selinux-relabel-home.service 2>/dev/null || true
 # tasks add a few extra seconds before login. Show a message on the boot splash
 # so the user knows something is happening. The sentinel file ensures this only
 # ever runs once — after first boot it is a no-op for all future reboots.
-cat > /usr/lib/systemd/system/kyth-first-boot-message.service <<'FIRSTBOOTEOF'
+cat >/usr/lib/systemd/system/kyth-first-boot-message.service <<'FIRSTBOOTEOF'
 [Unit]
 Description=KythOS first-boot splash message
 DefaultDependencies=no
@@ -855,9 +873,6 @@ RemainAfterExit=yes
 WantedBy=multi-user.target
 FIRSTBOOTEOF
 systemctl enable kyth-first-boot-message.service 2>/dev/null || true
-
-
-
 
 # ── AMD CPU Energy Performance Preference helper ─────────────────────────────
 # kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
@@ -924,11 +939,11 @@ systemctl enable irqbalance.service 2>/dev/null || true
 # Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
 # Enable whichever socket exists so image builds stay portable across releases.
 if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then
-    systemctl enable libvirtd.socket 2>/dev/null || true
+	systemctl enable libvirtd.socket 2>/dev/null || true
 elif systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^virtqemud\.socket'; then
-    systemctl enable virtqemud.socket 2>/dev/null || true
+	systemctl enable virtqemud.socket 2>/dev/null || true
 else
-    echo "libvirt socket unit not found; skipping enable."
+	echo "libvirt socket unit not found; skipping enable."
 fi
 systemctl enable docker.socket 2>/dev/null || true
 systemctl enable fwupd 2>/dev/null || true
@@ -945,7 +960,7 @@ systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.serv
 # bootc upgrades do not normally fetch RPM repository metadata, so DNF's
 # countme=True setting alone is not enough to report active installed systems.
 if systemctl list-unit-files --type=timer --no-legend 2>/dev/null | grep -q '^rpm-ostree-countme\.timer'; then
-    systemctl enable rpm-ostree-countme.timer 2>/dev/null || true
+	systemctl enable rpm-ostree-countme.timer 2>/dev/null || true
 fi
 # Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
 # plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
@@ -979,11 +994,11 @@ systemctl mask serial-getty@ttyS0.service 2>/dev/null || true
 # useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
 # Copy any missing groups into /etc/group; create with groupadd if absent entirely.
 for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev dbus sddm polkitd; do
-    if ! grep -q "^${grp}:" /etc/group; then
-        if getent group "$grp" > /dev/null 2>&1; then
-            getent group "$grp" >> /etc/group
-        else
-            groupadd "$grp"
-        fi
-    fi
+	if ! grep -q "^${grp}:" /etc/group; then
+		if getent group "$grp" >/dev/null 2>&1; then
+			getent group "$grp" >>/etc/group
+		else
+			groupadd "$grp"
+		fi
+	fi
 done
