@@ -5,7 +5,7 @@
 set -euo pipefail
 
 if [[ "${EUID}" -ne 0 ]]; then
-	echo "ERROR: run as root, for example: run0 --pty $0" >&2
+	printf 'ERROR: run as root, for example: run0 --pty /usr/bin/bash %q\n' "$0" >&2
 	exit 1
 fi
 
