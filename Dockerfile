@@ -197,6 +197,8 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
             || { echo "ERROR: branded initramfs Plymouth defaults do not force Theme=kyth" >&2; exit 1; } && \
+        lsinitrd -f /etc/plymouth/plymouthd.conf "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
+            || { echo "ERROR: branded initramfs plymouthd.conf is missing or does not force Theme=kyth" >&2; exit 1; } && \
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then \
             echo "ERROR: Fedora Plymouth fallback branding leaked into branded initramfs" >&2; \
             exit 1; \

@@ -10,9 +10,9 @@ PLYMOUTH_THEME_DIR=/usr/share/plymouth/themes/kyth
 mkdir -p "${PLYMOUTH_THEME_DIR}"
 
 write_kyth_os_release() {
-    local target=$1
-    mkdir -p "$(dirname "${target}")"
-    cat > "${target}" <<'EOF'
+	local target=$1
+	mkdir -p "$(dirname "${target}")"
+	cat >"${target}" <<'EOF'
 NAME="KythOS"
 PRETTY_NAME="KythOS 44"
 ID=kythos
@@ -31,27 +31,35 @@ rm -f /etc/os-release
 write_kyth_os_release /etc/os-release
 
 rsvg-convert -w 256 /tmp/kyth-branding/kyth-logo-transparent.svg \
-    -o "${PLYMOUTH_THEME_DIR}/kyth-logo.png"
+	-o "${PLYMOUTH_THEME_DIR}/kyth-logo.png"
 install -m 0644 /tmp/kyth-plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
-install -m 0644 /tmp/kyth-plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
+install -m 0644 /tmp/kyth-plymouth/kyth.script "${PLYMOUTH_THEME_DIR}/"
 
 # Replace Fedora watermarks in every Plymouth fallback theme with transparent
 # assets. This guard is installed permanently and rerun after later package
 # transactions because dnf upgrades can restore upstream theme files.
 install -Dm0755 /tmp/plymouth-branding-guard.sh \
-    /usr/libexec/kyth-plymouth-branding-guard
+	/usr/libexec/kyth-plymouth-branding-guard
 /usr/libexec/kyth-plymouth-branding-guard \
-    /tmp/kyth-branding/transparent-watermark.svg
+	/tmp/kyth-branding/transparent-watermark.svg
 
 # Custom dracut module that explicitly forces Plymouth theme + script plugin
 # inclusion into the initramfs. Fedora's upstream 45plymouth module only
 # installs whichever theme is the default at dracut run time; 99kyth-plymouth
 # runs late and hard-wires the kyth theme so early-boot never falls back to
 # upstream artwork.
+# Write plymouthd.conf and plymouthd.defaults to the host filesystem so that
+# dracut's 45plymouth module (plymouth-populate-initrd) installs a non-empty
+# file, and the first-boot initramfs rebuild service finds the correct config.
+mkdir -p /etc/plymouth /usr/share/plymouth
+printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
+	>/etc/plymouth/plymouthd.conf
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+
 rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
 KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
-cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+cat >"${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash
 
 check() {
@@ -67,18 +75,10 @@ install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
         "${initdir}/usr/share/plymouth/themes"
-    cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
-[Daemon]
-Theme=kyth
-ShowDelay=1
-UseFirmwareBackground=false
-PLYMOUTHCONF
-    cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
-[Daemon]
-Theme=kyth
-ShowDelay=1
-UseFirmwareBackground=false
-PLYMOUTHDEFAULTS
+    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
+        > "${initdir}/etc/plymouth/plymouthd.conf"
+    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nUseFirmwareBackground=false\n' \
+        > "${initdir}/usr/share/plymouth/plymouthd.defaults"
     ln -sfn kyth/kyth.plymouth \
         "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \
@@ -100,14 +100,14 @@ unset KYTH_PLYMOUTH_DRACUT_DIR
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-            /etc/dracut.conf.d/99-kyth.conf
-        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
-    fi
+	if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
+		sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
+			/etc/dracut.conf.d/99-kyth.conf
+		grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
+			printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
+	fi
 else
-    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+	cat >/etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
@@ -117,14 +117,14 @@ plymouth-set-default-theme kyth
 # Rebuild the initramfs for every installed kernel. dracut exits non-zero on
 # any failure, so no separate integrity check is needed.
 for _kernel_dir in /usr/lib/modules/*; do
-    [ -d "${_kernel_dir}" ] || continue
-    _kernel_ver=$(basename "${_kernel_dir}")
-    TMPDIR=/var/tmp dracut \
-        --no-hostonly \
-        --compress "zstd -1" \
-        --kver "${_kernel_ver}" \
-        --force \
-        "${_kernel_dir}/initramfs" \
-        2> >(grep -Ev 'xattr|fail to copy' >&2)
+	[ -d "${_kernel_dir}" ] || continue
+	_kernel_ver=$(basename "${_kernel_dir}")
+	TMPDIR=/var/tmp dracut \
+		--no-hostonly \
+		--compress "zstd -1" \
+		--kver "${_kernel_ver}" \
+		--force \
+		"${_kernel_dir}/initramfs" \
+		2> >(grep -Ev 'xattr|fail to copy' >&2)
 done
 unset _kernel_dir _kernel_ver
