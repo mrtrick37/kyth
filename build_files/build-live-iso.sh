@@ -60,6 +60,12 @@ WORK="$(mktemp -d -p "${TMPDIR:-/var/tmp}" kyth-titanoboa.XXXXXXXXXX)"
 trap 'rm -rf "${WORK}"' EXIT
 
 echo "==> Assembling ISO with Titanoboa"
-TITANOBOA_OUTPUT_DIR="${WORK}" "${TITANOBOA_DIR}/main.sh" "${LIVE_TAG}"
+sudo podman run --rm -i \
+	--network host \
+	--cap-add sys_admin --security-opt label=disable \
+	-v "${TITANOBOA_DIR}/build_iso.sh:/src/build_iso.sh:ro" \
+	--mount type=image,source="${LIVE_TAG}",dst=/rootfs \
+	-v "${WORK}:/output" \
+	quay.io/fedora/fedora:latest /src/build_iso.sh
 mv "${WORK}/KYTHOS-44-LIVE.iso" "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
 echo "==> KythOS live ISO ready: ${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"

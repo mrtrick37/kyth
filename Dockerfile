@@ -194,14 +194,18 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \
         grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${_initrd_listing}" \
             || { echo "ERROR: branded initramfs does not contain KythOS Plymouth theme" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth script" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth logo" >&2; exit 1; } && \
         grep -q 'usr/share/plymouth/themes/default.plymouth' "${_initrd_listing}" \
             || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
             || { echo "ERROR: branded initramfs Plymouth defaults do not force Theme=kyth" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^DeviceTimeout=8$' \
             || { echo "ERROR: branded initramfs Plymouth defaults are missing DeviceTimeout=8" >&2; exit 1; } && \
-        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${_initrd_listing}" >&2; then \
-            echo "ERROR: Fedora Plymouth fallback branding leaked into branded initramfs" >&2; \
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${_initrd_listing}" >&2; then \
+            echo "ERROR: Plymouth fallback theme leaked into branded initramfs" >&2; \
             exit 1; \
         fi && \
         rm -f "${_initrd_listing}"; \

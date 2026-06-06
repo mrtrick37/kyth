@@ -1177,11 +1177,13 @@ for image in /boot/ostree/*/initramfs-*.img; do
         listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
         lsinitrd "${image}" > "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
         grep -q '^Theme=kyth$' "${defaults}"
         grep -q '^DeviceTimeout=8$' "${defaults}"
-        grep -q '^kyth-plymouth$' "${listing}"
-        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${listing}" >&2; then
-            echo "ERROR: Fedora Plymouth fallback branding leaked into refreshed initramfs" >&2
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+            echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs" >&2
             exit 1
         fi
         rm -f "${defaults}" "${listing}"
@@ -1198,14 +1200,14 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --include "${include_root}" /
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v14
+touch /var/lib/kyth/boot-splash-initramfs-v15
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v14
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v15
 After=local-fs.target
 
 [Service]

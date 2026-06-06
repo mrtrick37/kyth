@@ -48,6 +48,16 @@ install -Dm0755 /tmp/plymouth-branding-guard.sh \
 # installs whichever theme is the default at dracut run time; 99kyth-plymouth
 # runs late and hard-wires the kyth theme so early-boot never falls back to
 # upstream artwork.
+mkdir -p /etc/plymouth /usr/share/plymouth
+cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHCONF
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+
 rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
 KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"

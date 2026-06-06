@@ -56,8 +56,24 @@ for theme_dir in \
     done
 done
 
+# Remove both Fedora-branded and plain bgrt themes from the system filesystem.
+# The bgrt theme can render the firmware BGRT image, which may still be Fedora
+# artwork from the inherited boot path. Removing it leaves only KythOS or text.
 rm -rf /usr/share/plymouth/themes/bgrt-fedora
+rm -rf /usr/share/plymouth/themes/bgrt
 plymouth-set-default-theme kyth
+
+# Keep host-side Plymouth config explicit too. Fedora's dracut Plymouth module
+# reads these files before our late kyth-plymouth module reinforces the initramfs.
+mkdir -p /etc/plymouth /usr/share/plymouth
+cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHCONF
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 
 rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
 kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth

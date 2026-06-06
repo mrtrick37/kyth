@@ -314,6 +314,14 @@ if command -v lsinitrd >/dev/null 2>&1; then
 		echo "ERROR: live initramfs does not contain KythOS Plymouth theme" >&2
 		exit 1
 	}
+	grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${initrd_listing}" || {
+		echo "ERROR: live initramfs does not contain KythOS Plymouth script" >&2
+		exit 1
+	}
+	grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${initrd_listing}" || {
+		echo "ERROR: live initramfs does not contain KythOS Plymouth logo" >&2
+		exit 1
+	}
 	grep -q 'usr/share/plymouth/themes/default.plymouth' "${initrd_listing}" || {
 		echo "ERROR: live initramfs does not force the KythOS Plymouth default theme" >&2
 		exit 1
@@ -339,8 +347,8 @@ if command -v lsinitrd >/dev/null 2>&1; then
 		exit 1
 	}
 	rm -rf "${initrd_extract}"
-	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${initrd_listing}" >&2; then
-		echo "ERROR: Fedora Plymouth fallback branding leaked into live initramfs" >&2
+	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${initrd_listing}" >&2; then
+		echo "ERROR: Plymouth fallback theme leaked into live initramfs" >&2
 		exit 1
 	fi
 fi

@@ -73,17 +73,25 @@ for image in "${images[@]}"; do
 		--compress "zstd -1" \
 		--kver "${kernel}" \
 		--force \
-		--omit kyth-plymouth \
-		--add "drm plymouth ostree" \
+		--add "drm plymouth ostree kyth-plymouth" \
 		--include "${include_root}" / \
 		"${image}" \
 		"${kernel}"
 
 	defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+	listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
 	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" >"${defaults}"
+	lsinitrd "${image}" >"${listing}"
+	grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}"
+	grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
+	grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
 	grep -q '^Theme=kyth$' "${defaults}"
 	grep -q '^DeviceTimeout=8$' "${defaults}"
-	rm -f "${defaults}"
+	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+		echo "ERROR: Plymouth fallback theme leaked into repaired initramfs" >&2
+		exit 1
+	fi
+	rm -f "${defaults}" "${listing}"
 
 	echo "Repaired ${image}"
 	echo "Backup: ${backup}"
