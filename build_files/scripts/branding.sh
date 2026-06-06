@@ -7,7 +7,7 @@ set -euo pipefail
 # preferred (auto) mode.  Works for both hardware and VMs.  Removes itself
 # so it only fires once per user.
 mkdir -p /etc/skel/.config/autostart
-cat >/etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
+cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: Set display resolution
@@ -17,7 +17,7 @@ Hidden=false
 NoDisplay=true
 RESEOF
 
-cat >/usr/bin/kyth-set-resolution <<'SCRIPTEOF'
+cat > /usr/bin/kyth-set-resolution <<'SCRIPTEOF'
 #!/usr/bin/env python3
 # Set every connected output to its preferred (first-listed) mode.
 # kscreen-doctor -o output format:
@@ -60,9 +60,9 @@ SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
 write_kyth_os_release() {
-	local target=$1
-	mkdir -p "$(dirname "${target}")"
-	cat >"${target}" <<'EOF'
+    local target=$1
+    mkdir -p "$(dirname "${target}")"
+    cat > "${target}" <<'EOF'
 NAME="KythOS"
 PRETTY_NAME="KythOS 44"
 ID=kythos
@@ -89,7 +89,7 @@ write_kyth_os_release /etc/os-release
 # upstream Kinoite ostree remote, not the KythOS container registry.
 # Replace it with a bootc upgrade custom step so topgrade does the right thing.
 mkdir -p /etc/skel/.config
-cat >/etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
 # system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
 # distrobox: disabled because distrobox-upgrade --all fails without a PTY.
@@ -110,7 +110,7 @@ TOPGRADEEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
-cat >/etc/skel/.config/kdeglobals <<'KDEEOF'
+cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
 ColorScheme=BreezeDark
 
@@ -118,7 +118,7 @@ ColorScheme=BreezeDark
 LookAndFeelPackage=org.kde.breezedark.desktop
 KDEEOF
 
-cat >/etc/skel/.config/plasmarc <<'PLASMAEOF'
+cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
 name=breeze-dark
 PLASMAEOF
@@ -129,7 +129,7 @@ PLASMAEOF
 # kyth-default-flatpaks.service at first boot — KDE silently omits entries
 # whose desktop files don't exist yet and shows them automatically once the
 # flatpak finishes installing.
-cat >/etc/skel/.config/kickoffrc <<'KICKOFFEOF'
+cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
 FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
 
@@ -142,7 +142,7 @@ install -m 0644 /etc/skel/.config/kickoffrc /etc/xdg/kickoffrc
 # ── Screen lock timeout ───────────────────────────────────────────────────────
 # Default auto-lock after 15 minutes of inactivity. KDE's stock default is 5
 # minutes which is too aggressive for a desktop/gaming workstation.
-cat >/etc/skel/.config/kscreenlockerrc <<'SCREENLOCKEOF'
+cat > /etc/skel/.config/kscreenlockerrc <<'SCREENLOCKEOF'
 [Daemon]
 Autolock=true
 LockGracePeriod=5
@@ -162,15 +162,15 @@ SCREENLOCKEOF
 # consumer that does load libddcutil from starting display-watch threads, which
 # are a known source of instability on some monitor/GPU combinations.
 mkdir -p /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
-cat >/etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
+cat > /etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
 POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILEOF
-cat >/etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh <<'POWERDEVILSHEOF'
+cat > /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh <<'POWERDEVILSHEOF'
 #!/bin/sh
 export POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILSHEOF
 chmod +x /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh
-cat >/etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
+cat > /etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
 [libddcutil]
 options: --disable-watch-displays
 DDCUTILRCEOF
@@ -179,23 +179,23 @@ DDCUTILRCEOF
 # Install as a proper KDE wallpaper package so the L&F lookup 'Image=kyth' works.
 mkdir -p /usr/share/wallpapers/kyth/contents/images
 cp /ctx/wallpaper/kyth-wallpaper.svg \
-	/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+    /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
-	>/usr/share/wallpapers/kyth/metadata.json
+    > /usr/share/wallpapers/kyth/metadata.json
 
 # Patch all L&F defaults (Fedora variants + Breeze) to use KythOS wallpaper.
 # Fedora Kinoite ships org.fedoraproject.fedora*.desktop themes that set
 # Image=Fedora; we replace that in every theme so no L&F can restore the
 # stock Fedora rocket wallpaper.
 find /usr/share/plasma/look-and-feel -name defaults | while read -r f; do
-	sed -i 's/^Image=.*/Image=kyth/' "$f"
-	grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >>"$f"
+    sed -i 's/^Image=.*/Image=kyth/' "$f"
+    grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >> "$f"
 done
 
 # System-wide XDG fallback — applied to every user before their personal
 # config exists, so first-boot always shows the KythOS wallpaper.
 mkdir -p /etc/xdg
-cat >/etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
+cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
@@ -207,7 +207,7 @@ XDGPLASMAEOF
 # connection and makes the VM appear to close. X11 is stable on all hardware
 # and VM GPU drivers; users can switch to Wayland from the session picker.
 mkdir -p /etc/sddm.conf.d
-cat >/etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
+cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 [General]
 DisplayServer=x11
 DefaultSession=plasmax11.desktop
@@ -224,7 +224,7 @@ SDDMCONFEOF
 # (systemd-detect-virt returns non-zero when not in a VM/container) and when
 # kyth.hwgl=1 is in the cmdline to force hardware GL inside a VM.
 mkdir -p /etc/skel/.config/plasma-workspace/env
-cat >/etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
+cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
 #!/bin/sh
 if systemd-detect-virt -q 2>/dev/null && ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
     export LIBGL_ALWAYS_SOFTWARE=1
@@ -238,7 +238,7 @@ chmod +x /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
 mkdir -p /usr/share/sddm/themes/breeze
-cat >/usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
+cat > /usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
 [General]
 type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
@@ -261,39 +261,36 @@ SDDMEOF
 
 # Scalable SVGs (also used by the kyth-set-kickoff-icon first-login script)
 for theme_dir in \
-	/usr/share/icons/hicolor/scalable/apps \
-	/usr/share/icons/breeze/apps/scalable \
-	/usr/share/icons/breeze-dark/apps/scalable; do
-	mkdir -p "${theme_dir}"
-	cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
-	cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
-	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
+    /usr/share/icons/hicolor/scalable/apps \
+    /usr/share/icons/breeze/apps/scalable \
+    /usr/share/icons/breeze-dark/apps/scalable; do
+    mkdir -p "${theme_dir}"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
+    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 
 # PNGs at every standard size — beats inherited exact-size Fedora PNGs at lookup
 for sz in 16 22 24 32 48 64 128 256; do
-	for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
-		dir="${base}/${sz}x${sz}/apps"
-		mkdir -p "${dir}"
-		rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-			-o "${dir}/kyth-kickoff.png"
-		# kyth.png is the generic app icon (used by Icon=kyth in the System Hub desktop
-		# file). It must be the abstract logo, NOT the kickoff icon — they are distinct.
-		rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
-			-o "${dir}/kyth.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
-		cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
-	done
+    for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
+        dir="${base}/${sz}x${sz}/apps"
+        mkdir -p "${dir}"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+            -o "${dir}/kyth-kickoff.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/kyth.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
+    done
 done
 
 # Extra legacy lookup locations used by boot menus, display managers, and older
@@ -301,46 +298,44 @@ done
 # some existing BLS snippets still say grub_class=fedora until the migration
 # below has run.
 mkdir -p /usr/share/pixmaps
-# kyth.svg / kyth.png = abstract logo (used by Icon=kyth lookups, e.g. System Hub)
-# kythos / distributor-logo = kickoff icon (used by GRUB, boot menus, legacy paths)
-cp /ctx/branding/kyth-logo-transparent.svg /usr/share/pixmaps/kyth.svg
-rsvg-convert -w 64 -h 64 /ctx/branding/kyth-logo-transparent.svg -o /usr/share/pixmaps/kyth.png
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kyth.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kythos.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/distributor-logo.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/fedora-logo-icon.svg
-rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kythos.png
-cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/distributor-logo.png
-cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/fedora-logo-icon.png
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kyth.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/kythos.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/distributor-logo.png
+cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/fedora-logo-icon.png
 
 for grub_icon_dir in \
-	/boot/grub2/themes/system/icons \
-	/boot/grub2/themes/starfield/icons \
-	/usr/share/grub/themes/system/icons \
-	/usr/share/grub/themes/starfield/icons; do
-	mkdir -p "${grub_icon_dir}"
-	for icon in kyth kythos fedora gnu-linux linux; do
-		rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
-			-o "${grub_icon_dir}/${icon}.png"
-	done
+    /boot/grub2/themes/system/icons \
+    /boot/grub2/themes/starfield/icons \
+    /usr/share/grub/themes/system/icons \
+    /usr/share/grub/themes/starfield/icons; do
+    mkdir -p "${grub_icon_dir}"
+    for icon in kyth kythos fedora gnu-linux linux; do
+        rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
+            -o "${grub_icon_dir}/${icon}.png"
+    done
 done
 
 mkdir -p /etc/default
 if [[ -f /etc/default/grub ]]; then
-	if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
-		sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
-	else
-		printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >>/etc/default/grub
-	fi
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+    else
+        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
+    fi
 else
-	printf 'GRUB_DISTRIBUTOR="KythOS"\n' >/etc/default/grub
+    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
 fi
 
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
 rm -f /usr/share/icons/breeze/icon-theme.cache
 rm -f /usr/share/icons/breeze-dark/icon-theme.cache
-gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
-gtk-update-icon-cache -f /usr/share/icons/breeze/ 2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 
 # ── Kickoff plasmoid defaults ─────────────────────────────────────────────────
@@ -352,16 +347,16 @@ gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 # named icon so the plasmoid's own default wins unconditionally.
 _kickoff_cfg=/usr/share/plasma/plasmoids/org.kde.plasma.kickoff/contents/config/main.xml
 if [[ -f "${_kickoff_cfg}" ]]; then
-	sed -i \
-		'/<entry name="icon" type="String">/,/<\/entry>/ {
+    sed -i \
+        '/<entry name="icon" type="String">/,/<\/entry>/ {
             s|<default></default>|<default>kyth-kickoff</default>|
         }' \
-		"${_kickoff_cfg}"
-	sed -i \
-		'/<entry name="highlightNewlyInstalledApps" type="Bool">/,/<\/entry>/ {
+        "${_kickoff_cfg}"
+    sed -i \
+        '/<entry name="highlightNewlyInstalledApps" type="Bool">/,/<\/entry>/ {
             s|<default>true</default>|<default>false</default>|
         }' \
-		"${_kickoff_cfg}"
+        "${_kickoff_cfg}"
 fi
 
 # ── First-login script: polish Kickoff launcher defaults ──────────────────────
@@ -370,7 +365,7 @@ fi
 # case the theme lookup is overridden by a previously cached value. It also
 # disables Plasma's newly-installed app badges so KythOS launchers land in
 # their categories without green dots or "New!" labels.
-cat >/usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
+cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
 import os, re, shutil, subprocess
 
@@ -421,7 +416,7 @@ KICKOFEOF
 chmod +x /usr/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
-cat >/etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
+cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: Set Kickoff Icon
@@ -433,13 +428,13 @@ AUTOSTARTEOF
 
 mkdir -p /etc/xdg/autostart
 install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
-	/etc/xdg/autostart/kyth-set-kickoff-icon.desktop
+    /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
 # ── User comfort polish ───────────────────────────────────────────────────────
 # KDE stores several "Windows users expect this" preferences per-user. Bake a
 # versioned, automatic polish pass into the image so new accounts get it from
 # /etc/skel and existing accounts receive it once after an OS update.
-cat >/usr/bin/kyth-user-polish <<'POLISHEOF'
+cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -650,13 +645,13 @@ chmod +x /usr/bin/kyth-user-polish
 
 # Backward-compatible command name used by existing docs, support notes, and
 # old smoke-check output. It now runs the same build-integrated polish pass.
-cat >/usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
 #!/usr/bin/env bash
 exec /usr/bin/kyth-user-polish "$@"
 WINDEFAULTEOF
 chmod +x /usr/bin/kyth-windows-friendly-defaults
 
-cat >/etc/skel/.config/autostart/kyth-user-polish.desktop <<'POLISHDESKTOPEOF'
+cat > /etc/skel/.config/autostart/kyth-user-polish.desktop <<'POLISHDESKTOPEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: User Comfort Polish
@@ -669,44 +664,14 @@ POLISHDESKTOPEOF
 # Global autostart means existing users receive new polish migrations after an
 # OS update too; the version stamp above prevents repeated preference churn.
 install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
-	/etc/xdg/autostart/kyth-user-polish.desktop
-
-# ── Bluetooth session fix — runs every login ───────────────────────────────────
-# BlueDevil (KDE's Bluetooth applet) persists adapter power state as
-# "{adapter-mac}_powered=false" in ~/.config/bluedevilglobalrc when the user
-# explicitly turns off Bluetooth. On the next login BlueDevil restores this
-# state, overriding the system-level kyth-bluetooth-enable.service that already
-# unblocked the adapter before the session started. This script runs at every
-# login (no version stamp) to clear that saved disabled state and power the
-# adapter back on regardless of what the previous session did.
-cat >/usr/bin/kyth-bluetooth-session-fix <<'BTSESSIONEOF'
-#!/usr/bin/bash
-conf="${HOME}/.config/bluedevilglobalrc"
-if [[ -f "${conf}" ]]; then
-    sed -i -E '/^[[:xdigit:]:]+_powered=false$/d' "${conf}"
-fi
-if command -v bluetoothctl >/dev/null 2>&1; then
-    bluetoothctl power on >/dev/null 2>&1 || true
-fi
-BTSESSIONEOF
-chmod +x /usr/bin/kyth-bluetooth-session-fix
-
-mkdir -p /etc/xdg/autostart
-cat >/etc/xdg/autostart/kyth-bluetooth-session-fix.desktop <<'BTSESSIONDESKTOPEOF'
-[Desktop Entry]
-Type=Application
-Name=KythOS: Restore Bluetooth power state
-Exec=/usr/bin/kyth-bluetooth-session-fix
-X-KDE-autostart-after=panel
-NoDisplay=true
-BTSESSIONDESKTOPEOF
+    /etc/xdg/autostart/kyth-user-polish.desktop
 
 # ── Web app launcher grouping ─────────────────────────────────────────────────
 # Chromium-family browsers create PWA launchers without Categories=. KDE cannot
 # classify those launchers and drops them into Lost and Found. Add a custom
 # category only when the browser did not provide one, preserving any category a
 # user assigns later with the menu editor.
-cat >/usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
+cat > /usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -737,7 +702,7 @@ WEBAPPCATEGORIZEEOF
 chmod +x /usr/bin/kyth-web-app-categorize
 
 mkdir -p /etc/systemd/user/default.target.wants
-cat >/etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
+cat > /etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
 [Unit]
 Description=Place browser-installed web apps in the Web Apps launcher folder
 
@@ -746,7 +711,7 @@ Type=oneshot
 ExecStart=/usr/bin/kyth-web-app-categorize
 WEBAPPSERVICEEOF
 
-cat >/etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
+cat > /etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
 [Unit]
 Description=Watch for browser-installed web app launchers
 
@@ -758,28 +723,28 @@ Unit=kyth-web-app-categorize.service
 WantedBy=default.target
 WEBAPPPATHEOF
 ln -sf /etc/systemd/user/kyth-web-app-categorize.path \
-	/etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
+    /etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
 
 # Seed the same familiar folder layout into fresh homes. The autostart helper
 # repairs these for existing users and for accounts created by unusual tools.
 mkdir -p \
-	/etc/skel/Desktop \
-	/etc/skel/Documents \
-	/etc/skel/Downloads \
-	/etc/skel/Games \
-	/etc/skel/Music \
-	/etc/skel/Pictures \
-	/etc/skel/Public \
-	/etc/skel/Templates \
-	/etc/skel/Videos
+    /etc/skel/Desktop \
+    /etc/skel/Documents \
+    /etc/skel/Downloads \
+    /etc/skel/Games \
+    /etc/skel/Music \
+    /etc/skel/Pictures \
+    /etc/skel/Public \
+    /etc/skel/Templates \
+    /etc/skel/Videos
 
-cat >/etc/skel/Games/.directory <<'GAMESDIREEOF'
+cat > /etc/skel/Games/.directory <<'GAMESDIREEOF'
 [Desktop Entry]
 Icon=applications-games
 Name=Games
 GAMESDIREEOF
 
-cat >/etc/skel/.config/user-dirs.dirs <<'USERDIRSEOF'
+cat > /etc/skel/.config/user-dirs.dirs <<'USERDIRSEOF'
 XDG_DESKTOP_DIR="$HOME/Desktop"
 XDG_DOWNLOAD_DIR="$HOME/Downloads"
 XDG_TEMPLATES_DIR="$HOME/Templates"
@@ -790,7 +755,7 @@ XDG_PICTURES_DIR="$HOME/Pictures"
 XDG_VIDEOS_DIR="$HOME/Videos"
 USERDIRSEOF
 
-cat >/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
+cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
 wallpaperplugin=org.kde.image
 
@@ -810,31 +775,32 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 # Users can override with ~/.config/vkBasalt/vkBasalt.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
+
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
-	/usr/share/applications/kyth-welcome.desktop
+    /usr/share/applications/kyth-welcome.desktop
 install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.
 mkdir -p /etc/skel/Desktop
 install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
-	/etc/skel/Desktop/kyth-welcome.desktop
+    /etc/skel/Desktop/kyth-welcome.desktop
 
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
-	/usr/share/applications/kyth-update-notifier.desktop
+    /usr/share/applications/kyth-update-notifier.desktop
 # Autostart the notifier for new user accounts
 mkdir -p /etc/skel/.config/autostart
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
-	/etc/skel/.config/autostart/kyth-update-notifier.desktop
+    /etc/skel/.config/autostart/kyth-update-notifier.desktop
 
 # User-session confidence checks. These show friendly notifications and are
 # version/deployment-gated so they do not nag on every login.
 mkdir -p /etc/xdg/autostart
-cat >/etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEOF'
+cat > /etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Post-Update Check
@@ -843,7 +809,7 @@ NoDisplay=true
 X-KDE-autostart-after=panel
 POSTUPDATEAUTOSTARTEOF
 
-cat >/etc/xdg/autostart/kyth-firstboot-app-status.desktop <<'APPSTATUSAUTOSTARTEOF'
+cat > /etc/xdg/autostart/kyth-firstboot-app-status.desktop <<'APPSTATUSAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS App Setup Status
@@ -855,7 +821,7 @@ APPSTATUSAUTOSTARTEOF
 # Steam Flatpak writes game shortcuts inside its sandbox. Refresh host menu
 # exports quietly at login so installed games appear under Games in KDE.
 mkdir -p /etc/xdg/autostart
-cat >/etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
+cat > /etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Steam Game Menu Export
@@ -898,12 +864,12 @@ install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
-install -m 0755 /ctx/kyth-topgrade-migrate /usr/bin/kyth-topgrade-migrate
+install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
-	/usr/share/applications/kyth-vpn-connect.desktop
+    /usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 # ── .exe / .msi MIME interception ─────────────────────────────────────────────
@@ -913,25 +879,25 @@ install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 # MIME types; users can override per-app via Dolphin's "Open With" dialog.
 install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
 install -m 0644 /ctx/kyth-exe-handler.desktop \
-	/usr/share/applications/kyth-exe-handler.desktop
+    /usr/share/applications/kyth-exe-handler.desktop
 
 # Keep expert tools installed without crowding a new user's app launcher.
 # System Hub still exposes the relevant guided actions, and every binary remains
 # available from a terminal. /usr/local/share takes precedence over RPM entries.
 mkdir -p /usr/local/share/applications
 for _hidden_desktop in \
-	com.gerbilsoft.rom-properties.rp-config.desktop \
-	htop.desktop \
-	jstest-gtk.desktop \
-	mpv.desktop \
-	nvim.desktop \
-	nvtop.desktop \
-	org.corectrl.CoreCtrl.desktop \
-	org.kde.drkonqi.coredump.gui.desktop \
-	org.kde.kdebugsettings.desktop \
-	org.kde.kjournaldbrowser.desktop \
-	remote-viewer.desktop; do
-	cat >"/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
+    com.gerbilsoft.rom-properties.rp-config.desktop \
+    htop.desktop \
+    jstest-gtk.desktop \
+    mpv.desktop \
+    nvim.desktop \
+    nvtop.desktop \
+    org.corectrl.CoreCtrl.desktop \
+    org.kde.drkonqi.coredump.gui.desktop \
+    org.kde.kdebugsettings.desktop \
+    org.kde.kjournaldbrowser.desktop \
+    remote-viewer.desktop; do
+    cat > "/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
 [Desktop Entry]
 Type=Application
 Name=Hidden expert tool
@@ -945,7 +911,7 @@ unset _hidden_desktop
 # it is read before per-user ~/.config/mimeapps.list so new users get it
 # automatically, and existing users can still override per-app.
 mkdir -p /etc/xdg
-cat >>/etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+cat >> /etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
 [Default Applications]
 application/pdf=org.kde.okular.desktop;okularApplication_pdf.desktop;
 application/epub+zip=org.kde.okular.desktop;okularApplication_epub.desktop;
@@ -984,11 +950,11 @@ update-desktop-database /usr/share/applications/ 2>/dev/null || true
 # → Document menu — the same behaviour as Windows Explorer's "New" submenu.
 # Seeding /etc/skel ensures every new user gets the templates on first login.
 mkdir -p /etc/skel/Templates
-printf '' >"/etc/skel/Templates/Plain Text.txt"
-printf '# Title\n\n' >"/etc/skel/Templates/Markdown.md"
-printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' >"/etc/skel/Templates/Shell Script.sh"
+printf ''                                          > "/etc/skel/Templates/Plain Text.txt"
+printf '# Title\n\n'                               > "/etc/skel/Templates/Markdown.md"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' > "/etc/skel/Templates/Shell Script.sh"
 printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
-	>"/etc/skel/Templates/Python Script.py"
+                                                   > "/etc/skel/Templates/Python Script.py"
 chmod +x /etc/skel/Templates/"Shell Script.sh"
 chmod +x /etc/skel/Templates/"Python Script.py"
 
@@ -1007,7 +973,7 @@ install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asu
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
-cat >/etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
+cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Helper
@@ -1020,7 +986,7 @@ WELCOMEEOF
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
-cat >/usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
+cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
 kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
@@ -1028,20 +994,20 @@ KARGSEOF
 # guard again here, after every package transaction, so upgraded Plymouth theme
 # packages cannot restore upstream BGRT/spinner artwork into the final image.
 install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
-	/usr/libexec/kyth-plymouth-branding-guard
+    /usr/libexec/kyth-plymouth-branding-guard
 /usr/libexec/kyth-plymouth-branding-guard \
-	/ctx/branding/transparent-watermark.svg
+    /ctx/branding/transparent-watermark.svg
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-	if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-		sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-			/etc/dracut.conf.d/99-kyth.conf
-		grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
-			printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
-	fi
+    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
+        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
+            /etc/dracut.conf.d/99-kyth.conf
+        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    fi
 else
-	cat >/etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
@@ -1050,7 +1016,7 @@ fi
 # console arguments that make Plymouth fall back to visible boot text. This
 # one-shot migration fixes the bootloader entries after the updated image boots;
 # the freshly staged deployment gets the clean kargs above at install/update time.
-cat >/usr/lib/systemd/system/kyth-boot-splash-kargs.service <<'SPLASHKARGSEOF'
+cat > /usr/lib/systemd/system/kyth-boot-splash-kargs.service <<'SPLASHKARGSEOF'
 [Unit]
 Description=KythOS boot splash kernel argument migration
 ConditionPathExists=!/var/lib/kyth/boot-splash-kargs-v2
@@ -1069,29 +1035,12 @@ systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 # still identified as Fedora. Repair visual boot classes and theme icons once on
 # upgraded systems so a stale BLS grub_class=fedora cannot draw Fedora artwork.
 mkdir -p /usr/libexec
-cat >/usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
+cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-boot_was_ro=0
-if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
-    if mount -o remount,rw /boot 2>/dev/null; then
-        boot_was_ro=1
-    else
-        echo "WARNING: /boot is read-only and could not be remounted; skipping bootloader file updates" >&2
-    fi
-fi
-
-cleanup() {
-    if [[ "${boot_was_ro}" -eq 1 ]]; then
-        mount -o remount,ro /boot || true
-    fi
-}
-trap cleanup EXIT
-
 for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     [[ -d "${bls_dir}" ]] || continue
-    [[ -w "${bls_dir}" ]] || continue
     while IFS= read -r -d '' entry; do
         sed -i \
             -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
@@ -1102,7 +1051,7 @@ for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
 done
 
-if [[ -f /etc/default/grub && -w /etc/default/grub ]]; then
+if [[ -f /etc/default/grub ]]; then
     if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
         sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
     else
@@ -1116,7 +1065,6 @@ for grub_icon_dir in \
     /usr/share/grub/themes/system/icons \
     /usr/share/grub/themes/starfield/icons; do
     [[ -d "${grub_icon_dir}" ]] || continue
-    [[ -w "${grub_icon_dir}" ]] || continue
     if [[ -r /usr/share/pixmaps/kyth.png ]]; then
         for icon in kyth kythos fedora gnu-linux linux; do
             install -m 0644 /usr/share/pixmaps/kyth.png "${grub_icon_dir}/${icon}.png"
@@ -1124,13 +1072,13 @@ for grub_icon_dir in \
     fi
 done
 
-if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -w /boot/grub2 ]]; then
+if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub2 ]]; then
     grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
 fi
 BOOTBRANDINGEOF
 chmod 0755 /usr/libexec/kyth-boot-branding-guard
 
-cat >/usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
+cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
 [Unit]
 Description=Refresh KythOS bootloader branding
 ConditionPathExists=!/var/lib/kyth/boot-branding-v1
@@ -1145,9 +1093,10 @@ WantedBy=multi-user.target
 BOOTBRANDINGSERVICEEOF
 systemctl enable kyth-boot-branding.service 2>/dev/null || true
 
+
 # Existing deployments already have an initramfs in /boot. Repair it once
 # after the updated image boots so subsequent reboots use KythOS branding too.
-cat >/usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
+cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1225,10 +1174,17 @@ for image in /boot/ostree/*/initramfs-*.img; do
         "${kernel}"
     if command -v lsinitrd >/dev/null 2>&1; then
         defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+        listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
+        lsinitrd "${image}" > "${listing}"
         grep -q '^Theme=kyth$' "${defaults}"
         grep -q '^DeviceTimeout=8$' "${defaults}"
-        rm -f "${defaults}"
+        grep -q '^kyth-plymouth$' "${listing}"
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)/.*(fedora|watermark|logo)' "${listing}" >&2; then
+            echo "ERROR: Fedora Plymouth fallback branding leaked into refreshed initramfs" >&2
+            exit 1
+        fi
+        rm -f "${defaults}" "${listing}"
     fi
     rebuilt=1
 done
@@ -1242,14 +1198,14 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --include "${include_root}" /
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v13
+touch /var/lib/kyth/boot-splash-initramfs-v14
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
-cat >/usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
+cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v13
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v14
 After=local-fs.target
 
 [Service]
@@ -1263,7 +1219,7 @@ systemctl enable kyth-boot-splash-initramfs.service 2>/dev/null || true
 
 # First-boot notice: shown once via Plymouth message_callback, then sentinel
 # gates it so subsequent boots skip the message.
-cat >/usr/lib/systemd/system/kyth-firstboot-notice.service <<'FBOOTEOF'
+cat > /usr/lib/systemd/system/kyth-firstboot-notice.service <<'FBOOTEOF'
 [Unit]
 Description=KythOS first-boot Plymouth notice
 After=plymouth-start.service
@@ -1287,7 +1243,7 @@ systemctl enable kyth-firstboot-notice.service 2>/dev/null || true
 # category fall through to KDE's catch-all bucket.  X-KythSecurity is our custom
 # main category; the .menu merge file teaches KDE what group it belongs to.
 mkdir -p /usr/share/desktop-directories
-cat >/usr/share/desktop-directories/kyth-security.directory <<'SECDIREF'
+cat > /usr/share/desktop-directories/kyth-security.directory <<'SECDIREF'
 [Desktop Entry]
 Version=1.0
 Type=Directory
@@ -1297,10 +1253,10 @@ Icon=security-high
 SECDIREF
 
 install -m 0644 /ctx/kyth-web-apps.directory \
-	/usr/share/desktop-directories/kyth-web-apps.directory
+    /usr/share/desktop-directories/kyth-web-apps.directory
 
 mkdir -p /etc/xdg/menus/applications-merged
-cat >/etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
+cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -1337,14 +1293,14 @@ cat >/etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 SECMENUEOF
 
 install -m 0644 /ctx/kyth-web-apps.menu \
-	/etc/xdg/menus/applications-merged/kyth-web-apps.menu
+    /etc/xdg/menus/applications-merged/kyth-web-apps.menu
 
 # ── Game Tools menu group ─────────────────────────────────────────────────────
 # Keep the Games root focused on playable titles. Flatpak launchers and gaming
 # helpers often advertise Categories=Game, so KDE otherwise mixes them with
 # exported Steam game shortcuts. Match desktop IDs explicitly so optional tools
 # move into this submenu whenever the user installs them.
-cat >/usr/share/desktop-directories/kyth-game-tools.directory <<'GAMETOOLSDIREF'
+cat > /usr/share/desktop-directories/kyth-game-tools.directory <<'GAMETOOLSDIREF'
 [Desktop Entry]
 Version=1.0
 Type=Directory
@@ -1353,7 +1309,7 @@ Comment=Game launchers, compatibility helpers, and save tools
 Icon=applications-utilities
 GAMETOOLSDIREF
 
-cat >/etc/xdg/menus/applications-merged/kyth-game-tools.menu <<'GAMETOOLSMENUEOF'
+cat > /etc/xdg/menus/applications-merged/kyth-game-tools.menu <<'GAMETOOLSMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -1395,7 +1351,7 @@ GAMETOOLSMENUEOF
 # LibreOffice Flatpak launchers intentionally advertise multiple freedesktop
 # categories. Keep the suite together under Office instead of repeating Draw in
 # Graphics and Math throughout KDE's Education submenus.
-cat >/etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
+cat > /etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -1432,7 +1388,7 @@ LIBREOFFICEMENUEOF
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 # The upstream justfile only imports up to 60-custom.just; wire in our file.
-printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >>/usr/share/ublue-os/justfile
+printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >> /usr/share/ublue-os/justfile
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
@@ -1447,7 +1403,7 @@ systemctl enable kyth-hw-setup.service 2>/dev/null || true
 # written only after the notification attempt completes so a silent failure
 # doesn't permanently suppress the message on the next launch attempt.
 # To reset: rm ~/.local/share/kyth-steam-initialized
-cat >/usr/bin/kyth-steam <<'STEAMEOF'
+cat > /usr/bin/kyth-steam <<'STEAMEOF'
 #!/bin/bash
 FLAG="${HOME}/.local/share/kyth-steam-initialized"
 if [[ ! -f "${FLAG}" ]]; then
@@ -1475,11 +1431,11 @@ chmod +x /usr/bin/kyth-steam
 # so that copy is what KDE and launchers actually see — patch both to ensure the
 # kyth-steam wrapper takes effect regardless of which path wins.
 for desktop in \
-	/usr/share/applications/steam.desktop \
-	/usr/local/share/applications/steam.desktop; do
-	if [[ -f "${desktop}" ]]; then
-		sed -i 's|^Exec=/usr/bin/steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
-	fi
+    /usr/share/applications/steam.desktop \
+    /usr/local/share/applications/steam.desktop; do
+    if [[ -f "${desktop}" ]]; then
+        sed -i 's|^Exec=/usr/bin/steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
+    fi
 done
 
 # ── GE-Proton runtime update path ─────────────────────────────────────────────
@@ -1490,4 +1446,4 @@ done
 # every path in STEAM_EXTRA_COMPAT_TOOLS_PATHS and crash with FileNotFoundError
 # if any are missing, even before the update service has run for the first time.
 mkdir -p /var/lib/kyth/ge-proton
-echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' >/etc/environment.d/ge-proton.conf
+echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' > /etc/environment.d/ge-proton.conf
