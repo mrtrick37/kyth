@@ -4862,6 +4862,11 @@ class DiagnosticsPage(Page):
         self._save_btn.setEnabled(False)
         self._save_btn.clicked.connect(self._save_report)
         btn_row.addWidget(self._save_btn)
+
+        self._issue_btn = QPushButton("Report Issue")
+        self._issue_btn.setEnabled(False)
+        self._issue_btn.clicked.connect(self._report_issue)
+        btn_row.addWidget(self._issue_btn)
         btn_row.addStretch()
 
         self._status_lbl = QLabel()
@@ -4949,6 +4954,7 @@ class DiagnosticsPage(Page):
         self._refresh_btn.setEnabled(False)
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
+        self._issue_btn.setEnabled(False)
         self._status_lbl.setText("Gathering system information…")
         self._status_lbl.setObjectName("subheading")
         _restyle(self._status_lbl)
@@ -5004,6 +5010,7 @@ class DiagnosticsPage(Page):
         self._report.setPlainText(self._base_report + recs + self._health_report)
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
+        self._issue_btn.setEnabled(True)
         self._raw_toggle.show()
 
         has_failures = (
@@ -5034,6 +5041,7 @@ class DiagnosticsPage(Page):
         self._report.setPlainText(self._base_report + self._health_report)
         self._copy_btn.setEnabled(True)
         self._save_btn.setEnabled(True)
+        self._issue_btn.setEnabled(True)
         self._raw_toggle.show()
         self._status_lbl.setText(f"Extended checks failed: {message}")
         self._status_lbl.setObjectName("status-err")
@@ -5071,6 +5079,40 @@ class DiagnosticsPage(Page):
             self._status_lbl.setObjectName("status-ok")
         except OSError as exc:
             self._status_lbl.setText(f"Could not save: {exc}")
+            self._status_lbl.setObjectName("status-err")
+        _restyle(self._status_lbl)
+
+    def _report_issue(self):
+        report = self._report.toPlainText().strip()
+        if not report:
+            self._status_lbl.setText("Run a health report first.")
+            self._status_lbl.setObjectName("status-warn")
+            _restyle(self._status_lbl)
+            return
+        report_dir = os.path.expanduser("~/.local/state/kyth")
+        body_path = os.path.join(report_dir, f"health-report-issue-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md")
+        body = (
+            "## What happened\n\n"
+            "Describe what you were doing and what went wrong.\n\n"
+            "## KythOS health report\n\n"
+            "```text\n"
+            f"{report}\n"
+            "```\n"
+        )
+        try:
+            os.makedirs(report_dir, exist_ok=True)
+            with open(body_path, "w", encoding="utf-8") as fh:
+                fh.write(body)
+            subprocess.Popen([
+                "/usr/bin/kyth-report-issue",
+                "--title", "KythOS health report issue",
+                "--body-file", body_path,
+                "--label", "bug",
+            ])
+            self._status_lbl.setText("Opening a prefilled GitHub issue.")
+            self._status_lbl.setObjectName("status-ok")
+        except OSError as exc:
+            self._status_lbl.setText(f"Could not prepare issue: {exc}")
             self._status_lbl.setObjectName("status-err")
         _restyle(self._status_lbl)
 

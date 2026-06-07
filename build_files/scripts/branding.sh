@@ -975,6 +975,7 @@ chmod +x /etc/skel/Templates/"Python Script.py"
 
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-session-snapshot /usr/bin/kyth-session-snapshot
+install -m 0755 /ctx/kyth-report-issue /usr/bin/kyth-report-issue
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
