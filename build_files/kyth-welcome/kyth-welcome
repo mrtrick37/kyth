@@ -1694,6 +1694,45 @@ class UpdateCheckWorker(QThread):
             self.result.emit("available", remote_ts)
 
 
+# ── Changelog worker ───────────────────────────────────────────────────────────
+class ChangelogWorker(QThread):
+    """Fetches OCI revision annotations for the booted and latest remote images so the
+    Update page can show a precise GitHub compare link instead of a generic commits URL."""
+    result = pyqtSignal(str, str)  # (booted_rev, remote_rev) — short git SHAs, may be empty
+
+    def _fetch_annotations(self, ref: str) -> dict:
+        try:
+            r = subprocess.run(
+                ["skopeo", "inspect", "--raw", "--no-creds", f"docker://{ref}"],
+                capture_output=True, timeout=30,
+            )
+            if r.returncode != 0:
+                return {}
+            manifest = json.loads(r.stdout)
+            annotations = manifest.get("annotations") or {}
+            # For multi-arch index the interesting annotations are on the amd64 entry.
+            if not annotations.get("org.opencontainers.image.revision"):
+                for entry in manifest.get("manifests", []):
+                    plat = entry.get("platform", {})
+                    if plat.get("architecture") == "amd64" and plat.get("os") == "linux":
+                        annotations = entry.get("annotations") or annotations
+                        break
+            return annotations
+        except Exception:
+            return {}
+
+    def run(self):
+        tag = _current_branch() or "latest"
+        booted_digest = _bootc_image_digest("booted")
+        booted_rev = ""
+        if booted_digest:
+            ann = self._fetch_annotations(f"{REGISTRY}@{booted_digest[1]}")
+            booted_rev = ann.get("org.opencontainers.image.revision", "")[:12]
+        remote_ann = self._fetch_annotations(f"{REGISTRY}:{tag}")
+        remote_rev = remote_ann.get("org.opencontainers.image.revision", "")[:12]
+        self.result.emit(booted_rev, remote_rev)
+
+
 # ── Hardware probe dataclass + worker ─────────────────────────────────────────
 @dataclass
 class HardwareProbe:
@@ -5380,22 +5419,23 @@ class UpdatePage(Page):
         cl_title = QLabel("What changed?")
         cl_title.setObjectName("card-title")
         cl_layout.addWidget(cl_title)
-        cl_body = QLabel(
+        self._changelog_body = QLabel(
             "KythOS rebuilds daily from the latest packages. "
             "See the full commit history on GitHub for a detailed log of recent changes."
         )
-        cl_body.setObjectName("card-copy")
-        cl_body.setWordWrap(True)
-        cl_layout.addWidget(cl_body)
+        self._changelog_body.setObjectName("card-copy")
+        self._changelog_body.setWordWrap(True)
+        cl_layout.addWidget(self._changelog_body)
         cl_btn_row = QHBoxLayout()
         cl_btn_row.setSpacing(10)
-        changelog_btn = QPushButton("View Commit History")
-        changelog_btn.clicked.connect(
+        self._changelog_btn = QPushButton("View Commit History")
+        self._changelog_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
         )
-        cl_btn_row.addWidget(changelog_btn)
+        cl_btn_row.addWidget(self._changelog_btn)
         cl_btn_row.addStretch()
         cl_layout.addLayout(cl_btn_row)
+        self._changelog_worker: ChangelogWorker | None = None
         self._add(changelog_card)
 
         # ── Reboot plan + update story (detail cards, shown below the fold) ───
@@ -6040,6 +6080,34 @@ class UpdatePage(Page):
         super().showEvent(event)
         if self._check_state == "idle":
             self._check_for_update()
+        if self._changelog_worker is None or not self._changelog_worker.isRunning():
+            self._changelog_worker = ChangelogWorker()
+            self._changelog_worker.result.connect(self._on_changelog_result)
+            self._changelog_worker.start()
+
+    def _on_changelog_result(self, booted_rev: str, remote_rev: str):
+        tag = _current_branch() or "main"
+        if booted_rev and remote_rev and booted_rev != remote_rev:
+            compare_url = f"https://github.com/mrtrick37/kyth/compare/{booted_rev}...{remote_rev}"
+            self._changelog_body.setText(
+                f"Running:  {booted_rev}\n"
+                f"Available: {remote_rev}\n\n"
+                "Click 'View Changes' to see exactly what this update adds."
+            )
+            try:
+                self._changelog_btn.clicked.disconnect()
+            except Exception:
+                pass
+            self._changelog_btn.setText("View Changes")
+            self._changelog_btn.clicked.connect(
+                lambda: QDesktopServices.openUrl(QUrl(compare_url))
+            )
+        elif booted_rev:
+            self._changelog_body.setText(
+                f"Running: {booted_rev}\n\n"
+                "KythOS rebuilds daily — see commit history for recent changes."
+            )
+        # else: leave the default static text in place
 
     def _check_for_update(self):
         if self._check_worker and self._check_worker.isRunning():
@@ -7469,7 +7537,7 @@ class WindowsMigrationPage(Page):
         checklist_title.setObjectName("card-title")
         checklist_layout.addWidget(checklist_title)
         for status, title, text in (
-            ("ok", "Apps", "Use App Store for trending Flatpaks, or Software Tools > Start for starter packs."),
+            ("ok", "Apps", "Use App Store for trending Flatpaks, starter packs, AppImages, and installed apps."),
             ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random Windows installers directly."),
             ("warn", "Files", "Copy Documents, Downloads, Pictures, Music, and Videos into your KythOS home folder."),
             ("warn", "Saves", "Install Ludusavi before moving large libraries or experimenting with mods."),
@@ -17434,7 +17502,6 @@ class MainWindow(QMainWindow):
             ]),
             ("Apps & Files", [
                 ("⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
-                ("▦", "Install & Manage", "Software", SoftwarePage),
                 ("⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("Maintain", [
