@@ -425,7 +425,7 @@ QFrame#home-action-card:hover {
 }
 
 QLabel#home-action-icon {
-    font-size: 24px;
+    font-size: 13px;
     font-weight: 700;
     color: #4fc1ff;
 }
@@ -4243,7 +4243,7 @@ class HardwareCard(QFrame):
         self._action_btn.setText(label)
         try:
             self._action_btn.clicked.disconnect()
-        except RuntimeError:
+        except (RuntimeError, TypeError):
             pass
         self._action_btn.clicked.connect(fn)
         self._action_btn.show()
@@ -4382,8 +4382,7 @@ class WelcomePage(Page):
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
-
-        self._add(self._make_home_hero(branch, staged, rollback))
+        windows_found = bool(_find_ntfs_drives())
 
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
@@ -4406,23 +4405,23 @@ class WelcomePage(Page):
 
         self._add_layout(tiles_row)
 
-        self._add(self._make_recommended_card(staged, rollback))
+        self._add(self._make_recommended_card(staged, rollback, windows_found))
 
-        section_lbl = QLabel("Command lanes")
+        section_lbl = QLabel("Sections")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
         lanes = QHBoxLayout()
         lanes.setSpacing(12)
         lanes.addWidget(self._make_task_card(
-            "Play",
+            "PLAY",
             "Gaming",
             "Launchers, Proton, performance profiles, saves, and game checks.",
             "Open",
             "Gaming",
         ), 1)
         lanes.addWidget(self._make_task_card(
-            "Maintain",
+            "MAINTAIN",
             "Updates & Hardware",
             "Stage updates, confirm rollback, inspect drivers, firmware, and devices.",
             "Open",
@@ -4430,14 +4429,14 @@ class WelcomePage(Page):
             primary=staged,
         ), 1)
         lanes.addWidget(self._make_task_card(
-            "Apps",
+            "APPS",
             "Software",
             "Starter packs, familiar app replacements, Flatpaks, dev tools, and installed apps.",
             "Open",
             "Software",
         ), 1)
         lanes.addWidget(self._make_task_card(
-            "Recover",
+            "RECOVER",
             "Repair",
             "Health reports, quick fixes, rollback guidance, snapshots, and support paths.",
             "Open",
@@ -4445,168 +4444,13 @@ class WelcomePage(Page):
         ), 1)
         self._add_layout(lanes)
 
-        self._add(self._make_gaming_ready_panel())
-
-        context_row = QHBoxLayout()
-        context_row.setSpacing(12)
-        if _IS_LIVE:
-            context_row.addWidget(self._make_live_card(), 1)
-        windows_card = self._make_windows_drive_welcome_card()
-        if windows_card is not None:
-            context_row.addWidget(windows_card, 1)
-        if context_row.count():
-            self._add_layout(context_row)
-
-        self._add(self._make_compact_link_row())
-
-        note_text = (
-            "This window opens automatically in the live session. Reopen it anytime from the application menu."
-            if _IS_LIVE else
-            "This window won't reappear on login. Reopen it anytime from the application menu."
-        )
-        note = QLabel(note_text)
+        note = QLabel("Reopen this window anytime from the application menu.")
         note.setObjectName("status-dim")
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
 
-    def _make_home_hero(self, branch: str, staged: bool, rollback: bool) -> QFrame:
-        card, layout = _make_card("home-hero")
-        layout.setContentsMargins(28, 24, 28, 24)
-        layout.setSpacing(14)
-
-        top = QHBoxLayout()
-        top.setSpacing(8)
-        kicker = QLabel("KythOS SYSTEM HUB")
-        kicker.setObjectName("home-hero-kicker")
-        top.addWidget(kicker)
-        top.addStretch()
-        for text in (
-            branch,
-            "Update staged" if staged else "Current",
-            "Rollback ready" if rollback else "Atomic updates",
-        ):
-            badge = QLabel(text)
-            badge.setObjectName("home-hero-badge")
-            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            top.addWidget(badge)
-        layout.addLayout(top)
-
-        title = QLabel("Settle in, tune up, start playing.")
-        title.setObjectName("home-hero-title")
-        title.setWordWrap(True)
-        layout.addWidget(title)
-
-        body = QLabel(
-            "KythOS keeps the first-hour stuff obvious and the experienced-player "
-            "controls close by: launchers, Proton runners, performance tools, "
-            "hardware checks, rollback, and repair all live here."
-        )
-        body.setObjectName("home-hero-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        games_btn = QPushButton("Get Games Ready")
-        games_btn.setObjectName("primary")
-        games_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
-        btns.addWidget(games_btn)
-        health_btn = QPushButton("Check Hardware")
-        health_btn.clicked.connect(lambda _=False: self._navigate("Hardware"))
-        btns.addWidget(health_btn)
-        repair_btn = QPushButton("Health Report")
-        repair_btn.clicked.connect(lambda _=False: self._navigate("Diagnostics"))
-        btns.addWidget(repair_btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_gaming_ready_panel(self) -> QFrame:
-        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
-        ge_ver = _ge_proton_version()
-        vulkan_hint = bool(glob.glob("/dev/dri/renderD*")) or shutil.which("vulkaninfo") is not None
-        ntsync_ok = os.path.exists("/dev/ntsync")
-        items = [
-            ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam for your library."),
-            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing Windows games."),
-            ("ok" if vulkan_hint else "err", "Vulkan", "Render device found." if vulkan_hint else "No Vulkan render device found."),
-            ("ok" if ntsync_ok else "warn", "NTSYNC", "Ready." if ntsync_ok else "Not active; Proton can fall back safely."),
-            ("ok" if _gamescope_installed() else "warn", "Gamescope", "Ready." if _gamescope_installed() else "Install for scaling, HDR, and frame pacing presets."),
-            ("ok" if _mangohud_installed() else "warn", "MangoHud", "Ready." if _mangohud_installed() else "Install for the performance overlay."),
-        ]
-        ok_count = sum(1 for status, _, _ in items if status == "ok")
-        issue_count = sum(1 for status, _, _ in items if status == "err")
-        warn_count = sum(1 for status, _, _ in items if status == "warn")
-        total = len(items)
-
-        card, layout = _make_card("ready-panel")
-        layout.setContentsMargins(22, 20, 22, 20)
-        layout.setSpacing(14)
-
-        top = QHBoxLayout()
-        top.setSpacing(18)
-
-        score_col = QVBoxLayout()
-        score_col.setSpacing(2)
-        score = QLabel(f"{ok_count}/{total}")
-        score.setObjectName("ready-score-err" if issue_count else "ready-score-warn" if warn_count else "ready-score")
-        score_col.addWidget(score)
-        score_label = QLabel("gaming checks ready")
-        score_label.setObjectName("stat-label")
-        score_col.addWidget(score_label)
-        top.addLayout(score_col)
-
-        copy_col = QVBoxLayout()
-        copy_col.setSpacing(5)
-        title = QLabel("Gaming readiness")
-        title.setObjectName("card-title")
-        copy_col.addWidget(title)
-        if issue_count:
-            summary = "A couple of core pieces need attention before Windows games will feel smooth."
-        elif warn_count:
-            summary = "The core stack is close. Review the yellow items before benchmarking or migrating."
-        else:
-            summary = "The important pieces are in place. Open Gaming for profiles, launchers, and deeper tuning."
-        body = QLabel(summary)
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        copy_col.addWidget(body)
-        top.addLayout(copy_col, 1)
-
-        open_btn = QPushButton("Open Gaming")
-        open_btn.setObjectName("primary")
-        open_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
-        top.addWidget(open_btn, 0, Qt.AlignmentFlag.AlignTop)
-        layout.addLayout(top)
-
-        pill_grid = QVBoxLayout()
-        pill_grid.setSpacing(8)
-        for start in (0, 3):
-            row = QHBoxLayout()
-            row.setSpacing(8)
-            for item in items[start:start + 3]:
-                row.addWidget(self._make_ready_pill(*item), 1)
-            pill_grid.addLayout(row)
-        layout.addLayout(pill_grid)
-
-        return card
-
-    def _make_ready_pill(self, status: str, name: str, summary: str) -> QLabel:
-        prefix = {
-            "ok": "Ready",
-            "warn": "Check",
-            "err": "Fix",
-            "dim": "Optional",
-        }.get(status, "Info")
-        label = QLabel(f"{prefix}: {name}\n{summary}")
-        label.setObjectName(f"ready-row-{status if status in {'ok', 'warn', 'err', 'dim'} else 'dim'}")
-        label.setWordWrap(True)
-        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        label.setMinimumHeight(74)
-        return label
-
-    def _make_recommended_card(self, staged: bool, rollback: bool) -> QFrame:
+    def _make_recommended_card(self, staged: bool, rollback: bool, windows_found: bool = False) -> QFrame:
         if _IS_LIVE:
             title = "Try the desktop, then install when ready"
             copy = (
@@ -4628,11 +4472,18 @@ class WelcomePage(Page):
                 "Otherwise, you can keep setting up apps and games."
             )
             buttons = [("View Rollback", "Update", True), ("Set Up Games", "Gaming", False)]
+        elif windows_found:
+            title = "Windows drive found — bring your games and files"
+            copy = (
+                "KythOS sees one or more Windows drives. Copy saves, inspect Steam "
+                "libraries, and keep your Windows install untouched."
+            )
+            buttons = [("Move From Windows", "Move From Windows", True), ("Set Up Games", "Gaming", False)]
         else:
             title = "Everything starts here"
             copy = (
-                "Pick a task below. The hub keeps setup, gaming, apps, and recovery "
-                "in one place without making you learn the whole system first."
+                "Pick a section below. The hub keeps gaming, updates, apps, and "
+                "recovery in one place."
             )
             buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "Software", False)]
 
@@ -4663,20 +4514,6 @@ class WelcomePage(Page):
         layout.addLayout(btns)
         return card
 
-    def _make_live_card(self) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel("Live session")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        body = QLabel(
-            "You are using the same image that gets installed. USB storage and software "
-            "rendering can feel slower than an installed system."
-        )
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        return card
-
     def _make_task_card(
         self,
         icon: str,
@@ -4689,26 +4526,18 @@ class WelcomePage(Page):
         card, layout = _make_card("home-action-card")
         layout.setSpacing(10)
 
-        top = QHBoxLayout()
-        top.setSpacing(12)
         icon_lbl = QLabel(icon)
         icon_lbl.setObjectName("home-action-icon")
-        icon_lbl.setMinimumWidth(62)
-        icon_lbl.setMaximumWidth(78)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
-        top.addWidget(icon_lbl)
+        layout.addWidget(icon_lbl)
 
-        text = QVBoxLayout()
-        text.setSpacing(5)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("home-action-title")
-        text.addWidget(title_lbl)
+        layout.addWidget(title_lbl)
+
         desc_lbl = QLabel(desc)
         desc_lbl.setObjectName("home-action-copy")
         desc_lbl.setWordWrap(True)
-        text.addWidget(desc_lbl)
-        top.addLayout(text, 1)
-        layout.addLayout(top)
+        layout.addWidget(desc_lbl)
 
         btn_row = QHBoxLayout()
         btn_row.addStretch()
@@ -4719,101 +4548,6 @@ class WelcomePage(Page):
         btn_row.addWidget(btn)
         layout.addLayout(btn_row)
         return card
-
-    def _make_compact_link_row(self) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel("More helpful places")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        for label, action in (
-            ("Cloud Storage", lambda: self._navigate("Cloud Storage")),
-            ("Health Report", lambda: self._navigate("Diagnostics")),
-            ("Compatibility", lambda: self._navigate("Compatibility")),
-            ("GitHub", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))),
-            ("Report an Issue", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, fn=action: fn())
-            btns.addWidget(btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_windows_drive_welcome_card(self) -> QFrame | None:
-        drives = _find_ntfs_drives()
-        if not drives:
-            return None
-        card, layout = _make_card("card-accent-ok")
-        title = QLabel("Windows drive found")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
-        mounted = [d for d in drives if d.get("mount")]
-        labels = [d.get("label") or d.get("name") or d.get("dev") for d in drives[:3]]
-        body = QLabel(
-            f"KythOS sees {len(drives)} Windows-style drive{'s' if len(drives) != 1 else ''}: "
-            f"{', '.join(labels)}. Open Move From Windows to copy files, inspect Steam libraries, "
-            "and keep the Windows install untouched."
-        )
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        btns = QHBoxLayout()
-        btns.setSpacing(8)
-        move_btn = QPushButton("Move From Windows")
-        move_btn.setObjectName("primary")
-        move_btn.clicked.connect(lambda _=False: self._navigate("Move From Windows"))
-        btns.addWidget(move_btn)
-        if mounted:
-            open_btn = QPushButton("Open Drive")
-            open_btn.clicked.connect(lambda _=False, path=mounted[0]["mount"]: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
-            btns.addWidget(open_btn)
-        files_btn = QPushButton("File Manager")
-        files_btn.clicked.connect(lambda _=False: subprocess.Popen(["dolphin"]) if shutil.which("dolphin") else QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~"))))
-        btns.addWidget(files_btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_step(self, num: int, icon: str, title: str, desc: str, page_key: str) -> QFrame:
-        frame = QFrame()
-        frame.setObjectName("step-item")
-        row = QHBoxLayout(frame)
-        row.setContentsMargins(18, 14, 18, 14)
-        row.setSpacing(14)
-
-        # Icon badge
-        icon_lbl = QLabel(icon)
-        icon_lbl.setObjectName("step-number")
-        icon_lbl.setFixedSize(32, 32)
-        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        icon_lbl.setStyleSheet(
-            "background: #3a3d41; color: #c586c0; border-radius: 16px; "
-            "font-size: 14px; font-weight: 700;"
-        )
-        row.addWidget(icon_lbl)
-
-        text_col = QVBoxLayout()
-        text_col.setSpacing(3)
-        title_lbl = QLabel(title)
-        title_lbl.setObjectName("step-title")
-        text_col.addWidget(title_lbl)
-        desc_lbl = QLabel(desc)
-        desc_lbl.setObjectName("step-desc")
-        desc_lbl.setWordWrap(True)
-        text_col.addWidget(desc_lbl)
-        row.addLayout(text_col, 1)
-
-        go_btn = QPushButton("Open →")
-        go_btn.setObjectName("step-action")
-        go_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        go_btn.setFixedWidth(80)
-        go_btn.clicked.connect(lambda checked=False, key=page_key: self._navigate(key))
-        row.addWidget(go_btn, 0, Qt.AlignmentFlag.AlignVCenter)
-
-        return frame
 
 
 # ── Page: Hardware ────────────────────────────────────────────────────────────
@@ -7649,6 +7383,8 @@ class GamingPage(Page):
             "Install your preferred launchers below.",
         )
 
+        self._add(self._make_gaming_ready_panel())
+
         # ── Windows Game Library ──────────────────────────────────────────────
         self._win_lib_card, self._win_lib_layout = _make_card("card-accent-ok")
         self._win_lib_card.hide()
@@ -9824,6 +9560,85 @@ class GamingPage(Page):
         _restyle(self._migrate_status)
         _set_log_panel(self._migrate_log_toggle, self._migrate_log, True)
 
+    def _make_gaming_ready_panel(self) -> QFrame:
+        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+        ge_ver = _ge_proton_version()
+        vulkan_hint = bool(glob.glob("/dev/dri/renderD*")) or shutil.which("vulkaninfo") is not None
+        ntsync_ok = os.path.exists("/dev/ntsync")
+        items = [
+            ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam for your library."),
+            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing Windows games."),
+            ("ok" if vulkan_hint else "err", "Vulkan", "Render device found." if vulkan_hint else "No Vulkan render device found."),
+            ("ok" if ntsync_ok else "warn", "NTSYNC", "Ready." if ntsync_ok else "Not active; Proton can fall back safely."),
+            ("ok" if _gamescope_installed() else "warn", "Gamescope", "Ready." if _gamescope_installed() else "Install for scaling, HDR, and frame pacing presets."),
+            ("ok" if _mangohud_installed() else "warn", "MangoHud", "Ready." if _mangohud_installed() else "Install for the performance overlay."),
+        ]
+        ok_count = sum(1 for status, _, _ in items if status == "ok")
+        issue_count = sum(1 for status, _, _ in items if status == "err")
+        warn_count = sum(1 for status, _, _ in items if status == "warn")
+        total = len(items)
+
+        card, layout = _make_card("ready-panel")
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(14)
+
+        top = QHBoxLayout()
+        top.setSpacing(18)
+
+        score_col = QVBoxLayout()
+        score_col.setSpacing(2)
+        score = QLabel(f"{ok_count}/{total}")
+        score.setObjectName("ready-score-err" if issue_count else "ready-score-warn" if warn_count else "ready-score")
+        score_col.addWidget(score)
+        score_label = QLabel("gaming checks ready")
+        score_label.setObjectName("stat-label")
+        score_col.addWidget(score_label)
+        top.addLayout(score_col)
+
+        copy_col = QVBoxLayout()
+        copy_col.setSpacing(5)
+        title = QLabel("Gaming readiness")
+        title.setObjectName("card-title")
+        copy_col.addWidget(title)
+        if issue_count:
+            summary = "A couple of core pieces need attention before Windows games will feel smooth."
+        elif warn_count:
+            summary = "The core stack is close. Review the yellow items before benchmarking or migrating."
+        else:
+            summary = "The important pieces are in place. Scroll down for launchers, Proton, and game tools."
+        body = QLabel(summary)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        copy_col.addWidget(body)
+        top.addLayout(copy_col, 1)
+        layout.addLayout(top)
+
+        pill_grid = QVBoxLayout()
+        pill_grid.setSpacing(8)
+        for start in (0, 3):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            for item in items[start:start + 3]:
+                row.addWidget(self._make_ready_pill(*item), 1)
+            pill_grid.addLayout(row)
+        layout.addLayout(pill_grid)
+
+        return card
+
+    def _make_ready_pill(self, status: str, name: str, summary: str) -> QLabel:
+        prefix = {
+            "ok": "Ready",
+            "warn": "Check",
+            "err": "Fix",
+            "dim": "Optional",
+        }.get(status, "Info")
+        label = QLabel(f"{prefix}: {name}\n{summary}")
+        label.setObjectName(f"ready-row-{status if status in {'ok', 'warn', 'err', 'dim'} else 'dim'}")
+        label.setWordWrap(True)
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        label.setMinimumHeight(74)
+        return label
+
 
 # ── NTFS / Steam migration helpers ───────────────────────────────────────────
 
@@ -9975,6 +9790,7 @@ _COMPAT_AC_EXPLAINERS: list[tuple[str, str, str]] = [
 ]
 
 
+# ── Page: Compatibility ───────────────────────────────────────────────────────
 class CompatibilityPage(Page):
 
     _STATUS_STYLE: dict[str, tuple[str, str, str]] = {
@@ -12387,7 +12203,7 @@ class SoftwarePage(Page):
             self._familiar_install_btn.setText(f"Install {name.split('/')[0].strip()}")
             try:
                 self._familiar_install_btn.clicked.disconnect()
-            except RuntimeError:
+            except (RuntimeError, TypeError):
                 pass
             self._familiar_install_btn.clicked.connect(
                 lambda _=False, aid=app_id, n=name: self._install_familiar_app(aid, n)
@@ -16244,27 +16060,30 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(_divider())
 
         # Nav groups: (section_label, [(icon, label, key, factory), ...])
+        # section_label=None omits the header row (used for Overview).
         page_specs: list[tuple[str, str, object]] = []
 
         nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
-            ("Command Center", [
+            (None, [
                 ("⌂", "Overview", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+            ]),
+            ("Play", [
                 ("◉", "Gaming", "Gaming", GamingPage),
+                ("◎", "Compatibility", "Compatibility", CompatibilityPage),
+                ("⎮", "Controllers", "Controllers", ControllerPage),
+            ]),
+            ("Apps", [
                 ("⬡", "Software", "Software", SoftwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
                 ("↻", "Updates", "Update", UpdatePage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
-                ("⎮", "Controllers", "Controllers", ControllerPage),
-                ("◎", "Compatibility", "Compatibility", CompatibilityPage),
-            ]),
-            ("Connect", [
                 ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
                 ("⬡", "VPN", "VPN", VpnPage),
             ]),
-            ("Recover", [
+            ("Fix", [
                 ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
@@ -16274,13 +16093,15 @@ class MainWindow(QMainWindow):
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
+        advanced_items.append(("⎇", "Channels", "Channels", BranchesPage))
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
         global_idx = 0
         for section_title, items in nav_groups:
             sidebar_layout.addSpacing(4)
-            sidebar_layout.addWidget(_nav_section_label(section_title))
+            if section_title is not None:
+                sidebar_layout.addWidget(_nav_section_label(section_title))
             for icon, label, key, factory in items:
                 page_specs.append((key, factory))
                 btn = NavButton(icon, label)
