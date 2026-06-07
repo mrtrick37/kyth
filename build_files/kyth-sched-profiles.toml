@@ -6,7 +6,7 @@
 # BPF scheduler used when no game is detected
 desktop_scheduler = "scx_bpfland"
 
-# BPF scheduler used when a game is detected (GameMode / Steam / gamescope)
+# BPF scheduler used when a game is detected (GameMode / gamescope / Wine)
 gaming_scheduler = "scx_lavd"
 
 # How often (seconds) to check for gaming activity

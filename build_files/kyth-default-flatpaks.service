@@ -34,6 +34,9 @@ ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flat
 ExecStartPost=/bin/mkdir -p /var/lib/kyth
 ExecStartPost=/bin/touch /var/lib/kyth/default-flatpaks-v5-done
 RemainAfterExit=yes
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=3600
 
 [Install]
 WantedBy=multi-user.target

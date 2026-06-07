@@ -1,5 +1,5 @@
 # KythOS automatic update configuration
-# Managed by: kyth-update-watcher (system timer, every 15 minutes)
+# Managed by: kyth-update-watcher (system timer, roughly every 6 hours)
 # Edit this file or use the System Hub → Updates page to configure.
 
 [auto_update]
@@ -18,6 +18,10 @@ skip_if_metered = true
 # Skip staging if a game is currently running
 # (checked via GameMode D-Bus, gamescope lock file, and /proc scan)
 skip_if_gaming = true
+
+# Skip automatic staging shortly after boot/login so first-login setup, desktop
+# startup, and user-launched apps get the machine first.
+startup_grace_minutes = 20
 
 # Timeout in seconds for a single bootc upgrade call
 # A full OCI layer pull on a slow connection can take 20–30 minutes

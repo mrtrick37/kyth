@@ -513,6 +513,52 @@ cat >/etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 wifi.powersave = 2
 NMEOF
 
+# Prefer the last Wi-Fi profile that connected successfully. NetworkManager
+# already honors connection.autoconnect-priority; this dispatcher just keeps the
+# most recently proven Wi-Fi profile at the front of the autoconnect list.
+mkdir -p /etc/NetworkManager/dispatcher.d
+cat >/etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi <<'NMDISPEOF'
+#!/usr/bin/env bash
+set -u
+
+action="${2:-${NM_DISPATCHER_ACTION:-}}"
+case "${action}" in
+    up) ;;
+    *) exit 0 ;;
+esac
+
+command -v nmcli >/dev/null 2>&1 || exit 0
+
+uuid="${CONNECTION_UUID:-}"
+[[ -n "${uuid}" ]] || exit 0
+
+type="$(nmcli -g connection.type connection show "${uuid}" 2>/dev/null || true)"
+case "${type}" in
+    802-11-wireless|wifi) ;;
+    *) exit 0 ;;
+esac
+
+autoconnect="$(nmcli -g connection.autoconnect connection show "${uuid}" 2>/dev/null || true)"
+[[ "${autoconnect}" != "no" ]] || exit 0
+
+nmcli connection modify "${uuid}" connection.autoconnect-priority 100 >/dev/null 2>&1 || exit 0
+
+while IFS=: read -r other_uuid other_type; do
+    [[ -n "${other_uuid}" && "${other_uuid}" != "${uuid}" ]] || continue
+    case "${other_type}" in
+        802-11-wireless|wifi) ;;
+        *) continue ;;
+    esac
+
+    priority="$(nmcli -g connection.autoconnect-priority connection show "${other_uuid}" 2>/dev/null || echo 0)"
+    [[ "${priority}" =~ ^-?[0-9]+$ ]] || priority=0
+    if (( priority >= 100 )); then
+        nmcli connection modify "${other_uuid}" connection.autoconnect-priority 90 >/dev/null 2>&1 || true
+    fi
+done < <(nmcli -t -f UUID,TYPE connection show 2>/dev/null || true)
+NMDISPEOF
+chmod 0755 /etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi
+
 # ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
@@ -558,16 +604,16 @@ ACTION=="add|change", KERNEL=="vd[a-z]*", ATTR{queue/scheduler}="mq-deadline"
 IOEOF
 
 # ── PipeWire low-latency audio ─────────────────────────────────────────────────
-# 128 samples at 48 kHz = ~2.7 ms latency — low enough to eliminate perceptible
-# audio lag in games while staying stable on typical hardware.
-# min-quantum=32 lets pro-audio apps request sub-1 ms when needed.
+# 256 samples at 48 kHz = ~5.3 ms latency — still responsive for games while
+# giving Bluetooth, USB audio, and busy CPUs more underrun headroom.
+# min-quantum=64 lets pro-audio apps request lower latency when needed.
 # Apps that need higher buffering (e.g. Bluetooth) negotiate up automatically.
 mkdir -p /etc/pipewire/pipewire.conf.d
 cat >/etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
 context.properties = {
     default.clock.rate          = 48000
-    default.clock.quantum       = 128
-    default.clock.min-quantum   = 32
+    default.clock.quantum       = 256
+    default.clock.min-quantum   = 64
     default.clock.max-quantum   = 8192
     # Allow PipeWire to switch between 44100 and 48000 Hz rather than resampling.
     # Without this, a game or app that outputs at 44100 Hz forces the entire graph
@@ -611,11 +657,12 @@ PROTON_NO_WINDOWS_CRASH_DIALOG=1
 DXVK_LOG_LEVEL=none
 PROTONEOF
 
-# obs-vkcapture: make game capture available by default for OBS users. The layer
-# is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
-# a Nobara-like "works without launch-option archaeology" setup.
+# obs-vkcapture is available, but do not inject it into every desktop process by
+# default. Global capture hooks are convenient for streamers, but they can become
+# another compatibility variable for games and GPU apps. `ujust install-obs`
+# enables OBS_VKCAPTURE for the OBS Flatpak specifically.
 cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
-OBS_VKCAPTURE=1
+# OBS_VKCAPTURE intentionally left unset globally.
 OBSVKCAPTUREEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
@@ -911,4 +958,3 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # full sudo access — it only removes the interactive prompt for GUI launches.
 %wheel ALL=(root) NOPASSWD: /usr/bin/podman
 SUDOEOF
-

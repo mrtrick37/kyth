@@ -175,6 +175,16 @@ check_file() {
     fi
 }
 
+check_executable_file() {
+    local path="$1"
+    local label="$2"
+    if [[ -x "$path" ]]; then
+        pass "$label" "$path"
+    else
+        fail "$label" "$path missing or not executable"
+    fi
+}
+
 check_path_absent() {
     local path="$1"
     local label="$2"
@@ -468,6 +478,8 @@ fi
 
 section "Core Daily-Driver Services"
 check_system_unit_active NetworkManager.service "Network manager"
+check_executable_file /etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi "Wi-Fi priority memory"
+check_file_contains /etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi "connection.autoconnect-priority 100" "Wi-Fi preferred reconnect" "last successful Wi-Fi profile is preferred"
 check_system_unit_active bluetooth.service "Bluetooth"
 check_system_unit_enabled kyth-bluetooth-enable.service "Bluetooth auto-enable"
 check_system_unit_active rtkit-daemon.service "Realtime audio helper"

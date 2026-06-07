@@ -46,10 +46,12 @@ DEFAULT_CONFIG: dict = {
     "integrate_perf_mode": True,   # also call kyth-performance-mode on switch
 }
 
-# Process names that indicate a gaming session even without GameMode
+# Process names that indicate an actual game/session even without GameMode.
+# Do not include launcher shells like steam, heroic, lutris, bottles, or
+# steamwebhelper here: users often leave them open all day, and treating them as
+# games pins the desktop in gaming scheduler/performance mode indefinitely.
 GAMING_PROCS = frozenset({
-    "steam", "steam-native", "steamwebhelper", "steamwebhelper.sh",
-    "gamescope", "heroic", "lutris", "bottles",
+    "gamescope",
     "wine", "wine64", "wineserver", "wine-preloader",
     "pressure-vessel-wrap",
 })
@@ -194,6 +196,18 @@ def perf_mode(mode: str) -> None:
         pass
 
 
+def enter_gaming_perf_mode() -> None:
+    """Snapshot the user's current desktop/power state, then apply gaming mode."""
+    try:
+        subprocess.Popen(
+            ["/usr/bin/kyth-performance-mode", "save"],
+            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ).wait(timeout=5)
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        pass
+    perf_mode("gaming")
+
+
 # ---------------------------------------------------------------------------
 # Status reporting
 # ---------------------------------------------------------------------------
@@ -247,10 +261,10 @@ def main() -> None:
     signal.signal(signal.SIGUSR1, force_gaming)
     signal.signal(signal.SIGUSR2, force_desktop)
 
-    # Apply initial desktop profile
+    # Apply initial scheduler profile. Do not force kyth-performance-mode
+    # balanced at login: that overwrites the user's chosen power/compositor
+    # state even before a game has run.
     set_scheduler(cfg["desktop_scheduler"])
-    if cfg.get("integrate_perf_mode"):
-        perf_mode("balanced")
 
     LOG.info(
         "Started — desktop=%s  gaming=%s  poll=%ds",
@@ -266,7 +280,7 @@ def main() -> None:
                 if gaming_now:
                     set_scheduler(cfg["gaming_scheduler"])
                     if cfg.get("integrate_perf_mode"):
-                        perf_mode("gaming")
+                        enter_gaming_perf_mode()
                     profile = "gaming"
                     LOG.info("→ gaming profile (%s)", cfg["gaming_scheduler"])
                 else:

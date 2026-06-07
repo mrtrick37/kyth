@@ -2,7 +2,7 @@
 """
 kyth-update-watcher — intelligent bootc update scheduler for KythOS.
 
-Runs as a system service (root), invoked by a systemd timer every 15 minutes.
+Runs as a system service (root), invoked periodically by a systemd timer.
 Checks a set of safety conditions before staging a bootc upgrade so that
 updates never interrupt gaming, never saturate a metered connection, and
 never fire during user-configured quiet hours.
@@ -41,6 +41,7 @@ DEFAULT_CONFIG: dict = {
     "quiet_hours_end":    "07:00",
     "skip_if_metered":    True,
     "skip_if_gaming":     True,
+    "startup_grace_minutes": 20,
     "bootc_timeout":      1800,     # seconds; a full OCI pull can take a while
 }
 
@@ -92,6 +93,26 @@ def check_quiet_hours(cfg: dict) -> str | None:
 
     if in_quiet:
         return f"quiet hours ({start_str}–{end_str})"
+    return None
+
+
+def check_startup_grace(cfg: dict) -> str | None:
+    try:
+        grace_minutes = int(cfg.get("startup_grace_minutes", 20))
+    except (TypeError, ValueError):
+        return None
+    if grace_minutes <= 0:
+        return None
+
+    try:
+        uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
+    except Exception:
+        return None
+
+    grace_seconds = grace_minutes * 60
+    if uptime_seconds < grace_seconds:
+        remaining = max(1, int((grace_seconds - uptime_seconds + 59) // 60))
+        return f"startup grace period ({remaining} min remaining)"
     return None
 
 
@@ -250,6 +271,7 @@ def main() -> None:
 
     checks = [
         check_enabled,
+        check_startup_grace,
         check_quiet_hours,
         check_gaming,
         check_metered,
