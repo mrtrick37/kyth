@@ -439,7 +439,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v5"
+version="v6"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -593,6 +593,16 @@ elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
 fi
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
+    # KWallet should be opened by kwallet-pam with the login password, then stay
+    # open for the session so browsers and editors do not ask again after boot.
+    kwriteconfig6 --file kwalletrc --group Wallet --key Enabled --type bool true
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Default Wallet" kdewallet
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Local Wallet" kdewallet
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Use One Wallet" --type bool true
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Close When Idle" --type bool false
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
+
     # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
     kwriteconfig6 --file kglobalshortcutsrc \
         --group org.kde.plasma-systemmonitor.desktop \
@@ -637,6 +647,10 @@ fi
 
 if command -v /usr/bin/kyth-web-app-categorize >/dev/null 2>&1; then
     /usr/bin/kyth-web-app-categorize >/dev/null 2>&1 || true
+fi
+
+if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
+    /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
 fi
 
 touch "${stamp}"

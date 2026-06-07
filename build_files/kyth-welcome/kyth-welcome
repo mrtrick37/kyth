@@ -484,6 +484,46 @@ QWidget#starter-pack-details {
     background: transparent;
 }
 
+QFrame#store-hero {
+    background: #202124;
+    border: 1px solid #4a3f4d;
+    border-radius: 4px;
+}
+
+QLabel#store-hero-title {
+    font-size: 22px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#store-kicker {
+    color: #4fc1ff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1px;
+}
+
+QFrame#store-app-card {
+    background: #252526;
+    border: 1px solid #34363b;
+    border-radius: 4px;
+}
+
+QFrame#store-app-card:hover {
+    background: #2d2d30;
+    border-color: #505050;
+}
+
+QFrame#store-category-card {
+    background: #202124;
+    border: 1px solid #34363b;
+    border-radius: 4px;
+}
+
+QFrame#store-category-card:hover {
+    border-color: #c586c0;
+}
+
 /* ── Software page tab bar ───────────────────────────────────────────────── */
 QWidget#sw-tab-bar {
     background: #1e1e1e;
@@ -4479,10 +4519,10 @@ class WelcomePage(Page):
         ), 1)
         lanes.addWidget(self._make_task_card(
             "APPS",
-            "Software",
-            "Starter packs, familiar app replacements, Flatpaks, dev tools, and installed apps.",
+            "App Store",
+            "Trending apps, curated shelves, search, installs, and software management.",
             "Open",
-            "Software",
+            "App Store",
         ), 1)
         lanes.addWidget(self._make_task_card(
             "RECOVER",
@@ -4534,7 +4574,7 @@ class WelcomePage(Page):
                 "Pick a section below. The hub keeps gaming, updates, apps, and "
                 "recovery in one place."
             )
-            buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "Software", False)]
+            buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "App Store", False)]
 
         card, layout = _make_card("card-accent-ok")
         title_lbl = QLabel(title)
@@ -6573,9 +6613,9 @@ class RepairPage(Page):
         update_help_btn.setToolTip("Open the Update page to run a system update or roll back to the previous image.")
         update_help_btn.clicked.connect(lambda _=False: self._navigate("Update"))
         immutable_btns.addWidget(update_help_btn)
-        software_help_btn = QPushButton("Open Software")
-        software_help_btn.setToolTip("Open the Software page to browse Flatpak apps, Distrobox environments, and dev tools.")
-        software_help_btn.clicked.connect(lambda _=False: self._navigate("Software"))
+        software_help_btn = QPushButton("Open App Store")
+        software_help_btn.setToolTip("Open the App Store to browse Flatpak apps and curated Kyth picks.")
+        software_help_btn.clicked.connect(lambda _=False: self._navigate("App Store"))
         immutable_btns.addWidget(software_help_btn)
         immutable_btns.addStretch()
         immutable_layout.addLayout(immutable_btns)
@@ -7315,7 +7355,7 @@ class WindowsMigrationPage(Page):
         intro_btns = QHBoxLayout()
         intro_btns.setSpacing(8)
         for label, page in (
-            ("Install Familiar Apps", "Software"),
+            ("Install Familiar Apps", "App Store"),
             ("Move Steam Games", "Gaming"),
             ("Back Up Saves", "Gaming"),
             ("Open File Manager", None),
@@ -7335,7 +7375,7 @@ class WindowsMigrationPage(Page):
         checklist_title.setObjectName("card-title")
         checklist_layout.addWidget(checklist_title)
         for status, title, text in (
-            ("ok", "Apps", "Use Software > Starter Packs for Discord, VLC, Spotify, OBS, Bitwarden, and game launchers."),
+            ("ok", "Apps", "Use App Store for trending Flatpaks, or Software Tools > Start for starter packs."),
             ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random Windows installers directly."),
             ("warn", "Files", "Copy Documents, Downloads, Pictures, Music, and Videos into your KythOS home folder."),
             ("warn", "Saves", "Install Ludusavi before moving large libraries or experimenting with mods."),
@@ -7411,8 +7451,8 @@ class WindowsMigrationPage(Page):
         bottles_btn = QPushButton("Install Bottles")
         bottles_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-bottles"], "Install Bottles"))
         exe_btns.addWidget(bottles_btn)
-        software_btn = QPushButton("Open Software")
-        software_btn.clicked.connect(lambda _=False: self._navigate("Software"))
+        software_btn = QPushButton("Open App Store")
+        software_btn.clicked.connect(lambda _=False: self._navigate("App Store"))
         exe_btns.addWidget(software_btn)
         exe_btns.addStretch()
         exe_layout.addLayout(exe_btns)
@@ -12454,8 +12494,64 @@ class SoftwarePage(Page):
         ("Utilities", "Utility"),
     ]
 
-    def __init__(self):
+    _TRENDING_APPS = [
+        "com.brave.Browser",
+        "com.discordapp.Discord",
+        "com.spotify.Client",
+        "com.obsproject.Studio",
+        "com.valvesoftware.Steam",
+        "com.heroicgameslauncher.hgl",
+        "com.github.tchx84.Flatseal",
+        "org.localsend.localsend_app",
+    ]
+
+    _STORE_SHELVES = [
+        {
+            "name": "Game Night",
+            "query": "Game",
+            "apps": [
+                "com.valvesoftware.Steam",
+                "com.heroicgameslauncher.hgl",
+                "net.lutris.Lutris",
+                "com.usebottles.bottles",
+            ],
+        },
+        {
+            "name": "Creator Studio",
+            "query": "Graphics AudioVideo",
+            "apps": [
+                "com.obsproject.Studio",
+                "org.kde.kdenlive",
+                "org.gimp.GIMP",
+                "org.blender.Blender",
+            ],
+        },
+        {
+            "name": "Everyday Essentials",
+            "query": "Network Office Utility",
+            "apps": [
+                "com.brave.Browser",
+                "org.videolan.VLC",
+                "com.bitwarden.desktop",
+                "org.localsend.localsend_app",
+            ],
+        },
+        {
+            "name": "Tinker & Tune",
+            "query": "Utility",
+            "apps": [
+                "com.github.tchx84.Flatseal",
+                "io.github.flattool.Warehouse",
+                "com.mattjakeman.ExtensionManager",
+                "org.freedesktop.Piper",
+            ],
+        },
+    ]
+
+    def __init__(self, initial_tab: int = 0, store_landing: bool = False):
         super().__init__()
+        self._initial_tab = initial_tab
+        self._store_landing = store_landing
 
         # Worker references
         self._starter_worker: Worker | None = None
@@ -12486,11 +12582,18 @@ class SoftwarePage(Page):
         self._starter_pack_buttons: dict = {}
         self._starter_pack_details: dict = {}
 
-        self._page_header(
-            "Apps",
-            "Software",
-            "Install familiar apps, browse Flathub, import AppImages, and clean up installed software.",
-        )
+        if store_landing:
+            self._page_header(
+                "Apps",
+                "App Store",
+                "Discover useful Flatpaks for KythOS, install them directly, and manage what you have.",
+            )
+        else:
+            self._page_header(
+                "Apps",
+                "Software",
+                "Starter packs, app migration helpers, AppImages, developer tools, and installed apps.",
+            )
 
         # Tab bar — inserted into _outer between the page-header divider and the
         # scroll area. After _page_header(), _outer contains [hdr, div, scroll].
@@ -12500,9 +12603,9 @@ class SoftwarePage(Page):
         tab_bar_layout.setContentsMargins(56, 0, 56, 0)
         tab_bar_layout.setSpacing(0)
         self._tab_btns: list[QPushButton] = []
-        for i, label in enumerate(("Start", "Create", "Develop", "Security", "Store", "AppImages", "Installed")):
+        for i, label in enumerate(("Start", "Create", "Develop", "Security", "App Store", "AppImages", "Installed")):
             btn = QPushButton(label)
-            btn.setObjectName("sw-tab-active" if i == 0 else "sw-tab")
+            btn.setObjectName("sw-tab-active" if i == self._initial_tab else "sw-tab")
             btn.clicked.connect(lambda _=False, idx=i: self._switch_tab(idx))
             tab_bar_layout.addWidget(btn)
             self._tab_btns.append(btn)
@@ -12510,7 +12613,7 @@ class SoftwarePage(Page):
         self._outer.insertWidget(2, tab_bar)
         self._outer.insertWidget(3, _divider())
 
-        self._current_tab = 0
+        self._current_tab = self._initial_tab
 
         # Build each tab widget and add to the scroll area
         self._tab_widgets: list[QWidget] = []
@@ -12527,8 +12630,8 @@ class SoftwarePage(Page):
             self._add(tab_widget)
             self._tab_widgets.append(tab_widget)
 
-        for tab in self._tab_widgets[1:]:
-            tab.hide()
+        for i, tab in enumerate(self._tab_widgets):
+            tab.setVisible(i == self._current_tab)
 
         self._stretch()
 
@@ -12852,13 +12955,42 @@ class SoftwarePage(Page):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(16)
 
+        hero = QFrame()
+        hero.setObjectName("store-hero")
+        hero_layout = QHBoxLayout(hero)
+        hero_layout.setContentsMargins(22, 20, 22, 20)
+        hero_layout.setSpacing(18)
+        hero_text = QVBoxLayout()
+        hero_text.setSpacing(6)
+        kicker = QLabel("KYTH APP STORE")
+        kicker.setObjectName("store-kicker")
+        hero_text.addWidget(kicker)
+        title = QLabel("Apps that make this desktop stick")
+        title.setObjectName("store-hero-title")
+        title.setWordWrap(True)
+        hero_text.addWidget(title)
         intro = QLabel(
-            "Browse Flathub and install apps directly. "
-            "Store metadata is cached locally, so search still works when Flathub is slow or temporarily unavailable."
+            "Install trusted Flatpaks without leaving System Hub. Start with trending picks, browse curated shelves, or search the full Flathub catalog."
         )
         intro.setObjectName("card-copy")
         intro.setWordWrap(True)
-        layout.addWidget(intro)
+        hero_text.addWidget(intro)
+        hero_layout.addLayout(hero_text, 1)
+        hero_actions = QVBoxLayout()
+        hero_actions.setSpacing(8)
+        featured_btn = QPushButton("Show Featured")
+        featured_btn.setObjectName("primary")
+        featured_btn.clicked.connect(lambda _=False: self._render_store_landing())
+        hero_actions.addWidget(featured_btn)
+        browse_btn = QPushButton("Browse Catalog")
+        browse_btn.clicked.connect(lambda _=False: self._load_fp_catalog())
+        hero_actions.addWidget(browse_btn)
+        refresh_btn = QPushButton("Refresh Metadata")
+        refresh_btn.clicked.connect(self._refresh_fp_metadata)
+        hero_actions.addWidget(refresh_btn)
+        hero_actions.addStretch()
+        hero_layout.addLayout(hero_actions)
+        layout.addWidget(hero)
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
@@ -12920,7 +13052,176 @@ class SoftwarePage(Page):
         self._fp_results_layout.setSpacing(8)
         layout.addLayout(self._fp_results_layout)
 
+        self._render_store_landing()
         return tab
+
+    def _fallback_store_names(self) -> dict[str, tuple[str, str]]:
+        names: dict[str, tuple[str, str]] = {}
+        for pack in self._STARTER_PACKS:
+            for app_id, label, _ in pack["apps"]:
+                names[app_id] = (label, pack["desc"])
+        for tool in self._CR_TOOLS + self._SEC_HOST_TOOLS:
+            names[tool["flatpak"]] = (tool["name"], tool["desc"])
+        for _, desc, app_id in self._FAMILIAR_APPS:
+            if app_id:
+                names.setdefault(app_id, (app_id.rsplit(".", 1)[-1], desc))
+        names.update({
+            "io.github.flattool.Warehouse": ("Warehouse", "Manage Flatpak apps, remotes, data, and leftover files."),
+            "com.mattjakeman.ExtensionManager": ("Extension Manager", "Browse, install, and manage GNOME Shell extensions."),
+            "org.freedesktop.Piper": ("Piper", "Configure gaming mice and supported peripherals."),
+        })
+        return names
+
+    def _store_entry_for_app(self, app_id: str) -> dict:
+        details = self._fp_appstream_details(app_id)
+        fallback_name, fallback_summary = self._fallback_store_names().get(
+            app_id, (app_id.rsplit(".", 1)[-1], "")
+        )
+        return {
+            "application_id": app_id,
+            "name": details.get("name") or fallback_name,
+            "description": details.get("summary") or fallback_summary,
+            "version": details.get("version", ""),
+            "remote": "flathub",
+        }
+
+    def _render_store_landing(self):
+        self._clear_fp_results()
+        catalog = self._fp_appstream_catalog()
+        self._fp_status.setText(
+            "Featured Kyth picks. Search or browse the catalog for more."
+            if catalog else
+            "Featured Kyth picks. Refresh metadata for richer descriptions, icons, and categories."
+        )
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+
+        trending_label = QLabel("Trending on Kyth")
+        trending_label.setObjectName("section-heading")
+        self._fp_results_layout.addWidget(trending_label)
+
+        rows = [self._TRENDING_APPS[:4], self._TRENDING_APPS[4:]]
+        for app_ids in rows:
+            row_layout = QHBoxLayout()
+            row_layout.setSpacing(10)
+            for app_id in app_ids:
+                row_layout.addWidget(self._make_store_app_card(self._store_entry_for_app(app_id)), 1)
+            self._fp_results_layout.addLayout(row_layout)
+
+        categories_label = QLabel("Browse by vibe")
+        categories_label.setObjectName("section-heading")
+        self._fp_results_layout.addWidget(categories_label)
+
+        shelf_row = QHBoxLayout()
+        shelf_row.setSpacing(10)
+        for shelf in self._STORE_SHELVES:
+            shelf_row.addWidget(self._make_store_category_card(shelf), 1)
+        self._fp_results_layout.addLayout(shelf_row)
+
+        for shelf in self._STORE_SHELVES[:3]:
+            self._fp_results_layout.addWidget(self._make_store_shelf(shelf))
+
+    def _make_store_app_card(self, entry: dict) -> QFrame:
+        app_id = entry.get("application_id", "").strip()
+        name = entry.get("name", app_id).strip() or app_id
+        summary = entry.get("description", "").strip()
+        details = self._fp_appstream_details(app_id)
+
+        card = QFrame()
+        card.setObjectName("store-app-card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(8)
+
+        top = QHBoxLayout()
+        top.setSpacing(10)
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(44, 44)
+        icon_path = self._fp_icon_path(app_id)
+        icon = QIcon(icon_path) if icon_path else QIcon.fromTheme("package-x-generic")
+        icon_lbl.setPixmap(icon.pixmap(44, 44))
+        top.addWidget(icon_lbl)
+        title_col = QVBoxLayout()
+        title_col.setSpacing(2)
+        name_lbl = QLabel(name)
+        name_lbl.setObjectName("card-summary")
+        name_lbl.setWordWrap(True)
+        title_col.addWidget(name_lbl)
+        meta = QLabel("Verified" if details.get("verified") else "Flatpak")
+        meta.setObjectName("starter-pack-meta")
+        title_col.addWidget(meta)
+        top.addLayout(title_col, 1)
+        layout.addLayout(top)
+
+        summary_lbl = QLabel(summary or app_id)
+        summary_lbl.setObjectName("card-copy")
+        summary_lbl.setWordWrap(True)
+        summary_lbl.setMinimumHeight(48)
+        layout.addWidget(summary_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        details_btn = QPushButton("Details")
+        details_btn.clicked.connect(lambda _=False, e=entry: self._show_fp_details(e))
+        btn_row.addWidget(details_btn)
+        already_installed = _is_flatpak_installed(app_id)
+        install_btn = QPushButton("Installed" if already_installed else "Install")
+        install_btn.setEnabled(not already_installed)
+        if not already_installed:
+            install_btn.setObjectName("primary")
+            install_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name, b=install_btn: self._fp_install(aid, n, b)
+            )
+        btn_row.addWidget(install_btn)
+        layout.addLayout(btn_row)
+        return card
+
+    def _make_store_category_card(self, shelf: dict) -> QFrame:
+        card = QFrame()
+        card.setObjectName("store-category-card")
+        layout = QVBoxLayout(card)
+        layout.setContentsMargins(14, 14, 14, 14)
+        layout.setSpacing(6)
+        title = QLabel(shelf["name"])
+        title.setObjectName("card-title")
+        title.setWordWrap(True)
+        layout.addWidget(title)
+        count = QLabel(f"{len(shelf['apps'])}+ picks")
+        count.setObjectName("starter-pack-meta")
+        layout.addWidget(count)
+        btn = QPushButton("Open Shelf")
+        btn.clicked.connect(lambda _=False, s=shelf: self._open_store_shelf(s))
+        layout.addWidget(btn)
+        return card
+
+    def _make_store_shelf(self, shelf: dict) -> QFrame:
+        panel, layout = _make_card()
+        head = QHBoxLayout()
+        title = QLabel(shelf["name"])
+        title.setObjectName("card-title")
+        head.addWidget(title, 1)
+        all_btn = QPushButton("More")
+        all_btn.clicked.connect(lambda _=False, q=shelf["query"], n=shelf["name"]: self._show_fp_category(q, n))
+        head.addWidget(all_btn)
+        layout.addLayout(head)
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        for app_id in shelf["apps"]:
+            row.addWidget(self._make_store_app_card(self._store_entry_for_app(app_id)), 1)
+        layout.addLayout(row)
+        return panel
+
+    def _open_store_shelf(self, shelf: dict):
+        self._clear_fp_results()
+        self._fp_status.setText(f"{shelf['name']}: curated apps for Kyth users.")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        self._fp_results_layout.addWidget(self._make_store_shelf(shelf))
+        more_btn = QPushButton(f"Browse more {shelf['name']} apps")
+        more_btn.clicked.connect(lambda _=False, q=shelf["query"], n=shelf["name"]: self._show_fp_category(q, n))
+        self._fp_results_layout.addWidget(more_btn)
 
     def _run_fp_search(self):
         if self._fp_search_worker and self._fp_search_worker.isRunning():
@@ -13005,11 +13306,23 @@ class SoftwarePage(Page):
             self._fp_results_layout.addWidget(self._make_fp_result_row(entry))
 
     def _clear_fp_results(self):
+        def clear_layout(layout):
+            while layout.count():
+                item = layout.takeAt(0)
+                widget = item.widget()
+                child_layout = item.layout()
+                if widget:
+                    widget.deleteLater()
+                elif child_layout:
+                    clear_layout(child_layout)
         while self._fp_results_layout.count():
             item = self._fp_results_layout.takeAt(0)
             widget = item.widget()
+            child_layout = item.layout()
             if widget:
                 widget.deleteLater()
+            elif child_layout:
+                clear_layout(child_layout)
 
     def _refresh_fp_metadata(self):
         if self._fp_refresh_worker and self._fp_refresh_worker.isRunning():
@@ -16892,7 +17205,8 @@ class MainWindow(QMainWindow):
                 ("⎮", "Controllers", "Controllers", ControllerPage),
             ]),
             ("Apps", [
-                ("⬡", "Software", "Software", SoftwarePage),
+                ("⬡", "App Store", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
+                ("▦", "Software Tools", "Software", SoftwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
