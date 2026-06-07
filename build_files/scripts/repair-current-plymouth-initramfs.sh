@@ -67,8 +67,8 @@ for image in "${images[@]}"; do
 		cp -a "${image}" "${backup}"
 	fi
 
-	TMPDIR=/tmp dracut \
-		--tmpdir /tmp \
+	TMPDIR=/var/tmp dracut \
+		--tmpdir /var/tmp \
 		--no-hostonly \
 		--compress "zstd -1" \
 		--kver "${kernel}" \

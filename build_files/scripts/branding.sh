@@ -1163,8 +1163,8 @@ for image in /boot/ostree/*/initramfs-*.img; do
     kernel="${kernel%.img}"
     [[ -d "/usr/lib/modules/${kernel}" ]] || continue
 
-    TMPDIR=/tmp dracut \
-        --tmpdir /tmp \
+    TMPDIR=/var/tmp dracut \
+        --tmpdir /var/tmp \
         --no-hostonly \
         --kver "${kernel}" \
         --reproducible \
@@ -1193,8 +1193,8 @@ for image in /boot/ostree/*/initramfs-*.img; do
 done
 
 if [[ "${rebuilt}" -eq 0 ]]; then
-    TMPDIR=/tmp dracut \
-        --tmpdir /tmp \
+    TMPDIR=/var/tmp dracut \
+        --tmpdir /var/tmp \
         --regenerate-all \
         --force \
         --add "drm plymouth kyth-plymouth" \
