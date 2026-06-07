@@ -125,11 +125,11 @@ QSS = """
 * {
     font-family: "Noto Sans", "Segoe UI", sans-serif;
     font-size: 13px;
-    color: #cccccc;
+    color: #d8dee9;
 }
 
 QMainWindow {
-    background: #1e1e1e;
+    background: #111418;
 }
 
 QWidget {
@@ -142,27 +142,26 @@ QLabel {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #181818;
-    border-right: 1px solid #2b2b2b;
+    background: #151922;
+    border-right: 1px solid #252b36;
 }
 
 QWidget#sidebar-header {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #252526, stop:1 #181818);
-    border-bottom: 1px solid #2b2b2b;
+    background: #151922;
+    border-bottom: 1px solid #252b36;
 }
 
 QLabel#sidebar-logo {
-    font-size: 20px;
+    font-size: 22px;
     font-weight: 800;
-    color: #ffffff;
-    letter-spacing: 1px;
+    color: #f8fafc;
+    letter-spacing: 0;
     padding: 0;
 }
 
 QLabel#sidebar-ver {
     font-size: 11px;
-    color: #a6a6a6;
+    color: #8ea0b8;
     font-weight: 600;
     padding: 0;
 }
@@ -170,36 +169,34 @@ QLabel#sidebar-ver {
 QLabel#nav-section {
     font-size: 10px;
     font-weight: 700;
-    color: #858585;
-    letter-spacing: 1.4px;
+    color: #6f7f95;
+    letter-spacing: 1px;
     padding: 0 0 2px 0;
 }
 
 QPushButton#nav-item {
     background: transparent;
-    color: #cccccc;
-    border: none;
-    border-left: 3px solid transparent;
-    border-radius: 0;
-    padding: 10px 16px 10px 13px;
+    color: #b8c3d4;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    padding: 9px 12px;
     text-align: left;
     font-size: 13px;
     font-weight: 500;
 }
 
 QPushButton#nav-item:hover {
-    background: rgba(255, 255, 255, 0.04);
-    color: #ffffff;
-    border-left: 3px solid #505050;
+    background: #202838;
+    color: #f8fafc;
+    border: 1px solid #2d384d;
 }
 
 QPushButton#nav-item-active {
-    background: #2a2d2e;
+    background: #223246;
     color: #ffffff;
-    border: none;
-    border-left: 3px solid #c586c0;
-    border-radius: 0;
-    padding: 10px 16px 10px 13px;
+    border: 1px solid #3f8cff;
+    border-radius: 8px;
+    padding: 9px 12px;
     text-align: left;
     font-size: 13px;
     font-weight: 700;
@@ -207,7 +204,7 @@ QPushButton#nav-item-active {
 
 /* ── Content area ────────────────────────────────────────────────────────── */
 QWidget#content-area {
-    background: #1e1e1e;
+    background: #111418;
 }
 
 QScrollArea {
@@ -217,15 +214,14 @@ QScrollArea {
 
 /* ── Page header band ────────────────────────────────────────────────────── */
 QWidget#page-header {
-    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                                stop:0 #252526, stop:1 #1e1e1e);
-    border-bottom: 1px solid #3c3c3c;
+    background: #111418;
+    border-bottom: 1px solid #252b36;
 }
 
 /* ── Headings ────────────────────────────────────────────────────────────── */
 QLabel#eyebrow {
     background: transparent;
-    color: #c586c0;
+    color: #58d7c4;
     border: none;
     font-size: 10px;
     font-weight: 700;
@@ -234,15 +230,15 @@ QLabel#eyebrow {
 }
 
 QLabel#heading {
-    font-size: 26px;
+    font-size: 28px;
     font-weight: 700;
-    color: #f3f3f3;
+    color: #f8fafc;
     letter-spacing: 0;
 }
 
 QLabel#subheading {
     font-size: 13px;
-    color: #a6a6a6;
+    color: #97a6ba;
     line-height: 1.5;
 }
 
@@ -268,42 +264,42 @@ QLabel#status-dim {
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
-    background: #2d2d30;
-    color: #cccccc;
-    border: 1px solid #3c3c3c;
-    border-radius: 3px;
+    background: #202838;
+    color: #d8dee9;
+    border: 1px solid #303a4d;
+    border-radius: 8px;
     padding: 9px 20px;
     font-size: 13px;
     font-weight: 500;
 }
 
 QPushButton:hover {
-    background: #3a3d41;
+    background: #283447;
     color: #ffffff;
-    border-color: #505050;
+    border-color: #3f8cff;
 }
 
 QPushButton:pressed {
-    background: #252526;
-    color: #cccccc;
+    background: #192131;
+    color: #d8dee9;
 }
 
 QPushButton:disabled {
-    background: #252526;
-    color: #6f6f6f;
-    border-color: #333333;
+    background: #171d29;
+    color: #657386;
+    border-color: #252b36;
 }
 
 QPushButton#primary {
-    background: #3a2d3a;
+    background: #2f6fed;
     color: #ffffff;
-    border: 1px solid #5f4b5f;
+    border: 1px solid #4f8dff;
     font-weight: 700;
 }
 
 QPushButton#primary:hover {
-    background: #4a394a;
-    border-color: #c586c0;
+    background: #3d7cff;
+    border-color: #8cb6ff;
 }
 
 QPushButton#primary:pressed {
@@ -366,42 +362,42 @@ QPushButton#branch-inactive:hover {
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QLabel#card-title {
     font-size: 15px;
     font-weight: 700;
-    color: #f3f3f3;
+    color: #f8fafc;
 }
 
 QLabel#section-heading {
     font-size: 15px;
     font-weight: 700;
-    color: #cccccc;
+    color: #d8dee9;
     letter-spacing: 0.1px;
 }
 
 QLabel#card-summary {
-    color: #cccccc;
+    color: #d8dee9;
     font-weight: 600;
 }
 
 QLabel#card-action {
-    color: #c586c0;
+    color: #58d7c4;
 }
 
 QLabel#card-copy {
-    color: #a6a6a6;
+    color: #97a6ba;
     line-height: 1.6;
 }
 
 QFrame#card-accent-ok {
-    background: #121e2d;
-    border: 1px solid #1c3d60;
-    border-radius: 4px;
+    background: #132235;
+    border: 1px solid #275d85;
+    border-radius: 8px;
 }
 
 QFrame#card-accent-warn {
@@ -417,20 +413,20 @@ QFrame#card-accent-err {
 }
 
 QFrame#home-action-card {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QFrame#home-action-card:hover {
-    background: #2d2d30;
-    border-color: #505050;
+    background: #1d2636;
+    border-color: #3f8cff;
 }
 
 QLabel#home-action-icon {
     font-size: 13px;
     font-weight: 700;
-    color: #4fc1ff;
+    color: #58d7c4;
 }
 
 QLabel#home-action-title {
@@ -456,9 +452,9 @@ QLabel#home-next-copy {
 }
 
 QFrame#starter-pack {
-    background: #202124;
-    border: 1px solid #34363b;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QPushButton#starter-pack-header {
@@ -486,9 +482,9 @@ QWidget#starter-pack-details {
 }
 
 QFrame#store-hero {
-    background: #202124;
-    border: 1px solid #4a3f4d;
-    border-radius: 4px;
+    background: #132235;
+    border: 1px solid #275d85;
+    border-radius: 8px;
 }
 
 QLabel#store-hero-title {
@@ -498,31 +494,58 @@ QLabel#store-hero-title {
 }
 
 QLabel#store-kicker {
-    color: #4fc1ff;
+    color: #58d7c4;
     font-size: 11px;
     font-weight: 800;
     letter-spacing: 1px;
 }
 
 QFrame#store-app-card {
-    background: #252526;
-    border: 1px solid #34363b;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QFrame#store-app-card:hover {
-    background: #2d2d30;
-    border-color: #505050;
+    background: #1d2636;
+    border-color: #3f8cff;
 }
 
 QFrame#store-category-card {
-    background: #202124;
-    border: 1px solid #34363b;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QFrame#store-category-card:hover {
-    border-color: #c586c0;
+    border-color: #58d7c4;
+}
+
+QFrame#drop-card {
+    background: #151c29;
+    border: 1px dashed #3d4a60;
+    border-radius: 8px;
+}
+
+QFrame#drop-card-active {
+    background: #172a3a;
+    border: 2px dashed #58d7c4;
+    border-radius: 8px;
+}
+
+QLabel#drop-glyph {
+    background: #223246;
+    color: #58d7c4;
+    border: 1px solid #35506f;
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 800;
+}
+
+QLabel#drop-title {
+    font-size: 20px;
+    font-weight: 800;
+    color: #f8fafc;
 }
 
 /* ── Software page tab bar ───────────────────────────────────────────────── */
@@ -543,15 +566,15 @@ QPushButton#sw-tab {
 }
 
 QPushButton#sw-tab:hover {
-    background: rgba(255, 255, 255, 0.04);
-    color: #cccccc;
+    background: #1b2230;
+    color: #d8dee9;
 }
 
 QPushButton#sw-tab-active {
     background: transparent;
     color: #ffffff;
     border: none;
-    border-bottom: 2px solid #c586c0;
+    border-bottom: 2px solid #58d7c4;
     border-radius: 0;
     padding: 10px 22px;
     font-size: 13px;
@@ -561,33 +584,33 @@ QPushButton#sw-tab-active {
 
 /* ── Stat tiles ──────────────────────────────────────────────────────────── */
 QFrame#stat-tile {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QFrame#stat-tile:hover {
-    border-color: #505050;
-    background: #2d2d30;
+    border-color: #3f8cff;
+    background: #1d2636;
 }
 
 QLabel#stat-label {
     font-size: 10px;
     font-weight: 700;
-    color: #858585;
-    letter-spacing: 1.4px;
+    color: #6f7f95;
+    letter-spacing: 1px;
 }
 
 QLabel#stat-value {
     font-size: 14px;
     font-weight: 700;
-    color: #cccccc;
+    color: #d8dee9;
 }
 
 QLabel#stat-value-ok {
     font-size: 14px;
     font-weight: 700;
-    color: #4fc1ff;
+    color: #58d7c4;
 }
 
 QLabel#stat-value-warn {
@@ -598,17 +621,17 @@ QLabel#stat-value-warn {
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
 QFrame#divider {
-    background: #3c3c3c;
+    background: #252b36;
     max-height: 1px;
     border: none;
 }
 
 /* ── Text log ────────────────────────────────────────────────────────────── */
 QTextEdit {
-    background: #1e1e1e;
+    background: #0f131b;
     color: #d4d4d4;
-    border: 1px solid #3c3c3c;
-    border-radius: 4px;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
     font-family: "Cascadia Code", "Noto Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 12px 14px;
@@ -617,9 +640,9 @@ QTextEdit {
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
 QProgressBar {
-    background: #181818;
+    background: #0f131b;
     border: none;
-    border-radius: 3px;
+    border-radius: 4px;
     max-height: 6px;
     text-align: center;
     color: transparent;
@@ -627,8 +650,8 @@ QProgressBar {
 
 QProgressBar::chunk {
     background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                                stop:0 #c586c0, stop:1 #4fc1ff);
-    border-radius: 3px;
+                                stop:0 #2f6fed, stop:1 #58d7c4);
+    border-radius: 4px;
 }
 
 /* ── Scroll bars ─────────────────────────────────────────────────────────── */
@@ -640,13 +663,13 @@ QScrollBar:vertical {
 }
 
 QScrollBar::handle:vertical {
-    background: #424242;
+    background: #3b4658;
     border-radius: 4px;
     min-height: 28px;
 }
 
 QScrollBar::handle:vertical:hover {
-    background: #5a5a5a;
+    background: #526174;
 }
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
@@ -662,13 +685,13 @@ QScrollBar:horizontal {
 }
 
 QScrollBar::handle:horizontal {
-    background: #424242;
+    background: #3b4658;
     border-radius: 4px;
     min-width: 28px;
 }
 
 QScrollBar::handle:horizontal:hover {
-    background: #5a5a5a;
+    background: #526174;
 }
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
@@ -678,55 +701,55 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
 
 /* ── Line edit ───────────────────────────────────────────────────────────── */
 QLineEdit {
-    background: #181818;
-    border: 1px solid #3c3c3c;
-    border-radius: 3px;
+    background: #0f131b;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
     padding: 9px 12px;
-    color: #cccccc;
-    selection-background-color: #5f3f5c;
+    color: #d8dee9;
+    selection-background-color: #275d85;
 }
 
 QLineEdit:focus {
-    border-color: #c586c0;
-    background: #1e1e1e;
+    border-color: #3f8cff;
+    background: #121824;
 }
 
 /* ── Checkbox ────────────────────────────────────────────────────────────── */
 QCheckBox {
-    color: #cccccc;
+    color: #d8dee9;
     spacing: 9px;
 }
 
 QCheckBox::indicator {
     width: 16px;
     height: 16px;
-    background: #1e1e1e;
-    border: 1px solid #6a6a6a;
-    border-radius: 3px;
+    background: #0f131b;
+    border: 1px solid #566275;
+    border-radius: 4px;
 }
 
 QCheckBox::indicator:checked {
-    background: #c586c0;
-    border-color: #d7a8d3;
+    background: #2f6fed;
+    border-color: #8cb6ff;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #d7a8d3;
+    border-color: #58d7c4;
 }
 
 /* ── ComboBox ────────────────────────────────────────────────────────────── */
 QComboBox {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    border-radius: 3px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
     padding: 8px 12px;
-    color: #cccccc;
+    color: #d8dee9;
     min-width: 80px;
 }
 
 QComboBox:hover {
-    border-color: #c586c0;
-    background: #2d2d30;
+    border-color: #3f8cff;
+    background: #1d2636;
 }
 
 QComboBox::drop-down {
@@ -735,23 +758,23 @@ QComboBox::drop-down {
 }
 
 QComboBox QAbstractItemView {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    color: #cccccc;
-    selection-background-color: #3a3d41;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    color: #d8dee9;
+    selection-background-color: #223246;
     outline: none;
 }
 
 /* ── Getting-started step items ──────────────────────────────────────────── */
 QFrame#step-item {
-    background: #252526;
-    border: 1px solid #3c3c3c;
-    border-radius: 4px;
+    background: #171d29;
+    border: 1px solid #2a3446;
+    border-radius: 8px;
 }
 
 QFrame#step-item:hover {
-    background: #2d2d30;
-    border-color: #505050;
+    background: #1d2636;
+    border-color: #3f8cff;
 }
 
 QLabel#step-number {
@@ -4202,41 +4225,64 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
 
 
 class AppImageDropCard(QFrame):
-    def __init__(self, on_drop):
+    _IMAGE_RE = re.compile(r"\.(png|svg|svgz|jpg|jpeg|webp|ico|xpm)$", re.I)
+
+    def __init__(self, on_appimage_drop, on_icon_drop=None):
         super().__init__()
-        self._on_drop = on_drop
-        self.setObjectName("card")
+        self._on_appimage_drop = on_appimage_drop
+        self._on_icon_drop = on_icon_drop
+        self.setObjectName("drop-card")
         self.setAcceptDrops(True)
 
-    def _dropped_appimage_path(self, event) -> str:
+    @classmethod
+    def _is_icon_path(cls, path: str) -> bool:
+        return bool(path and cls._IMAGE_RE.search(path))
+
+    def _dropped_path(self, event) -> tuple[str, str]:
         mime = event.mimeData()
         if not mime.hasUrls():
-            return ""
+            return "", ""
         for url in mime.urls():
             path = url.toLocalFile()
             if path and re.search(r"\.[Aa]pp[Ii]mage$", path):
-                return path
-        return ""
+                return "appimage", path
+            if self._on_icon_drop and self._is_icon_path(path):
+                return "icon", path
+        return "", ""
 
     def dragEnterEvent(self, event):  # noqa: N802
-        if self._dropped_appimage_path(event):
+        kind, _ = self._dropped_path(event)
+        if kind:
+            self.setObjectName("drop-card-active")
+            _restyle(self)
             event.acceptProposedAction()
         else:
             event.ignore()
 
     def dragMoveEvent(self, event):  # noqa: N802
-        if self._dropped_appimage_path(event):
+        kind, _ = self._dropped_path(event)
+        if kind:
             event.acceptProposedAction()
         else:
             event.ignore()
 
+    def dragLeaveEvent(self, event):  # noqa: N802
+        self.setObjectName("drop-card")
+        _restyle(self)
+        event.accept()
+
     def dropEvent(self, event):  # noqa: N802
-        path = self._dropped_appimage_path(event)
-        if not path:
+        self.setObjectName("drop-card")
+        _restyle(self)
+        kind, path = self._dropped_path(event)
+        if not kind or not path:
             event.ignore()
             return
         event.acceptProposedAction()
-        self._on_drop(path)
+        if kind == "icon":
+            self._on_icon_drop(path)
+        else:
+            self._on_appimage_drop(path)
 
 
 def _restyle(widget: QWidget):
@@ -12624,6 +12670,7 @@ class SoftwarePage(Page):
         self._sec_host_tool_worker: Worker | None = None
         self._sec_active_host_refs: dict | None = None
         self._sec_host_tool_refs: list[dict] = []
+        self._ai_icon_path: str = ""
 
         # Starter pack per-pack state
         self._starter_pack_checks: dict = {}
@@ -13837,29 +13884,51 @@ class SoftwarePage(Page):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(24)
 
-        import_card = AppImageDropCard(self._import_appimage_path)
+        import_card = AppImageDropCard(self._import_appimage_path, self._set_appimage_icon_path)
         import_layout = QVBoxLayout(import_card)
-        import_layout.setContentsMargins(22, 20, 22, 20)
-        import_layout.setSpacing(14)
-        import_title = QLabel("Import a Downloaded AppImage")
-        import_title.setObjectName("card-title")
-        import_layout.addWidget(import_title)
+        import_layout.setContentsMargins(24, 22, 24, 22)
+        import_layout.setSpacing(16)
+
+        import_top = QHBoxLayout()
+        import_top.setSpacing(16)
+        drop_glyph = QLabel("APP")
+        drop_glyph.setObjectName("drop-glyph")
+        drop_glyph.setFixedSize(58, 58)
+        drop_glyph.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        import_top.addWidget(drop_glyph)
+
+        import_text = QVBoxLayout()
+        import_text.setSpacing(5)
+        import_title = QLabel("Import AppImages")
+        import_title.setObjectName("drop-title")
+        import_text.addWidget(import_title)
         import_body = QLabel(
-            "Downloaded a .AppImage file? Drop it here to install it properly — "
-            "it will be copied to ~/Applications, made executable, and optionally "
-            "added to your application menu."
+            "Drop an AppImage here, or drop a PNG/SVG/JPG icon first. KythOS copies the app to ~/Applications, makes it executable, and can create a polished launcher."
         )
         import_body.setObjectName("card-copy")
         import_body.setWordWrap(True)
-        import_layout.addWidget(import_body)
+        import_text.addWidget(import_body)
+        import_top.addLayout(import_text, 1)
+        import_layout.addLayout(import_top)
+
         import_btn_row = QHBoxLayout()
         import_btn_row.setSpacing(10)
         self._ai_import_btn = QPushButton("Import .AppImage…")
         self._ai_import_btn.setObjectName("primary")
         self._ai_import_btn.clicked.connect(self._import_appimage)
         import_btn_row.addWidget(self._ai_import_btn)
+        self._ai_icon_btn = QPushButton("Choose Icon…")
+        self._ai_icon_btn.clicked.connect(self._choose_appimage_icon)
+        import_btn_row.addWidget(self._ai_icon_btn)
+        self._ai_icon_clear_btn = QPushButton("Clear Icon")
+        self._ai_icon_clear_btn.clicked.connect(self._clear_appimage_icon)
+        self._ai_icon_clear_btn.hide()
+        import_btn_row.addWidget(self._ai_icon_clear_btn)
         import_btn_row.addStretch()
         import_layout.addLayout(import_btn_row)
+        self._ai_icon_status = QLabel("No custom icon selected.")
+        self._ai_icon_status.setObjectName("status-dim")
+        import_layout.addWidget(self._ai_icon_status)
         self._ai_status = QLabel()
         self._ai_status.setObjectName("subheading")
         self._ai_status.hide()
@@ -13913,6 +13982,35 @@ class SoftwarePage(Page):
             return
         self._import_appimage_path(src)
 
+    def _choose_appimage_icon(self):
+        src, _ = QFileDialog.getOpenFileName(
+            self,
+            "Select App Icon",
+            os.path.expanduser("~"),
+            "Images (*.png *.svg *.svgz *.jpg *.jpeg *.webp *.ico *.xpm);;All Files (*)",
+        )
+        if src:
+            self._set_appimage_icon_path(src)
+
+    def _set_appimage_icon_path(self, src: str):
+        if not AppImageDropCard._is_icon_path(src) or not os.path.isfile(src):
+            self._ai_icon_status.setText("That file does not look like a usable app icon.")
+            self._ai_icon_status.setObjectName("status-warn")
+            _restyle(self._ai_icon_status)
+            return
+        self._ai_icon_path = src
+        self._ai_icon_status.setText(f"Icon ready: {os.path.basename(src)}")
+        self._ai_icon_status.setObjectName("status-ok")
+        self._ai_icon_clear_btn.show()
+        _restyle(self._ai_icon_status)
+
+    def _clear_appimage_icon(self):
+        self._ai_icon_path = ""
+        self._ai_icon_status.setText("No custom icon selected.")
+        self._ai_icon_status.setObjectName("status-dim")
+        self._ai_icon_clear_btn.hide()
+        _restyle(self._ai_icon_status)
+
     def _import_appimage_path(self, src: str):
         if not re.search(r"\.[Aa]pp[Ii]mage$", src):
             self._ai_status.setText("That file does not look like an AppImage.")
@@ -13961,25 +14059,34 @@ class SoftwarePage(Page):
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self._create_appimage_launcher(name, dest)
+            self._create_appimage_launcher(name, dest, self._ai_icon_path)
 
         self._ai_status.setText(f"{name} imported to ~/Applications.")
         self._ai_status.setObjectName("status-ok")
         self._ai_status.show()
         _restyle(self._ai_status)
+        self._clear_appimage_icon()
 
-    def _create_appimage_launcher(self, name: str, appimage_path: str):
+    def _create_appimage_launcher(self, name: str, appimage_path: str, icon_path: str = ""):
         desktop_dir = os.path.expanduser("~/.local/share/applications")
         try:
             os.makedirs(desktop_dir, exist_ok=True)
             safe_name = re.sub(r"[^a-zA-Z0-9_-]", "-", name)
             desktop_path = os.path.join(desktop_dir, f"{safe_name}.desktop")
+            launcher_icon = "application-x-executable"
+            if icon_path and os.path.isfile(icon_path):
+                icon_dir = os.path.expanduser("~/.local/share/icons/kyth-appimages")
+                os.makedirs(icon_dir, exist_ok=True)
+                ext = os.path.splitext(icon_path)[1].lower() or ".png"
+                icon_dest = os.path.join(icon_dir, f"{safe_name}{ext}")
+                shutil.copy2(icon_path, icon_dest)
+                launcher_icon = icon_dest
             content = (
                 "[Desktop Entry]\n"
                 "Type=Application\n"
                 f"Name={name}\n"
                 f"Exec={appimage_path}\n"
-                "Icon=application-x-executable\n"
+                f"Icon={launcher_icon}\n"
                 "Terminal=false\n"
                 "Categories=Utility;\n"
             )
@@ -17236,8 +17343,8 @@ class MainWindow(QMainWindow):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("KythOS")
-        self.setMinimumSize(920, 640)
-        self.resize(1100, 740)
+        self.setMinimumSize(980, 660)
+        self.resize(1180, 760)
 
         # Outer wrapper: live banner (if running from live ISO) + main content
         central = QWidget()
@@ -17285,7 +17392,7 @@ class MainWindow(QMainWindow):
         # ── Sidebar ──────────────────────────────────────────────────────────
         sidebar = QWidget()
         sidebar.setObjectName("sidebar")
-        sidebar.setFixedWidth(224)
+        sidebar.setFixedWidth(244)
         sidebar_layout = QVBoxLayout(sidebar)
         sidebar_layout.setContentsMargins(0, 0, 0, 0)
         sidebar_layout.setSpacing(0)
@@ -17317,27 +17424,27 @@ class MainWindow(QMainWindow):
 
         nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
             (None, [
-                ("⌂", "Overview", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+                ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
             ]),
-            ("Play", [
+            ("Play Games", [
                 ("◉", "Gaming", "Gaming", GamingPage),
                 ("⚡", "Performance", "Performance", PerformancePage),
                 ("◎", "Compatibility", "Compatibility", CompatibilityPage),
                 ("⎮", "Controllers", "Controllers", ControllerPage),
             ]),
-            ("Apps", [
-                ("⬡", "App Store", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
-                ("▦", "Software Tools", "Software", SoftwarePage),
-                ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+            ("Apps & Files", [
+                ("⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
+                ("▦", "Install & Manage", "Software", SoftwarePage),
+                ("⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
-            ("System", [
+            ("Maintain", [
                 ("↻", "Updates", "Update", UpdatePage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
                 ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
                 ("⬡", "VPN", "VPN", VpnPage),
             ]),
-            ("Fix", [
+            ("Recover", [
                 ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
@@ -17348,7 +17455,7 @@ class MainWindow(QMainWindow):
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
         advanced_items.append(("⎇", "Channels", "Channels", BranchesPage))
-        nav_groups.append(("Advanced", advanced_items))
+        nav_groups.append(("Expert", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
         global_idx = 0
@@ -17373,7 +17480,7 @@ class MainWindow(QMainWindow):
 
         # Bottom version hint
         sidebar_layout.addWidget(_divider())
-        ver_hint = QLabel("Atomic · Immutable · Gaming")
+        ver_hint = QLabel("KythOS System Hub")
         ver_hint.setObjectName("nav-section")
         ver_hint.setContentsMargins(20, 10, 16, 12)
         sidebar_layout.addWidget(ver_hint)
