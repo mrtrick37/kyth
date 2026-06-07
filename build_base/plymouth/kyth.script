@@ -6,11 +6,31 @@ Window.SetBackgroundTopColor    (0.0, 0.0, 0.0);
 Window.SetBackgroundBottomColor (0.0, 0.0, 0.0);
 
 # ── Logo ──────────────────────────────────────────────────────────────────────
-logo.image  = Image ("kyth-logo.png");
-logo.sprite = Sprite (logo.image);
-logo.sprite.SetX (Window.GetWidth ()  / 2 - logo.image.GetWidth ()  / 2);
-logo.sprite.SetY (Window.GetHeight () / 2 - logo.image.GetHeight () / 2);
-logo.sprite.SetOpacity (0.0);
+logo.image = Image ("kyth-logo.png");
+if (logo.image) {
+    logo.sprite = Sprite (logo.image);
+    logo.sprite.SetOpacity (0.0);
+} else {
+    logo.sprite = Sprite ();
+    logo.sprite.SetOpacity (0.0);
+}
+
+fun center_logo () {
+    if (logo.image) {
+        screen_w = Window.GetWidth ();
+        screen_h = Window.GetHeight ();
+
+        if (screen_w > 0) {
+            logo.sprite.SetX ((screen_w - logo.image.GetWidth ()) / 2);
+        }
+
+        if (screen_h > 0) {
+            logo.sprite.SetY ((screen_h - logo.image.GetHeight ()) / 2);
+        }
+    }
+}
+
+center_logo ();
 
 # ── Animation ─────────────────────────────────────────────────────────────────
 # Phase 1 (frames 0-39): fade in over ~0.8 s
@@ -19,6 +39,7 @@ frame = 0;
 
 fun refresh_callback () {
     frame++;
+    center_logo ();
 
     if (frame < 40) {
         logo.sprite.SetOpacity (frame * 0.025);
@@ -37,9 +58,11 @@ msg_sprite.SetOpacity (0.0);
 fun message_callback (text) {
     if (text != "") {
         img = Image.Text (text, 0.75, 0.75, 0.75, 1);
-        msg_sprite.SetImage (img);
-        msg_sprite.SetX (Window.GetWidth ()  / 2 - img.GetWidth ()  / 2);
-        msg_sprite.SetY (Window.GetHeight () * 0.68);
+        if (img) {
+            msg_sprite.SetImage (img);
+            msg_sprite.SetX (Window.GetWidth ()  / 2 - img.GetWidth ()  / 2);
+            msg_sprite.SetY (Window.GetHeight () * 0.68);
+        }
         msg_sprite.SetOpacity (1.0);
     } else {
         msg_sprite.SetOpacity (0.0);

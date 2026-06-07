@@ -41,11 +41,6 @@ print(s.get("status",{}).get("booted",{}).get("image",{}).get("imageDigest",""))
     uname -r
 }
 
-check_flatpak() {
-    local app_id="$1"
-    flatpak info "$app_id" >/dev/null 2>&1
-}
-
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --force) FORCE=1 ;;
@@ -114,16 +109,7 @@ else
     warnings+=("vulkaninfo is missing, so Vulkan was not checked.")
 fi
 
-if have flatpak; then
-    for app in \
-        com.valvesoftware.Steam \
-        net.lutris.Lutris \
-        com.heroicgameslauncher.hgl \
-        com.usebottles.bottles \
-        com.github.mtkennerly.ludusavi; do
-        check_flatpak "$app" || warnings+=("${app} is not installed.")
-    done
-else
+if ! have flatpak; then
     failures+=("Flatpak is missing.")
 fi
 
@@ -150,7 +136,7 @@ if [[ "${#warnings[@]}" -gt 0 ]]; then
     echo "$title"
     printf 'WARN  %s\n' "${warnings[@]}"
     notify "$title" "${body:-Run ujust smoke-check for details.}"
-    [[ "$CAN_STAMP" -eq 1 && "$NOTIFY" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
+    [[ "$CAN_STAMP" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
     exit 1
 fi
 
@@ -159,5 +145,5 @@ echo "PASS  Update looks healthy. Rollback is available, gaming services are pre
 if [[ "$FORCE" -eq 1 ]]; then
     notify "${APP_NAME}: ready" "Update looks healthy. Rollback is available, gaming services are present, and core desktop audio is active."
 fi
-[[ "$CAN_STAMP" -eq 1 && "$NOTIFY" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
+[[ "$CAN_STAMP" -eq 1 ]] && touch "${stamp}" 2>/dev/null || true
 exit 0

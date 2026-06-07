@@ -20,6 +20,18 @@ check:
     echo "Checking syntax: Justfile"
     just --unstable --fmt --check -f Justfile
 
+# Check Dockerfile frontend/build rules without requiring the local kyth-base image.
+[group('Build')]
+check-dockerfile check_base_image="ghcr.io/ublue-os/kinoite-main:44":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if ! id -nG | grep -qw docker; then
+        exec sg docker -c "just check-dockerfile '{{ check_base_image }}'"
+    fi
+    docker buildx build --check \
+        --build-arg BASE_IMAGE={{ check_base_image }} \
+        .
+
 # Fix Just Syntax
 [group('Just')]
 fix:
@@ -292,9 +304,12 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
     fi
     echo "Refreshing upstream base image {{ base_image }}..."
     docker pull {{ base_image }}
-    CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
-        | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
-        2>/dev/null || date +%Y-%m-%d)
+    CACHYOS_KERNEL_VER=unused
+    if [[ "{{ kernel_flavor }}" != "fedora" ]]; then
+        CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
+            | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
+            2>/dev/null || date +%Y-%m-%d)
+    fi
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
     echo "Kernel flavor: {{ kernel_flavor }}"
     docker build \
@@ -304,7 +319,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
         --tag localhost/kyth-base:stable \
         build_base/
 
-# Build the full KythOS image (packages → thirdparty → sysconfig → branding → GE-Proton → Mesa-git).
+# Build the full KythOS image (packages → GE-Proton → upgrades → Mesa → thirdparty → sysconfig → Secure Boot → branding).
 # Requires build-base to have run first.
 # Uses --cache-from the CI registry cache if credentials are available (silently ignored if not).
 #

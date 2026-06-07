@@ -30,7 +30,7 @@ jobs:
     # One slot per branch — prevents a scheduled run and a push from racing on the same tag.
     concurrency:
       group: ${{ github.workflow }}-${{ matrix.branch }}-${{ matrix.kernel_flavor }}
-      cancel-in-progress: false
+      cancel-in-progress: ${{ github.event_name == 'push' }}
 
     strategy:
       fail-fast: false
@@ -140,6 +140,7 @@ jobs:
 
       - name: Resolve latest CachyOS kernel version
         id: cachyos_kernel
+        if: matrix.kernel_flavor == 'cachy'
         run: |
           KVER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
             | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
@@ -149,12 +150,38 @@ jobs:
 
       - name: Resolve latest GE-Proton version
         id: ge_proton
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          GE_VER=$(curl -fsSL "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
+          GE_VER=$(curl -fsSL \
+            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+            "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
             | python3 -c "import sys,json; print(json.load(sys).get('tag_name', ''))" \
             2>/dev/null || true)
           echo "version=${GE_VER}" >> $GITHUB_OUTPUT
           echo "Resolved GE-Proton: ${GE_VER:-latest}"
+
+      - name: Resolve thirdparty tool versions
+        id: thirdparty_versions
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          _ver() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+              "https://api.github.com/repos/$1/releases/latest" \
+              | python3 -c "import sys,json; print(json.load(sys).get('tag_name','unknown'))" \
+              2>/dev/null || echo unknown
+          }
+          TOPGRADE=$(_ver topgrade-rs/topgrade)
+          WINETRICKS=$(_ver Winetricks/winetricks)
+          UMU=$(_ver Open-Wine-Components/umu-launcher)
+          LFX=$(_ver ishitatsuyuki/LatencyFleX)
+          SCX=$(_ver sched-ext/scx)
+          HASH=$(printf '%s' "${TOPGRADE}${WINETRICKS}${UMU}${LFX}${SCX}" \
+                 | sha256sum | cut -c1-16)
+          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "Resolved thirdparty: topgrade=${TOPGRADE} winetricks=${WINETRICKS} umu=${UMU} lfx=${LFX} scx=${SCX} → hash=${HASH}"
 
       - name: Build base image
         run: |
@@ -165,7 +192,7 @@ jobs:
           docker buildx build \
             --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44 \
             --build-arg KYTH_KERNEL_FLAVOR="${{ matrix.kernel_flavor }}" \
-            --build-arg CACHYOS_KERNEL_VER="${{ steps.cachyos_kernel.outputs.version }}" \
+            --build-arg CACHYOS_KERNEL_VER="${{ steps.cachyos_kernel.outputs.version || 'unused' }}" \
             --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
             --cache-to "type=registry,ref=${BASE_CACHE_REF},mode=max" \
             --tag "${BASE_IMAGE_REF}" \
@@ -198,6 +225,7 @@ jobs:
             "${MOK_SECRET_ARG[@]}" \
             --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
             --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
+            --build-arg THIRDPARTY_VERSIONS_HASH="${{ steps.thirdparty_versions.outputs.hash }}" \
             --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
             --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \

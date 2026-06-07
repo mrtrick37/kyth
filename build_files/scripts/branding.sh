@@ -59,14 +59,13 @@ except OSError:
 SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
-# Ensure the built image advertises the KythOS product name. Some boot/installer
-# menus derive their display strings from `/etc/os-release` or similar metadata.
-# We overwrite or create `/etc/os-release` with KythOS values so boot menus show
-# "KythOS" instead of upstream branding.
-cat > /etc/os-release <<'EOF' || true
+write_kyth_os_release() {
+    local target=$1
+    mkdir -p "$(dirname "${target}")"
+    cat > "${target}" <<'EOF'
 NAME="KythOS"
 PRETTY_NAME="KythOS 44"
-ID=fedora
+ID=kythos
 VERSION="44"
 VERSION_ID="44"
 ANSI_COLOR="0;34"
@@ -75,6 +74,15 @@ HOME_URL="https://github.com/mrtrick37/kyth"
 SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
 BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
 EOF
+}
+
+# Ensure the built image advertises the KythOS product name. Some boot/installer
+# menus and early-boot overlays derive their display strings from os-release.
+# Fedora keeps the canonical file in /usr/lib, while some consumers read /etc
+# directly, so write both with only KythOS product identity.
+write_kyth_os_release /usr/lib/os-release
+rm -f /etc/os-release
+write_kyth_os_release /etc/os-release
 
 # ── Topgrade config for all new users ────────────────────────────────────────
 # Disable rpm-ostree step: on a bootc system rpm-ostree upgrade pulls from the
@@ -89,6 +97,8 @@ cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 # containers: podman container updates fail on a bootc read-only system.
 # toolbx: kyth-dev is managed via ujust, not topgrade; toolbx version-compat
 #   checks will fail the whole topgrade run if the container needs recreation.
+# topgrade is baked into the KythOS image; refresh it through image updates.
+no_self_update = true
 disable = ["system", "distrobox", "containers", "toolbx"]
 
 [commands]
@@ -237,6 +247,10 @@ SDDMEOF
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
+# Boot and display-manager components resolve /etc/os-release LOGO=kyth through
+# the same icon stack, while GRUB themes key off BLS grub_class names. Install
+# both KythOS-native names and Fedora-compatible overrides so stale boot entries
+# cannot render the inherited Fedora badge.
 # Two failure modes to defeat:
 #   1. fedora-logos ships PNGs at exact pixel sizes; Qt/Plasma prefers an
 #      exact-size PNG over a scalable SVG, so the Fedora icon won at lookup.
@@ -253,27 +267,69 @@ for theme_dir in \
     mkdir -p "${theme_dir}"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
     cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
+    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
     cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 
-# PNGs at every standard size — beats fedora-logos exact-size PNG at lookup
+# PNGs at every standard size — beats inherited exact-size Fedora PNGs at lookup
 for sz in 16 22 24 32 48 64 128 256; do
     for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
         dir="${base}/${sz}x${sz}/apps"
         mkdir -p "${dir}"
         rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
             -o "${dir}/kyth-kickoff.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here-kde.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/start-here-kde-plasma.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
+            -o "${dir}/kyth.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
+        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
     done
 done
+
+# Extra legacy lookup locations used by boot menus, display managers, and older
+# GTK/KDE code paths. The Fedora-named files intentionally contain KythOS art:
+# some existing BLS snippets still say grub_class=fedora until the migration
+# below has run.
+mkdir -p /usr/share/pixmaps
+cp /ctx/branding/kyth-logo-transparent.svg /usr/share/pixmaps/kyth.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kythos.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/distributor-logo.svg
+cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/fedora-logo-icon.svg
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-logo-transparent.svg -o /usr/share/pixmaps/kyth.png
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kythos.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/distributor-logo.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/fedora-logo-icon.png
+
+for grub_icon_dir in \
+    /boot/grub2/themes/system/icons \
+    /boot/grub2/themes/starfield/icons \
+    /usr/share/grub/themes/system/icons \
+    /usr/share/grub/themes/starfield/icons; do
+    mkdir -p "${grub_icon_dir}"
+    for icon in kyth kythos fedora gnu-linux linux; do
+        rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
+            -o "${grub_icon_dir}/${icon}.png"
+    done
+done
+
+mkdir -p /etc/default
+if [[ -f /etc/default/grub ]]; then
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+    else
+        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
+    fi
+else
+    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
+fi
 
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
@@ -383,7 +439,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v4"
+version="v5"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -428,6 +484,18 @@ fi
 # Use xdg-mime so existing user choices are updated per MIME type without
 # clobbering unrelated custom associations.
 mkdir -p "${HOME}/.config"
+
+# BlueDevil persists adapter power state per-user and restores it after the
+# system boot helper runs. Clear stale disabled state once so an OS update does
+# not leave Bluetooth off at every login. Users can still disable it afterward.
+bluedevil_config="${HOME}/.config/bluedevilglobalrc"
+if [[ -f "${bluedevil_config}" ]]; then
+    sed -i -E '/^[[:xdigit:]:]+_powered=false$/d' "${bluedevil_config}"
+fi
+if command -v bluetoothctl >/dev/null 2>&1; then
+    bluetoothctl power on >/dev/null 2>&1 || true
+fi
+
 if command -v xdg-mime >/dev/null 2>&1; then
     while IFS='|' read -r desktop mime; do
         [[ -n "${desktop}" && -n "${mime}" ]] || continue
@@ -567,6 +635,10 @@ if command -v /usr/bin/kyth-steam-game-export >/dev/null 2>&1; then
     /usr/bin/kyth-steam-game-export >/dev/null 2>&1 || true
 fi
 
+if command -v /usr/bin/kyth-web-app-categorize >/dev/null 2>&1; then
+    /usr/bin/kyth-web-app-categorize >/dev/null 2>&1 || true
+fi
+
 touch "${stamp}"
 rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
 POLISHEOF
@@ -594,6 +666,65 @@ POLISHDESKTOPEOF
 # OS update too; the version stamp above prevents repeated preference churn.
 install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
     /etc/xdg/autostart/kyth-user-polish.desktop
+
+# ── Web app launcher grouping ─────────────────────────────────────────────────
+# Chromium-family browsers create PWA launchers without Categories=. KDE cannot
+# classify those launchers and drops them into Lost and Found. Add a custom
+# category only when the browser did not provide one, preserving any category a
+# user assigns later with the menu editor.
+cat > /usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+app_dir="${HOME}/.local/share/applications"
+[[ -d "${app_dir}" ]] || exit 0
+
+changed=0
+shopt -s nullglob
+for launcher in \
+    "${app_dir}"/chrome-*.desktop \
+    "${app_dir}"/chromium-*.desktop \
+    "${app_dir}"/brave-*.desktop \
+    "${app_dir}"/msedge-*.desktop \
+    "${app_dir}"/com.google.Chrome.flextop.*.desktop \
+    "${app_dir}"/org.chromium.Chromium.flextop.*.desktop \
+    "${app_dir}"/com.brave.Browser.flextop.*.desktop \
+    "${app_dir}"/com.microsoft.Edge.flextop.*.desktop; do
+    grep -Eq -- '--app(-id)?=' "${launcher}" || continue
+    grep -q '^Categories=' "${launcher}" && continue
+    sed -i '/^\[Desktop Entry\]$/a Categories=X-KythWebApp;' "${launcher}"
+    changed=1
+done
+
+if (( changed )) && command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+WEBAPPCATEGORIZEEOF
+chmod +x /usr/bin/kyth-web-app-categorize
+
+mkdir -p /etc/systemd/user/default.target.wants
+cat > /etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
+[Unit]
+Description=Place browser-installed web apps in the Web Apps launcher folder
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-web-app-categorize
+WEBAPPSERVICEEOF
+
+cat > /etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
+[Unit]
+Description=Watch for browser-installed web app launchers
+
+[Path]
+PathChanged=%h/.local/share/applications
+Unit=kyth-web-app-categorize.service
+
+[Install]
+WantedBy=default.target
+WEBAPPPATHEOF
+ln -sf /etc/systemd/user/kyth-web-app-categorize.path \
+    /etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
 
 # Seed the same familiar folder layout into fresh homes. The autostart helper
 # repairs these for existing users and for accounts created by unusual tools.
@@ -651,20 +782,7 @@ install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
-install -m 0755 /ctx/kyth-installer /usr/bin/kyth-installer
-install -m 0755 /ctx/kyth-launch-installer /usr/bin/kyth-launch-installer
 install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
-
-cat > /usr/share/applications/kyth-install.desktop <<'INSTALLDESKTOPEOF'
-[Desktop Entry]
-Name=Install or Reinstall KythOS
-Comment=Install KythOS to a disk using the guided installer
-Exec=/usr/bin/kyth-launch-installer
-Icon=kyth
-Terminal=false
-Type=Application
-Categories=System;
-INSTALLDESKTOPEOF
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.
@@ -687,7 +805,7 @@ cat > /etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEO
 [Desktop Entry]
 Type=Application
 Name=KythOS Post-Update Check
-Exec=/usr/bin/kyth-post-update-check
+Exec=/usr/bin/kyth-post-update-check --no-notify
 NoDisplay=true
 X-KDE-autostart-after=panel
 POSTUPDATEAUTOSTARTEOF
@@ -729,6 +847,7 @@ install -m 0755 /ctx/game-performance /usr/bin/game-performance
 install -m 0755 /ctx/kyth-gamescope /usr/bin/kyth-gamescope
 install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
+install -m 0755 /ctx/kyth-nvme-tuning /usr/bin/kyth-nvme-tuning
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
@@ -762,6 +881,31 @@ install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
 install -m 0644 /ctx/kyth-exe-handler.desktop \
     /usr/share/applications/kyth-exe-handler.desktop
+
+# Keep expert tools installed without crowding a new user's app launcher.
+# System Hub still exposes the relevant guided actions, and every binary remains
+# available from a terminal. /usr/local/share takes precedence over RPM entries.
+mkdir -p /usr/local/share/applications
+for _hidden_desktop in \
+    com.gerbilsoft.rom-properties.rp-config.desktop \
+    htop.desktop \
+    jstest-gtk.desktop \
+    mpv.desktop \
+    nvim.desktop \
+    nvtop.desktop \
+    org.corectrl.CoreCtrl.desktop \
+    org.kde.drkonqi.coredump.gui.desktop \
+    org.kde.kdebugsettings.desktop \
+    org.kde.kjournaldbrowser.desktop \
+    remote-viewer.desktop; do
+    cat > "/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
+[Desktop Entry]
+Type=Application
+Name=Hidden expert tool
+Hidden=true
+HIDDENDESKTOPEOF
+done
+unset _hidden_desktop
 
 # Register as system-wide default for Windows executable MIME types.
 # /etc/xdg/mimeapps.list is the XDG-standard location for system defaults;
@@ -843,9 +987,31 @@ WELCOMEEOF
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
-cat > /usr/lib/bootc/kargs.d/10-kyth.toml <<'KARGSEOF'
-kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0"]
+cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
+kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
+
+# The early Plymouth layer runs before the daily dnf upgrade. Run the branding
+# guard again here, after every package transaction, so upgraded Plymouth theme
+# packages cannot restore upstream BGRT/spinner artwork into the final image.
+install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
+    /usr/libexec/kyth-plymouth-branding-guard
+/usr/libexec/kyth-plymouth-branding-guard \
+    /ctx/branding/transparent-watermark.svg
+
+mkdir -p /etc/dracut.conf.d
+if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
+    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
+        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
+            /etc/dracut.conf.d/99-kyth.conf
+        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    fi
+else
+    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+DRACUTEOF
+fi
 
 # Existing installs may still have older KythOS boot entries with serial/TTY
 # console arguments that make Plymouth fall back to visible boot text. This
@@ -866,60 +1032,188 @@ WantedBy=multi-user.target
 SPLASHKARGSEOF
 systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 
-# ── Plymouth boot splash ───────────────────────────────────────────────────────
-PLYMOUTH_THEME_DIR=/usr/share/plymouth/themes/kyth
-mkdir -p "${PLYMOUTH_THEME_DIR}"
-rsvg-convert -w 256 /ctx/branding/kyth-logo-transparent.svg \
-    -o "${PLYMOUTH_THEME_DIR}/kyth-logo.png"
-install -m 0644 /ctx/plymouth/kyth.plymouth "${PLYMOUTH_THEME_DIR}/"
-install -m 0644 /ctx/plymouth/kyth.script   "${PLYMOUTH_THEME_DIR}/"
+# Existing installs may also have bootloader metadata generated while the image
+# still identified as Fedora. Repair visual boot classes and theme icons once on
+# upgraded systems so a stale BLS grub_class=fedora cannot draw Fedora artwork.
+mkdir -p /usr/libexec
+cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Replace the Fedora badge in the bgrt/spinner fallback theme so the ASUS
-# firmware logo ("In search of incredible") is followed by the KythOS lockup
-# rather than a Fedora logo during early-boot BGRT rendering. Fedora's bgrt
-# theme reads its watermark from the shared spinner image directory.
-for _spinner_dir in \
-    /usr/share/plymouth/themes/spinner \
-    /usr/share/plymouth/themes/bgrt \
-    /usr/share/plymouth/themes/bgrt-fedora; do
-    if [ -d "${_spinner_dir}" ]; then
-        rsvg-convert -w 260 /ctx/branding/kyth-boot-badge.svg \
-            -o "${_spinner_dir}/watermark.png"
+for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
+    [[ -d "${bls_dir}" ]] || continue
+    while IFS= read -r -d '' entry; do
+        sed -i \
+            -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
+            -e 's/^title[[:space:]]Fedora/title KythOS/' \
+            -e 's/^grub_class[[:space:]].*/grub_class kythos/' \
+            "${entry}"
+        grep -q '^grub_class[[:space:]]' "${entry}" || printf 'grub_class kythos\n' >> "${entry}"
+    done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
+done
+
+if [[ -f /etc/default/grub ]]; then
+    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+    else
+        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
+    fi
+fi
+
+for grub_icon_dir in \
+    /boot/grub2/themes/system/icons \
+    /boot/grub2/themes/starfield/icons \
+    /usr/share/grub/themes/system/icons \
+    /usr/share/grub/themes/starfield/icons; do
+    [[ -d "${grub_icon_dir}" ]] || continue
+    if [[ -r /usr/share/pixmaps/kythos.png ]]; then
+        for icon in kyth kythos fedora gnu-linux linux; do
+            install -m 0644 /usr/share/pixmaps/kythos.png "${grub_icon_dir}/${icon}.png"
+        done
     fi
 done
-unset _spinner_dir
 
-plymouth-set-default-theme --rebuild-initrd kyth
+if command -v grub2-mkconfig >/dev/null 2>&1 && [[ -d /boot/grub2 ]]; then
+    grub2-mkconfig -o /boot/grub2/grub.cfg >/dev/null 2>&1 || true
+fi
+BOOTBRANDINGEOF
+chmod 0755 /usr/libexec/kyth-boot-branding-guard
 
-# bootc installs the initramfs payload stored beside the kernel under
-# /usr/lib/modules. Rebuild that exact payload after installing the KythOS
-# theme; otherwise a fresh install can inherit Fedora's upstream BGRT splash.
-for _kernel_dir in /usr/lib/modules/*; do
-    [ -d "${_kernel_dir}" ] || continue
-    _kernel_ver=$(basename "${_kernel_dir}")
-    TMPDIR=/var/tmp dracut \
-        --no-hostonly \
-        --compress "zstd -1" \
-        --kver "${_kernel_ver}" \
-        --force \
-        "${_kernel_dir}/initramfs" \
-        2> >(grep -Ev 'xattr|fail to copy' >&2)
-    lsinitrd "${_kernel_dir}/initramfs" \
-        | grep 'usr/share/plymouth/themes/kyth/kyth-logo.png' >/dev/null
-done
-unset _kernel_dir _kernel_ver
-
-# Existing deployments already have an initramfs in /boot. Repair it once
-# after the updated image boots so subsequent reboots use KythOS branding too.
-cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
+cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
 [Unit]
-Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v1
+Description=Refresh KythOS bootloader branding
+ConditionPathExists=!/var/lib/kyth/boot-branding-v1
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; plymouth-set-default-theme kyth; dracut --regenerate-all --force; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-splash-initramfs-v1'
+ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-branding-v1'
+
+[Install]
+WantedBy=multi-user.target
+BOOTBRANDINGSERVICEEOF
+systemctl enable kyth-boot-branding.service 2>/dev/null || true
+
+
+# Existing deployments already have an initramfs in /boot. Repair it once
+# after the updated image boots so subsequent reboots use KythOS branding too.
+cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+mkdir -p /var/lib/kyth
+
+if command -v plymouth-set-default-theme >/dev/null 2>&1; then
+    plymouth-set-default-theme kyth || true
+fi
+
+if [[ -x /usr/libexec/kyth-boot-branding-guard ]]; then
+    /usr/libexec/kyth-boot-branding-guard || true
+fi
+
+# On deployed ostree/bootc systems /usr is normally immutable. Only refresh
+# fallback assets when the filesystem is writable; the image build already
+# installs the Kyth Plymouth theme and dracut module into /usr.
+if [[ -w /usr/share/plymouth && -x /usr/libexec/kyth-plymouth-branding-guard ]]; then
+    /usr/libexec/kyth-plymouth-branding-guard || true
+fi
+
+include_root="$(mktemp -d /tmp/kyth-plymouth-initramfs.XXXXXX)"
+boot_was_ro=0
+cleanup() {
+    rm -rf "${include_root}"
+    if [[ "${boot_was_ro}" -eq 1 ]]; then
+        mount -o remount,ro /boot || true
+    fi
+}
+trap cleanup EXIT
+
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    if mount -o remount,rw /boot 2>/dev/null; then
+        boot_was_ro=1
+    else
+        echo "WARNING: /boot is read-only and could not be remounted; skipping initramfs refresh" >&2
+        exit 0
+    fi
+fi
+
+mkdir -p \
+    "${include_root}/etc/plymouth" \
+    "${include_root}/usr/share/plymouth" \
+    "${include_root}/usr/share/plymouth/themes"
+printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
+    > "${include_root}/etc/plymouth/plymouthd.conf"
+install -m 0644 \
+    "${include_root}/etc/plymouth/plymouthd.conf" \
+    "${include_root}/usr/share/plymouth/plymouthd.defaults"
+cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
+ln -sfn kyth/kyth.plymouth "${include_root}/usr/share/plymouth/themes/default.plymouth"
+
+if [[ -w /etc/plymouth ]]; then
+    install -m 0644 "${include_root}/etc/plymouth/plymouthd.conf" /etc/plymouth/plymouthd.conf
+fi
+if [[ -w /usr/share/plymouth ]]; then
+    install -m 0644 "${include_root}/usr/share/plymouth/plymouthd.defaults" /usr/share/plymouth/plymouthd.defaults
+fi
+
+shopt -s nullglob
+rebuilt=0
+for image in /boot/ostree/*/initramfs-*.img; do
+    kernel="${image##*/initramfs-}"
+    kernel="${kernel%.img}"
+    [[ -d "/usr/lib/modules/${kernel}" ]] || continue
+
+    TMPDIR=/var/tmp dracut \
+        --tmpdir /var/tmp \
+        --no-hostonly \
+        --kver "${kernel}" \
+        --reproducible \
+        --force \
+        --add "drm plymouth ostree kyth-plymouth" \
+        --include "${include_root}" / \
+        "${image}" \
+        "${kernel}"
+    if command -v lsinitrd >/dev/null 2>&1; then
+        defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+        listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
+        lsinitrd "${image}" > "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
+        grep -q '^Theme=kyth$' "${defaults}"
+        grep -q '^DeviceTimeout=8$' "${defaults}"
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+            echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs" >&2
+            exit 1
+        fi
+        rm -f "${defaults}" "${listing}"
+    fi
+    rebuilt=1
+done
+
+if [[ "${rebuilt}" -eq 0 ]]; then
+    TMPDIR=/var/tmp dracut \
+        --tmpdir /var/tmp \
+        --regenerate-all \
+        --force \
+        --add "drm plymouth kyth-plymouth" \
+        --include "${include_root}" /
+fi
+
+touch /var/lib/kyth/boot-splash-initramfs-v15
+SPLASHINITRDSCRIPTEOF
+chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
+
+cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
+[Unit]
+Description=Refresh KythOS boot splash initramfs
+ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v15
+After=local-fs.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-refresh-boot-splash-initramfs
 
 [Install]
 WantedBy=multi-user.target
@@ -961,6 +1255,9 @@ Comment=Security and penetration testing tools
 Icon=security-high
 SECDIREF
 
+install -m 0644 /ctx/kyth-web-apps.directory \
+    /usr/share/desktop-directories/kyth-web-apps.directory
+
 mkdir -p /etc/xdg/menus/applications-merged
 cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
@@ -985,6 +1282,7 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
     <Menuname>Settings</Menuname>
     <Menuname>System</Menuname>
     <Menuname>Utility</Menuname>
+    <Menuname>Web Apps</Menuname>
     <Merge type="menus"/>
   </Layout>
   <Menu>
@@ -996,6 +1294,97 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
   </Menu>
 </Menu>
 SECMENUEOF
+
+install -m 0644 /ctx/kyth-web-apps.menu \
+    /etc/xdg/menus/applications-merged/kyth-web-apps.menu
+
+# ── Game Tools menu group ─────────────────────────────────────────────────────
+# Keep the Games root focused on playable titles. Flatpak launchers and gaming
+# helpers often advertise Categories=Game, so KDE otherwise mixes them with
+# exported Steam game shortcuts. Match desktop IDs explicitly so optional tools
+# move into this submenu whenever the user installs them.
+cat > /usr/share/desktop-directories/kyth-game-tools.directory <<'GAMETOOLSDIREF'
+[Desktop Entry]
+Version=1.0
+Type=Directory
+Name=Tools
+Comment=Game launchers, compatibility helpers, and save tools
+Icon=applications-utilities
+GAMETOOLSDIREF
+
+cat > /etc/xdg/menus/applications-merged/kyth-game-tools.menu <<'GAMETOOLSMENUEOF'
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+  "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
+<Menu>
+  <Name>Applications</Name>
+  <Menu>
+    <Name>Games</Name>
+    <Menu>
+      <Name>Tools</Name>
+      <Directory>kyth-game-tools.directory</Directory>
+      <Include>
+        <Filename>com.valvesoftware.Steam.desktop</Filename>
+        <Filename>net.lutris.Lutris.desktop</Filename>
+        <Filename>com.heroicgameslauncher.hgl.desktop</Filename>
+        <Filename>com.usebottles.bottles.desktop</Filename>
+        <Filename>com.github.Matoking.protontricks.desktop</Filename>
+        <Filename>com.github.mtkennerly.ludusavi.desktop</Filename>
+        <Filename>net.davidotek.pupgui2.desktop</Filename>
+        <Filename>org.prismlauncher.PrismLauncher.desktop</Filename>
+        <Filename>io.github.benjamimgois.goverlay.desktop</Filename>
+        <Filename>io.github.radiolamp.mangojuice.desktop</Filename>
+      </Include>
+    </Menu>
+    <Exclude>
+      <Filename>com.valvesoftware.Steam.desktop</Filename>
+      <Filename>net.lutris.Lutris.desktop</Filename>
+      <Filename>com.heroicgameslauncher.hgl.desktop</Filename>
+      <Filename>com.usebottles.bottles.desktop</Filename>
+      <Filename>com.github.Matoking.protontricks.desktop</Filename>
+      <Filename>com.github.mtkennerly.ludusavi.desktop</Filename>
+      <Filename>net.davidotek.pupgui2.desktop</Filename>
+      <Filename>org.prismlauncher.PrismLauncher.desktop</Filename>
+      <Filename>io.github.benjamimgois.goverlay.desktop</Filename>
+      <Filename>io.github.radiolamp.mangojuice.desktop</Filename>
+    </Exclude>
+  </Menu>
+</Menu>
+GAMETOOLSMENUEOF
+
+# LibreOffice Flatpak launchers intentionally advertise multiple freedesktop
+# categories. Keep the suite together under Office instead of repeating Draw in
+# Graphics and Math throughout KDE's Education submenus.
+cat > /etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
+<!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
+  "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
+<Menu>
+  <Name>Applications</Name>
+  <Menu>
+    <Name>Graphics</Name>
+    <Exclude>
+      <Filename>org.libreoffice.LibreOffice.draw.desktop</Filename>
+    </Exclude>
+  </Menu>
+  <Menu>
+    <Name>Education</Name>
+    <Exclude>
+      <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+    </Exclude>
+    <Menu>
+      <Name>Mathematics</Name>
+      <Exclude>
+        <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+      </Exclude>
+    </Menu>
+    <Menu>
+      <Name>Science</Name>
+      <Exclude>
+        <Filename>org.libreoffice.LibreOffice.math.desktop</Filename>
+      </Exclude>
+    </Menu>
+  </Menu>
+</Menu>
+LIBREOFFICEMENUEOF
 
 # ── ujust recipes ─────────────────────────────────────────────────────────────
 # Install KythOS-specific ujust recipes so users can run e.g. "ujust rebase kyth:stable".

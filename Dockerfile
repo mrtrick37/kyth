@@ -29,6 +29,21 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     bash /ctx/packages.sh
 
+# Plymouth boot splash + initramfs rebuild.
+# COPY tracks content hashes of theme files so Docker only re-runs the expensive
+# dracut step when the splash actually changes — not on every daily dnf upgrade.
+# Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
+# the kernel version is fixed from the base image and the initramfs built here is
+# the one that ships. Must sit before the BUILD_DATE cache-bust layer.
+COPY build_files/plymouth/kyth.plymouth             /tmp/kyth-plymouth/kyth.plymouth
+COPY build_files/plymouth/kyth.script               /tmp/kyth-plymouth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /tmp/kyth-branding/kyth-logo-transparent.svg
+COPY build_files/branding/transparent-watermark.svg /tmp/kyth-branding/transparent-watermark.svg
+COPY build_files/scripts/plymouth-setup.sh          /tmp/plymouth-setup.sh
+COPY build_files/scripts/plymouth-branding-guard.sh /tmp/plymouth-branding-guard.sh
+RUN bash /tmp/plymouth-setup.sh && \
+    rm -rf /tmp/kyth-plymouth /tmp/kyth-branding /tmp/plymouth-setup.sh /tmp/plymouth-branding-guard.sh
+
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
 # ge-proton.sh changes or GE_PROTON_VER changes — not on every daily dnf
@@ -36,13 +51,25 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
 # library dependencies, so ordering before the upgrade is safe.
 ARG GE_PROTON_VER=
 RUN --mount=type=bind,source=build_files/scripts/ge-proton.sh,target=/ctx/ge-proton.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=github_token \
     GE_PROTON_VER=${GE_PROTON_VER} bash /ctx/ge-proton.sh
 
-# BUILD_DATE busts the cache for Layer 3 and all subsequent layers on every
-# daily build, ensuring dnf5 upgrade always runs even when the base image
+# Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
+# Placed before BUILD_DATE so the layer is only re-run when a tool ships a new
+# release. THIRDPARTY_VERSIONS_HASH is resolved in CI by querying the GitHub
+# releases API for each tool; when all versions are unchanged the layer is a
+# registry cache hit and no downloads occur. The binaries are self-contained and
+# have no dependency on daily-upgraded RPMs, so ordering before the upgrade is safe.
+ARG THIRDPARTY_VERSIONS_HASH=unset
+RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
+    --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=github_token \
+    : "cache-bust=${THIRDPARTY_VERSIONS_HASH}" && \
+    ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
+
+# BUILD_DATE busts the cache for the upgrade layer and everything after it on
+# every daily build, ensuring dnf5 upgrade always runs even when the base image
 # digest and build_files/ contents haven't changed.
 # Pass as: --build-arg BUILD_DATE="$(date +%Y-%m-%d)"
 ARG BUILD_DATE=unset
@@ -60,7 +87,6 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
         --disablerepo='fedora-multimedia' \
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
-    dnf5 upgrade -y --disablerepo='fedora-multimedia' libdrm && \
     : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
     KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
     test -n "${KVER}" \
@@ -104,8 +130,7 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     fi && \
     test -s "/usr/lib/modules/${KVER}/initramfs" \
         || { echo "ERROR: initramfs missing/empty for ${KVER}" >&2; exit 1; } && \
-    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)" && \
-    dnf5 clean all
+    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)"
 
 # Layer 4: Optional Mesa-git GPU drivers.
 # Disabled by default: the COPR tracks development snapshots and can regress
@@ -117,16 +142,7 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
     ENABLE_MESA_GIT=${ENABLE_MESA_GIT} \
     bash /ctx/mesa-git.sh
 
-# Layer 5: Third-party binaries — topgrade, winetricks, SCX schedulers (~100 MB).
-# Re-run on every daily build (sits after the upgrade layer). GitHub API calls
-# use the mounted token to avoid unauthenticated rate limits.
-RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/thirdparty.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
-    --mount=type=tmpfs,dst=/tmp \
-    --mount=type=secret,id=github_token \
-    ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
-
-# Layer 6: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
+# Layer 5: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
 # Re-run on every daily build.
 RUN --mount=type=bind,source=build_files/scripts/sysconfig.sh,target=/ctx/sysconfig.sh \
     --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
@@ -141,7 +157,6 @@ RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secur
     --mount=type=bind,source=build_files/secureboot,target=/ctx/secureboot \
     --mount=type=bind,source=build_files/kyth-enroll-mok,target=/ctx/kyth-enroll-mok \
     --mount=type=bind,source=build_files/kyth-enroll-mok.service,target=/ctx/kyth-enroll-mok.service \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     --mount=type=secret,id=mok_key \
     SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} bash /ctx/secureboot.sh
@@ -149,6 +164,49 @@ RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secur
 # Layer 8: Branding, theming, helper app, Plymouth (~10 MB).
 # Re-run on every daily build.
 RUN --mount=type=bind,source=build_files,target=/ctx \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
-    bash /ctx/scripts/branding.sh
+    bash /ctx/scripts/branding.sh && \
+    : "── Rebuild boot splash initramfs after final branding ───────────────────" && \
+    /usr/libexec/kyth-plymouth-branding-guard /ctx/branding/transparent-watermark.svg && \
+    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    test -n "${KVER}" \
+        || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
+    mkdir -p /etc/plymouth /usr/share/plymouth && \
+    printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
+    install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
+    KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
+    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
+    install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
+    TMPDIR=/var/tmp dracut \
+        --no-hostonly \
+        --compress "zstd -1" \
+        --kver "${KVER}" \
+        --force \
+        --add kyth-plymouth \
+        --include "${KYTH_PLYMOUTH_INCLUDE_ROOT}" / \
+        "/usr/lib/modules/${KVER}/initramfs" \
+        2> >(grep -Ev 'xattr|fail to copy' >&2) && \
+    echo "=== POST-DRACUT: plymouthd.defaults from initramfs ===" >&2 && \
+    (lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
+    rm -rf "${KYTH_PLYMOUTH_INCLUDE_ROOT}" && \
+    if command -v lsinitrd >/dev/null 2>&1; then \
+        _initrd_listing="$(mktemp)" && \
+        lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth theme" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth script" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain KythOS Plymouth logo" >&2; exit 1; } && \
+        grep -q 'usr/share/plymouth/themes/default.plymouth' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
+            || { echo "ERROR: branded initramfs Plymouth defaults do not force Theme=kyth" >&2; exit 1; } && \
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^DeviceTimeout=8$' \
+            || { echo "ERROR: branded initramfs Plymouth defaults are missing DeviceTimeout=8" >&2; exit 1; } && \
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${_initrd_listing}" >&2; then \
+            echo "ERROR: Plymouth fallback theme leaked into branded initramfs" >&2; \
+            exit 1; \
+        fi && \
+        rm -f "${_initrd_listing}"; \
+    fi

@@ -6,21 +6,28 @@ set -euo pipefail
 # Strip non-English locale data from every subsequent RPM install.
 # Saves 100–300 MB across the full package set with no functional loss
 # on an English workstation.
-echo '%_install_langs en_US' >> /etc/rpm/macros
+echo '%_install_langs en_US' >>/etc/rpm/macros
 
 # ── DNF parallelism ───────────────────────────────────────────────────────────
 # Raise parallel download slots from the default 3 to 10 — same value used by
 # UBlue, Bazzite, and recommended in Fedora documentation.
-echo 'max_parallel_downloads=10' >> /etc/dnf/dnf.conf
 # Prevent any package dependency from pulling in a new kernel (e.g. akmod deps
 # installing kernel-modules without kernel-core, which leaves a modules dir
 # with no vmlinuz and breaks the bootc kernel check downstream).
-echo 'excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*' >> /etc/dnf/dnf.conf
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
 # accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
 # aggregate trend in the README when exported CountMe data is available.
-echo 'countme=True' >> /etc/dnf/dnf.conf
+cat >>/etc/dnf/dnf.conf <<'DNFCONFEOF'
+max_parallel_downloads=10
+excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
+countme=True
+DNFCONFEOF
+
+# KythOS is its own distribution identity. Replace the inherited Fedora artwork
+# package with Fedora's generic drop-in before installing desktop components so
+# upstream boot watermarks and launcher icons cannot leak into the final image.
+dnf5 swap -y --allowerasing fedora-logos generic-logos
 
 ### Install Docker for container operations
 # container-selinux provides the SELinux policy module for container runtimes
@@ -32,9 +39,9 @@ dnf5 install -y docker container-selinux
 # standard RPM Fusion bootstrap pattern; there is no separately hosted key
 # URL to pre-import (unlike Brave/Negativo17).
 dnf5 install -y \
-    https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
-    https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm \
-    || true
+	https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
+	https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm ||
+	true
 
 # Fedora 44 transitions can leave debug/source repo metalinks unpublished or
 # intermittently unavailable. We never install from those repos in image builds,
@@ -92,50 +99,53 @@ PY
 # gstreamer1-plugins-bad; ensure we prefer the RPM Fusion variant.
 dnf5 remove -y gstreamer1-plugins-bad || true
 dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-bad \
-    ffmpeg \
-    ffmpegthumbnailer \
-    gstreamer1-plugin-openh264 \
-    gstreamer1-plugins-bad-freeworld \
-    gstreamer1-plugins-ugly \
-    gstreamer1-libav \
-    mozilla-openh264 \
-    mpv
+	ffmpeg \
+	ffmpegthumbnailer \
+	gstreamer1-plugin-openh264 \
+	gstreamer1-plugins-bad-freeworld \
+	gstreamer1-plugins-ugly \
+	gstreamer1-libav \
+	mozilla-openh264 \
+	mpv
 
 # Install baseline tooling in a single transaction to reduce solver and
 # metadata overhead before the gaming repos are enabled.
 dnf5 install -y --skip-unavailable \
-    sddm \
-    sddm-breeze \
-    kwallet-pam \
-    bubblewrap \
-    skopeo \
-    plasma-workspace-x11 \
-    xorg-x11-server-Xorg \
-    xorg-x11-xinit \
-    xorg-x11-drv-libinput \
-    irqbalance \
-    p7zip \
-    p7zip-plugins \
-    ntfs-3g \
-    ntfsprogs \
-    cifs-utils \
-    rsync \
-    xorriso \
-    squashfs-tools \
-    mtools \
-    dosfstools \
-    sbsigntools \
-    qemu-char-spice \
-    qemu-device-display-virtio-gpu \
-    qemu-device-display-virtio-vga \
-    qemu-device-usb-redirect \
-    qemu-img \
-    qemu-system-aarch64 \
-    qemu-system-x86-core \
-    util-linux-script \
-    tmux \
-    gh \
-    fwupd
+	sddm \
+	sddm-breeze \
+	kwallet-pam \
+	bubblewrap \
+	skopeo \
+	plasma-workspace-x11 \
+	xorg-x11-server-Xorg \
+	xorg-x11-xinit \
+	xorg-x11-drv-libinput \
+	irqbalance \
+	p7zip \
+	p7zip-plugins \
+	ntfs-3g \
+	ntfsprogs \
+	cifs-utils \
+	rsync \
+	xorriso \
+	squashfs-tools \
+	fuse \
+	fuse3 \
+	mtools \
+	dosfstools \
+	sbsigntools \
+	qemu-char-spice \
+	qemu-device-display-virtio-gpu \
+	qemu-device-display-virtio-vga \
+	qemu-device-usb-redirect \
+	qemu-img \
+	qemu-system-aarch64 \
+	qemu-system-x86-core \
+	util-linux-script \
+	tmux \
+	gh \
+	openssl \
+	fwupd
 
 # Enable COPRs for gaming packages
 dnf5 copr enable -y ublue-os/bazzite
@@ -162,68 +172,95 @@ dnf5 copr enable -y ycollet/audinux
 dnf5 upgrade -y libatomic.x86_64 nss.x86_64 || true
 
 dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
-    gamescope \
-    gamescope-shaders \
-    mangohud.x86_64 \
-    mangohud.i686 \
-    vkBasalt.x86_64 \
-    vkBasalt.i686 \
-    libFAudio.x86_64 \
-    libFAudio.i686 \
-    libobs_vkcapture.x86_64 \
-    libobs_glcapture.x86_64 \
-    libobs_vkcapture.i686 \
-    libobs_glcapture.i686 \
-    xrandr \
-    evtest \
-    xdg-user-dirs \
-    xdg-terminal-exec \
-    gamemode \
-    gamemode.i686 \
-    libXScrnSaver \
-    libXScrnSaver.i686 \
-    libxcb.i686 \
-    libatomic \
-    libatomic.i686 \
-    mesa-libGL.i686 \
-    mesa-dri-drivers.i686 \
-    nss \
-    nss.i686 \
-    steam-devices \
-    kdeplasma-addons \
-    input-remapper
+	gamescope \
+	gamescope-shaders \
+	mangohud.x86_64 \
+	mangohud.i686 \
+	vkBasalt.x86_64 \
+	vkBasalt.i686 \
+	libFAudio.x86_64 \
+	libFAudio.i686 \
+	libobs_vkcapture.x86_64 \
+	libobs_glcapture.x86_64 \
+	libobs_vkcapture.i686 \
+	libobs_glcapture.i686 \
+	xrandr \
+	evtest \
+	xdg-user-dirs \
+	xdg-terminal-exec \
+	gamemode \
+	gamemode.i686 \
+	libXScrnSaver \
+	libXScrnSaver.i686 \
+	libxcb.i686 \
+	libatomic \
+	libatomic.i686 \
+	mesa-libGL.i686 \
+	mesa-dri-drivers.i686 \
+	nss \
+	nss.i686 \
+	steam-devices \
+	kdeplasma-addons \
+	input-remapper
 
 # ── Optional PC gaming peripheral stack ──────────────────────────────────────
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
 # RPM Fusion, COPRs, and fast-moving driver packages; if one has a temporary
 # dependency conflict or mirror outage, the image should still ship the core
-# Steam/Gamescope/MangoHud/GameMode stack. Each package is attempted
-# independently so one flaky package does not prevent the rest from landing.
+# Steam/Gamescope/MangoHud/GameMode stack. Install these together normally, then
+# retry individually if one flaky package prevents the batch from landing.
 optional_gaming_packages=(
-    rom-properties-kf6
-    game-devices-udev
-    xpadneo
-    xone
-    dualsensectl
-    jstest-gtk
-    libcec
-    cec-utils
-    openrazer-daemon
-    openrazer-meta
-    opentabletdriver
-    corectrl
-    akmod-v4l2loopback
-    v4l2loopback
+	rom-properties-kf6
+	game-devices-udev
+	xpadneo
+	xone
+	dualsensectl
+	jstest-gtk
+	libcec
+	cec-utils
+	openrazer-daemon
+	openrazer-meta
+	opentabletdriver
+	corectrl
+	akmod-v4l2loopback
+	v4l2loopback
 )
 
-for pkg in "${optional_gaming_packages[@]}"; do
-    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable "${pkg}" || \
-            echo "WARNING: optional gaming package '${pkg}' failed to install; continuing." >&2
-    else
-        echo "optional gaming package '${pkg}' is unavailable in configured repos; skipping."
-    fi
-done
+install_available_optional_packages() {
+	local group_name=$1
+	shift
+
+	local pkg
+	local -a available_packages=()
+
+	# One metadata load for all packages instead of N individual queries.
+	local available_set
+	available_set=$(dnf5 repoquery --available --qf '%{name}\n' "$@" 2>/dev/null | sort -u)
+
+	for pkg in "$@"; do
+		if grep -qx "${pkg}" <<<"${available_set}"; then
+			available_packages+=("${pkg}")
+		else
+			echo "optional ${group_name} package '${pkg}' is unavailable in configured repos; skipping."
+		fi
+	done
+
+	((${#available_packages[@]})) || return 0
+
+	# Use one transaction in the normal case. If one optional package has a
+	# transient conflict, retry individually so the rest still land.
+	if dnf5 install -y --skip-unavailable "${available_packages[@]}"; then
+		return 0
+	fi
+
+	echo "WARNING: optional ${group_name} package batch failed; retrying individually." >&2
+	for pkg in "${available_packages[@]}"; do
+		dnf5 install -y --skip-unavailable "${pkg}" ||
+			echo "WARNING: optional ${group_name} package '${pkg}' failed to install; continuing." >&2
+	done
+}
+
+install_available_optional_packages gaming "${optional_gaming_packages[@]}"
 
 # ── ASUS Linux hardware control ───────────────────────────────────────────────
 # asusctl/asusd expose ASUS ROG/TUF/Zephyrus/ProArt controls such as platform
@@ -232,16 +269,16 @@ done
 # for supported ASUS laptops. The upstream asusd udev rules are DMI-gated, and
 # Kyth adds a matching supergfxd udev rule in the branding layer.
 dnf5 install -y --skip-unavailable \
-    asusctl \
-    supergfxctl || true
+	asusctl \
+	supergfxctl || true
 systemctl disable supergfxd.service 2>/dev/null || true
 rm -f /etc/systemd/system/getty.target.wants/supergfxd.service
 
 is_enabled() {
-    case "${1,,}" in
-        1|true|yes|on) return 0 ;;
-        *) return 1 ;;
-    esac
+	case "${1,,}" in
+	1 | true | yes | on) return 0 ;;
+	*) return 1 ;;
+	esac
 }
 
 # ── system76-scheduler ────────────────────────────────────────────────────────
@@ -249,31 +286,31 @@ is_enabled() {
 # is focused and whether a game is running.  Gives a noticeable responsiveness
 # boost during gaming without requiring per-app configuration.
 if dnf5 repoquery --available system76-scheduler 2>/dev/null | grep -q .; then
-  dnf5 install -y --skip-unavailable system76-scheduler || true
-  if rpm -q system76-scheduler >/dev/null 2>&1; then
-    systemctl enable com.system76.Scheduler 2>/dev/null || true
-  fi
+	dnf5 install -y --skip-unavailable system76-scheduler || true
+	if rpm -q system76-scheduler >/dev/null 2>&1; then
+		systemctl enable com.system76.Scheduler 2>/dev/null || true
+	fi
 else
-  echo "system76-scheduler is unavailable in configured repos; skipping."
+	echo "system76-scheduler is unavailable in configured repos; skipping."
 fi
 
 # ── ananicy-cpp process priority rules ───────────────────────────────────────
 # Applies static per-process CPU/I/O priorities (browser, game launchers,
 # compilers, etc.) to smooth desktop responsiveness under mixed load.
 if is_enabled "${ENABLE_ANANICY:-1}"; then
-    if dnf5 repoquery --available ananicy-cpp 2>/dev/null | grep -q .; then
-        dnf5 install -y --skip-unavailable \
-                ananicy-cpp \
-                ananicy-cpp-rules \
-                ananicy-cpp-rules-git || true
-        if rpm -q ananicy-cpp >/dev/null 2>&1; then
-            systemctl enable ananicy-cpp.service 2>/dev/null || true
-        fi
-    else
-        echo "ananicy-cpp is unavailable in configured repos; skipping."
-    fi
+	if dnf5 repoquery --available ananicy-cpp 2>/dev/null | grep -q .; then
+		dnf5 install -y --skip-unavailable \
+			ananicy-cpp \
+			ananicy-cpp-rules \
+			ananicy-cpp-rules-git || true
+		if rpm -q ananicy-cpp >/dev/null 2>&1; then
+			systemctl enable ananicy-cpp.service 2>/dev/null || true
+		fi
+	else
+		echo "ananicy-cpp is unavailable in configured repos; skipping."
+	fi
 else
-    echo "ENABLE_ANANICY is off; skipping ananicy-cpp install."
+	echo "ENABLE_ANANICY is off; skipping ananicy-cpp install."
 fi
 
 # Disable COPRs so they don't persist in the final image
@@ -286,7 +323,6 @@ dnf5 copr disable -y lukenukem/asus-linux
 dnf5 copr disable -y ycollet/audinux
 
 ### GPU drivers
-
 
 # ── AMD GPU ───────────────────────────────────────────────────────────────────
 # amdgpu is in the kernel; RADV (Vulkan) comes from mesa (Fedora repos).
@@ -309,20 +345,20 @@ dnf5 copr disable -y ycollet/audinux
 # qemu-guest-agent: graceful shutdown, snapshot freeze, guest state queries.
 #   spice-vdagent handles clipboard and display resize in SPICE sessions.
 dnf5 install -y --skip-unavailable \
-    linux-firmware \
-    amd-gpu-firmware \
-    amd-ucode-firmware \
-    libva-utils \
-    mesa-vulkan-drivers \
-    vulkan-loader \
-    mesa-dri-drivers \
-    mesa-libgbm \
-    libdrm \
-    xorg-x11-drv-amdgpu \
-    xorg-x11-drv-ati \
-    radeontop \
-    libclc \
-    qemu-guest-agent
+	linux-firmware \
+	amd-gpu-firmware \
+	amd-ucode-firmware \
+	libva-utils \
+	mesa-vulkan-drivers \
+	vulkan-loader \
+	mesa-dri-drivers \
+	mesa-libgbm \
+	libdrm \
+	xorg-x11-drv-amdgpu \
+	xorg-x11-drv-ati \
+	radeontop \
+	libclc \
+	qemu-guest-agent
 
 # ── Platform and wireless firmware ───────────────────────────────────────────
 # Fedora has been splitting linux-firmware into smaller subpackages. Keep the
@@ -334,26 +370,26 @@ dnf5 install -y --skip-unavailable \
 #   - realtek/mediatek/atheros/brcmfmac: common USB/PCIe/Bluetooth companion HW
 #   - cirrus/sof/intel-vsc: HP laptop audio, DSP, camera, and sensor firmware
 dnf5 install -y --skip-unavailable \
-    iwlwifi-mvm-firmware \
-    iwlwifi-mld-firmware \
-    iwlwifi-dvm-firmware \
-    iwlegacy-firmware \
-    intel-vsc-firmware \
-    alsa-sof-firmware \
-    realtek-firmware \
-    mediatek-firmware \
-    atheros-firmware \
-    brcmfmac-firmware \
-    cirrus-audio-firmware || true
+	iwlwifi-mvm-firmware \
+	iwlwifi-mld-firmware \
+	iwlwifi-dvm-firmware \
+	iwlegacy-firmware \
+	intel-vsc-firmware \
+	alsa-sof-firmware \
+	realtek-firmware \
+	mediatek-firmware \
+	atheros-firmware \
+	brcmfmac-firmware \
+	cirrus-audio-firmware || true
 
 iwlwifi_firmware_probe="$(
-    find /usr/lib/firmware \
-        \( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
-        -print -quit
+	find /usr/lib/firmware \
+		\( -name 'iwlwifi-*.ucode*' -o -name 'iwlwifi-*.pnvm*' \) \
+		-print -quit
 )"
 if [[ -z "${iwlwifi_firmware_probe}" ]]; then
-    echo "ERROR: Intel iwlwifi firmware blobs are missing from the image." >&2
-    exit 1
+	echo "ERROR: Intel iwlwifi firmware blobs are missing from the image." >&2
+	exit 1
 fi
 echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 
@@ -363,9 +399,9 @@ echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 # hardware video decode (VA-API): iHD is the modern backend (Broadwell/Gen 8+),
 # i965 covers older Gen 4–7 parts.
 dnf5 install -y --skip-unavailable \
-    intel-media-driver \
-    libva-intel-driver \
-    intel-gpu-tools || true
+	intel-media-driver \
+	libva-intel-driver \
+	intel-gpu-tools || true
 
 # ── NVIDIA GPU ────────────────────────────────────────────────────────────────
 # Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
@@ -384,14 +420,20 @@ test -e /usr/lib64/dri/radeonsi_drv_video.so
 # no-ops it on bare metal when the virtio-serial device is absent.
 systemctl enable qemu-guest-agent.service 2>/dev/null || true
 
-# Remove plasma-welcome — plasma-login handles first-boot setup instead.
-dnf5 remove -y --no-autoremove plasma-welcome plasma-welcome-fedora 2>/dev/null || true
-
-# Remove the rpm-ostree backend for Discover. On a bootc system the OS is
-# updated as a whole image via `bootc upgrade`; individual RPM updates shown
-# by Discover are phantom/unactionable and confuse users. Keep Discover itself
-# so Flatpak management still works.
-dnf5 remove -y --no-autoremove plasma-discover-rpm-ostree 2>/dev/null || true
+# Remove unwanted desktop packages in one solver transaction:
+# - plasma-welcome: plasma-login handles first-boot setup instead.
+# - plasma-discover-rpm-ostree: bootc updates the whole OS image; individual RPM
+#   updates shown by Discover are phantom/unactionable. Keep Discover itself so
+#   Flatpak management still works.
+# - kio-gdrive: Google denied KDE's Drive API authorization, so Dolphin exposes
+#   an account entry that fails with "Access denied to .". System Hub provides
+#   the supported rclone OAuth wizard.
+dnf5 remove -y --no-autoremove \
+	plasma-welcome \
+	plasma-welcome-fedora \
+	plasma-discover-rpm-ostree \
+	kio-gdrive \
+	2>/dev/null || true
 
 # Remove Firefox — Brave Browser is installed as a Flatpak on first boot
 # via kyth-default-flatpaks.service (avoids baking external repo keys into
@@ -400,75 +442,54 @@ dnf5 remove -y firefox || true
 
 # ── Desktop helper, Plymouth, mutable-workspace, and creator tooling ─────────
 # Keep required desktop helper packages in one transaction. Optional niceties
-# are installed individually below so a transient RPM/scriptlet issue in a font
-# or hardware utility does not block the image.
+# use a batched fast path with individual fallback so a transient RPM/scriptlet
+# issue in a font or hardware utility does not block the image.
 dnf5 install -y --skip-unavailable \
-    python3-pyqt6 \
-    python3-pyqt6-webengine \
-    qt6-qtwayland \
-    plymouth \
-    plymouth-plugin-script \
-    librsvg2-tools \
-    distrobox \
-    unzip \
-    git \
-    ShellCheck \
-    shfmt \
-    spice-vdagent \
-    virt-viewer \
-    kscreen \
-    neovim \
-    zsh \
-    nodejs \
-    npm \
-    openconnect \
-    vpnc \
-    kde-connect \
-    cups-browsed
+	python3-pyqt6 \
+	python3-pyqt6-webengine \
+	qt6-qtwayland \
+	plymouth \
+	plymouth-plugin-script \
+	librsvg2-tools \
+	distrobox \
+	unzip \
+	git \
+	ShellCheck \
+	shfmt \
+	spice-vdagent \
+	virt-viewer \
+	kscreen \
+	neovim \
+	zsh \
+	nodejs \
+	npm \
+	openconnect \
+	vpnc \
+	kde-connect \
+	cups-browsed
 
 optional_desktop_packages=(
-    jetbrains-mono-fonts
-    cascadia-code-fonts
-    liberation-fonts-all
-    openrgb
+	jetbrains-mono-fonts
+	cascadia-code-fonts
+	liberation-fonts-all
 )
 
-for pkg in "${optional_desktop_packages[@]}"; do
-    if dnf5 repoquery --available "${pkg}" >/dev/null 2>&1; then
-        dnf5 install -y --skip-unavailable "${pkg}" || \
-            echo "WARNING: optional desktop package '${pkg}' failed to install; continuing." >&2
-    else
-        echo "optional desktop package '${pkg}' is unavailable in configured repos; skipping."
-    fi
-done
+install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
 #   SourceForge at install time, which is unreliable in CI builds.
-# openrgb: unified RGB lighting control for Corsair/ASUS/MSI/Razer/etc.
+# OpenRGB stays opt-in through System Hub so hardware-specific controls do not
+# clutter a fresh desktop. The Flatpak install path grants device access.
 # input-remapper is already installed in the gaming packages block above.
-
-# Wire up SDDM and graphical boot via explicit symlinks.
-# systemctl enable/set-default are unreliable inside a container build (no
-# running systemd bus) and silently no-op when they fail.  Direct symlinks are
-# the only guaranteed approach; this matches what Universal Blue and other
-# bootc-based distros do.
-ln -sf /usr/lib/systemd/system/sddm.service \
-    /etc/systemd/system/display-manager.service
-mkdir -p /etc/systemd/system/graphical.target.wants
-ln -sf /etc/systemd/system/display-manager.service \
-    /etc/systemd/system/graphical.target.wants/display-manager.service
-ln -sf /usr/lib/systemd/system/graphical.target \
-    /etc/systemd/system/default.target
-
 
 # ── VS Code ───────────────────────────────────────────────────────────────────
 # Bake VS Code native RPM into the image so it has full access to the local
 # filesystem and terminal without the sandboxing constraints of a Flatpak.
 rpm --import https://packages.microsoft.com/keys/microsoft.asc
-cat > /etc/yum.repos.d/vscode.repo <<'EOF'
+cat >/etc/yum.repos.d/vscode.repo <<'EOF'
 [code]
 name=Visual Studio Code
 baseurl=https://packages.microsoft.com/yumrepos/vscode
@@ -481,8 +502,5 @@ dnf5 install -y code
 # VS Code self-updates are not meaningful in an immutable image.
 dnf5 config-manager setopt code.enabled=0
 
-# Remove dnf transaction history and repo solver data from the image layer.
-# The download cache is already excluded via --mount=type=cache in the
-# Dockerfile, but /var/lib/dnf/ is not on a cache mount and accumulates
-# ~30-60 MB of state that serves no purpose in the final OS image.
-dnf5 clean all
+# Keep downloaded metadata and RPMs in Docker's /var/cache mount. The cache is
+# excluded from the image layer automatically and speeds up later rebuilds.

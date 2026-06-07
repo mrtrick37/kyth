@@ -7,8 +7,8 @@ start_marker="<!-- AUTO-README-START -->"
 end_marker="<!-- AUTO-README-END -->"
 
 if [[ ! -f "$readme_path" ]]; then
-    echo "README.md not found at $readme_path" >&2
-    exit 1
+	echo "README.md not found at $readme_path" >&2
+	exit 1
 fi
 
 branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo unknown)"
@@ -23,7 +23,7 @@ block_file="$(mktemp)"
 tmp_file="$(mktemp)"
 trap 'rm -f "$block_file" "$tmp_file"' EXIT
 
-cat > "$block_file" <<EOF
+cat >"$block_file" <<EOF
 ## Auto Project Snapshot
 
 - Last refreshed (UTC): $now_utc
@@ -37,7 +37,7 @@ cat > "$block_file" <<EOF
 EOF
 
 if grep -q "$start_marker" "$readme_path" && grep -q "$end_marker" "$readme_path"; then
-    awk -v start="$start_marker" -v end="$end_marker" -v repl="$block_file" '
+	awk -v start="$start_marker" -v end="$end_marker" -v repl="$block_file" '
         BEGIN { in_block = 0 }
         $0 == start {
             print
@@ -56,18 +56,18 @@ if grep -q "$start_marker" "$readme_path" && grep -q "$end_marker" "$readme_path
         !in_block {
             print
         }
-    ' "$readme_path" > "$tmp_file"
+    ' "$readme_path" >"$tmp_file"
 else
-    cat "$readme_path" > "$tmp_file"
-    {
-        echo
-        echo "$start_marker"
-        cat "$block_file"
-        echo "$end_marker"
-    } >> "$tmp_file"
+	cat "$readme_path" >"$tmp_file"
+	{
+		echo
+		echo "$start_marker"
+		cat "$block_file"
+		echo "$end_marker"
+	} >>"$tmp_file"
 fi
 
 if ! cmp -s "$readme_path" "$tmp_file"; then
-    cp "$tmp_file" "$readme_path"
-    echo "README snapshot updated"
+	cp "$tmp_file" "$readme_path"
+	echo "README snapshot updated"
 fi

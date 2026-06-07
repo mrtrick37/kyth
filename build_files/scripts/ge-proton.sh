@@ -14,31 +14,31 @@ TMPDIR_GE=$(mktemp -d)
 trap 'rm -rf "${TMPDIR_GE}"' EXIT
 
 if [[ -n "${GE_PROTON_VER}" ]]; then
-    release_api="${GE_PROTON_REPO_API}/tags/${GE_PROTON_VER}"
+	release_api="${GE_PROTON_REPO_API}/tags/${GE_PROTON_VER}"
 else
-    release_api="${GE_PROTON_REPO_API}/latest"
+	release_api="${GE_PROTON_REPO_API}/latest"
 fi
 
 release_json="${TMPDIR_GE}/release.json"
 CURL_AUTH_ARGS=()
 if [[ -f /run/secrets/github_token ]]; then
-    CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
+	CURL_AUTH_ARGS=(-H "Authorization: token $(cat /run/secrets/github_token)")
 fi
 if ! curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${release_api}" -o "${release_json}"; then
-    echo "Failed to fetch GE-Proton release info from ${release_api}" >&2
-    exit 1
+	echo "Failed to fetch GE-Proton release info from ${release_api}" >&2
+	exit 1
 fi
 
 GE_PROTON_TARBALL_URL=$(
-    grep -o 'https://[^"]*\.tar\.gz' "${release_json}" | head -n1
+	grep -o 'https://[^"]*\.tar\.gz' "${release_json}" | head -n1
 )
 GE_PROTON_SHA512_URL=$(
-    grep -o 'https://[^"]*\.sha512sum' "${release_json}" | head -n1
+	grep -o 'https://[^"]*\.sha512sum' "${release_json}" | head -n1
 )
 
 if [[ -z "${GE_PROTON_TARBALL_URL}" || -z "${GE_PROTON_SHA512_URL}" ]]; then
-    echo "Failed to locate GE-Proton release assets from ${release_api}" >&2
-    exit 1
+	echo "Failed to locate GE-Proton release assets from ${release_api}" >&2
+	exit 1
 fi
 
 GE_PROTON_TARBALL=$(basename "${GE_PROTON_TARBALL_URL}")
@@ -46,13 +46,13 @@ GE_PROTON_SHA512=$(basename "${GE_PROTON_SHA512_URL}")
 
 mkdir -p /usr/share/steam/compatibilitytools.d
 curl -fsSL "${CURL_COMMON_ARGS[@]}" "${GE_PROTON_TARBALL_URL}" \
-    -o "${TMPDIR_GE}/${GE_PROTON_TARBALL}"
+	-o "${TMPDIR_GE}/${GE_PROTON_TARBALL}"
 curl -fsSL "${CURL_COMMON_ARGS[@]}" "${GE_PROTON_SHA512_URL}" \
-    -o "${TMPDIR_GE}/${GE_PROTON_SHA512}"
+	-o "${TMPDIR_GE}/${GE_PROTON_SHA512}"
 
 (
-    cd "${TMPDIR_GE}"
-    sha512sum -c "${GE_PROTON_SHA512}"
+	cd "${TMPDIR_GE}"
+	sha512sum -c "${GE_PROTON_SHA512}"
 )
 
 tar -xzf "${TMPDIR_GE}/${GE_PROTON_TARBALL}" -C /usr/share/steam/compatibilitytools.d/

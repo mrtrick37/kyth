@@ -413,6 +413,45 @@ QFrame#card-accent-err {
     border-radius: 4px;
 }
 
+QFrame#home-action-card {
+    background: #252526;
+    border: 1px solid #3c3c3c;
+    border-radius: 4px;
+}
+
+QFrame#home-action-card:hover {
+    background: #2d2d30;
+    border-color: #505050;
+}
+
+QLabel#home-action-icon {
+    font-size: 24px;
+    font-weight: 700;
+    color: #4fc1ff;
+}
+
+QLabel#home-action-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #f3f3f3;
+}
+
+QLabel#home-action-copy {
+    color: #a6a6a6;
+    line-height: 1.45;
+}
+
+QLabel#home-next-title {
+    font-size: 18px;
+    font-weight: 800;
+    color: #ffffff;
+}
+
+QLabel#home-next-copy {
+    color: #b8c7d9;
+    line-height: 1.5;
+}
+
 QFrame#starter-pack {
     background: #202124;
     border: 1px solid #34363b;
@@ -863,6 +902,242 @@ QLabel#live-banner-badge {
 QLabel#live-banner-text {
     color: #a09060;
     font-size: 11px;
+}
+
+/* ── 2026 System Hub refresh ─────────────────────────────────────────────── */
+QMainWindow {
+    background: #0b0f17;
+}
+
+QWidget#content-area {
+    background: #0b0f17;
+}
+
+QWidget#sidebar {
+    background: #0f141f;
+    border-right: 1px solid #243044;
+}
+
+QWidget#sidebar-header {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #1d2638, stop:0.45 #111827, stop:1 #181429);
+    border-bottom: 1px solid #2e405b;
+}
+
+QLabel#sidebar-logo {
+    color: #ffffff;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+QLabel#sidebar-ver {
+    color: #8ddcff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QPushButton#nav-item {
+    color: #c8d3e2;
+    border-left: 3px solid transparent;
+    padding: 10px 16px 10px 13px;
+}
+
+QPushButton#nav-item:hover {
+    background: #172033;
+    color: #ffffff;
+    border-left: 3px solid #47c7ff;
+}
+
+QPushButton#nav-item-active {
+    background: #1b263a;
+    color: #ffffff;
+    border-left: 3px solid #ff5fd2;
+    padding: 10px 16px 10px 13px;
+}
+
+QWidget#page-header {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #121a28, stop:0.55 #101722, stop:1 #17132a);
+    border-bottom: 1px solid #28364e;
+}
+
+QLabel#eyebrow {
+    color: #66ddff;
+}
+
+QLabel#heading {
+    color: #f7fbff;
+    font-weight: 800;
+}
+
+QLabel#subheading {
+    color: #aebbd0;
+}
+
+QPushButton {
+    background: #172033;
+    color: #d7e1ef;
+    border: 1px solid #2d3b53;
+    border-radius: 7px;
+    padding: 9px 18px;
+}
+
+QPushButton:hover {
+    background: #202c42;
+    border-color: #4f6689;
+    color: #ffffff;
+}
+
+QPushButton#primary {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #1b8cff, stop:1 #b74dff);
+    color: #ffffff;
+    border: 1px solid #60cfff;
+    border-radius: 7px;
+}
+
+QPushButton#primary:hover {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
+                                stop:0 #33a2ff, stop:1 #ce63ff);
+    border-color: #aeeeff;
+}
+
+QFrame#card,
+QFrame#home-action-card,
+QFrame#stat-tile {
+    background: #111827;
+    border: 1px solid #29364c;
+    border-radius: 8px;
+}
+
+QFrame#card:hover,
+QFrame#home-action-card:hover,
+QFrame#stat-tile:hover {
+    background: #151f31;
+    border-color: #3e5274;
+}
+
+QFrame#card-accent-ok {
+    background: #0e2230;
+    border: 1px solid #1e6d8f;
+    border-radius: 8px;
+}
+
+QFrame#card-accent-warn {
+    background: #241d0d;
+    border: 1px solid #755b18;
+    border-radius: 8px;
+}
+
+QFrame#card-accent-err {
+    background: #2a1118;
+    border: 1px solid #7b2c3f;
+    border-radius: 8px;
+}
+
+QLabel#card-title,
+QLabel#home-action-title,
+QLabel#home-next-title {
+    color: #f6f9ff;
+}
+
+QLabel#card-copy,
+QLabel#home-action-copy,
+QLabel#home-next-copy {
+    color: #aebbd0;
+}
+
+QFrame#home-hero {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+                                stop:0 #122b3f, stop:0.48 #111827, stop:1 #28163a);
+    border: 1px solid #38516f;
+    border-radius: 8px;
+}
+
+QLabel#home-hero-kicker {
+    color: #77e4ff;
+    font-size: 11px;
+    font-weight: 800;
+    letter-spacing: 1.3px;
+}
+
+QLabel#home-hero-title {
+    color: #ffffff;
+    font-size: 28px;
+    font-weight: 900;
+}
+
+QLabel#home-hero-copy {
+    color: #c7d5e8;
+    font-size: 13px;
+    line-height: 1.55;
+}
+
+QLabel#home-hero-badge {
+    background: #0b1320;
+    color: #93ecff;
+    border: 1px solid #285e78;
+    border-radius: 12px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+QFrame#ready-panel {
+    background: #111827;
+    border: 1px solid #31425e;
+    border-radius: 8px;
+}
+
+QLabel#ready-score {
+    color: #69f0ae;
+    font-size: 30px;
+    font-weight: 900;
+}
+
+QLabel#ready-score-warn {
+    color: #ffd166;
+    font-size: 30px;
+    font-weight: 900;
+}
+
+QLabel#ready-score-err {
+    color: #ff7b8a;
+    font-size: 30px;
+    font-weight: 900;
+}
+
+QLabel#ready-row-ok,
+QLabel#ready-row-warn,
+QLabel#ready-row-err,
+QLabel#ready-row-dim {
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-weight: 700;
+}
+
+QLabel#ready-row-ok {
+    background: #10281f;
+    color: #8ff0bd;
+    border: 1px solid #245d43;
+}
+
+QLabel#ready-row-warn {
+    background: #2a220f;
+    color: #ffd166;
+    border: 1px solid #6d571b;
+}
+
+QLabel#ready-row-err {
+    background: #2a1118;
+    color: #ff8fa1;
+    border: 1px solid #743044;
+}
+
+QLabel#ready-row-dim {
+    background: #151e2e;
+    color: #9aa9bd;
+    border: 1px solid #2a3850;
 }
 """
 
@@ -1467,9 +1742,9 @@ def _image_tag_for_channel(channel: str, flavor: str | None = None) -> str:
 
 
 def _image_tag_for_kernel(flavor: str) -> str:
-    if flavor == "cachy":
-        return "testing-cachy"
     channel = "testing" if (_current_branch() or "").startswith("testing") else "latest"
+    if flavor == "cachy":
+        return f"{channel}-cachy"
     return channel
 
 
@@ -3792,52 +4067,23 @@ class WelcomePage(Page):
         self._page_header(
             "System Hub",
             "Welcome to KythOS",
-            "A fast, atomic gaming desktop. Updates are atomic, rollbacks are instant.",
+            "A friendly control room for games, updates, hardware, and recovery.",
         )
 
-        if _IS_LIVE:
-            live_card, live_layout = _make_card("card-accent-ok")
-            live_title = QLabel("Try the real desktop before installing")
-            live_title.setObjectName("card-title")
-            live_layout.addWidget(live_title)
-            live_body = QLabel(
-                "This live session is built from the same KythOS image that gets installed. "
-                "Use it to check your hardware, see the gaming stack, inspect Windows migration tools, "
-                "and get a feel for the daily desktop. USB storage and software rendering can make it "
-                "slower than an installed system."
-            )
-            live_body.setObjectName("card-copy")
-            live_body.setWordWrap(True)
-            live_layout.addWidget(live_body)
-            live_btns = QHBoxLayout()
-            live_btns.setSpacing(8)
-            for label, page_key, primary in (
-                ("Check Hardware", "Hardware", True),
-                ("Gaming Stack", "Gaming", False),
-                ("Game Compatibility", "Compatibility", False),
-                ("Move From Windows", "Move From Windows", False),
-            ):
-                btn = QPushButton(label)
-                if primary:
-                    btn.setObjectName("primary")
-                btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
-                live_btns.addWidget(btn)
-            install_btn = QPushButton("Install KythOS")
-            install_btn.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
-            live_btns.addWidget(install_btn)
-            live_btns.addStretch()
-            live_layout.addLayout(live_btns)
-            self._add(live_card)
-
-        windows_card = self._make_windows_drive_welcome_card()
-        if windows_card is not None:
-            self._add(windows_card)
-        # ── System status tiles ──────────────────────────────────────────────
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
-        ge_ver = _ge_proton_version() or "—"
+
+        self._add(self._make_home_hero(branch, staged, rollback))
+        self._add(self._make_recommended_card(staged, rollback))
+
+        if _IS_LIVE:
+            self._add(self._make_live_card())
+
+        windows_card = self._make_windows_drive_welcome_card()
+        if windows_card is not None:
+            self._add(windows_card)
 
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
@@ -3858,12 +4104,9 @@ class WelcomePage(Page):
         self._kernel_tile = StatTile("Kernel", kernel)
         tiles_row.addWidget(self._kernel_tile, 1)
 
-        self._ge_tile = StatTile("GE-Proton", ge_ver)
-        tiles_row.addWidget(self._ge_tile, 1)
-
         self._add_layout(tiles_row)
+        self._add(self._make_gaming_ready_panel())
 
-        # ── Staged update alert ──────────────────────────────────────────────
         if staged:
             alert, alert_layout = _make_card("card-update")
             alert_header = QHBoxLayout()
@@ -3894,10 +4137,6 @@ class WelcomePage(Page):
             alert_layout.addLayout(alert_btn_row)
             self._add(alert)
 
-        # ── Rollback available notification ─────────────────────────────────
-        # Show when a previous deployment is stored — reinforces the "your system
-        # is always safe" message that keeps Windows users from feeling anxious
-        # about updates. Analogous to Mint's Timeshift indicator.
         if rollback:
             rb_card, rb_layout = _make_card()
             rb_header = QHBoxLayout()
@@ -3926,99 +4165,67 @@ class WelcomePage(Page):
             rb_layout.addLayout(rb_btn_row)
             self._add(rb_card)
 
-        # ── First-run chooser ────────────────────────────────────────────────
-        chooser, chooser_layout = _make_card("card-accent-ok")
-        chooser_title = QLabel("What do you want to do first?")
-        chooser_title.setObjectName("card-title")
-        chooser_layout.addWidget(chooser_title)
-        chooser_body = QLabel(
-            "Pick the path that matches why you booted KythOS today. You can come "
-            "back here anytime from the application menu."
-        )
-        chooser_body.setObjectName("card-copy")
-        chooser_body.setWordWrap(True)
-        chooser_layout.addWidget(chooser_body)
-        chooser_btns = QHBoxLayout()
-        chooser_btns.setSpacing(8)
-        for label, page_key in (
-            ("Move From Windows", "Move From Windows"),
-            ("Install Familiar Apps", "Software"),
-            ("Set Up Games", "Gaming"),
-            ("Check Hardware", "Hardware"),
-            ("Learn Updates", "Update"),
-        ):
-            btn = QPushButton(label)
-            if page_key == "Move From Windows":
-                btn.setObjectName("primary")
-            btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
-            chooser_btns.addWidget(btn)
-        chooser_btns.addStretch()
-        chooser_layout.addLayout(chooser_btns)
-        self._add(chooser)
-
-        # ── Getting started section ──────────────────────────────────────────
-        section_lbl = QLabel("Getting Started")
+        section_lbl = QLabel("Start Here")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
-        steps = [
-            ("↻", "Run a system update",      "Start with the latest packages and OS image.",           "Update"),
-            ("◈", "Check your hardware",       "Confirm graphics, audio, and wireless are working.",     "Hardware"),
-            ("◉", "Set up gaming",             "Configure Steam, Proton, and performance tools.",        "Gaming"),
-            ("⇄", "Move from Windows",       "Find Windows drives, copy files, and import game libraries.", "Move From Windows"),
-            ("⌨", "Set up dev environment",    "Open Software for VS Code, dev boxes, and build tools.", "Software"),
-            ("⬡", "Learn how to install apps", "Flatpak, Homebrew, and Distrobox explained.",            "Software"),
-        ]
-        for num, (icon, title, desc, page_key) in enumerate(steps, 1):
-            self._add(self._make_step(num, icon, title, desc, page_key))
+        top_tasks = QHBoxLayout()
+        top_tasks.setSpacing(12)
+        top_tasks.addWidget(self._make_task_card(
+            "↻",
+            "Update",
+            "Apply the latest OS image and see rollback options.",
+            "Open Update",
+            "Update",
+            primary=staged,
+        ), 1)
+        top_tasks.addWidget(self._make_task_card(
+            "◈",
+            "Check Hardware",
+            "Graphics, audio, Wi-Fi, firmware, storage, and controllers.",
+            "Run Checks",
+            "Hardware",
+        ), 1)
+        self._add_layout(top_tasks)
+
+        bottom_tasks = QHBoxLayout()
+        bottom_tasks.setSpacing(12)
+        bottom_tasks.addWidget(self._make_task_card(
+            "◉",
+            "Set Up Games",
+            "Steam, Proton, launchers, performance tools, and game saves.",
+            "Open Gaming",
+            "Gaming",
+        ), 1)
+        bottom_tasks.addWidget(self._make_task_card(
+            "⬡",
+            "Install Apps",
+            "Find familiar apps, developer tools, and trusted Flatpaks.",
+            "Open Software",
+            "Software",
+        ), 1)
+        self._add_layout(bottom_tasks)
+
+        essentials = QHBoxLayout()
+        essentials.setSpacing(12)
+        essentials.addWidget(self._make_task_card(
+            "⇄",
+            "Move From Windows",
+            "Copy files, inspect Steam libraries, and keep Windows untouched.",
+            "Open Migration",
+            "Move From Windows",
+        ), 1)
+        essentials.addWidget(self._make_task_card(
+            "⚠",
+            "Fix Something",
+            "Start with a health report, repair tools, or controller checks.",
+            "Open Repair",
+            "Repair",
+        ), 1)
+        self._add_layout(essentials)
 
         self._divider()
-
-        # ── Backup card ──────────────────────────────────────────────────────
-        backup_card, backup_layout = _make_card()
-        backup_header = QHBoxLayout()
-        backup_title = QLabel("Back Up Your Personal Files")
-        backup_title.setObjectName("card-title")
-        backup_header.addWidget(backup_title)
-        backup_header.addStretch()
-        backup_layout.addLayout(backup_header)
-        backup_body = QLabel(
-            "OS rollbacks protect the system — they are not a substitute for personal file backups. "
-            "Keep game saves, projects, and documents in /home and copy them to an external drive "
-            "or cloud service regularly."
-        )
-        backup_body.setObjectName("card-copy")
-        backup_body.setWordWrap(True)
-        backup_layout.addWidget(backup_body)
-        backup_btn_row = QHBoxLayout()
-        backup_btn_row.setSpacing(10)
-        home_btn = QPushButton("Open Home Folder")
-        home_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(os.path.expanduser("~")))
-        )
-        cloud_btn = QPushButton("Cloud Storage Setup")
-        cloud_btn.clicked.connect(lambda: self._navigate("Cloud Storage"))
-        backup_btn_row.addWidget(home_btn)
-        backup_btn_row.addWidget(cloud_btn)
-        backup_btn_row.addStretch()
-        backup_layout.addLayout(backup_btn_row)
-        self._add(backup_card)
-
-        # ── Links ────────────────────────────────────────────────────────────
-        link_row = QHBoxLayout()
-        link_row.setSpacing(10)
-        gh_btn = QPushButton("GitHub")
-        gh_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))
-        )
-        issue_btn = QPushButton("Report an Issue")
-        issue_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))
-        )
-        link_row.addWidget(gh_btn)
-        link_row.addWidget(issue_btn)
-        link_row.addStretch()
-        self._add_layout(link_row)
+        self._add(self._make_compact_link_row())
 
         note_text = (
             "This window opens automatically in the live session. Reopen it anytime from the application menu."
@@ -4030,6 +4237,277 @@ class WelcomePage(Page):
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
+
+    def _make_home_hero(self, branch: str, staged: bool, rollback: bool) -> QFrame:
+        card, layout = _make_card("home-hero")
+        layout.setContentsMargins(28, 24, 28, 24)
+        layout.setSpacing(14)
+
+        top = QHBoxLayout()
+        top.setSpacing(8)
+        kicker = QLabel("KythOS SYSTEM HUB")
+        kicker.setObjectName("home-hero-kicker")
+        top.addWidget(kicker)
+        top.addStretch()
+        for text in (
+            branch,
+            "Update staged" if staged else "Current",
+            "Rollback ready" if rollback else "Atomic updates",
+        ):
+            badge = QLabel(text)
+            badge.setObjectName("home-hero-badge")
+            badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            top.addWidget(badge)
+        layout.addLayout(top)
+
+        title = QLabel("Settle in, tune up, start playing.")
+        title.setObjectName("home-hero-title")
+        title.setWordWrap(True)
+        layout.addWidget(title)
+
+        body = QLabel(
+            "KythOS keeps the first-hour stuff obvious and the experienced-player "
+            "controls close by: launchers, Proton runners, performance tools, "
+            "hardware checks, rollback, and repair all live here."
+        )
+        body.setObjectName("home-hero-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        games_btn = QPushButton("Get Games Ready")
+        games_btn.setObjectName("primary")
+        games_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
+        btns.addWidget(games_btn)
+        health_btn = QPushButton("Check Hardware")
+        health_btn.clicked.connect(lambda _=False: self._navigate("Hardware"))
+        btns.addWidget(health_btn)
+        repair_btn = QPushButton("Health Report")
+        repair_btn.clicked.connect(lambda _=False: self._navigate("Diagnostics"))
+        btns.addWidget(repair_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_gaming_ready_panel(self) -> QFrame:
+        steam_ok = _is_flatpak_installed("com.valvesoftware.Steam")
+        ge_ver = _ge_proton_version()
+        vulkan_hint = bool(glob.glob("/dev/dri/renderD*")) or shutil.which("vulkaninfo") is not None
+        ntsync_ok = os.path.exists("/dev/ntsync")
+        items = [
+            ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam for your library."),
+            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing Windows games."),
+            ("ok" if vulkan_hint else "err", "Vulkan", "Render device found." if vulkan_hint else "No Vulkan render device found."),
+            ("ok" if ntsync_ok else "warn", "NTSYNC", "Ready." if ntsync_ok else "Not active; Proton can fall back safely."),
+            ("ok" if _gamescope_installed() else "warn", "Gamescope", "Ready." if _gamescope_installed() else "Install for scaling, HDR, and frame pacing presets."),
+            ("ok" if _mangohud_installed() else "warn", "MangoHud", "Ready." if _mangohud_installed() else "Install for the performance overlay."),
+        ]
+        ok_count = sum(1 for status, _, _ in items if status == "ok")
+        issue_count = sum(1 for status, _, _ in items if status == "err")
+        warn_count = sum(1 for status, _, _ in items if status == "warn")
+        total = len(items)
+
+        card, layout = _make_card("ready-panel")
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(14)
+
+        top = QHBoxLayout()
+        top.setSpacing(18)
+
+        score_col = QVBoxLayout()
+        score_col.setSpacing(2)
+        score = QLabel(f"{ok_count}/{total}")
+        score.setObjectName("ready-score-err" if issue_count else "ready-score-warn" if warn_count else "ready-score")
+        score_col.addWidget(score)
+        score_label = QLabel("gaming checks ready")
+        score_label.setObjectName("stat-label")
+        score_col.addWidget(score_label)
+        top.addLayout(score_col)
+
+        copy_col = QVBoxLayout()
+        copy_col.setSpacing(5)
+        title = QLabel("Gaming readiness")
+        title.setObjectName("card-title")
+        copy_col.addWidget(title)
+        if issue_count:
+            summary = "A couple of core pieces need attention before Windows games will feel smooth."
+        elif warn_count:
+            summary = "The core stack is close. Review the yellow items before benchmarking or migrating."
+        else:
+            summary = "The important pieces are in place. Open Gaming for profiles, launchers, and deeper tuning."
+        body = QLabel(summary)
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        copy_col.addWidget(body)
+        top.addLayout(copy_col, 1)
+
+        open_btn = QPushButton("Open Gaming")
+        open_btn.setObjectName("primary")
+        open_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
+        top.addWidget(open_btn, 0, Qt.AlignmentFlag.AlignTop)
+        layout.addLayout(top)
+
+        pill_grid = QVBoxLayout()
+        pill_grid.setSpacing(8)
+        for start in (0, 3):
+            row = QHBoxLayout()
+            row.setSpacing(8)
+            for item in items[start:start + 3]:
+                row.addWidget(self._make_ready_pill(*item), 1)
+            pill_grid.addLayout(row)
+        layout.addLayout(pill_grid)
+
+        return card
+
+    def _make_ready_pill(self, status: str, name: str, summary: str) -> QLabel:
+        prefix = {
+            "ok": "Ready",
+            "warn": "Check",
+            "err": "Fix",
+            "dim": "Optional",
+        }.get(status, "Info")
+        label = QLabel(f"{prefix}: {name}\n{summary}")
+        label.setObjectName(f"ready-row-{status if status in {'ok', 'warn', 'err', 'dim'} else 'dim'}")
+        label.setWordWrap(True)
+        label.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        label.setMinimumHeight(74)
+        return label
+
+    def _make_recommended_card(self, staged: bool, rollback: bool) -> QFrame:
+        if _IS_LIVE:
+            title = "Try the desktop, then install when ready"
+            copy = (
+                "Start with hardware checks so you know graphics, networking, audio, "
+                "and storage look right before installing."
+            )
+            buttons = [("Check Hardware", "Hardware", True), ("Install KythOS", None, False)]
+        elif staged:
+            title = "Reboot to finish your update"
+            copy = (
+                "A new KythOS image is staged. Reboot when convenient; your previous "
+                "system remains available as a rollback target."
+            )
+            buttons = [("Reboot Now", "reboot", True), ("View Update", "Update", False)]
+        elif rollback:
+            title = "Your previous system is saved"
+            copy = (
+                "Rollback is available if a recent change does not feel right. "
+                "Otherwise, you can keep setting up apps and games."
+            )
+            buttons = [("View Rollback", "Update", True), ("Set Up Games", "Gaming", False)]
+        else:
+            title = "Everything starts here"
+            copy = (
+                "Pick a task below. The hub keeps setup, gaming, apps, and recovery "
+                "in one place without making you learn the whole system first."
+            )
+            buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "Software", False)]
+
+        card, layout = _make_card("card-accent-ok")
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("home-next-title")
+        layout.addWidget(title_lbl)
+
+        body = QLabel(copy)
+        body.setObjectName("home-next-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for label, key, primary in buttons:
+            btn = QPushButton(label)
+            if primary:
+                btn.setObjectName("primary")
+            if key == "reboot":
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["systemctl", "reboot"]))
+            elif key is None:
+                btn.clicked.connect(lambda _=False: subprocess.Popen(["/usr/bin/kyth-launch-installer"]))
+            else:
+                btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _make_live_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Live session")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "You are using the same image that gets installed. USB storage and software "
+            "rendering can feel slower than an installed system."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        return card
+
+    def _make_task_card(
+        self,
+        icon: str,
+        title: str,
+        desc: str,
+        button_label: str,
+        page_key: str,
+        primary: bool = False,
+    ) -> QFrame:
+        card, layout = _make_card("home-action-card")
+        layout.setSpacing(10)
+
+        top = QHBoxLayout()
+        top.setSpacing(12)
+        icon_lbl = QLabel(icon)
+        icon_lbl.setObjectName("home-action-icon")
+        icon_lbl.setFixedWidth(34)
+        icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        top.addWidget(icon_lbl)
+
+        text = QVBoxLayout()
+        text.setSpacing(5)
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("home-action-title")
+        text.addWidget(title_lbl)
+        desc_lbl = QLabel(desc)
+        desc_lbl.setObjectName("home-action-copy")
+        desc_lbl.setWordWrap(True)
+        text.addWidget(desc_lbl)
+        top.addLayout(text, 1)
+        layout.addLayout(top)
+
+        btn_row = QHBoxLayout()
+        btn_row.addStretch()
+        btn = QPushButton(button_label)
+        if primary:
+            btn.setObjectName("primary")
+        btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
+        btn_row.addWidget(btn)
+        layout.addLayout(btn_row)
+        return card
+
+    def _make_compact_link_row(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("More helpful places")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for label, action in (
+            ("Cloud Storage", lambda: self._navigate("Cloud Storage")),
+            ("Health Report", lambda: self._navigate("Diagnostics")),
+            ("Compatibility", lambda: self._navigate("Compatibility")),
+            ("GitHub", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth"))),
+            ("Report an Issue", lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/issues/new"))),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, fn=action: fn())
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
 
     def _make_windows_drive_welcome_card(self) -> QFrame | None:
         drives = _find_ntfs_drives()
@@ -5880,8 +6358,9 @@ class NvidiaPage(Page):
         cmd = [
             "sudo", "bash", "-c",
             "rm -f /var/lib/kyth/hw-setup-done && "
-            f"grubby --update-kernel=ALL --args='{kargs}' ; "
-            'akmods --force --kernels "$(uname -r)"',
+            'akmods --force --kernels "$(uname -r)" && '
+            f"{{ grubby --update-kernel=ALL --args='{kargs}' || "
+            "echo 'grubby: non-fatal — kargs.d applies on next deployment'; }",
         ]
         self._log.clear()
         self._log.append("→ Building NVIDIA kernel module via akmods…\n")
@@ -6394,7 +6873,7 @@ class KernelPage(Page):
         warn_layout.addWidget(warn_title)
         warn_body = QLabel(
             "Kernel switches download a different KythOS image and apply after reboot. "
-            "The CachyOS kernel currently uses the testing image channel. "
+            "CachyOS follows your current Stable or Testing channel. "
             "Roll Back remains available from the boot menu and the Update page if a custom kernel causes trouble."
         )
         warn_body.setObjectName("card-copy")
@@ -10535,11 +11014,6 @@ class CloudStoragePage(Page):
         self._gd_wizard_btn.setObjectName("primary")
         self._gd_wizard_btn.clicked.connect(lambda: self._open_wizard("drive"))
         gd_btns.addWidget(self._gd_wizard_btn)
-        gd_kde_btn = QPushButton("KDE Online Accounts")
-        gd_kde_btn.clicked.connect(
-            lambda: subprocess.Popen(["kcmshell6", "kcm_kaccounts"])
-        )
-        gd_btns.addWidget(gd_kde_btn)
         gd_btns.addStretch()
         gd_layout.addLayout(gd_btns)
 
@@ -12932,7 +13406,6 @@ class SoftwarePage(Page):
             layout.addWidget(row_widget)
 
         layout.addStretch()
-        self._refresh_sec_status()
         return tab
 
     def _refresh_sec_status(self):
@@ -15527,32 +16000,31 @@ class MainWindow(QMainWindow):
         page_specs: list[tuple[str, str, object]] = []
 
         nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
-            ("System", [
-                ("⌂", "Home",     "Welcome",  lambda: WelcomePage(navigate=self._navigate_to)),
-                ("↻", "Update",   "Update",   UpdatePage),
-                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
+            ("Start Here", [
+                ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+                ("↻", "Update", "Update", UpdatePage),
                 ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+                ("◉", "Gaming", "Gaming", GamingPage),
+                ("⬡", "Software", "Software", SoftwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
-            ("Apps", [
-                ("◉", "Gaming",           "Gaming",           GamingPage),
-                ("◎", "Compatibility",    "Compatibility",    CompatibilityPage),
-                ("⎮", "Controllers",      "Controllers",      ControllerPage),
-                ("⬡", "Software",         "Software",         SoftwarePage),
+            ("Fix Something", [
+                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
+                ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
+                ("⎮", "Controllers", "Controllers", ControllerPage),
             ]),
-            ("Network", [
-                ("☁", "Cloud Storage",  "Cloud Storage",  CloudStoragePage),
+            ("More Tools", [
+                ("◎", "Compatibility", "Compatibility", CompatibilityPage),
+                ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
-                ("⬡", "VPN",            "VPN",            VpnPage),
+                ("⬡", "VPN", "VPN", VpnPage),
             ]),
         ]
 
-        # Conditionally add NVIDIA
         advanced_items: list[tuple[str, str, str, object]] = []
         if _detect_nvidia():
             advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
-        advanced_items.append(("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)))
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []

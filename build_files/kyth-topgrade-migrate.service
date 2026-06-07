@@ -1,7 +1,7 @@
 [Unit]
-Description=KythOS migration: configure topgrade for KythOS (v4: add rclone update step)
+Description=KythOS migration: configure topgrade for KythOS (v5: disable self-update)
 After=local-fs.target
-ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v4.done
+ConditionPathExists=!/var/lib/kyth/migrations/topgrade-v5.done
 
 [Service]
 Type=oneshot

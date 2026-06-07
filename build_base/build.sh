@@ -8,6 +8,23 @@ write_kernel_flavor() {
     printf '%s\n' "${KYTH_KERNEL_FLAVOR}" > /usr/share/kyth/kernel-flavor
 }
 
+write_kyth_os_release() {
+    local target=$1
+    mkdir -p "$(dirname "${target}")"
+    cat > "${target}" <<'EOF'
+NAME="KythOS"
+PRETTY_NAME="KythOS 44"
+ID=kythos
+VERSION="44"
+VERSION_ID="44"
+ANSI_COLOR="0;34"
+LOGO=kyth
+HOME_URL="https://github.com/mrtrick37/kyth"
+SUPPORT_URL="https://github.com/mrtrick37/kyth/discussions"
+BUG_REPORT_URL="https://github.com/mrtrick37/kyth/issues"
+EOF
+}
+
 latest_kernel_version() {
     find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1
 }
@@ -23,7 +40,6 @@ install_cachyos_kernel() {
 
     local kver
     kver=$(basename "$(echo /usr/lib/modules/*cachyos*)")
-    depmod -a "${kver}"
 
     dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
         kernel-cachyos \
@@ -68,6 +84,10 @@ case "${KYTH_KERNEL_FLAVOR}" in
 esac
 write_kernel_flavor
 
+write_kyth_os_release /usr/lib/os-release
+rm -f /etc/os-release
+write_kyth_os_release /etc/os-release
+
 KVER=$(latest_kernel_version)
 if [[ -z "${KVER}" ]]; then
     echo "ERROR: no kernel found in /usr/lib/modules" >&2
@@ -83,29 +103,144 @@ cp /run/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
 cp /run/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 rsvg-convert -w 200 /run/plymouth/kyth-logo.svg -o "${PLYMOUTH_DIR}/kyth-logo.png"
 plymouth-set-default-theme kyth
+rm -rf /usr/share/plymouth/themes/bgrt-fedora
+rm -rf /usr/share/plymouth/themes/bgrt
 
 dnf5 remove -y librsvg2-tools || true
+
+# CachyOS rebuilds its initramfs in this base layer, before the main image layer
+# installs the reusable KythOS Plymouth guard. Provide the same dracut module
+# locally so dracut can resolve kyth-plymouth here too.
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
+cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+#!/usr/bin/bash
+
+check() {
+    return 0
+}
+
+depends() {
+    echo plymouth
+    return 0
+}
+
+install() {
+    mkdir -p \
+        "${initdir}/etc/plymouth" \
+        "${initdir}/usr/share/plymouth/themes"
+    cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHCONF
+    cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHDEFAULTS
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
+    inst_libdir_file "plymouth/script.so"
+    inst_multiple \
+        /usr/share/plymouth/themes/kyth/kyth.plymouth \
+        /usr/share/plymouth/themes/kyth/kyth.script \
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    inst_multiple -o \
+        /etc/os-release \
+        /usr/lib/os-release
+}
+KYTHPLYMOUTHEOF
+chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
+unset KYTH_PLYMOUTH_DRACUT_DIR
 
 # Write dracut config — applies on next initramfs regeneration (bootc deploy,
 # or dracut run in the cachy path below).
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
-add_dracutmodules+=" ostree drm plymouth "
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs overlay "
 DRACUTEOF
+
+# Write Plymouth defaults unconditionally so both Fedora and CachyOS images ship
+# a host config that agrees with the late kyth-plymouth dracut module.
+mkdir -p /etc/plymouth /usr/share/plymouth
+cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHCONF
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 
 # For the CachyOS kernel we must rebuild the initramfs at image-build time
 # because the kernel itself was just replaced.  For the stock Fedora kernel
 # the upstream base image already ships a valid initramfs; bootc regenerates
 # it on first deployment using the dracut.conf.d above.
 if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
+    mkdir -p /etc/plymouth /usr/share/plymouth
+    cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
+[Daemon]
+Theme=kyth
+ShowDelay=1
+DeviceTimeout=8
+UseFirmwareBackground=false
+PLYMOUTHCONF
+    install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+    _kyth_plymouth_include_root="$(mktemp -d)"
+    mkdir -p \
+        "${_kyth_plymouth_include_root}/etc/plymouth" \
+        "${_kyth_plymouth_include_root}/usr/share/plymouth"
+    install -m 0644 /etc/plymouth/plymouthd.conf \
+        "${_kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
+    install -m 0644 /usr/share/plymouth/plymouthd.defaults \
+        "${_kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
         --kver "${KVER}" \
         --force \
+        --add kyth-plymouth \
+        --include "${_kyth_plymouth_include_root}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2)
+    rm -rf "${_kyth_plymouth_include_root}"
+    if command -v lsinitrd >/dev/null 2>&1; then
+        _initrd_listing="$(mktemp)"
+        lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}"
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${_initrd_listing}" || {
+            echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth theme" >&2
+            exit 1
+        }
+        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${_initrd_listing}" || {
+            echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth script" >&2
+            exit 1
+        }
+        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${_initrd_listing}" || {
+            echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth logo" >&2
+            exit 1
+        }
+        if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
+            echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
+            echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
+            lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
+            exit 1
+        fi
+        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${_initrd_listing}" >&2; then
+            echo "ERROR: Plymouth fallback theme leaked into CachyOS initramfs" >&2
+            exit 1
+        fi
+        rm -f "${_initrd_listing}"
+    fi
 fi
 
 # ── Kernel args (bootc kargs.d) ───────────────────────────────────────────────

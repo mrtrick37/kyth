@@ -32,10 +32,11 @@ ujust controller-check
 ujust resume-check
 ```
 
-`post-update-check` is also launched automatically once per deployment after
-login. It confirms the current boot still has rollback visibility, graphics,
-Vulkan, Flatpaks, and desktop audio. `nvidia-status`, `controller-check`, and
-`resume-check` are manual validation helpers for hardware-specific testing.
+`post-update-check` is also launched silently once per deployment after login.
+It confirms the current boot still has rollback visibility, graphics, Vulkan,
+Flatpaks, and desktop audio without raising a popup for optional software.
+`nvidia-status`, `controller-check`, and `resume-check` are manual validation
+helpers for hardware-specific testing.
 
 ## Release Gates
 
@@ -48,6 +49,15 @@ A release candidate should pass these before being called daily-driver ready:
   double-click file behavior, familiar user folders, document templates, app
   defaults, System Hub favorites, and Windows `.exe` / `.msi` helper handling.
 - Fresh install reaches the desktop without manual terminal work.
+- The installed app launcher keeps expert-only helpers quiet: no live installer,
+  terminal-only monitors, mpv backend entry, or guided hardware diagnostics.
+- The Games launcher category keeps playable titles at its root and places
+  storefronts, launcher managers, compatibility helpers, and save tools under
+  Games > Tools.
+- LibreOffice launchers appear under Office only; Draw is not duplicated under
+  Graphics and Math is not duplicated under Education or Science.
+- Dolphin does not expose KDE's broken Google Drive KIO worker; Google Drive
+  setup uses the System Hub Cloud Storage `rclone` wizard.
 - `ujust smoke-check --strict` has no failures on at least one AMD or Intel
   system.
 - NVIDIA hardware either loads the proprietary module or gives a clear
@@ -107,6 +117,10 @@ Do these intentionally. Evangelists are made when recovery works.
    a game.
 8. Try to copy a helper into `/usr/bin` on an installed system and confirm the
    project docs/System Hub messaging explain that the OS image is immutable.
+9. On an NVMe system, benchmark a game while downloading or unpacking a large
+   file. Record `ujust nvme-tuning status`, then compare the kernel-default
+   profile against `ujust nvme-tuning kyth`. Return to defaults with
+   `ujust nvme-tuning default` and reboot before the baseline run.
 
 ## Result Template
 
