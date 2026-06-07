@@ -18,6 +18,7 @@ import shutil
 import sqlite3
 import subprocess
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from datetime import datetime
 from urllib.parse import parse_qs, urlencode, unquote, urlparse
@@ -4154,6 +4155,44 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     return card, layout
 
 
+class AppImageDropCard(QFrame):
+    def __init__(self, on_drop):
+        super().__init__()
+        self._on_drop = on_drop
+        self.setObjectName("card")
+        self.setAcceptDrops(True)
+
+    def _dropped_appimage_path(self, event) -> str:
+        mime = event.mimeData()
+        if not mime.hasUrls():
+            return ""
+        for url in mime.urls():
+            path = url.toLocalFile()
+            if path and re.search(r"\.[Aa]pp[Ii]mage$", path):
+                return path
+        return ""
+
+    def dragEnterEvent(self, event):  # noqa: N802
+        if self._dropped_appimage_path(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dragMoveEvent(self, event):  # noqa: N802
+        if self._dropped_appimage_path(event):
+            event.acceptProposedAction()
+        else:
+            event.ignore()
+
+    def dropEvent(self, event):  # noqa: N802
+        path = self._dropped_appimage_path(event)
+        if not path:
+            event.ignore()
+            return
+        event.acceptProposedAction()
+        self._on_drop(path)
+
+
 def _restyle(widget: QWidget):
     widget.style().unpolish(widget)
     widget.style().polish(widget)
@@ -5279,9 +5318,9 @@ class UpdatePage(Page):
         auto_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(auto_head)
         auto_sub = QLabel(
-            "kyth-update-watcher runs on a 15-minute timer and stages new images in the "
-            "background — it skips automatically when gaming, when on a metered connection, "
-            "and during quiet hours."
+            "kyth-update-watcher periodically stages new images in the background — "
+            "it starts after a boot grace period, runs at low priority, and skips "
+            "automatically when gaming, when on a metered connection, and during quiet hours."
         )
         auto_sub.setObjectName("card-copy")
         auto_sub.setWordWrap(True)
@@ -12259,7 +12298,7 @@ echo "Done. Use 'Enter Dev Box' to start developing."
 
 # ── Page: Software ────────────────────────────────────────────────────────────
 class SoftwarePage(Page):
-    """App store — Starter Packs | Flatpak | AppImages | Installed."""
+    """App store — Starter Packs | Store | AppImages | Installed."""
 
     _STARTER_PACKS = [
         {
@@ -12405,6 +12444,16 @@ class SoftwarePage(Page):
         ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported.", "org.freedesktop.Piper"),
     ]
 
+    _STORE_CATEGORIES = [
+        ("Internet", "Network"),
+        ("Gaming", "Game"),
+        ("Productivity", "Office"),
+        ("Create", "Graphics AudioVideo"),
+        ("Develop", "Development"),
+        ("Security", "Security"),
+        ("Utilities", "Utility"),
+    ]
+
     def __init__(self):
         super().__init__()
 
@@ -12413,8 +12462,13 @@ class SoftwarePage(Page):
         self._uninstall_worker: Worker | None = None
         self._uninstall_buttons: list[QPushButton] = []
         self._fp_search_worker: Worker | None = None
+        self._fp_catalog_worker: Worker | None = None
+        self._fp_refresh_worker: Worker | None = None
         self._fp_install_worker: Worker | None = None
         self._fp_search_lines: list[str] = []
+        self._fp_catalog_lines: list[str] = []
+        self._fp_catalog_entries: list[dict] = []
+        self._fp_appstream_cache: dict[str, dict] | None = None
         self._fp_installing: str | None = None
         self._cr_tool_worker: Worker | None = None
         self._cr_active_tool_refs: dict | None = None
@@ -12435,7 +12489,7 @@ class SoftwarePage(Page):
         self._page_header(
             "Apps",
             "Software",
-            "Install familiar apps, build workspaces, search Flatpak, and clean up installed software.",
+            "Install familiar apps, browse Flathub, import AppImages, and clean up installed software.",
         )
 
         # Tab bar — inserted into _outer between the page-header divider and the
@@ -12446,7 +12500,7 @@ class SoftwarePage(Page):
         tab_bar_layout.setContentsMargins(56, 0, 56, 0)
         tab_bar_layout.setSpacing(0)
         self._tab_btns: list[QPushButton] = []
-        for i, label in enumerate(("Start", "Create", "Develop", "Security", "Search", "AppImages", "Installed")):
+        for i, label in enumerate(("Start", "Create", "Develop", "Security", "Store", "AppImages", "Installed")):
             btn = QPushButton(label)
             btn.setObjectName("sw-tab-active" if i == 0 else "sw-tab")
             btn.clicked.connect(lambda _=False, idx=i: self._switch_tab(idx))
@@ -12790,7 +12844,7 @@ class SoftwarePage(Page):
             _set_log_panel(self._starter_log_toggle, self._starter_log, True)
         _restyle(self._starter_status)
 
-    # ── Tab 1: Flatpak Store ──────────────────────────────────────────────────
+    # ── Tab 4: Flatpak Store ──────────────────────────────────────────────────
 
     def _build_flatpak_tab(self) -> QWidget:
         tab = QWidget()
@@ -12799,17 +12853,37 @@ class SoftwarePage(Page):
         layout.setSpacing(16)
 
         intro = QLabel(
-            "Search Flathub and install apps directly. "
-            "Flatpaks are sandboxed and update independently of the OS."
+            "Browse Flathub and install apps directly. "
+            "Store metadata is cached locally, so search still works when Flathub is slow or temporarily unavailable."
         )
         intro.setObjectName("card-copy")
         intro.setWordWrap(True)
         layout.addWidget(intro)
 
+        action_row = QHBoxLayout()
+        action_row.setSpacing(8)
+        self._fp_refresh_btn = QPushButton("Refresh Metadata")
+        self._fp_refresh_btn.clicked.connect(self._refresh_fp_metadata)
+        action_row.addWidget(self._fp_refresh_btn)
+        self._fp_catalog_btn = QPushButton("Browse All")
+        self._fp_catalog_btn.clicked.connect(lambda _=False: self._load_fp_catalog())
+        action_row.addWidget(self._fp_catalog_btn)
+        action_row.addStretch()
+        layout.addLayout(action_row)
+
+        category_row = QHBoxLayout()
+        category_row.setSpacing(8)
+        for label, query in self._STORE_CATEGORIES:
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, q=query, l=label: self._show_fp_category(q, l))
+            category_row.addWidget(btn)
+        category_row.addStretch()
+        layout.addLayout(category_row)
+
         search_row = QHBoxLayout()
         search_row.setSpacing(8)
         self._fp_search_box = QLineEdit()
-        self._fp_search_box.setPlaceholderText("Search Flathub…  e.g. firefox, obsidian, gimp")
+        self._fp_search_box.setPlaceholderText("Search Flathub...  e.g. firefox, obsidian, gimp")
         self._fp_search_box.returnPressed.connect(self._run_fp_search)
         search_row.addWidget(self._fp_search_box, 1)
         self._fp_search_btn = QPushButton("Search")
@@ -12863,7 +12937,7 @@ class SoftwarePage(Page):
         _restyle(self._fp_status)
         self._fp_search_btn.setEnabled(False)
         self._fp_search_worker = Worker(
-            ["flatpak", "search", "--columns=application,name,summary", query]
+            ["flatpak", "search", "-j", query]
         )
         self._fp_search_worker.line.connect(self._on_fp_search_line)
         self._fp_search_worker.done.connect(self._on_fp_search_done)
@@ -12877,17 +12951,45 @@ class SoftwarePage(Page):
         _finish_worker(self, attr="_fp_search_worker")
         self._fp_search_btn.setEnabled(True)
         self._clear_fp_results()
+        output = "\n".join(self._fp_search_lines).strip()
         results = []
-        for line in self._fp_search_lines:
-            parts = line.split("\t")
-            if len(parts) >= 2:
-                app_id = parts[0].strip()
-                name = parts[1].strip()
-                summary = parts[2].strip() if len(parts) >= 3 else ""
-                if app_id:
-                    results.append((app_id, name, summary))
+        if output.startswith("["):
+            try:
+                for item in json.loads(output):
+                    app_id = (item.get("application_id") or item.get("application") or "").strip()
+                    if app_id:
+                        results.append({
+                            "application_id": app_id,
+                            "name": (item.get("name") or app_id).strip(),
+                            "description": (item.get("description") or "").strip(),
+                            "version": (item.get("version") or "").strip(),
+                            "remote": (item.get("remotes") or item.get("remote") or "flathub").strip(),
+                        })
+            except (json.JSONDecodeError, TypeError):
+                results = []
+        else:
+            for line in self._fp_search_lines:
+                parts = line.split("\t")
+                if len(parts) >= 2:
+                    app_id = parts[0].strip()
+                    name = parts[1].strip()
+                    summary = parts[2].strip() if len(parts) >= 3 else ""
+                    if app_id:
+                        results.append({
+                            "application_id": app_id,
+                            "name": name or app_id,
+                            "description": summary,
+                            "version": "",
+                            "remote": "flathub",
+                        })
         if not results:
-            msg = "No results found." if code == 0 else "Search failed — is flatpak installed?"
+            detail = next((line.strip() for line in self._fp_search_lines if line.strip()), "")
+            if code == 0:
+                msg = "No results found."
+            elif detail:
+                msg = f"Search failed — {detail}"
+            else:
+                msg = "Search failed — check that Flatpak and Flathub are available."
             self._fp_status.setText(msg)
             self._fp_status.setObjectName("status-dim" if code == 0 else "status-warn")
             _restyle(self._fp_status)
@@ -12899,8 +13001,8 @@ class SoftwarePage(Page):
         self._fp_status.setText(count_msg + ".")
         self._fp_status.setObjectName("status-dim")
         _restyle(self._fp_status)
-        for app_id, name, summary in shown:
-            self._fp_results_layout.addWidget(self._make_fp_result_row(app_id, name, summary))
+        for entry in shown:
+            self._fp_results_layout.addWidget(self._make_fp_result_row(entry))
 
     def _clear_fp_results(self):
         while self._fp_results_layout.count():
@@ -12909,19 +13011,320 @@ class SoftwarePage(Page):
             if widget:
                 widget.deleteLater()
 
-    def _make_fp_result_row(self, app_id: str, name: str, summary: str) -> QFrame:
+    def _refresh_fp_metadata(self):
+        if self._fp_refresh_worker and self._fp_refresh_worker.isRunning():
+            return
+        self._fp_search_lines = []
+        self._fp_progress.show()
+        self._fp_status.setText("Refreshing Flathub metadata...")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        self._fp_refresh_btn.setEnabled(False)
+        self._fp_refresh_worker = Worker(["flatpak", "update", "--appstream"])
+        self._fp_refresh_worker.line.connect(self._on_fp_search_line)
+        self._fp_refresh_worker.done.connect(self._on_fp_refresh_done)
+        self._fp_refresh_worker.start()
+
+    def _on_fp_refresh_done(self, code: int):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_refresh_worker")
+        self._fp_refresh_btn.setEnabled(True)
+        self._fp_appstream_cache = None
+        self._fp_catalog_entries = []
+        if code == 0:
+            self._fp_status.setText("Flathub metadata refreshed.")
+            self._fp_status.setObjectName("status-ok")
+        else:
+            detail = next((line.strip() for line in self._fp_search_lines if line.strip()), "")
+            self._fp_status.setText(detail or f"Metadata refresh failed (exit {code}). Cached data can still be used.")
+            self._fp_status.setObjectName("status-warn")
+        _restyle(self._fp_status)
+
+    def _load_fp_catalog(self):
+        if self._fp_catalog_worker and self._fp_catalog_worker.isRunning():
+            return
+        self._clear_fp_results()
+        self._fp_catalog_lines = []
+        self._fp_progress.show()
+        self._fp_status.setText("Loading cached Flathub catalog...")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        self._fp_catalog_btn.setEnabled(False)
+        self._fp_catalog_worker = Worker([
+            "flatpak", "remote-ls", "--cached", "--app",
+            "--columns=application,name,description,version,download-size,installed-size",
+            "-j", "flathub",
+        ])
+        self._fp_catalog_worker.line.connect(self._on_fp_catalog_line)
+        self._fp_catalog_worker.done.connect(self._on_fp_catalog_done)
+        self._fp_catalog_worker.start()
+
+    def _on_fp_catalog_line(self, ln: str):
+        self._fp_catalog_lines.append(ln)
+
+    def _on_fp_catalog_done(self, code: int):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_catalog_worker")
+        self._fp_catalog_btn.setEnabled(True)
+        output = "\n".join(self._fp_catalog_lines).strip()
+        entries = []
+        if output.startswith("["):
+            try:
+                for item in json.loads(output):
+                    app_id = (item.get("application_id") or item.get("application") or "").strip()
+                    if app_id:
+                        item["application_id"] = app_id
+                        item["remote"] = "flathub"
+                        entries.append(item)
+            except (json.JSONDecodeError, TypeError):
+                entries = []
+        if code != 0 or not entries:
+            detail = next((line.strip() for line in self._fp_catalog_lines if line.strip()), "")
+            self._fp_status.setText(detail or "Cached Flathub catalog could not be loaded.")
+            self._fp_status.setObjectName("status-warn")
+            _restyle(self._fp_status)
+            return
+        self._fp_catalog_entries = entries
+        self._render_fp_entries(entries, "Cached Flathub catalog")
+
+    def _render_fp_entries(self, entries: list[dict], title: str, limit: int = 60):
+        self._clear_fp_results()
+        shown = entries[:limit]
+        count_msg = f"{title}: {len(entries)} app{'s' if len(entries) != 1 else ''}"
+        if len(entries) > limit:
+            count_msg += f" — showing first {limit}"
+        self._fp_status.setText(count_msg + ".")
+        self._fp_status.setObjectName("status-dim")
+        self._fp_status.show()
+        _restyle(self._fp_status)
+        for entry in shown:
+            self._fp_results_layout.addWidget(self._make_fp_result_row(entry))
+
+    def _show_fp_category(self, category_query: str, label: str):
+        catalog = self._fp_appstream_catalog()
+        tokens = {token.strip().lower() for token in category_query.split() if token.strip()}
+        matches = []
+        for app_id, details in catalog.items():
+            categories = {cat.lower() for cat in details.get("categories", [])}
+            if not tokens.intersection(categories):
+                continue
+            entry = {
+                "application_id": app_id,
+                "name": details.get("name", app_id),
+                "description": details.get("summary", ""),
+                "version": details.get("version", ""),
+                "remote": "flathub",
+            }
+            matches.append(entry)
+        matches.sort(key=lambda item: (item.get("name") or item.get("application_id") or "").lower())
+        self._render_fp_entries(matches, label)
+
+    def _fp_icon_path(self, app_id: str) -> str:
+        for size in ("128x128", "64x64"):
+            path = f"/var/lib/flatpak/appstream/flathub/x86_64/active/icons/{size}/{app_id}.png"
+            if os.path.exists(path):
+                return path
+        return ""
+
+    def _fp_appstream_catalog(self) -> dict[str, dict]:
+        if self._fp_appstream_cache is not None:
+            return self._fp_appstream_cache
+        catalog: dict[str, dict] = {}
+        xml_path = "/var/lib/flatpak/appstream/flathub/x86_64/active/appstream.xml"
+        if not os.path.exists(xml_path):
+            matches = glob.glob("/var/lib/flatpak/appstream/flathub/x86_64/*/appstream.xml")
+            xml_path = matches[0] if matches else ""
+        if not xml_path:
+            self._fp_appstream_cache = catalog
+            return catalog
+        try:
+            root = ET.parse(xml_path).getroot()
+        except (ET.ParseError, OSError):
+            self._fp_appstream_cache = catalog
+            return catalog
+        for component in root.findall("component"):
+            app_id = (component.findtext("id") or "").strip()
+            bundle = component.find("bundle")
+            if not app_id or bundle is None or (bundle.get("type") or "") != "flatpak":
+                continue
+            desc_parts = []
+            desc_node = component.find("description")
+            if desc_node is not None:
+                for p_node in desc_node.findall("p"):
+                    text = " ".join("".join(p_node.itertext()).split())
+                    if text:
+                        desc_parts.append(text)
+            categories_node = component.find("categories")
+            screenshots = []
+            screenshots_node = component.find("screenshots")
+            if screenshots_node is not None:
+                for screenshot in screenshots_node.findall("screenshot"):
+                    for image in screenshot.findall("image"):
+                        if image.text and image.get("type") in ("thumbnail", "source"):
+                            screenshots.append(image.text.strip())
+                            break
+            custom = component.find("custom")
+            verified = False
+            if custom is not None:
+                for value in custom.findall("value"):
+                    if value.get("key") == "flathub::verification::verified":
+                        verified = (value.text or "").strip().lower() == "true"
+            releases = component.find("releases")
+            version = ""
+            if releases is not None:
+                release = releases.find("release")
+                if release is not None:
+                    version = release.get("version") or ""
+            catalog[app_id] = {
+                "name": (component.findtext("name") or app_id).strip(),
+                "summary": (component.findtext("summary") or "").strip(),
+                "description": "\n\n".join(desc_parts),
+                "developer": (component.findtext("developer/name") or "").strip(),
+                "license": (component.findtext("project_license") or "").strip(),
+                "homepage": self._fp_component_url(component, "homepage"),
+                "categories": [
+                    (cat.text or "").strip()
+                    for cat in (categories_node.findall("category") if categories_node is not None else [])
+                    if (cat.text or "").strip()
+                ],
+                "screenshots": screenshots,
+                "verified": verified,
+                "version": version,
+            }
+        self._fp_appstream_cache = catalog
+        return catalog
+
+    def _fp_component_url(self, component: ET.Element, url_type: str) -> str:
+        for url_node in component.findall("url"):
+            if url_node.get("type") == url_type and url_node.text:
+                return url_node.text.strip()
+        return ""
+
+    def _fp_appstream_details(self, app_id: str) -> dict:
+        return self._fp_appstream_catalog().get(app_id, {})
+
+    def _show_fp_details(self, entry: dict):
+        app_id = entry.get("application_id", "").strip()
+        details = self._fp_appstream_details(app_id)
+        name = details.get("name") or entry.get("name") or app_id
+        dlg = QDialog(self)
+        dlg.setWindowTitle(name)
+        dlg.setMinimumWidth(640)
+        layout = QVBoxLayout(dlg)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
+
+        header = QHBoxLayout()
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(64, 64)
+        icon_path = self._fp_icon_path(app_id)
+        icon = QIcon(icon_path) if icon_path else QIcon.fromTheme("package-x-generic")
+        icon_lbl.setPixmap(icon.pixmap(64, 64))
+        header.addWidget(icon_lbl)
+        title_col = QVBoxLayout()
+        title = QLabel(name)
+        title.setObjectName("card-title")
+        title_col.addWidget(title)
+        meta = QLabel(app_id)
+        meta.setObjectName("card-copy")
+        title_col.addWidget(meta)
+        header.addLayout(title_col, 1)
+        layout.addLayout(header)
+
+        summary = QLabel(details.get("summary") or entry.get("description") or "")
+        summary.setObjectName("card-summary")
+        summary.setWordWrap(True)
+        layout.addWidget(summary)
+
+        body_text = details.get("description") or "No extended AppStream description is available for this app yet."
+        body = QTextEdit()
+        body.setReadOnly(True)
+        body.setMaximumHeight(180)
+        body.setPlainText(body_text)
+        layout.addWidget(body)
+
+        facts = []
+        if details.get("developer"):
+            facts.append(f"Developer: {details['developer']}")
+        version = entry.get("version") or details.get("version")
+        if version:
+            facts.append(f"Version: {version}")
+        if entry.get("download_size"):
+            facts.append(f"Download: {entry['download_size']}")
+        if entry.get("installed_size"):
+            facts.append(f"Installed size: {entry['installed_size']}")
+        if details.get("license"):
+            facts.append(f"License: {details['license']}")
+        if details.get("categories"):
+            facts.append("Categories: " + ", ".join(details["categories"][:6]))
+        facts.append("Flathub verification: " + ("verified" if details.get("verified") else "not marked verified"))
+        fact_lbl = QLabel("\n".join(facts))
+        fact_lbl.setObjectName("card-copy")
+        fact_lbl.setWordWrap(True)
+        layout.addWidget(fact_lbl)
+
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(8)
+        homepage = details.get("homepage")
+        if homepage:
+            homepage_btn = QPushButton("Homepage")
+            homepage_btn.clicked.connect(lambda _=False, url=homepage: QDesktopServices.openUrl(QUrl(url)))
+            btn_row.addWidget(homepage_btn)
+        screenshots = details.get("screenshots") or []
+        if screenshots:
+            shot_btn = QPushButton("Screenshot")
+            shot_btn.clicked.connect(lambda _=False, url=screenshots[0]: QDesktopServices.openUrl(QUrl(url)))
+            btn_row.addWidget(shot_btn)
+        flathub_btn = QPushButton("Flathub Page")
+        flathub_btn.clicked.connect(lambda _=False, aid=app_id: QDesktopServices.openUrl(QUrl(f"https://flathub.org/apps/{aid}")))
+        btn_row.addWidget(flathub_btn)
+        btn_row.addStretch()
+        close_btn = QPushButton("Close")
+        close_btn.clicked.connect(dlg.accept)
+        btn_row.addWidget(close_btn)
+        layout.addLayout(btn_row)
+        dlg.exec()
+
+    def _make_fp_result_row(self, entry: dict) -> QFrame:
+        app_id = entry.get("application_id", "").strip()
+        name = entry.get("name", app_id).strip() or app_id
+        summary = entry.get("description", "").strip()
+        version = entry.get("version", "").strip()
+        download_size = entry.get("download_size", "").strip()
+        details = self._fp_appstream_details(app_id)
+        if details:
+            name = details.get("name") or name
+            summary = details.get("summary") or summary
+            version = version or details.get("version", "")
+
         row = QFrame()
         row.setObjectName("stat-tile")
         row_layout = QHBoxLayout(row)
         row_layout.setContentsMargins(14, 10, 14, 10)
         row_layout.setSpacing(12)
 
+        icon_lbl = QLabel()
+        icon_lbl.setFixedSize(48, 48)
+        icon_path = self._fp_icon_path(app_id)
+        icon = QIcon(icon_path) if icon_path else QIcon.fromTheme("package-x-generic")
+        icon_lbl.setPixmap(icon.pixmap(48, 48))
+        row_layout.addWidget(icon_lbl)
+
         text_col = QVBoxLayout()
         text_col.setSpacing(2)
         name_lbl = QLabel(name or app_id)
         name_lbl.setObjectName("card-summary")
         text_col.addWidget(name_lbl)
-        id_lbl = QLabel(app_id)
+        meta_bits = [app_id]
+        if version:
+            meta_bits.append(version)
+        if download_size:
+            meta_bits.append(download_size)
+        if details.get("verified"):
+            meta_bits.append("Verified")
+        id_lbl = QLabel("  •  ".join(meta_bits))
         id_lbl.setObjectName("card-copy")
         text_col.addWidget(id_lbl)
         if summary:
@@ -12930,6 +13333,10 @@ class SoftwarePage(Page):
             summary_lbl.setWordWrap(True)
             text_col.addWidget(summary_lbl)
         row_layout.addLayout(text_col, 1)
+
+        details_btn = QPushButton("Details")
+        details_btn.clicked.connect(lambda _=False, e=entry: self._show_fp_details(e))
+        row_layout.addWidget(details_btn)
 
         already_installed = _is_flatpak_installed(app_id)
         install_btn = QPushButton("Installed" if already_installed else "Install")
@@ -12998,13 +13405,16 @@ class SoftwarePage(Page):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(24)
 
-        import_card, import_layout = _make_card()
+        import_card = AppImageDropCard(self._import_appimage_path)
+        import_layout = QVBoxLayout(import_card)
+        import_layout.setContentsMargins(22, 20, 22, 20)
+        import_layout.setSpacing(14)
         import_title = QLabel("Import a Downloaded AppImage")
         import_title.setObjectName("card-title")
         import_layout.addWidget(import_title)
         import_body = QLabel(
             "Downloaded a .AppImage file? Drop it here to install it properly — "
-            "it will be moved to ~/Applications, made executable, and optionally "
+            "it will be copied to ~/Applications, made executable, and optionally "
             "added to your application menu."
         )
         import_body.setObjectName("card-copy")
@@ -13069,7 +13479,21 @@ class SoftwarePage(Page):
         )
         if not src:
             return
+        self._import_appimage_path(src)
 
+    def _import_appimage_path(self, src: str):
+        if not re.search(r"\.[Aa]pp[Ii]mage$", src):
+            self._ai_status.setText("That file does not look like an AppImage.")
+            self._ai_status.setObjectName("status-warn")
+            self._ai_status.show()
+            _restyle(self._ai_status)
+            return
+        if not os.path.isfile(src):
+            self._ai_status.setText("Dropped AppImage file was not found.")
+            self._ai_status.setObjectName("status-err")
+            self._ai_status.show()
+            _restyle(self._ai_status)
+            return
         apps_dir = os.path.expanduser("~/Applications")
         try:
             os.makedirs(apps_dir, exist_ok=True)
