@@ -1139,6 +1139,311 @@ QLabel#ready-row-dim {
     color: #9aa9bd;
     border: 1px solid #2a3850;
 }
+
+/* ── Command Center polish ───────────────────────────────────────────────── */
+* {
+    font-family: "Noto Sans", "Segoe UI", sans-serif;
+    font-size: 13px;
+    color: #d9e2ef;
+}
+
+QMainWindow,
+QWidget#content-area {
+    background: #0f1218;
+}
+
+QWidget#sidebar {
+    background: #111722;
+    border-right: 1px solid #263244;
+}
+
+QWidget#sidebar-header {
+    background: #131c2a;
+    border-bottom: 1px solid #2a3a52;
+}
+
+QLabel#sidebar-logo {
+    color: #f7fbff;
+    font-size: 22px;
+    font-weight: 900;
+}
+
+QLabel#sidebar-ver {
+    color: #91d9ff;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#nav-section {
+    color: #78879b;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.2px;
+}
+
+QPushButton#nav-item {
+    background: transparent;
+    color: #b9c5d4;
+    border: none;
+    border-left: 3px solid transparent;
+    border-radius: 0;
+    padding: 9px 16px 9px 13px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 600;
+}
+
+QPushButton#nav-item:hover {
+    background: #192331;
+    color: #ffffff;
+    border-left: 3px solid #5fc7ff;
+}
+
+QPushButton#nav-item-active {
+    background: #1d2a3c;
+    color: #ffffff;
+    border: none;
+    border-left: 3px solid #5fc7ff;
+    border-radius: 0;
+    padding: 9px 16px 9px 13px;
+    text-align: left;
+    font-size: 13px;
+    font-weight: 800;
+}
+
+QWidget#page-header {
+    background: #111722;
+    border-bottom: 1px solid #263244;
+}
+
+QLabel#eyebrow {
+    color: #91d9ff;
+    font-size: 10px;
+    font-weight: 800;
+    letter-spacing: 1.6px;
+}
+
+QLabel#heading {
+    color: #f7fbff;
+    font-size: 26px;
+    font-weight: 800;
+}
+
+QLabel#subheading {
+    color: #9fadc0;
+}
+
+QPushButton {
+    background: #1a2330;
+    color: #d9e2ef;
+    border: 1px solid #334256;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-weight: 600;
+}
+
+QPushButton:hover {
+    background: #223044;
+    color: #ffffff;
+    border-color: #4e6683;
+}
+
+QPushButton:pressed {
+    background: #151d29;
+}
+
+QPushButton:disabled {
+    background: #151a22;
+    color: #657386;
+    border-color: #263142;
+}
+
+QPushButton#primary {
+    background: #2b6fb1;
+    color: #ffffff;
+    border: 1px solid #58a6d8;
+    border-radius: 6px;
+    font-weight: 800;
+}
+
+QPushButton#primary:hover {
+    background: #347fc6;
+    border-color: #84cfff;
+}
+
+QPushButton#danger {
+    background: #7f2634;
+    color: #ffffff;
+    border: 1px solid #b5485b;
+    border-radius: 6px;
+}
+
+QFrame#card,
+QFrame#home-action-card,
+QFrame#stat-tile,
+QFrame#starter-pack,
+QFrame#ready-panel {
+    background: #151b24;
+    border: 1px solid #2b394b;
+    border-radius: 8px;
+}
+
+QFrame#card:hover,
+QFrame#home-action-card:hover,
+QFrame#stat-tile:hover {
+    background: #182232;
+    border-color: #3c506a;
+}
+
+QFrame#card-accent-ok {
+    background: #122432;
+    border: 1px solid #2d6680;
+    border-radius: 8px;
+}
+
+QFrame#card-accent-warn {
+    background: #241f12;
+    border: 1px solid #77622a;
+    border-radius: 8px;
+}
+
+QFrame#card-accent-err {
+    background: #2a151a;
+    border: 1px solid #7f3545;
+    border-radius: 8px;
+}
+
+QFrame#home-hero {
+    background: #132033;
+    border: 1px solid #355475;
+    border-radius: 8px;
+}
+
+QLabel#home-hero-kicker,
+QLabel#starter-pack-meta {
+    color: #91d9ff;
+}
+
+QLabel#home-hero-title {
+    color: #ffffff;
+    font-size: 27px;
+    font-weight: 900;
+}
+
+QLabel#home-hero-copy,
+QLabel#card-copy,
+QLabel#home-action-copy,
+QLabel#home-next-copy {
+    color: #aebbd0;
+}
+
+QLabel#home-hero-badge {
+    background: #0f1724;
+    color: #b7eaff;
+    border: 1px solid #365a76;
+    border-radius: 10px;
+    padding: 4px 9px;
+    font-size: 11px;
+    font-weight: 800;
+}
+
+QLabel#card-title,
+QLabel#home-action-title,
+QLabel#home-next-title,
+QLabel#section-heading {
+    color: #f7fbff;
+}
+
+QLabel#home-action-icon {
+    color: #91d9ff;
+}
+
+QLabel#status-ok,
+QLabel#stat-value-ok,
+QLabel#ready-score {
+    color: #7bdba9;
+}
+
+QLabel#status-warn,
+QLabel#stat-value-warn,
+QLabel#ready-score-warn {
+    color: #f1c96b;
+}
+
+QLabel#status-err,
+QLabel#ready-score-err {
+    color: #ff8fa1;
+}
+
+QLabel#status-dim,
+QLabel#stat-label {
+    color: #8391a4;
+}
+
+QFrame#hw-card-ok,
+QLabel#ready-row-ok {
+    background: #11251e;
+    color: #9be7bd;
+    border: 1px solid #2f6b4d;
+    border-left: 3px solid #7bdba9;
+    border-radius: 8px;
+}
+
+QFrame#hw-card-warn,
+QLabel#ready-row-warn {
+    background: #24200f;
+    color: #f1c96b;
+    border: 1px solid #736026;
+    border-left: 3px solid #f1c96b;
+    border-radius: 8px;
+}
+
+QFrame#hw-card-err,
+QLabel#ready-row-err {
+    background: #2a151a;
+    color: #ff9aad;
+    border: 1px solid #7f3545;
+    border-left: 3px solid #ff8fa1;
+    border-radius: 8px;
+}
+
+QFrame#hw-card-dim,
+QLabel#ready-row-dim {
+    background: #151b24;
+    color: #aebbd0;
+    border: 1px solid #2b394b;
+    border-left: 3px solid #56667c;
+    border-radius: 8px;
+}
+
+QTextEdit,
+QLineEdit,
+QComboBox {
+    background: #111722;
+    color: #d9e2ef;
+    border: 1px solid #2d3b4f;
+    border-radius: 6px;
+}
+
+QLineEdit:focus,
+QComboBox:hover {
+    border-color: #5fc7ff;
+}
+
+QWidget#sw-tab-bar {
+    background: #111722;
+}
+
+QPushButton#sw-tab,
+QPushButton#sw-tab-active {
+    border-radius: 0;
+    min-width: 92px;
+}
+
+QPushButton#sw-tab-active {
+    color: #ffffff;
+    border-bottom: 2px solid #5fc7ff;
+}
 """
 
 
@@ -4066,8 +4371,8 @@ class WelcomePage(Page):
 
         self._page_header(
             "System Hub",
-            "Welcome to KythOS",
-            "A friendly control room for games, updates, hardware, and recovery.",
+            "Command Center",
+            "One place to play, update, install, check hardware, and recover.",
         )
 
         branch = _branch_display_name(_current_branch())
@@ -4076,14 +4381,6 @@ class WelcomePage(Page):
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
 
         self._add(self._make_home_hero(branch, staged, rollback))
-        self._add(self._make_recommended_card(staged, rollback))
-
-        if _IS_LIVE:
-            self._add(self._make_live_card())
-
-        windows_card = self._make_windows_drive_welcome_card()
-        if windows_card is not None:
-            self._add(windows_card)
 
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
@@ -4105,126 +4402,58 @@ class WelcomePage(Page):
         tiles_row.addWidget(self._kernel_tile, 1)
 
         self._add_layout(tiles_row)
-        self._add(self._make_gaming_ready_panel())
 
-        if staged:
-            alert, alert_layout = _make_card("card-update")
-            alert_header = QHBoxLayout()
-            alert_icon = QLabel("↑")
-            alert_icon.setStyleSheet(
-                "font-size: 18px; color: #c586c0; font-weight: 700; background: transparent;"
-            )
-            alert_header.addWidget(alert_icon)
-            alert_title = QLabel("OS update staged — reboot to apply")
-            alert_title.setObjectName("card-title-update")
-            alert_header.addWidget(alert_title)
-            alert_header.addStretch()
-            alert_layout.addLayout(alert_header)
-            alert_body = QLabel(
-                "A new KythOS image has been downloaded and is ready. "
-                "Reboot at any time to switch to the updated system. "
-                "Your previous OS is saved as a rollback target."
-            )
-            alert_body.setObjectName("card-copy")
-            alert_body.setWordWrap(True)
-            alert_layout.addWidget(alert_body)
-            alert_btn_row = QHBoxLayout()
-            reboot_btn = QPushButton("Reboot Now")
-            reboot_btn.setObjectName("primary")
-            reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
-            alert_btn_row.addWidget(reboot_btn)
-            alert_btn_row.addStretch()
-            alert_layout.addLayout(alert_btn_row)
-            self._add(alert)
+        self._add(self._make_recommended_card(staged, rollback))
 
-        if rollback:
-            rb_card, rb_layout = _make_card()
-            rb_header = QHBoxLayout()
-            rb_icon = QLabel("↩")
-            rb_icon.setStyleSheet(
-                "font-size: 16px; color: #4ec9b0; font-weight: 700; background: transparent;"
-            )
-            rb_header.addWidget(rb_icon)
-            rb_title = QLabel("Previous system saved — rollback available")
-            rb_title.setObjectName("card-title")
-            rb_header.addWidget(rb_title)
-            rb_header.addStretch()
-            rb_layout.addLayout(rb_header)
-            rb_body = QLabel(
-                "Your previous OS image is stored and can be restored in one click — "
-                "like System Restore, but atomic and instant. Open the Update page to roll back."
-            )
-            rb_body.setObjectName("card-copy")
-            rb_body.setWordWrap(True)
-            rb_layout.addWidget(rb_body)
-            rb_btn_row = QHBoxLayout()
-            rb_view_btn = QPushButton("Go to Update →")
-            rb_view_btn.clicked.connect(lambda: self._navigate("Update"))
-            rb_btn_row.addWidget(rb_view_btn)
-            rb_btn_row.addStretch()
-            rb_layout.addLayout(rb_btn_row)
-            self._add(rb_card)
-
-        section_lbl = QLabel("Start Here")
+        section_lbl = QLabel("Command lanes")
         section_lbl.setObjectName("section-heading")
         self._add(section_lbl)
 
-        top_tasks = QHBoxLayout()
-        top_tasks.setSpacing(12)
-        top_tasks.addWidget(self._make_task_card(
-            "↻",
-            "Update",
-            "Apply the latest OS image and see rollback options.",
-            "Open Update",
-            "Update",
-            primary=staged,
-        ), 1)
-        top_tasks.addWidget(self._make_task_card(
-            "◈",
-            "Check Hardware",
-            "Graphics, audio, Wi-Fi, firmware, storage, and controllers.",
-            "Run Checks",
-            "Hardware",
-        ), 1)
-        self._add_layout(top_tasks)
-
-        bottom_tasks = QHBoxLayout()
-        bottom_tasks.setSpacing(12)
-        bottom_tasks.addWidget(self._make_task_card(
-            "◉",
-            "Set Up Games",
-            "Steam, Proton, launchers, performance tools, and game saves.",
-            "Open Gaming",
+        lanes = QHBoxLayout()
+        lanes.setSpacing(12)
+        lanes.addWidget(self._make_task_card(
+            "Play",
+            "Gaming",
+            "Launchers, Proton, performance profiles, saves, and game checks.",
+            "Open",
             "Gaming",
         ), 1)
-        bottom_tasks.addWidget(self._make_task_card(
-            "⬡",
-            "Install Apps",
-            "Find familiar apps, developer tools, and trusted Flatpaks.",
-            "Open Software",
+        lanes.addWidget(self._make_task_card(
+            "Maintain",
+            "Updates & Hardware",
+            "Stage updates, confirm rollback, inspect drivers, firmware, and devices.",
+            "Open",
+            "Update" if staged else "Hardware",
+            primary=staged,
+        ), 1)
+        lanes.addWidget(self._make_task_card(
+            "Apps",
+            "Software",
+            "Starter packs, familiar app replacements, Flatpaks, dev tools, and installed apps.",
+            "Open",
             "Software",
         ), 1)
-        self._add_layout(bottom_tasks)
-
-        essentials = QHBoxLayout()
-        essentials.setSpacing(12)
-        essentials.addWidget(self._make_task_card(
-            "⇄",
-            "Move From Windows",
-            "Copy files, inspect Steam libraries, and keep Windows untouched.",
-            "Open Migration",
-            "Move From Windows",
-        ), 1)
-        essentials.addWidget(self._make_task_card(
-            "⚠",
-            "Fix Something",
-            "Start with a health report, repair tools, or controller checks.",
-            "Open Repair",
+        lanes.addWidget(self._make_task_card(
+            "Recover",
+            "Repair",
+            "Health reports, quick fixes, rollback guidance, snapshots, and support paths.",
+            "Open",
             "Repair",
         ), 1)
-        self._add_layout(essentials)
+        self._add_layout(lanes)
 
-        self._divider()
+        self._add(self._make_gaming_ready_panel())
+
+        context_row = QHBoxLayout()
+        context_row.setSpacing(12)
+        if _IS_LIVE:
+            context_row.addWidget(self._make_live_card(), 1)
+        windows_card = self._make_windows_drive_welcome_card()
+        if windows_card is not None:
+            context_row.addWidget(windows_card, 1)
+        if context_row.count():
+            self._add_layout(context_row)
+
         self._add(self._make_compact_link_row())
 
         note_text = (
@@ -4461,7 +4690,8 @@ class WelcomePage(Page):
         top.setSpacing(12)
         icon_lbl = QLabel(icon)
         icon_lbl.setObjectName("home-action-icon")
-        icon_lbl.setFixedWidth(34)
+        icon_lbl.setMinimumWidth(62)
+        icon_lbl.setMaximumWidth(78)
         icon_lbl.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
         top.addWidget(icon_lbl)
 
@@ -11978,7 +12208,7 @@ class SoftwarePage(Page):
         self._page_header(
             "Apps",
             "Software",
-            "Get apps, manage installs, and remove what you don't need.",
+            "Install familiar apps, build workspaces, search Flatpak, and clean up installed software.",
         )
 
         # Tab bar — inserted into _outer between the page-header divider and the
@@ -11989,7 +12219,7 @@ class SoftwarePage(Page):
         tab_bar_layout.setContentsMargins(56, 0, 56, 0)
         tab_bar_layout.setSpacing(0)
         self._tab_btns: list[QPushButton] = []
-        for i, label in enumerate(("Starter Packs", "Creator", "Developer", "Security", "Flatpak", "AppImages", "Installed")):
+        for i, label in enumerate(("Start", "Create", "Develop", "Security", "Search", "AppImages", "Installed")):
             btn = QPushButton(label)
             btn.setObjectName("sw-tab-active" if i == 0 else "sw-tab")
             btn.clicked.connect(lambda _=False, idx=i: self._switch_tab(idx))
@@ -16000,24 +16230,26 @@ class MainWindow(QMainWindow):
         page_specs: list[tuple[str, str, object]] = []
 
         nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
-            ("Start Here", [
-                ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
-                ("↻", "Update", "Update", UpdatePage),
-                ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+            ("Command Center", [
+                ("⌂", "Overview", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
                 ("◉", "Gaming", "Gaming", GamingPage),
                 ("⬡", "Software", "Software", SoftwarePage),
                 ("⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
-            ("Fix Something", [
-                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
-                ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
+            ("System", [
+                ("↻", "Updates", "Update", UpdatePage),
+                ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
                 ("⎮", "Controllers", "Controllers", ControllerPage),
-            ]),
-            ("More Tools", [
                 ("◎", "Compatibility", "Compatibility", CompatibilityPage),
+            ]),
+            ("Connect", [
                 ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
                 ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
                 ("⬡", "VPN", "VPN", VpnPage),
+            ]),
+            ("Recover", [
+                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
+                ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
         ]
 
