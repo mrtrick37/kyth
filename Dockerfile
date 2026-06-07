@@ -68,17 +68,29 @@ RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/third
     : "cache-bust=${THIRDPARTY_VERSIONS_HASH}" && \
     ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
 
+# Static system configuration — sysctl, kernel modules, PipeWire, Proton env
+# vars, gamemode, MangoHud, vkBasalt, bluetooth, and kyth-* service units.
+# Stable — only re-runs when sysconfig-static.sh or config defaults change,
+# not on every daily dnf5 upgrade. This keeps the post-upgrade layer chain
+# short and avoids users pulling a new sysconfig layer when only packages changed.
+RUN --mount=type=bind,source=build_files/scripts/sysconfig-static.sh,target=/ctx/sysconfig-static.sh \
+    --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
+    --mount=type=tmpfs,dst=/tmp \
+    bash /ctx/sysconfig-static.sh
+
 # BUILD_DATE busts the cache for the upgrade layer and everything after it on
 # every daily build, ensuring dnf5 upgrade always runs even when the base image
 # digest and build_files/ contents haven't changed.
 # Pass as: --build-arg BUILD_DATE="$(date +%Y-%m-%d)"
 ARG BUILD_DATE=unset
 
-# Layer 3: Upstream RPM upgrades (~50-500 MB daily delta).
-# Isolated so daily package updates don't invalidate the package install layer
-# above.  Layers after this one are re-run on every daily build; layers before
-# it are cached until their scripts or the base image change.
-RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
+# Layer 3: Upstream RPM upgrades + optional Mesa-git COPR drivers (~50-500 MB daily delta).
+# Mesa-git is folded into this layer instead of a standalone RUN so the no-op
+# ENABLE_MESA_GIT=0 case does not add a separate empty layer to the manifest chain.
+# Layers after this one are re-run on every daily build; layers before it are
+# cached until their scripts or the base image change.
+RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-git.sh \
+    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
@@ -113,7 +125,7 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
         else \
             TMPDIR=/var/tmp dracut \
                 --no-hostonly \
-                --compress "zstd -1" \
+                --compress "zstd -3" \
                 --kver "${KVER}" \
                 --force \
                 "/usr/lib/modules/${KVER}/initramfs" \
@@ -130,41 +142,26 @@ RUN --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,targ
     fi && \
     test -s "/usr/lib/modules/${KVER}/initramfs" \
         || { echo "ERROR: initramfs missing/empty for ${KVER}" >&2; exit 1; } && \
-    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)"
+    echo "==> kernel OK: vmlinuz $(du -h "/usr/lib/modules/${KVER}/vmlinuz" | cut -f1), initramfs $(du -h "/usr/lib/modules/${KVER}/initramfs" | cut -f1)" && \
+    ENABLE_MESA_GIT=${ENABLE_MESA_GIT} bash /ctx/mesa-git.sh
 
-# Layer 4: Optional Mesa-git GPU drivers.
-# Disabled by default: the COPR tracks development snapshots and can regress
-# VA-API video decode even when Vulkan/OpenGL remain healthy. Set
-# ENABLE_MESA_GIT=1 for testing bleeding-edge RADV/RADEONSI.
-RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-git.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
-    --mount=type=tmpfs,dst=/tmp \
-    ENABLE_MESA_GIT=${ENABLE_MESA_GIT} \
-    bash /ctx/mesa-git.sh
-
-# Layer 5: System configuration — sysctl, audio, gaming tuning, env vars (~few KB).
-# Re-run on every daily build.
+# Layer 5: Post-upgrade service wiring and account repair (~few KB).
+# Re-enforces display-manager symlinks that dnf5 upgrade can reset, and enables/
+# disables runtime services after the upgrade has settled the unit file set.
 RUN --mount=type=bind,source=build_files/scripts/sysconfig.sh,target=/ctx/sysconfig.sh \
-    --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/sysconfig.sh
 
-# Layer 7: Secure Boot — sign the CachyOS vmlinuz and install the enrollment service.
+# Layer 6: Secure Boot signing + branding, theming, helper app, Plymouth (~10-40 MB).
+# Merged into one layer (was two) to halve the manifest entries that change every
+# daily build, reducing the number of layer pulls for users running bootc upgrade.
 # Skipped gracefully when MOK_KEY is not set (local builds without a signing key).
 # Pass the private key via: --secret id=mok_key,env=MOK_KEY
 ARG SECUREBOOT_SIGNING_REQUESTED=0
-RUN --mount=type=bind,source=build_files/scripts/secureboot.sh,target=/ctx/secureboot.sh \
-    --mount=type=bind,source=build_files/secureboot,target=/ctx/secureboot \
-    --mount=type=bind,source=build_files/kyth-enroll-mok,target=/ctx/kyth-enroll-mok \
-    --mount=type=bind,source=build_files/kyth-enroll-mok.service,target=/ctx/kyth-enroll-mok.service \
-    --mount=type=tmpfs,dst=/tmp \
-    --mount=type=secret,id=mok_key \
-    SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} bash /ctx/secureboot.sh
-
-# Layer 8: Branding, theming, helper app, Plymouth (~10 MB).
-# Re-run on every daily build.
 RUN --mount=type=bind,source=build_files,target=/ctx \
     --mount=type=tmpfs,dst=/tmp \
+    --mount=type=secret,id=mok_key \
+    SECUREBOOT_SIGNING_REQUESTED=${SECUREBOOT_SIGNING_REQUESTED} bash /ctx/scripts/secureboot.sh && \
     bash /ctx/scripts/branding.sh && \
     : "── Rebuild boot splash initramfs after final branding ───────────────────" && \
     /usr/libexec/kyth-plymouth-branding-guard /ctx/branding/transparent-watermark.svg && \
@@ -179,7 +176,7 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
-        --compress "zstd -1" \
+        --compress "zstd -3" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
