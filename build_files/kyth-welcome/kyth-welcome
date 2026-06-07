@@ -12347,7 +12347,7 @@ _INSTALL_VSCODE_CMD = [
     "bash", "-c",
     "set -euo pipefail\n"
     "kyth-vscode-wallet\n"
-    "echo 'VS Code is baked into the image. KWallet integration configured.'",
+    "echo 'VS Code is baked into the image. Password storage configured.'",
 ]
 
 _SETUP_DEV_BOX_CMD = [
@@ -13013,7 +13013,7 @@ class SoftwarePage(Page):
         kicker = QLabel("KYTH APP STORE")
         kicker.setObjectName("store-kicker")
         hero_text.addWidget(kicker)
-        title = QLabel("Apps that make this desktop stick")
+        title = QLabel("Useful apps, ready to install")
         title.setObjectName("store-hero-title")
         title.setWordWrap(True)
         hero_text.addWidget(title)
@@ -13033,7 +13033,7 @@ class SoftwarePage(Page):
         browse_btn = QPushButton("Browse Catalog")
         browse_btn.clicked.connect(lambda _=False: self._load_fp_catalog())
         hero_actions.addWidget(browse_btn)
-        refresh_btn = QPushButton("Refresh Metadata")
+        refresh_btn = QPushButton("Refresh")
         refresh_btn.clicked.connect(self._refresh_fp_metadata)
         hero_actions.addWidget(refresh_btn)
         hero_actions.addStretch()
@@ -13042,7 +13042,7 @@ class SoftwarePage(Page):
 
         action_row = QHBoxLayout()
         action_row.setSpacing(8)
-        self._fp_refresh_btn = QPushButton("Refresh Metadata")
+        self._fp_refresh_btn = QPushButton("Refresh")
         self._fp_refresh_btn.clicked.connect(self._refresh_fp_metadata)
         action_row.addWidget(self._fp_refresh_btn)
         self._fp_catalog_btn = QPushButton("Browse All")

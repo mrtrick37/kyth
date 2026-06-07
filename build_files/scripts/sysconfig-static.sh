@@ -709,9 +709,10 @@ DefaultLimitNOFILE=1048576' >/etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' >/etc/systemd/user.conf.d/99-kyth-limits.conf
 
-# ── VS Code: KWallet keyring integration ─────────────────────────────────────
-# Seed new users with argv.json pointing at kwallet6 so VS Code never prompts
-# for a keychain password on first launch.
+# ── VS Code: avoid KWallet password prompts ──────────────────────────────────
+# Seed new users with argv.json pointing at VS Code's basic password store.
+# KWallet PAM unlock is fragile across autologin/session restore paths; the
+# local encrypted-at-rest desktop is less annoying when apps do not wake KWallet.
 HOME=/etc/skel /ctx/kyth-vscode-wallet
 
 # ── KWallet: login-unlocked session defaults ─────────────────────────────────

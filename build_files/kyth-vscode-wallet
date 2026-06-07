@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure VS Code to use KWallet6 for secret storage.
+# Configure VS Code to avoid KDE Wallet prompts for secret storage.
 # Native RPM installs use ~/.config/Code/argv.json.
 
 write_argv() {
@@ -22,13 +22,13 @@ try:
 except Exception:
     data = {}
 
-data["password-store"] = "kwallet6"
+data["password-store"] = "basic"
 path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
 PY
     else
         cat > "${path}" <<'EOF'
 {
-  "password-store": "kwallet6"
+  "password-store": "basic"
 }
 EOF
     fi
@@ -36,4 +36,4 @@ EOF
 
 write_argv "${HOME}/.config/Code/argv.json"
 
-echo "VS Code wallet integration configured for ${USER:-this user}."
+echo "VS Code password storage configured for ${USER:-this user}."

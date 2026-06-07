@@ -639,6 +639,29 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
 fi
 
+brave_desktop_src=""
+for candidate in \
+    /var/lib/flatpak/exports/share/applications/com.brave.Browser.desktop \
+    /usr/share/applications/com.brave.Browser.desktop \
+    /usr/local/share/applications/com.brave.Browser.desktop; do
+    if [[ -f "${candidate}" ]]; then
+        brave_desktop_src="${candidate}"
+        break
+    fi
+done
+
+if [[ -n "${brave_desktop_src}" ]]; then
+    brave_desktop_dst="${HOME}/.local/share/applications/com.brave.Browser.desktop"
+    mkdir -p "$(dirname "${brave_desktop_dst}")"
+    cp "${brave_desktop_src}" "${brave_desktop_dst}"
+    if ! grep -q -- '--password-store=basic' "${brave_desktop_dst}"; then
+        sed -i -E '/^Exec=/ s#(com\.brave\.Browser)( |$)#\1 --password-store=basic\2#' "${brave_desktop_dst}"
+        if ! grep -q '^Exec=.*flatpak run ' "${brave_desktop_dst}"; then
+            sed -i -E '/^Exec=/ s#(brave-browser|brave)( |$)#\1 --password-store=basic\2#' "${brave_desktop_dst}"
+        fi
+    fi
+fi
+
 if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
     /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1 || true
 fi
