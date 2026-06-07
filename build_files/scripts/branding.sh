@@ -593,6 +593,12 @@ elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
 fi
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
+    # Ensure KDE apps (Discover, System Settings, etc.) always display English.
+    # KDE's locale stack reads plasma-localerc before falling back to LANG; without
+    # an explicit entry some builds pick the first AppStream translation in the XML.
+    kwriteconfig6 --file plasma-localerc --group Translations --key LANGUAGE "en_US"
+    kwriteconfig6 --file plasma-localerc --group Formats --key LC_TIME "en_US.UTF-8"
+
     # KWallet should be opened by kwallet-pam with the login password, then stay
     # open for the session so browsers and editors do not ask again after boot.
     kwriteconfig6 --file kwalletrc --group Wallet --key Enabled --type bool true

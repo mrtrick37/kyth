@@ -174,6 +174,23 @@ LANG=en_US.UTF-8
 LC_TIME=en_US.UTF-8
 LOCALEEOF
 
+# ── KDE Plasma locale: force English for all users ───────────────────────────
+# KDE applications (including Discover) use their own locale stack: they read
+# plasma-localerc → [Translations] LANGUAGE before falling back to the system
+# LANG. Without an explicit entry, KDE may pick whichever AppStream translation
+# lands first in the XML (historically Arabic for some packages). Seed the
+# system-wide XDG default and the per-user skel so that every session starts
+# with English metadata display regardless of LANG propagation timing.
+mkdir -p /etc/xdg /etc/skel/.config
+cat >/etc/xdg/plasma-localerc <<'PLASMALOCALEEOF'
+[Formats]
+LC_TIME=en_US.UTF-8
+
+[Translations]
+LANGUAGE=en_US
+PLASMALOCALEEOF
+cp /etc/xdg/plasma-localerc /etc/skel/.config/plasma-localerc
+
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
@@ -713,6 +730,20 @@ Close When Idle=false
 Close on Screensaver=false
 Leave Open=true
 KWALLETRCEOF
+
+# ── KWallet PAM bridge: wire pam_kwallet5.so into the SDDM PAM stack ─────────
+# kwallet-pam is installed but Fedora's sddm package does NOT enable it by
+# default. Without these lines the wallet is never unlocked at login, so the
+# first app that touches it (e.g. VS Code) receives a "wallet is closed" error
+# and falls back to prompting the user for a password.
+# pam_kwallet5.so handles both kwalletd5 and kwalletd6 (the .so name is stable
+# across KDE generations).
+SDDM_PAM=/etc/pam.d/sddm
+if [ -f "${SDDM_PAM}" ] && ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
+    # Append as optional lines so they never block login. PAM processes
+    # optional modules in file order; appending after include lines is fine.
+    printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_kwallet5.so auto_start\n' >> "${SDDM_PAM}"
+fi
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
 # Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game

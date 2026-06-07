@@ -1524,6 +1524,11 @@ class Worker(QThread):
             # When running without a TTY, sudo needs a graphical askpass helper.
             # ksshaskpass (KDE) shows a GUI password dialog and writes it to stdout.
             env.setdefault("SUDO_ASKPASS", "/usr/bin/ksshaskpass")
+            # Force English locale for all subprocesses so flatpak CLI output
+            # (app names in remote-ls, search, list) is always en_US, not whatever
+            # the process inherited.
+            env["LANG"] = "en_US.UTF-8"
+            env["LC_ALL"] = "en_US.UTF-8"
             proc = subprocess.Popen(
                 self._cmd,
                 stdout=subprocess.PIPE,
@@ -13487,11 +13492,22 @@ class SoftwarePage(Page):
     @staticmethod
     def _ui_lang() -> str:
         """Return the user's locale code (e.g. 'en_US'), falling back to 'en_US'."""
-        code, _ = locale.getlocale()
-        if code:
-            return code
-        lang_env = os.environ.get("LANG", "")
-        return lang_env.split(".")[0] if lang_env else "en_US"
+        # POSIX precedence: LC_ALL > LC_MESSAGES > LANG
+        for var in ("LC_ALL", "LC_MESSAGES", "LANG"):
+            val = os.environ.get(var, "")
+            code = val.split(".")[0].replace("-", "_") if val else ""
+            if code and code not in ("C", "POSIX"):
+                return code
+        # Fall back to Python's locale module (requires the C locale to be
+        # initialized, which may not be the case unless setlocale was called).
+        try:
+            locale.setlocale(locale.LC_ALL, "")
+            code, _ = locale.getlocale()
+            if code and code not in ("C", "POSIX"):
+                return code
+        except Exception:
+            pass
+        return "en_US"
 
     @staticmethod
     def _as_localized(parent: ET.Element, tag: str, lang: str) -> str:
@@ -14220,9 +14236,11 @@ class SoftwarePage(Page):
         if not shutil.which("flatpak"):
             return []
         try:
+            _en_env = {**os.environ, "LANG": "en_US.UTF-8", "LC_ALL": "en_US.UTF-8"}
             result = subprocess.run(
                 ["flatpak", "list", "--app", "--columns=application,name,origin,installation"],
                 capture_output=True, text=True, timeout=12, check=False,
+                env=_en_env,
             )
         except Exception:
             return []
