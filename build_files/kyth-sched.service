@@ -1,0 +1,22 @@
+[Unit]
+Description=KythOS automatic sched-ext profile switcher
+Documentation=https://github.com/mrtrick37/kyth
+After=graphical-session.target scx_loader.service
+Wants=scx_loader.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/kyth-sched
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kyth-sched
+
+# Kill nicely; daemon handles SIGTERM by stopping its loop
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical-session.target

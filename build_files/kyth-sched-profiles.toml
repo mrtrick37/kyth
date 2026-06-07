@@ -1,0 +1,17 @@
+# KythOS sched-ext profile configuration
+# Managed by: kyth-sched (user daemon)
+# Override per-user: ~/.config/kyth/sched-profiles.toml
+
+[scheduler]
+# BPF scheduler used when no game is detected
+desktop_scheduler = "scx_bpfland"
+
+# BPF scheduler used when a game is detected (GameMode / Steam / gamescope)
+gaming_scheduler = "scx_lavd"
+
+# How often (seconds) to check for gaming activity
+poll_interval = 5
+
+# Also call kyth-performance-mode on profile switch
+# Wires EPP, compositor animations, and blur into the same trigger
+integrate_perf_mode = true

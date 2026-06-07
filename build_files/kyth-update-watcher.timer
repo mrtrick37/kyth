@@ -1,0 +1,15 @@
+[Unit]
+Description=KythOS automatic update check (every 15 minutes)
+Documentation=https://github.com/mrtrick37/kyth
+
+[Timer]
+# Stagger the first fire by a random offset so all machines don't hit
+# the registry at exactly the same wall-clock time after boot.
+OnBootSec=5min
+OnUnitActiveSec=15min
+RandomizedDelaySec=60
+AccuracySec=30
+Persistent=true
+
+[Install]
+WantedBy=timers.target

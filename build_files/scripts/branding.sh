@@ -968,8 +968,24 @@ install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
+install -m 0440 /ctx/kyth-sched-sudo /etc/sudoers.d/kyth-sched
 install -m 0755 /ctx/kyth-hw-setup /usr/bin/kyth-hw-setup
 install -m 0644 /ctx/kyth-hw-setup.service /usr/lib/systemd/system/kyth-hw-setup.service
+
+# ── KythOS performance daemons ────────────────────────────────────────────────
+install -m 0755 /ctx/kyth-sched /usr/bin/kyth-sched
+install -m 0644 /ctx/kyth-sched.service /usr/lib/systemd/user/kyth-sched.service
+
+install -m 0755 /ctx/kyth-telem /usr/bin/kyth-telem
+install -m 0644 /ctx/kyth-telem.service /usr/lib/systemd/user/kyth-telem.service
+
+install -m 0755 /ctx/kyth-update-watcher /usr/bin/kyth-update-watcher
+install -m 0644 /ctx/kyth-update-watcher.service /usr/lib/systemd/system/kyth-update-watcher.service
+install -m 0644 /ctx/kyth-update-watcher.timer /usr/lib/systemd/system/kyth-update-watcher.timer
+
+mkdir -p /etc/kyth
+install -m 0644 /ctx/kyth-sched-profiles.toml /etc/kyth/sched-profiles.toml
+install -m 0644 /ctx/auto-update.toml /etc/kyth/auto-update.toml
 install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asus-supergfxd.rules
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -1399,6 +1415,9 @@ systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
 systemctl enable kyth-hw-setup.service 2>/dev/null || true
+systemctl enable kyth-update-watcher.timer 2>/dev/null || true
+systemctl --global enable kyth-sched.service 2>/dev/null || true
+systemctl --global enable kyth-telem.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive popup

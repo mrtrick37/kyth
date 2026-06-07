@@ -1,0 +1,20 @@
+[Unit]
+Description=KythOS MangoHud frame-time telemetry collector
+Documentation=https://github.com/mrtrick37/kyth
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/kyth-telem
+Restart=on-failure
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kyth-telem
+
+KillSignal=SIGTERM
+TimeoutStopSec=5
+
+[Install]
+WantedBy=graphical-session.target
