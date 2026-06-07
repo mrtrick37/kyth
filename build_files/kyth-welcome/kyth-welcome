@@ -8,6 +8,7 @@ accessible from the application menu.
 import configparser
 import glob
 import hashlib
+import locale
 import os
 import sys
 import json
@@ -13483,6 +13484,71 @@ class SoftwarePage(Page):
                 return path
         return ""
 
+    @staticmethod
+    def _ui_lang() -> str:
+        """Return the user's locale code (e.g. 'en_US'), falling back to 'en_US'."""
+        code, _ = locale.getlocale()
+        if code:
+            return code
+        lang_env = os.environ.get("LANG", "")
+        return lang_env.split(".")[0] if lang_env else "en_US"
+
+    @staticmethod
+    def _as_localized(parent: ET.Element, tag: str, lang: str) -> str:
+        """Return the best locale-matched text for *tag* children of *parent*.
+
+        Preference: exact lang match → base-language match (e.g. 'en' for 'en_US')
+        → untagged element (canonical source, typically English) → first found.
+        xml:lang lives in the W3C XML namespace so ElementTree expands it.
+        """
+        _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+        base = lang.split("_")[0]
+        untagged = exact = base_match = first = None
+        for el in parent.findall(tag):
+            el_lang = el.get(_XML_LANG)
+            text = " ".join("".join(el.itertext()).split()) or None
+            if text is None:
+                continue
+            if first is None:
+                first = text
+            if el_lang is None:
+                untagged = text
+            elif el_lang == lang:
+                exact = text
+            elif el_lang == base and base_match is None:
+                base_match = text
+        return exact or base_match or untagged or first or ""
+
+    @staticmethod
+    def _as_localized_desc(component: ET.Element, lang: str) -> str:
+        """Return the best locale-matched description, assembled from <p> children."""
+        _XML_LANG = "{http://www.w3.org/XML/1998/namespace}lang"
+        base = lang.split("_")[0]
+
+        def _extract(desc_node: ET.Element) -> str:
+            parts = [
+                " ".join("".join(p.itertext()).split())
+                for p in desc_node.findall("p")
+                if "".join(p.itertext()).strip()
+            ]
+            return "\n\n".join(parts)
+
+        untagged = exact = base_match = first = None
+        for desc_node in component.findall("description"):
+            el_lang = desc_node.get(_XML_LANG)
+            text = _extract(desc_node) or None
+            if text is None:
+                continue
+            if first is None:
+                first = text
+            if el_lang is None:
+                untagged = text
+            elif el_lang == lang:
+                exact = text
+            elif el_lang == base and base_match is None:
+                base_match = text
+        return exact or base_match or untagged or first or ""
+
     def _fp_appstream_catalog(self) -> dict[str, dict]:
         if self._fp_appstream_cache is not None:
             return self._fp_appstream_cache
@@ -13499,18 +13565,12 @@ class SoftwarePage(Page):
         except (ET.ParseError, OSError):
             self._fp_appstream_cache = catalog
             return catalog
+        lang = self._ui_lang()
         for component in root.findall("component"):
             app_id = (component.findtext("id") or "").strip()
             bundle = component.find("bundle")
             if not app_id or bundle is None or (bundle.get("type") or "") != "flatpak":
                 continue
-            desc_parts = []
-            desc_node = component.find("description")
-            if desc_node is not None:
-                for p_node in desc_node.findall("p"):
-                    text = " ".join("".join(p_node.itertext()).split())
-                    if text:
-                        desc_parts.append(text)
             categories_node = component.find("categories")
             screenshots = []
             screenshots_node = component.find("screenshots")
@@ -13532,11 +13592,12 @@ class SoftwarePage(Page):
                 release = releases.find("release")
                 if release is not None:
                     version = release.get("version") or ""
+            developer_node = component.find("developer")
             catalog[app_id] = {
-                "name": (component.findtext("name") or app_id).strip(),
-                "summary": (component.findtext("summary") or "").strip(),
-                "description": "\n\n".join(desc_parts),
-                "developer": (component.findtext("developer/name") or "").strip(),
+                "name": self._as_localized(component, "name", lang) or app_id,
+                "summary": self._as_localized(component, "summary", lang),
+                "description": self._as_localized_desc(component, lang),
+                "developer": (self._as_localized(developer_node, "name", lang) if developer_node is not None else (component.findtext("developer/name") or "").strip()),
                 "license": (component.findtext("project_license") or "").strip(),
                 "homepage": self._fp_component_url(component, "homepage"),
                 "categories": [
