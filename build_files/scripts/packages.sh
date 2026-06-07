@@ -224,6 +224,8 @@ optional_gaming_packages=(
 	corectrl
 	akmod-v4l2loopback
 	v4l2loopback
+	joycond
+	gamescope-session-plus
 )
 
 install_available_optional_packages() {

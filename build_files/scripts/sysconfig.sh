@@ -930,6 +930,9 @@ SUDOEOF
 
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
+# joycond: pairs left + right Joy-Cons into a single virtual controller.
+# Only active when Joy-Con hardware is detected; no-op on other systems.
+systemctl enable joycond.service 2>/dev/null || true
 # Periodic SSD TRIM — reclaims blocks marked free by the filesystem. Safe on
 # all modern SSDs and NVMe drives; the timer runs weekly by default.
 systemctl enable fstrim.timer 2>/dev/null || true

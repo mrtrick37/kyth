@@ -2106,6 +2106,9 @@ _DEFAULT_FIRST_RUN_APPS = (
     ("com.heroicgameslauncher.hgl", "Heroic"),
     ("com.usebottles.bottles", "Bottles"),
     ("com.github.mtkennerly.ludusavi", "Ludusavi"),
+    ("com.dec05eba.gpu_screen_recorder", "GPU Screen Recorder"),
+    ("io.github.benjamimgois.goverlay", "GOverlay"),
+    ("dev.vencord.Vesktop", "Vesktop"),
 )
 
 
@@ -2117,9 +2120,9 @@ def _first_run_app_setup_state() -> tuple[str, str, list[str]]:
             [],
         )
     missing = [name for app_id, name in _DEFAULT_FIRST_RUN_APPS if not _is_flatpak_installed(app_id)]
-    done = os.path.exists("/var/lib/kyth/default-flatpaks-v4-done")
+    done = os.path.exists("/var/lib/kyth/default-flatpaks-v5-done")
     if not missing:
-        return "ready", "Steam, game launchers, Bottles, and save backup tools are ready.", []
+        return "ready", "Steam, game launchers, Bottles, save backup, and gaming tools are ready.", []
 
     status_path = os.path.expanduser("~/.local/share/kyth/first-run-apps.status")
     status: dict[str, str] = {}
@@ -7966,6 +7969,20 @@ class GamingPage(Page):
                 "desc": "Lightweight MangoHud configuration editor for overlay layout and metrics.",
                 "ujust": "install-mangojuice",
                 "launch": ["flatpak", "run", "io.github.radiolamp.mangojuice"],
+            },
+            {
+                "flatpak": "com.dec05eba.gpu_screen_recorder",
+                "name": "GPU Screen Recorder",
+                "desc": "Near-zero overhead gameplay capture and instant replay using AMD/NVIDIA GPU encoding.",
+                "ujust": "install-gpu-screen-recorder",
+                "launch": ["flatpak", "run", "com.dec05eba.gpu_screen_recorder"],
+            },
+            {
+                "flatpak": "dev.vencord.Vesktop",
+                "name": "Vesktop",
+                "desc": "Discord client with native Wayland support, better screenshare, and no telemetry.",
+                "ujust": "install-vesktop",
+                "launch": ["flatpak", "run", "dev.vencord.Vesktop"],
             },
         ]
 

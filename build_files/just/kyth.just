@@ -367,6 +367,28 @@ install-lact:
     echo "Launch it from the app launcher."
     echo "If you want overclocking/undervolting on AMD, review the official LACT Atomic guidance first."
 
+# Install GPU Screen Recorder from Flathub — near-zero overhead capture and instant replay
+# using AMD/NVIDIA GPU hardware encoding. Select the GPU Screen Recorder UI or Tray from
+# the app menu; configure a replay buffer key in preferences for ShadowPlay-style highlights.
+[group('KythOS')]
+install-gpu-screen-recorder:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub com.dec05eba.gpu_screen_recorder
+    echo
+    echo "GPU Screen Recorder installed. Launch it from the app menu."
+
+# Install Vesktop from Flathub — Discord with native Wayland, better screenshare, and Vencord.
+[group('KythOS')]
+install-vesktop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+    flatpak install -y flathub dev.vencord.Vesktop
+    echo
+    echo "Vesktop installed. Launch it from the app menu."
+
 # Install GOverlay from Flathub for MangoHud, vkBasalt, and OptiScaler tuning.
 [group('KythOS')]
 install-goverlay:
