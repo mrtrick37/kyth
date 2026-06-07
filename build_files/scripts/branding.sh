@@ -283,7 +283,8 @@ for sz in 16 22 24 32 48 64 128 256; do
         mkdir -p "${dir}"
         rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
             -o "${dir}/kyth-kickoff.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/kyth.png"
+        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
+            -o "${dir}/kyth.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
         cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
@@ -298,14 +299,14 @@ done
 # some existing BLS snippets still say grub_class=fedora until the migration
 # below has run.
 mkdir -p /usr/share/pixmaps
-cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kyth.svg
+cp /ctx/branding/kyth-logo-transparent.svg /usr/share/pixmaps/kyth.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/kythos.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/distributor-logo.svg
 cp /ctx/branding/kyth-kickoff.svg /usr/share/pixmaps/fedora-logo-icon.svg
-rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kyth.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/kythos.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/distributor-logo.png
-cp /usr/share/pixmaps/kyth.png /usr/share/pixmaps/fedora-logo-icon.png
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-logo-transparent.svg -o /usr/share/pixmaps/kyth.png
+rsvg-convert -w 64 -h 64 /ctx/branding/kyth-kickoff.svg -o /usr/share/pixmaps/kythos.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/distributor-logo.png
+cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/fedora-logo-icon.png
 
 for grub_icon_dir in \
     /boot/grub2/themes/system/icons \
@@ -1065,9 +1066,9 @@ for grub_icon_dir in \
     /usr/share/grub/themes/system/icons \
     /usr/share/grub/themes/starfield/icons; do
     [[ -d "${grub_icon_dir}" ]] || continue
-    if [[ -r /usr/share/pixmaps/kyth.png ]]; then
+    if [[ -r /usr/share/pixmaps/kythos.png ]]; then
         for icon in kyth kythos fedora gnu-linux linux; do
-            install -m 0644 /usr/share/pixmaps/kyth.png "${grub_icon_dir}/${icon}.png"
+            install -m 0644 /usr/share/pixmaps/kythos.png "${grub_icon_dir}/${icon}.png"
         done
     fi
 done
