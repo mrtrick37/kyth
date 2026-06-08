@@ -296,11 +296,14 @@ EOF
 kyth_plymouth_include_root="$(mktemp -d)"
 mkdir -p \
 	"${kyth_plymouth_include_root}/etc/plymouth" \
-	"${kyth_plymouth_include_root}/usr/share/plymouth"
+	"${kyth_plymouth_include_root}/usr/share/plymouth" \
+	"${kyth_plymouth_include_root}/usr/share/pixmaps"
 install -m 0644 /etc/plymouth/plymouthd.conf \
 	"${kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
 install -m 0644 /usr/share/plymouth/plymouthd.defaults \
 	"${kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
+install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+	"${kyth_plymouth_include_root}/usr/share/pixmaps/system-logo-white.png"
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
 	--add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
 	--include "${kyth_plymouth_include_root}" / \
@@ -320,6 +323,10 @@ if command -v lsinitrd >/dev/null 2>&1; then
 	}
 	grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${initrd_listing}" || {
 		echo "ERROR: live initramfs does not contain KythOS Plymouth logo" >&2
+		exit 1
+	}
+	lsinitrd -f /usr/share/pixmaps/system-logo-white.png "/usr/lib/modules/${kernel}/initramfs.img" | cmp -s - /usr/share/kyth/branding/transparent-watermark.png || {
+		echo "ERROR: live initramfs still contains distro Plymouth system logo" >&2
 		exit 1
 	}
 	grep -q 'usr/share/plymouth/themes/default.plymouth' "${initrd_listing}" || {

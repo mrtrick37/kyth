@@ -102,6 +102,16 @@ mkdir -p "${PLYMOUTH_DIR}"
 cp /run/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
 cp /run/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 rsvg-convert -w 200 /run/plymouth/kyth-logo.svg -o "${PLYMOUTH_DIR}/kyth-logo.png"
+mkdir -p /usr/share/kyth/branding /usr/share/pixmaps
+cat > /usr/share/kyth/branding/transparent-watermark.svg <<'SVEOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">
+  <rect width="1" height="1" fill="none"/>
+</svg>
+SVEOF
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
+    | base64 -d > /usr/share/kyth/branding/transparent-watermark.png
+install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+    /usr/share/pixmaps/system-logo-white.png
 plymouth-set-default-theme kyth
 rm -rf /usr/share/plymouth/themes/bgrt-fedora
 rm -rf /usr/share/plymouth/themes/bgrt
@@ -130,6 +140,7 @@ install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
         "${initdir}/usr/share/plymouth" \
+        "${initdir}/usr/share/pixmaps" \
         "${initdir}/usr/share/plymouth/themes"
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
@@ -159,7 +170,13 @@ PLYMOUTHDEFAULTS
         /usr/share/plymouth/themes/kyth/kyth-logo.png
     inst_multiple -o \
         /etc/os-release \
-        /usr/lib/os-release
+        /usr/lib/os-release \
+        /usr/share/kyth/branding/transparent-watermark.svg \
+        /usr/share/kyth/branding/transparent-watermark.png
+    rm -f "${initdir}/usr/share/pixmaps/system-logo-white.png"
+    inst_simple \
+        /usr/share/kyth/branding/transparent-watermark.png \
+        /usr/share/pixmaps/system-logo-white.png
     rm -rf \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \
@@ -207,11 +224,14 @@ PLYMOUTHCONF
     _kyth_plymouth_include_root="$(mktemp -d)"
     mkdir -p \
         "${_kyth_plymouth_include_root}/etc/plymouth" \
-        "${_kyth_plymouth_include_root}/usr/share/plymouth"
+        "${_kyth_plymouth_include_root}/usr/share/plymouth" \
+        "${_kyth_plymouth_include_root}/usr/share/pixmaps"
     install -m 0644 /etc/plymouth/plymouthd.conf \
         "${_kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
     install -m 0644 /usr/share/plymouth/plymouthd.defaults \
         "${_kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
+    install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+        "${_kyth_plymouth_include_root}/usr/share/pixmaps/system-logo-white.png"
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
@@ -237,6 +257,10 @@ PLYMOUTHCONF
             echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth logo" >&2
             exit 1
         }
+        if ! lsinitrd -f /usr/share/pixmaps/system-logo-white.png "/usr/lib/modules/${KVER}/initramfs" | cmp -s - /usr/share/kyth/branding/transparent-watermark.png; then
+            echo "ERROR: CachyOS initramfs still contains distro Plymouth system logo" >&2
+            exit 1
+        fi
         if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
             echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2

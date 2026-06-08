@@ -8,6 +8,7 @@ source_svg="${1:-}"
 asset_dir=/usr/share/kyth/branding
 transparent_svg="${asset_dir}/transparent-watermark.svg"
 transparent_png="${asset_dir}/transparent-watermark.png"
+pixmaps_dir=/usr/share/pixmaps
 plymouth_conf='[Daemon]
 Theme=kyth
 ShowDelay=0
@@ -31,6 +32,9 @@ elif [[ ! -r "${transparent_png}" ]]; then
     printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
         | base64 -d > "${transparent_png}"
 fi
+
+mkdir -p "${pixmaps_dir}"
+install -m 0644 "${transparent_png}" "${pixmaps_dir}/system-logo-white.png"
 
 for theme_dir in \
     /usr/share/plymouth/themes/spinner \
@@ -82,6 +86,7 @@ install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
         "${initdir}/usr/share/plymouth" \
+        "${initdir}/usr/share/pixmaps" \
         "${initdir}/usr/share/plymouth/themes"
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
@@ -115,6 +120,10 @@ PLYMOUTHDEFAULTS
         /usr/lib/os-release \
         /usr/share/kyth/branding/transparent-watermark.svg \
         /usr/share/kyth/branding/transparent-watermark.png
+    rm -f "${initdir}/usr/share/pixmaps/system-logo-white.png"
+    inst_simple \
+        /usr/share/kyth/branding/transparent-watermark.png \
+        /usr/share/pixmaps/system-logo-white.png
     rm -rf \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \

@@ -173,8 +173,9 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
     KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
-    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" && \
+    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/pixmaps" && \
     install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
+    install -m 0644 /usr/share/kyth/branding/transparent-watermark.png "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/pixmaps/system-logo-white.png" && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -3" \
@@ -196,6 +197,8 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs does not contain KythOS Plymouth script" >&2; exit 1; } && \
         grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${_initrd_listing}" \
             || { echo "ERROR: branded initramfs does not contain KythOS Plymouth logo" >&2; exit 1; } && \
+        lsinitrd -f /usr/share/pixmaps/system-logo-white.png "/usr/lib/modules/${KVER}/initramfs" | cmp -s - /usr/share/kyth/branding/transparent-watermark.png \
+            || { echo "ERROR: branded initramfs still contains distro Plymouth system logo" >&2; exit 1; } && \
         grep -q 'usr/share/plymouth/themes/default.plymouth' "${_initrd_listing}" \
             || { echo "ERROR: branded initramfs does not force the KythOS Plymouth default theme" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$' \
