@@ -1273,17 +1273,15 @@ install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-            /etc/dracut.conf.d/99-kyth.conf
-        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
-    fi
+    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 else
     cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 
 # Existing installs may still have older KythOS boot entries with serial/TTY
 # console arguments that make Plymouth fall back to visible boot text. This
@@ -1403,13 +1401,16 @@ BOOTBRANDINGPATHEOF
 systemctl enable kyth-boot-branding.path 2>/dev/null || true
 
 
-# Existing deployments already have an initramfs in /boot. Repair it once
-# after the updated image boots so subsequent reboots use KythOS branding too.
+# Existing deployments already have an initramfs in /boot. Keep it aligned with
+# the current KythOS Plymouth module and repair any fallback-theme leaks.
 cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p /var/lib/kyth
+state_dir=/var/lib/kyth
+fingerprint_file="${state_dir}/boot-splash-initramfs.sha256"
+migration_marker="${state_dir}/boot-splash-initramfs-v16"
+mkdir -p "${state_dir}"
 
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme kyth || true
@@ -1424,6 +1425,180 @@ fi
 # installs the Kyth Plymouth theme and dracut module into /usr.
 if [[ -w /usr/share/plymouth && -x /usr/libexec/kyth-plymouth-branding-guard ]]; then
     /usr/libexec/kyth-plymouth-branding-guard || true
+fi
+
+if [[ ! -d /etc/dracut.conf.d && -w /etc ]]; then
+    mkdir -p /etc/dracut.conf.d
+fi
+if [[ -w /etc/dracut.conf.d ]]; then
+    if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
+        grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    else
+        cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+DRACUTEOF
+    fi
+    grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+fi
+
+fingerprint_current() {
+    local input
+    local inputs=(
+        /usr/lib/dracut/modules.d/99kyth-plymouth/module-setup.sh
+        /usr/libexec/kyth-plymouth-branding-guard
+        /etc/dracut.conf.d/99-kyth.conf
+        /etc/plymouth/plymouthd.conf
+        /usr/share/plymouth/plymouthd.defaults
+        /usr/share/plymouth/themes/kyth/kyth.plymouth
+        /usr/share/plymouth/themes/kyth/kyth.script
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    )
+    {
+        for input in "${inputs[@]}"; do
+            if [[ -r "${input}" ]]; then
+                sha256sum "${input}"
+            else
+                printf 'MISSING  %s\n' "${input}"
+            fi
+        done
+    } | sha256sum | awk '{print $1}'
+}
+
+collect_images() {
+    images=()
+    local image kernel existing seen
+    shopt -s nullglob
+    for image in /boot/ostree/*/initramfs-*.img /boot/initramfs-*.img; do
+        kernel="${image##*/initramfs-}"
+        kernel="${kernel%.img}"
+        [[ -d "/usr/lib/modules/${kernel}" ]] || continue
+
+        seen=0
+        for existing in "${images[@]}"; do
+            if [[ "${existing}" == "${image}" ]]; then
+                seen=1
+                break
+            fi
+        done
+        [[ "${seen}" -eq 0 ]] && images+=("${image}")
+    done
+    shopt -u nullglob
+}
+
+image_needs_refresh() {
+    local image=$1
+    local defaults listing ok
+
+    command -v lsinitrd >/dev/null 2>&1 || return 0
+    defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+    listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
+    ok=1
+
+    lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}" 2>/dev/null || ok=0
+    lsinitrd "${image}" > "${listing}" 2>/dev/null || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/default.plymouth' "${listing}" || ok=0
+    grep -q '^Theme=kyth$' "${defaults}" || ok=0
+    grep -q '^ShowDelay=0$' "${defaults}" || ok=0
+    grep -q '^DeviceTimeout=8$' "${defaults}" || ok=0
+    if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+        ok=0
+    fi
+    rm -f "${defaults}" "${listing}"
+
+    [[ "${ok}" -eq 1 ]] && return 1
+    return 0
+}
+
+verify_image() {
+    local image=$1
+    local defaults listing
+
+    command -v lsinitrd >/dev/null 2>&1 || return 0
+    defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+    listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
+
+    lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}" || {
+        echo "ERROR: refreshed initramfs is missing Plymouth defaults: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    lsinitrd "${image}" > "${listing}" || {
+        echo "ERROR: unable to inspect refreshed initramfs: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth theme: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth script: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth logo: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/default.plymouth' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not force KythOS as the default Plymouth theme: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q '^Theme=kyth$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults do not force Theme=kyth: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q '^ShowDelay=0$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults do not draw immediately: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    grep -q '^DeviceTimeout=8$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults are missing DeviceTimeout=8: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    }
+    if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+        echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs: ${image}" >&2
+        rm -f "${defaults}" "${listing}"
+        return 1
+    fi
+
+    rm -f "${defaults}" "${listing}"
+}
+
+current_fingerprint="$(fingerprint_current)"
+collect_images
+
+needs_refresh=0
+if [[ ! -e "${migration_marker}" ]]; then
+    needs_refresh=1
+fi
+if [[ -r "${fingerprint_file}" && "$(cat "${fingerprint_file}")" != "${current_fingerprint}" ]]; then
+    needs_refresh=1
+fi
+if [[ "${#images[@]}" -eq 0 ]]; then
+    needs_refresh=1
+fi
+for image in "${images[@]}"; do
+    if image_needs_refresh "${image}"; then
+        needs_refresh=1
+    fi
+done
+
+if [[ "${needs_refresh}" -eq 0 ]]; then
+    printf '%s\n' "${current_fingerprint}" > "${fingerprint_file}"
+    touch "${migration_marker}"
+    exit 0
 fi
 
 include_root="$(mktemp -d /tmp/kyth-plymouth-initramfs.XXXXXX)"
@@ -1456,6 +1631,10 @@ install -m 0644 \
     "${include_root}/usr/share/plymouth/plymouthd.defaults"
 cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
 ln -sfn kyth/kyth.plymouth "${include_root}/usr/share/plymouth/themes/default.plymouth"
+rm -rf \
+    "${include_root}/usr/share/plymouth/themes/bgrt-fedora" \
+    "${include_root}/usr/share/plymouth/themes/bgrt" \
+    "${include_root}/usr/share/plymouth/themes/spinner"
 
 if [[ -w /etc/plymouth ]]; then
     install -m 0644 "${include_root}/etc/plymouth/plymouthd.conf" /etc/plymouth/plymouthd.conf
@@ -1464,12 +1643,10 @@ if [[ -w /usr/share/plymouth ]]; then
     install -m 0644 "${include_root}/usr/share/plymouth/plymouthd.defaults" /usr/share/plymouth/plymouthd.defaults
 fi
 
-shopt -s nullglob
 rebuilt=0
-for image in /boot/ostree/*/initramfs-*.img; do
+for image in "${images[@]}"; do
     kernel="${image##*/initramfs-}"
     kernel="${kernel%.img}"
-    [[ -d "/usr/lib/modules/${kernel}" ]] || continue
 
     TMPDIR=/var/tmp dracut \
         --tmpdir /var/tmp \
@@ -1481,23 +1658,7 @@ for image in /boot/ostree/*/initramfs-*.img; do
         --include "${include_root}" / \
         "${image}" \
         "${kernel}"
-    if command -v lsinitrd >/dev/null 2>&1; then
-        defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
-        listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
-        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
-        lsinitrd "${image}" > "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
-        grep -q '^Theme=kyth$' "${defaults}"
-        grep -q '^ShowDelay=0$' "${defaults}"
-        grep -q '^DeviceTimeout=8$' "${defaults}"
-        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
-            echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs" >&2
-            exit 1
-        fi
-        rm -f "${defaults}" "${listing}"
-    fi
+    verify_image "${image}"
     rebuilt=1
 done
 
@@ -1508,16 +1669,20 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --force \
         --add "drm plymouth kyth-plymouth" \
         --include "${include_root}" /
+    collect_images
+    for image in "${images[@]}"; do
+        verify_image "${image}"
+    done
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v15
+printf '%s\n' "${current_fingerprint}" > "${fingerprint_file}"
+touch "${migration_marker}"
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v15
 After=local-fs.target
 
 [Service]

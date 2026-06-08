@@ -111,7 +111,8 @@ dnf5 remove -y librsvg2-tools || true
 # CachyOS rebuilds its initramfs in this base layer, before the main image layer
 # installs the reusable KythOS Plymouth guard. Provide the same dracut module
 # locally so dracut can resolve kyth-plymouth here too.
-KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
 cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash
@@ -128,6 +129,7 @@ depends() {
 install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
+        "${initdir}/usr/share/plymouth" \
         "${initdir}/usr/share/plymouth/themes"
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
@@ -143,12 +145,13 @@ ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHDEFAULTS
-    ln -sfn kyth/kyth.plymouth \
-        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth" \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \
         "${initdir}/usr/share/plymouth/themes/spinner"
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
@@ -157,6 +160,10 @@ PLYMOUTHDEFAULTS
     inst_multiple -o \
         /etc/os-release \
         /usr/lib/os-release
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
 }
 KYTHPLYMOUTHEOF
 chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
@@ -167,6 +174,7 @@ unset KYTH_PLYMOUTH_DRACUT_DIR
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+force_add_dracutmodules+=" kyth-plymouth "
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs overlay "
 DRACUTEOF
 

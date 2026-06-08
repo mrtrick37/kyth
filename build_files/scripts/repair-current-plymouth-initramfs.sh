@@ -9,6 +9,10 @@ if [[ "${EUID}" -ne 0 ]]; then
 	exit 1
 fi
 
+if [[ -x /usr/libexec/kyth-plymouth-branding-guard ]]; then
+	/usr/libexec/kyth-plymouth-branding-guard || true
+fi
+
 kernel="${1:-$(uname -r)}"
 include_root="$(mktemp -d /tmp/kyth-plymouth-repair.XXXXXX)"
 boot_was_ro=0
@@ -39,6 +43,10 @@ install -m 0644 \
 
 cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
 ln -sfn kyth/kyth.plymouth "${include_root}/usr/share/plymouth/themes/default.plymouth"
+rm -rf \
+	"${include_root}/usr/share/plymouth/themes/bgrt-fedora" \
+	"${include_root}/usr/share/plymouth/themes/bgrt" \
+	"${include_root}/usr/share/plymouth/themes/spinner"
 
 plugin_dir="$(plymouth --get-splash-plugin-path)"
 if [[ -r "${plugin_dir}/script.so" ]]; then
