@@ -111,11 +111,9 @@ PY
 #     The VA-API driver backends (iHD, radeonsi_drv_video.so) are already
 #     installed; without this plugin GStreamer apps do software decode even on
 #     capable hardware.
-#   pipewire-codec-aptx          — aptX / aptX-HD Bluetooth audio codec (RPM
-#     Fusion nonfree). Windows ships this OOTB; most gaming headsets negotiate
-#     it. Without it PipeWire falls back to SBC for all BT audio.
-#   NOTE: LDAC (Sony) is not packaged as a separate PipeWire codec module in
-#     RPM Fusion. libldac is MIT-licensed but needs a COPR or manual build.
+#   NOTE: pipewire-codec-aptx (RPM Fusion nonfree) was removed. PipeWire 1.6.5
+#     on Fedora 44 ships pipewire-libs-extra which bundles aptX/aptX-HD and LDAC
+#     natively — the RPM Fusion package conflicts with the same file path.
 #
 # gstreamer1-plugins-bad-freeworld conflicts with Fedora's stock
 # gstreamer1-plugins-bad; remove the stock build first, then install the RPM
@@ -131,7 +129,6 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 	gstreamer1-libav \
 	gstreamer1-vaapi \
 	mozilla-openh264 \
-	pipewire-codec-aptx \
 	mpv
 
 # Install baseline tooling in a single transaction to reduce solver and
