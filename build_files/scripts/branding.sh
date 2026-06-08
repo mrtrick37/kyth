@@ -815,10 +815,15 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key highlightNewlyInstalledApps \
         --type bool false
 
-    # Clipboard history — Win+V equivalent. Klipper ships enabled but history
-    # is off by default; turn it on with a 25-item buffer.
+    # Clipboard history — Meta+V (Win+V equivalent).
+    # Klipper ships enabled but history is off by default; turn it on with a
+    # 25-item buffer and bind the popup to Meta+V so Windows muscle memory works.
     kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
     kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.klipper.desktop \
+        --key show_clipboard_history \
+        'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 
     # Dolphin/File Explorer comfort: remember view properties per folder, keep
     # previews available, and use a visible location bar instead of breadcrumbs
@@ -1102,6 +1107,21 @@ install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemo
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
+mkdir -p /usr/lib/systemd/user /usr/lib/systemd/user/default.target.wants
+cat > /usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
+[Unit]
+Description=Apply quiet VS Code and Brave wallet defaults
+ConditionPathExists=!%h/.local/state/kyth/browser-wallet-defaults-v1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'set -euo pipefail; /usr/bin/kyth-vscode-wallet; mkdir -p "${HOME}/.local/state/kyth"; touch "${HOME}/.local/state/kyth/browser-wallet-defaults-v1"'
+
+[Install]
+WantedBy=default.target
+WALLETDEFAULTSEOF
+ln -sf ../kyth-browser-wallet-defaults.service \
+    /usr/lib/systemd/user/default.target.wants/kyth-browser-wallet-defaults.service
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
@@ -1284,32 +1304,54 @@ WantedBy=multi-user.target
 SPLASHKARGSEOF
 systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 
-# Existing installs may also have bootloader metadata generated while the image
-# still identified as Fedora. Repair visual boot classes and theme icons once on
-# upgraded systems so a stale BLS grub_class=fedora cannot draw Fedora artwork.
+# Existing installs and newly staged bootc deployments can have bootloader
+# metadata generated while the image still identified as Fedora. Keep visual
+# boot classes and theme icons repaired so stale BLS grub_class=fedora entries
+# cannot draw Fedora artwork during the handoff to Plymouth.
 mkdir -p /usr/libexec
 cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+boot_was_ro=0
+cleanup() {
+    if [[ "${boot_was_ro}" -eq 1 ]]; then
+        mount -o remount,ro /boot || true
+    fi
+}
+trap cleanup EXIT
+
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    if mount -o remount,rw /boot 2>/dev/null; then
+        boot_was_ro=1
+    else
+        echo "WARNING: /boot is read-only; bootloader branding repair will skip unwritable entries" >&2
+    fi
+fi
+
 for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     [[ -d "${bls_dir}" ]] || continue
     while IFS= read -r -d '' entry; do
+        [[ -w "${entry}" ]] || continue
         sed -i \
             -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
             -e 's/^title[[:space:]]Fedora/title KythOS/' \
             -e 's/^grub_class[[:space:]].*/grub_class kythos/' \
+            -e 's/^sort-key[[:space:]]fedora$/sort-key kythos/' \
             "${entry}"
         grep -q '^grub_class[[:space:]]' "${entry}" || printf 'grub_class kythos\n' >> "${entry}"
     done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
 done
 
+mkdir -p /etc/default
 if [[ -f /etc/default/grub ]]; then
     if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
         sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
     else
         printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
     fi
+else
+    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
 fi
 
 for grub_icon_dir in \
@@ -1318,6 +1360,7 @@ for grub_icon_dir in \
     /usr/share/grub/themes/system/icons \
     /usr/share/grub/themes/starfield/icons; do
     [[ -d "${grub_icon_dir}" ]] || continue
+    [[ -w "${grub_icon_dir}" ]] || continue
     if [[ -r /usr/share/pixmaps/kythos.png ]]; then
         for icon in kyth kythos fedora gnu-linux linux; do
             install -m 0644 /usr/share/pixmaps/kythos.png "${grub_icon_dir}/${icon}.png"
@@ -1334,17 +1377,30 @@ chmod 0755 /usr/libexec/kyth-boot-branding-guard
 cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
 [Unit]
 Description=Refresh KythOS bootloader branding
-ConditionPathExists=!/var/lib/kyth/boot-branding-v1
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-branding-v1'
+ExecStart=/usr/libexec/kyth-boot-branding-guard
 
 [Install]
 WantedBy=multi-user.target
 BOOTBRANDINGSERVICEEOF
 systemctl enable kyth-boot-branding.service 2>/dev/null || true
+
+cat > /usr/lib/systemd/system/kyth-boot-branding.path <<'BOOTBRANDINGPATHEOF'
+[Unit]
+Description=Watch bootloader entries for KythOS branding repairs
+
+[Path]
+PathModified=/boot/loader/entries
+PathModified=/boot/efi/loader/entries
+Unit=kyth-boot-branding.service
+
+[Install]
+WantedBy=multi-user.target
+BOOTBRANDINGPATHEOF
+systemctl enable kyth-boot-branding.path 2>/dev/null || true
 
 
 # Existing deployments already have an initramfs in /boot. Repair it once
@@ -1393,7 +1449,7 @@ mkdir -p \
     "${include_root}/etc/plymouth" \
     "${include_root}/usr/share/plymouth" \
     "${include_root}/usr/share/plymouth/themes"
-printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
+printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
     > "${include_root}/etc/plymouth/plymouthd.conf"
 install -m 0644 \
     "${include_root}/etc/plymouth/plymouthd.conf" \
@@ -1434,6 +1490,7 @@ for image in /boot/ostree/*/initramfs-*.img; do
         grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
         grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
         grep -q '^Theme=kyth$' "${defaults}"
+        grep -q '^ShowDelay=0$' "${defaults}"
         grep -q '^DeviceTimeout=8$' "${defaults}"
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
             echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs" >&2
