@@ -1077,9 +1077,9 @@ class MainWindow(QMainWindow):
         ]
         worker_stdin = ""
         if protocol == "gp" and field and value:
-            cmd += ["--passwd-on-stdin", "--usergroup", f"portal:{field}"]
+            cmd += ["--passwd-on-stdin", "--usergroup", f"gateway:{field}"]
             worker_stdin = value
-            print(f"[SAML dbg] reconnecting via portal with {field} and username={'yes' if (username or saml_username) else 'no'}")
+            print(f"[SAML dbg] reconnecting via gateway with {field} and username={'yes' if (username or saml_username) else 'no'}")
         else:
             cmd += ["--cookie", cookie]
         username = username or saml_username
