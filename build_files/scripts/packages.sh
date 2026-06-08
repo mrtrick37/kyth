@@ -114,6 +114,9 @@ PY
 #   pipewire-codec-aptx          — aptX / aptX-HD Bluetooth audio codec (RPM
 #     Fusion nonfree). Windows ships this OOTB; most gaming headsets negotiate
 #     it. Without it PipeWire falls back to SBC for all BT audio.
+#   pipewire-codec-ldac          — LDAC Bluetooth audio codec (RPM Fusion
+#     nonfree). Sony's high-quality wireless codec; used by Sony WH/WF
+#     headphones and many modern Android phones. Higher bitrate than aptX.
 #
 # gstreamer1-plugins-bad-freeworld conflicts with Fedora's stock
 # gstreamer1-plugins-bad; remove the stock build first, then install the RPM
@@ -130,6 +133,7 @@ dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-b
 	gstreamer1-vaapi \
 	mozilla-openh264 \
 	pipewire-codec-aptx \
+	pipewire-codec-ldac \
 	mpv
 
 # Install baseline tooling in a single transaction to reduce solver and
@@ -147,6 +151,7 @@ dnf5 install -y --skip-unavailable \
 	irqbalance \
 	p7zip \
 	p7zip-plugins \
+	cabextract \
 	ntfs-3g \
 	ntfsprogs \
 	cifs-utils \

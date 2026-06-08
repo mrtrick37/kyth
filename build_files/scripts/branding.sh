@@ -902,6 +902,7 @@ install -m 0755 /ctx/kyth-resume-check /usr/bin/kyth-resume-check
 install -m 0755 /ctx/kyth-nvidia-status /usr/bin/kyth-nvidia-status
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
+install -m 0755 /ctx/kyth-widevine-install /usr/bin/kyth-widevine-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-launch
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate

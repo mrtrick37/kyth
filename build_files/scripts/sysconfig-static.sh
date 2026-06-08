@@ -191,6 +191,45 @@ LANGUAGE=en_US
 PLASMALOCALEEOF
 cp /etc/xdg/plasma-localerc /etc/skel/.config/plasma-localerc
 
+# ── Office MIME defaults → LibreOffice ───────────────────────────────────────
+# Without explicit system defaults, KDE's file manager and browser downloads
+# open .docx/.xlsx/.pptx files with "Open With…" dialogs or pick the wrong app.
+# Map all Microsoft Office and ODF types to the corresponding LibreOffice
+# Flatpak sub-app so the right component opens directly (Writer, not the
+# LibreOffice Start Center for a .docx).
+cat >/etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+[Default Applications]
+application/msword=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.openxmlformats-officedocument.wordprocessingml.document=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.ms-word.document.macroenabled.12=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.ms-excel=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.ms-excel.sheet.macroenabled.12=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.ms-powerpoint=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.openxmlformats-officedocument.presentationml.presentation=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.ms-powerpoint.presentation.macroenabled.12=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.oasis.opendocument.text=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.oasis.opendocument.spreadsheet=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.oasis.opendocument.presentation=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.oasis.opendocument.graphics=org.libreoffice.LibreOffice.draw.desktop
+application/rtf=org.libreoffice.LibreOffice.writer.desktop
+text/rtf=org.libreoffice.LibreOffice.writer.desktop
+text/csv=org.libreoffice.LibreOffice.calc.desktop
+MIMEAPPSEOF
+
+# ── KWin VRR policy — Automatic (fullscreen / direct scanout) ────────────────
+# KDE Plasma ships with VRR disabled (VrrPolicy=0 / Never). Gaming users expect
+# their 144 Hz / VRR monitor to actually use variable refresh in games.
+# "Automatic" (1) enables VRR only when KWin hands a surface directly to the
+# display (fullscreen / direct scanout) — i.e., during games — and reverts to
+# fixed rate on the desktop. "Always" (2) would enable VRR even on composited
+# desktop, which causes flicker artifacts on some panels and wastes panel power.
+mkdir -p /etc/xdg
+cat >/etc/xdg/kwinrc <<'KWINRCEOF'
+[Wayland]
+VrrPolicy=1
+KWINRCEOF
+
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
