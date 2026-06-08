@@ -149,6 +149,7 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
 # Re-enforces display-manager symlinks that dnf5 upgrade can reset, and enables/
 # disables runtime services after the upgrade has settled the unit file set.
 RUN --mount=type=bind,source=build_files/scripts/sysconfig.sh,target=/ctx/sysconfig.sh \
+    --mount=type=bind,source=build_files/kyth-vscode-wallet,target=/ctx/kyth-vscode-wallet \
     --mount=type=tmpfs,dst=/tmp \
     bash /ctx/sysconfig.sh
 
