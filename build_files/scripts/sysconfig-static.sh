@@ -226,6 +226,13 @@ MIMEAPPSEOF
 # desktop, which causes flicker artifacts on some panels and wastes panel power.
 mkdir -p /etc/xdg
 cat >/etc/xdg/kwinrc <<'KWINRCEOF'
+[Effect-blur]
+BlurStrength=7
+NoiseStrength=0
+
+[Plugins]
+blurEnabled=true
+
 [Wayland]
 VrrPolicy=1
 KWINRCEOF

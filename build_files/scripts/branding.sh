@@ -108,11 +108,202 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 "KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 TOPGRADEEOF
 
+# ── KythDark color scheme ─────────────────────────────────────────────────────
+# Tokyo Night-derived palette: #1a1b26 dark slate base, #7c5cbf purple accent.
+# All nine Color:* sections share the same palette so colors are consistent
+# across button, view, window, selection, tooltip, and header contexts.
+mkdir -p /usr/share/color-schemes
+cat > /usr/share/color-schemes/KythDark.colors <<'KYTHCOLORSEOF'
+[ColorEffects:Disabled]
+Color=56,56,56
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0.65
+ContrastEffect=1
+IntensityAmount=0.1
+IntensityEffect=2
+
+[ColorEffects:Inactive]
+ChangeSelectionColor=true
+Color=112,111,110
+ColorAmount=0.025
+ColorEffect=2
+ContrastAmount=0.1
+ContrastEffect=2
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
+
+[Colors:Button]
+BackgroundAlternate=36,40,59
+BackgroundNormal=31,35,53
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Complementary]
+BackgroundAlternate=36,40,59
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Header]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Selection]
+BackgroundAlternate=124,92,191
+BackgroundNormal=124,92,191
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=255,255,255
+ForegroundInactive=204,204,204
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=255,255,255
+ForegroundPositive=158,206,106
+ForegroundVisited=192,163,255
+
+[Colors:Tooltip]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:View]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Window]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[General]
+ColorScheme=KythDark
+Name=Kyth Dark
+shadeSortColumn=true
+
+[KDE]
+contrast=4
+KYTHCOLORSEOF
+
+# ── Kyth Dark Plasma shell theme (frosted glass panel) ────────────────────────
+# Minimal theme that overrides only the panel background SVG; all other assets
+# fall back to breeze-dark via X-Plasma-Fallback-Theme.  The panel-background
+# SVG uses fill-opacity=0.82 so KWin's blur effect shines through, producing
+# a frosted glass look.  A thin purple top-edge accent line ties the panel to
+# the KythDark color accent.
+mkdir -p /usr/share/plasma/desktoptheme/kyth-dark/widgets
+
+cat > /usr/share/plasma/desktoptheme/kyth-dark/metadata.json <<'KYTHMETAEOF'
+{
+    "KPlugin": {
+        "Authors": [{"Name": "KythOS"}],
+        "Description": "KythOS dark plasma theme with frosted glass panel",
+        "Id": "kyth-dark",
+        "License": "Apache-2.0",
+        "Name": "Kyth Dark",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "5.0",
+    "X-Plasma-Fallback-Theme": "breeze-dark"
+}
+KYTHMETAEOF
+
+# panel-background.svg — 9-patch panel background.
+# Coordinates: 100×100 canvas, 4px borders, semi-transparent dark slate fill.
+# The hint-* elements encode margin widths for the Plasma SVG renderer;
+# they are invisible (fill:none) and exist only to carry the numeric hint.
+# A 1px purple accent line runs along the top edge of the panel.
+cat > /usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KYTHPANELSVGEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+  <!-- Margin hints (invisible, encode border widths for the 9-patch renderer) -->
+  <rect id="hint-left-margin"   x="0"  y="49" width="4"  height="1" fill="none"/>
+  <rect id="hint-right-margin"  x="96" y="49" width="4"  height="1" fill="none"/>
+  <rect id="hint-top-margin"    x="49" y="0"  width="1"  height="5" fill="none"/>
+  <rect id="hint-bottom-margin" x="49" y="96" width="1"  height="4" fill="none"/>
+  <!-- Purple top accent line (1px, spans the full width across the top border) -->
+  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#7c5cbf" fill-opacity="0.70"/>
+  <!-- 9-patch fill regions: semi-transparent dark slate -->
+  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+</svg>
+KYTHPANELSVGEOF
+
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
-ColorScheme=BreezeDark
+ColorScheme=KythDark
+font=Inter,10,-1,5,400,0,0,0,0,0,Regular
+fixed=Cascadia Code,10,-1,5,400,0,0,0,0,0,Regular
+smallestReadableFont=Inter,8,-1,5,400,0,0,0,0,0,Regular
+toolBarFont=Inter,9,-1,5,400,0,0,0,0,0,Regular
+menuFont=Inter,10,-1,5,400,0,0,0,0,0,Regular
+
+[Icons]
+Theme=Papirus-Dark
 
 [KDE]
 LookAndFeelPackage=org.kde.breezedark.desktop
@@ -120,7 +311,7 @@ KDEEOF
 
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
-name=breeze-dark
+name=kyth-dark
 PLASMAEOF
 
 # ── Kickoff favorites ─────────────────────────────────────────────────────────

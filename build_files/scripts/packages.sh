@@ -498,6 +498,8 @@ optional_desktop_packages=(
 	jetbrains-mono-fonts
 	cascadia-code-fonts
 	liberation-fonts-all
+	inter-fonts
+	papirus-icon-theme
 )
 
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"
