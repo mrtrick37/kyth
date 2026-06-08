@@ -132,14 +132,14 @@ install() {
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHDEFAULTS
@@ -176,7 +176,7 @@ mkdir -p /etc/plymouth /usr/share/plymouth
 cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
@@ -191,7 +191,7 @@ if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
     cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
@@ -231,6 +231,12 @@ PLYMOUTHCONF
         }
         if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
+            echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
+            lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
+            exit 1
+        fi
+        if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^ShowDelay=0$'; then
+            echo "ERROR: CachyOS initramfs Plymouth defaults do not draw immediately" >&2
             echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
             lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
             exit 1

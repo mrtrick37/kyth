@@ -31,7 +31,7 @@ mkdir -p \
 	"${include_root}/usr/share/plymouth" \
 	"${include_root}/usr/share/plymouth/themes"
 
-printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
+printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
 	>"${include_root}/etc/plymouth/plymouthd.conf"
 install -m 0644 \
 	"${include_root}/etc/plymouth/plymouthd.conf" \
@@ -86,6 +86,7 @@ for image in "${images[@]}"; do
 	grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
 	grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
 	grep -q '^Theme=kyth$' "${defaults}"
+	grep -q '^ShowDelay=0$' "${defaults}"
 	grep -q '^DeviceTimeout=8$' "${defaults}"
 	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
 		echo "ERROR: Plymouth fallback theme leaked into repaired initramfs" >&2

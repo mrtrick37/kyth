@@ -281,7 +281,7 @@ mkdir -p /etc/plymouth /usr/share/plymouth
 cat >/etc/plymouth/plymouthd.conf <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 EOF
@@ -289,7 +289,7 @@ install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.conf
 cat >/usr/share/plymouth/plymouthd.defaults <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 EOF
@@ -330,6 +330,10 @@ if command -v lsinitrd >/dev/null 2>&1; then
 		echo "ERROR: live initramfs Plymouth defaults do not force Theme=kyth" >&2
 		exit 1
 	}
+	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^ShowDelay=0$' || {
+		echo "ERROR: live initramfs Plymouth defaults do not draw immediately" >&2
+		exit 1
+	}
 	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^DeviceTimeout=8$' || {
 		echo "ERROR: live initramfs Plymouth defaults are missing DeviceTimeout=8" >&2
 		exit 1
@@ -338,6 +342,11 @@ if command -v lsinitrd >/dev/null 2>&1; then
 	(cd "${initrd_extract}" && lsinitrd --unpack "/usr/lib/modules/${kernel}/initramfs.img" etc/plymouth/plymouthd.conf)
 	grep -q '^Theme=kyth$' "${initrd_extract}/etc/plymouth/plymouthd.conf" || {
 		echo "ERROR: live initramfs Plymouth daemon config does not force Theme=kyth" >&2
+		rm -rf "${initrd_extract}"
+		exit 1
+	}
+	grep -q '^ShowDelay=0$' "${initrd_extract}/etc/plymouth/plymouthd.conf" || {
+		echo "ERROR: live initramfs Plymouth daemon config does not draw immediately" >&2
 		rm -rf "${initrd_extract}"
 		exit 1
 	}
