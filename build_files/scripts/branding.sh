@@ -108,11 +108,202 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 "KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 TOPGRADEEOF
 
+# ── KythDark color scheme ─────────────────────────────────────────────────────
+# Tokyo Night-derived palette: #1a1b26 dark slate base, #7c5cbf purple accent.
+# All nine Color:* sections share the same palette so colors are consistent
+# across button, view, window, selection, tooltip, and header contexts.
+mkdir -p /usr/share/color-schemes
+cat > /usr/share/color-schemes/KythDark.colors <<'KYTHCOLORSEOF'
+[ColorEffects:Disabled]
+Color=56,56,56
+ColorAmount=0
+ColorEffect=0
+ContrastAmount=0.65
+ContrastEffect=1
+IntensityAmount=0.1
+IntensityEffect=2
+
+[ColorEffects:Inactive]
+ChangeSelectionColor=true
+Color=112,111,110
+ColorAmount=0.025
+ColorEffect=2
+ContrastAmount=0.1
+ContrastEffect=2
+Enable=false
+IntensityAmount=0
+IntensityEffect=0
+
+[Colors:Button]
+BackgroundAlternate=36,40,59
+BackgroundNormal=31,35,53
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Complementary]
+BackgroundAlternate=36,40,59
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Header]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Selection]
+BackgroundAlternate=124,92,191
+BackgroundNormal=124,92,191
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=255,255,255
+ForegroundInactive=204,204,204
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=255,255,255
+ForegroundPositive=158,206,106
+ForegroundVisited=192,163,255
+
+[Colors:Tooltip]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:View]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[Colors:Window]
+BackgroundAlternate=31,35,53
+BackgroundNormal=26,27,38
+DecorationFocus=124,92,191
+DecorationHover=125,207,255
+ForegroundActive=192,202,245
+ForegroundInactive=86,95,137
+ForegroundLink=125,207,255
+ForegroundNegative=247,118,142
+ForegroundNeutral=224,175,104
+ForegroundNormal=192,202,245
+ForegroundPositive=158,206,106
+ForegroundVisited=149,117,220
+
+[General]
+ColorScheme=KythDark
+Name=Kyth Dark
+shadeSortColumn=true
+
+[KDE]
+contrast=4
+KYTHCOLORSEOF
+
+# ── Kyth Dark Plasma shell theme (frosted glass panel) ────────────────────────
+# Minimal theme that overrides only the panel background SVG; all other assets
+# fall back to breeze-dark via X-Plasma-Fallback-Theme.  The panel-background
+# SVG uses fill-opacity=0.82 so KWin's blur effect shines through, producing
+# a frosted glass look.  A thin purple top-edge accent line ties the panel to
+# the KythDark color accent.
+mkdir -p /usr/share/plasma/desktoptheme/kyth-dark/widgets
+
+cat > /usr/share/plasma/desktoptheme/kyth-dark/metadata.json <<'KYTHMETAEOF'
+{
+    "KPlugin": {
+        "Authors": [{"Name": "KythOS"}],
+        "Description": "KythOS dark plasma theme with frosted glass panel",
+        "Id": "kyth-dark",
+        "License": "Apache-2.0",
+        "Name": "Kyth Dark",
+        "Version": "1.0"
+    },
+    "X-Plasma-API": "5.0",
+    "X-Plasma-Fallback-Theme": "breeze-dark"
+}
+KYTHMETAEOF
+
+# panel-background.svg — 9-patch panel background.
+# Coordinates: 100×100 canvas, 4px borders, semi-transparent dark slate fill.
+# The hint-* elements encode margin widths for the Plasma SVG renderer;
+# they are invisible (fill:none) and exist only to carry the numeric hint.
+# A 1px purple accent line runs along the top edge of the panel.
+cat > /usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KYTHPANELSVGEOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+  <!-- Margin hints (invisible, encode border widths for the 9-patch renderer) -->
+  <rect id="hint-left-margin"   x="0"  y="49" width="4"  height="1" fill="none"/>
+  <rect id="hint-right-margin"  x="96" y="49" width="4"  height="1" fill="none"/>
+  <rect id="hint-top-margin"    x="49" y="0"  width="1"  height="5" fill="none"/>
+  <rect id="hint-bottom-margin" x="49" y="96" width="1"  height="4" fill="none"/>
+  <!-- Purple top accent line (1px, spans the full width across the top border) -->
+  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#7c5cbf" fill-opacity="0.70"/>
+  <!-- 9-patch fill regions: semi-transparent dark slate -->
+  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+</svg>
+KYTHPANELSVGEOF
+
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
 cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
-ColorScheme=BreezeDark
+ColorScheme=KythDark
+font=Inter,10,-1,5,400,0,0,0,0,0,Regular
+fixed=Cascadia Code,10,-1,5,400,0,0,0,0,0,Regular
+smallestReadableFont=Inter,8,-1,5,400,0,0,0,0,0,Regular
+toolBarFont=Inter,9,-1,5,400,0,0,0,0,0,Regular
+menuFont=Inter,10,-1,5,400,0,0,0,0,0,Regular
+
+[Icons]
+Theme=Papirus-Dark
 
 [KDE]
 LookAndFeelPackage=org.kde.breezedark.desktop
@@ -120,7 +311,7 @@ KDEEOF
 
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
-name=breeze-dark
+name=kyth-dark
 PLASMAEOF
 
 # ── Kickoff favorites ─────────────────────────────────────────────────────────
@@ -439,7 +630,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v5"
+version="v6"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -593,6 +784,22 @@ elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
 fi
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
+    # Ensure KDE apps (Discover, System Settings, etc.) always display English.
+    # KDE's locale stack reads plasma-localerc before falling back to LANG; without
+    # an explicit entry some builds pick the first AppStream translation in the XML.
+    kwriteconfig6 --file plasma-localerc --group Translations --key LANGUAGE "en_US"
+    kwriteconfig6 --file plasma-localerc --group Formats --key LC_TIME "en_US.UTF-8"
+
+    # KWallet should be opened by kwallet-pam with the login password, then stay
+    # open for the session so browsers and editors do not ask again after boot.
+    kwriteconfig6 --file kwalletrc --group Wallet --key Enabled --type bool true
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Default Wallet" kdewallet
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Local Wallet" kdewallet
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Use One Wallet" --type bool true
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Close When Idle" --type bool false
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
+    kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
+
     # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
     kwriteconfig6 --file kglobalshortcutsrc \
         --group org.kde.plasma-systemmonitor.desktop \
@@ -608,10 +815,45 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key highlightNewlyInstalledApps \
         --type bool false
 
-    # Clipboard history — Win+V equivalent. Klipper ships enabled but history
-    # is off by default; turn it on with a 25-item buffer.
+    # Clipboard history — Meta+V (Win+V equivalent).
+    # Klipper ships enabled but history is off by default; turn it on with a
+    # 25-item buffer and bind the popup to Meta+V so Windows muscle memory works.
     kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
     kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.klipper.desktop \
+        --key show_clipboard_history \
+        'Meta+V,Ctrl+Alt+V,Show Clipboard History'
+
+    # Alt+Tab window switcher — thumbnail grid instead of KDE's default icon strip.
+    # Windows users expect large previews when switching windows; the KDE default
+    # "Breeze" switcher shows small icons only and is disorienting for switchers.
+    # "thumbnails" renders a grid of live window previews (closest to Windows Alt+Tab).
+    # TabBoxAlternative* sets the same layout for the reverse direction (Alt+Shift+Tab).
+    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBox --key ShowDesktop --type bool false
+    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnails
+
+    # Desktop right-click menu — surface "Configure Desktop" prominently so
+    # "right-click desktop → change wallpaper" works like Windows users expect.
+    # KDE's default context menu puts display settings behind two clicks.
+    kwriteconfig6 --file kwinrc --group Plugins --key desktopchangeosdEnabled --type bool false
+
+    # Mixed refresh rate — compositor latency policy.
+    # KWin Plasma 6 renders each output at its own refresh rate independently, but
+    # defaults to "medium" latency which can cause visible tearing and flicker when
+    # a window is dragged between a 144 Hz and 60 Hz display. "extreme" eliminates
+    # the per-frame delay that causes the jitter without increasing CPU usage.
+    kwriteconfig6 --file kwinrc --group Compositing --key LatencyPolicy extreme
+    # Disable adaptive sync on secondary displays by default to prevent frame-rate
+    # lock-step when the primary is in VRR mode and the secondary is fixed-refresh.
+    kwriteconfig6 --file kwinrc --group Compositing --key AllowTearing --type bool false
+
+    # KDE Discover update notifications — disabled in favour of kyth-update-notifier.
+    # Having two independent "update available" badges (Discover + kyth tray) confuses
+    # users who don't know which one covers what. The kyth tray handles both OS image
+    # updates and Flatpak app updates; Discover's badge is redundant and contradictory.
+    kwriteconfig6 --file plasma-discoverrc --group UpdatesNotifier --key UseNotifications --type bool false
 
     # Dolphin/File Explorer comfort: remember view properties per folder, keep
     # previews available, and use a visible location bar instead of breadcrumbs
@@ -621,6 +863,29 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
     kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+fi
+
+brave_desktop_src=""
+for candidate in \
+    /var/lib/flatpak/exports/share/applications/com.brave.Browser.desktop \
+    /usr/share/applications/com.brave.Browser.desktop \
+    /usr/local/share/applications/com.brave.Browser.desktop; do
+    if [[ -f "${candidate}" ]]; then
+        brave_desktop_src="${candidate}"
+        break
+    fi
+done
+
+if [[ -n "${brave_desktop_src}" ]]; then
+    brave_desktop_dst="${HOME}/.local/share/applications/com.brave.Browser.desktop"
+    mkdir -p "$(dirname "${brave_desktop_dst}")"
+    cp "${brave_desktop_src}" "${brave_desktop_dst}"
+    if ! grep -q -- '--password-store=basic' "${brave_desktop_dst}"; then
+        sed -i -E '/^Exec=/ s#(com\.brave\.Browser)( |$)#\1 --password-store=basic\2#' "${brave_desktop_dst}"
+        if ! grep -q '^Exec=.*flatpak run ' "${brave_desktop_dst}"; then
+            sed -i -E '/^Exec=/ s#(brave-browser|brave)( |$)#\1 --password-store=basic\2#' "${brave_desktop_dst}"
+        fi
+    fi
 fi
 
 if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
@@ -637,6 +902,10 @@ fi
 
 if command -v /usr/bin/kyth-web-app-categorize >/dev/null 2>&1; then
     /usr/bin/kyth-web-app-categorize >/dev/null 2>&1 || true
+fi
+
+if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
+    /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
 fi
 
 touch "${stamp}"
@@ -859,6 +1128,7 @@ install -m 0755 /ctx/kyth-resume-check /usr/bin/kyth-resume-check
 install -m 0755 /ctx/kyth-nvidia-status /usr/bin/kyth-nvidia-status
 install -m 0755 /ctx/kyth-creator-check /usr/bin/kyth-creator-check
 install -m 0755 /ctx/kyth-davinci-install /usr/bin/kyth-davinci-install
+install -m 0755 /ctx/kyth-widevine-install /usr/bin/kyth-widevine-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-launch
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
@@ -867,6 +1137,21 @@ install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemo
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
+mkdir -p /usr/lib/systemd/user /usr/lib/systemd/user/default.target.wants
+cat > /usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
+[Unit]
+Description=Apply quiet VS Code and Brave wallet defaults
+ConditionPathExists=!%h/.local/state/kyth/browser-wallet-defaults-v1
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/bash -c 'set -euo pipefail; /usr/bin/kyth-vscode-wallet; mkdir -p "${HOME}/.local/state/kyth"; touch "${HOME}/.local/state/kyth/browser-wallet-defaults-v1"'
+
+[Install]
+WantedBy=default.target
+WALLETDEFAULTSEOF
+ln -sf ../kyth-browser-wallet-defaults.service \
+    /usr/lib/systemd/user/default.target.wants/kyth-browser-wallet-defaults.service
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
@@ -961,6 +1246,7 @@ chmod +x /etc/skel/Templates/"Python Script.py"
 
 install -m 0755 /ctx/kyth-rclone-update /usr/bin/kyth-rclone-update
 install -m 0755 /ctx/kyth-session-snapshot /usr/bin/kyth-session-snapshot
+install -m 0755 /ctx/kyth-report-issue /usr/bin/kyth-report-issue
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
 install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
@@ -968,8 +1254,24 @@ install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
+install -m 0440 /ctx/kyth-sched-sudo /etc/sudoers.d/kyth-sched
 install -m 0755 /ctx/kyth-hw-setup /usr/bin/kyth-hw-setup
 install -m 0644 /ctx/kyth-hw-setup.service /usr/lib/systemd/system/kyth-hw-setup.service
+
+# ── KythOS performance daemons ────────────────────────────────────────────────
+install -m 0755 /ctx/kyth-sched /usr/bin/kyth-sched
+install -m 0644 /ctx/kyth-sched.service /usr/lib/systemd/user/kyth-sched.service
+
+install -m 0755 /ctx/kyth-telem /usr/bin/kyth-telem
+install -m 0644 /ctx/kyth-telem.service /usr/lib/systemd/user/kyth-telem.service
+
+install -m 0755 /ctx/kyth-update-watcher /usr/bin/kyth-update-watcher
+install -m 0644 /ctx/kyth-update-watcher.service /usr/lib/systemd/system/kyth-update-watcher.service
+install -m 0644 /ctx/kyth-update-watcher.timer /usr/lib/systemd/system/kyth-update-watcher.timer
+
+mkdir -p /etc/kyth
+install -m 0644 /ctx/kyth-sched-profiles.toml /etc/kyth/sched-profiles.toml
+install -m 0644 /ctx/auto-update.toml /etc/kyth/auto-update.toml
 install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asus-supergfxd.rules
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
@@ -1001,17 +1303,15 @@ install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-            /etc/dracut.conf.d/99-kyth.conf
-        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
-    fi
+    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 else
     cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 
 # Existing installs may still have older KythOS boot entries with serial/TTY
 # console arguments that make Plymouth fall back to visible boot text. This
@@ -1032,32 +1332,54 @@ WantedBy=multi-user.target
 SPLASHKARGSEOF
 systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 
-# Existing installs may also have bootloader metadata generated while the image
-# still identified as Fedora. Repair visual boot classes and theme icons once on
-# upgraded systems so a stale BLS grub_class=fedora cannot draw Fedora artwork.
+# Existing installs and newly staged bootc deployments can have bootloader
+# metadata generated while the image still identified as Fedora. Keep visual
+# boot classes and theme icons repaired so stale BLS grub_class=fedora entries
+# cannot draw Fedora artwork during the handoff to Plymouth.
 mkdir -p /usr/libexec
 cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
+boot_was_ro=0
+cleanup() {
+    if [[ "${boot_was_ro}" -eq 1 ]]; then
+        mount -o remount,ro /boot || true
+    fi
+}
+trap cleanup EXIT
+
+if findmnt -no OPTIONS /boot 2>/dev/null | tr ',' '\n' | grep -qx ro; then
+    if mount -o remount,rw /boot 2>/dev/null; then
+        boot_was_ro=1
+    else
+        echo "WARNING: /boot is read-only; bootloader branding repair will skip unwritable entries" >&2
+    fi
+fi
+
 for bls_dir in /boot/loader/entries /boot/efi/loader/entries; do
     [[ -d "${bls_dir}" ]] || continue
     while IFS= read -r -d '' entry; do
+        [[ -w "${entry}" ]] || continue
         sed -i \
             -e 's/^title[[:space:]]Fedora Linux/title KythOS/' \
             -e 's/^title[[:space:]]Fedora/title KythOS/' \
             -e 's/^grub_class[[:space:]].*/grub_class kythos/' \
+            -e 's/^sort-key[[:space:]]fedora$/sort-key kythos/' \
             "${entry}"
         grep -q '^grub_class[[:space:]]' "${entry}" || printf 'grub_class kythos\n' >> "${entry}"
     done < <(find "${bls_dir}" -maxdepth 1 -type f -name '*.conf' -print0)
 done
 
+mkdir -p /etc/default
 if [[ -f /etc/default/grub ]]; then
     if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
         sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
     else
         printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
     fi
+else
+    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
 fi
 
 for grub_icon_dir in \
@@ -1066,6 +1388,7 @@ for grub_icon_dir in \
     /usr/share/grub/themes/system/icons \
     /usr/share/grub/themes/starfield/icons; do
     [[ -d "${grub_icon_dir}" ]] || continue
+    [[ -w "${grub_icon_dir}" ]] || continue
     if [[ -r /usr/share/pixmaps/kythos.png ]]; then
         for icon in kyth kythos fedora gnu-linux linux; do
             install -m 0644 /usr/share/pixmaps/kythos.png "${grub_icon_dir}/${icon}.png"
@@ -1082,26 +1405,42 @@ chmod 0755 /usr/libexec/kyth-boot-branding-guard
 cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
 [Unit]
 Description=Refresh KythOS bootloader branding
-ConditionPathExists=!/var/lib/kyth/boot-branding-v1
 After=local-fs.target
 
 [Service]
 Type=oneshot
-ExecStart=/usr/bin/bash -c 'set -e; /usr/libexec/kyth-boot-branding-guard; mkdir -p /var/lib/kyth; touch /var/lib/kyth/boot-branding-v1'
+ExecStart=/usr/libexec/kyth-boot-branding-guard
 
 [Install]
 WantedBy=multi-user.target
 BOOTBRANDINGSERVICEEOF
 systemctl enable kyth-boot-branding.service 2>/dev/null || true
 
+cat > /usr/lib/systemd/system/kyth-boot-branding.path <<'BOOTBRANDINGPATHEOF'
+[Unit]
+Description=Watch bootloader entries for KythOS branding repairs
 
-# Existing deployments already have an initramfs in /boot. Repair it once
-# after the updated image boots so subsequent reboots use KythOS branding too.
+[Path]
+PathModified=/boot/loader/entries
+PathModified=/boot/efi/loader/entries
+Unit=kyth-boot-branding.service
+
+[Install]
+WantedBy=multi-user.target
+BOOTBRANDINGPATHEOF
+systemctl enable kyth-boot-branding.path 2>/dev/null || true
+
+
+# Existing deployments already have an initramfs in /boot. Keep it aligned with
+# the current KythOS Plymouth module and repair any fallback-theme leaks.
 cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-mkdir -p /var/lib/kyth
+state_dir=/var/lib/kyth
+fingerprint_file="${state_dir}/boot-splash-initramfs.sha256"
+migration_marker="${state_dir}/boot-splash-initramfs-v17"
+mkdir -p "${state_dir}"
 
 if command -v plymouth-set-default-theme >/dev/null 2>&1; then
     plymouth-set-default-theme kyth || true
@@ -1116,6 +1455,197 @@ fi
 # installs the Kyth Plymouth theme and dracut module into /usr.
 if [[ -w /usr/share/plymouth && -x /usr/libexec/kyth-plymouth-branding-guard ]]; then
     /usr/libexec/kyth-plymouth-branding-guard || true
+fi
+
+if [[ ! -d /etc/dracut.conf.d && -w /etc ]]; then
+    mkdir -p /etc/dracut.conf.d
+fi
+if [[ -w /etc/dracut.conf.d ]]; then
+    if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
+        grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+    else
+        cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+DRACUTEOF
+    fi
+    grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+fi
+
+fingerprint_current() {
+    local input
+    local inputs=(
+        /usr/lib/dracut/modules.d/99kyth-plymouth/module-setup.sh
+        /usr/libexec/kyth-plymouth-branding-guard
+        /etc/dracut.conf.d/99-kyth.conf
+        /etc/plymouth/plymouthd.conf
+        /usr/share/plymouth/plymouthd.defaults
+        /usr/share/kyth/branding/transparent-watermark.png
+        /usr/share/pixmaps/system-logo-white.png
+        /usr/share/plymouth/themes/kyth/kyth.plymouth
+        /usr/share/plymouth/themes/kyth/kyth.script
+        /usr/share/plymouth/themes/kyth/kyth-logo.png
+    )
+    {
+        for input in "${inputs[@]}"; do
+            if [[ -r "${input}" ]]; then
+                sha256sum "${input}"
+            else
+                printf 'MISSING  %s\n' "${input}"
+            fi
+        done
+    } | sha256sum | awk '{print $1}'
+}
+
+collect_images() {
+    images=()
+    local image kernel existing seen
+    shopt -s nullglob
+    for image in /boot/ostree/*/initramfs-*.img /boot/initramfs-*.img; do
+        kernel="${image##*/initramfs-}"
+        kernel="${kernel%.img}"
+        [[ -d "/usr/lib/modules/${kernel}" ]] || continue
+
+        seen=0
+        for existing in "${images[@]}"; do
+            if [[ "${existing}" == "${image}" ]]; then
+                seen=1
+                break
+            fi
+        done
+        [[ "${seen}" -eq 0 ]] && images+=("${image}")
+    done
+    shopt -u nullglob
+}
+
+image_needs_refresh() {
+    local image=$1
+    local defaults listing logo ok
+
+    command -v lsinitrd >/dev/null 2>&1 || return 0
+    defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+    listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
+    logo="$(mktemp /tmp/kyth-plymouth-logo.XXXXXX)"
+    ok=1
+
+    lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}" 2>/dev/null || ok=0
+    lsinitrd -f /usr/share/pixmaps/system-logo-white.png "${image}" > "${logo}" 2>/dev/null || ok=0
+    lsinitrd "${image}" > "${listing}" 2>/dev/null || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}" || ok=0
+    grep -q 'usr/share/plymouth/themes/default.plymouth' "${listing}" || ok=0
+    [[ -r /usr/share/kyth/branding/transparent-watermark.png ]] || ok=0
+    cmp -s "${logo}" /usr/share/kyth/branding/transparent-watermark.png || ok=0
+    grep -q '^Theme=kyth$' "${defaults}" || ok=0
+    grep -q '^ShowDelay=0$' "${defaults}" || ok=0
+    grep -q '^DeviceTimeout=8$' "${defaults}" || ok=0
+    if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+        ok=0
+    fi
+    rm -f "${defaults}" "${listing}" "${logo}"
+
+    [[ "${ok}" -eq 1 ]] && return 1
+    return 0
+}
+
+verify_image() {
+    local image=$1
+    local defaults listing logo
+
+    command -v lsinitrd >/dev/null 2>&1 || return 0
+    defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
+    listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
+    logo="$(mktemp /tmp/kyth-plymouth-logo.XXXXXX)"
+
+    lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}" || {
+        echo "ERROR: refreshed initramfs is missing Plymouth defaults: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    lsinitrd -f /usr/share/pixmaps/system-logo-white.png "${image}" > "${logo}" || {
+        echo "ERROR: refreshed initramfs is missing transparent Plymouth system logo: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    lsinitrd "${image}" > "${listing}" || {
+        echo "ERROR: unable to inspect refreshed initramfs: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth theme: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth script: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not contain KythOS Plymouth logo: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q 'usr/share/plymouth/themes/default.plymouth' "${listing}" || {
+        echo "ERROR: refreshed initramfs does not force KythOS as the default Plymouth theme: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    cmp -s "${logo}" /usr/share/kyth/branding/transparent-watermark.png || {
+        echo "ERROR: refreshed initramfs still contains distro Plymouth system logo: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q '^Theme=kyth$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults do not force Theme=kyth: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q '^ShowDelay=0$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults do not draw immediately: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    grep -q '^DeviceTimeout=8$' "${defaults}" || {
+        echo "ERROR: refreshed initramfs Plymouth defaults are missing DeviceTimeout=8: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    }
+    if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
+        echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs: ${image}" >&2
+        rm -f "${defaults}" "${listing}" "${logo}"
+        return 1
+    fi
+
+    rm -f "${defaults}" "${listing}" "${logo}"
+}
+
+current_fingerprint="$(fingerprint_current)"
+collect_images
+
+needs_refresh=0
+if [[ ! -e "${migration_marker}" ]]; then
+    needs_refresh=1
+fi
+if [[ -r "${fingerprint_file}" && "$(cat "${fingerprint_file}")" != "${current_fingerprint}" ]]; then
+    needs_refresh=1
+fi
+if [[ "${#images[@]}" -eq 0 ]]; then
+    needs_refresh=1
+fi
+for image in "${images[@]}"; do
+    if image_needs_refresh "${image}"; then
+        needs_refresh=1
+    fi
+done
+
+if [[ "${needs_refresh}" -eq 0 ]]; then
+    printf '%s\n' "${current_fingerprint}" > "${fingerprint_file}"
+    touch "${migration_marker}"
+    exit 0
 fi
 
 include_root="$(mktemp -d /tmp/kyth-plymouth-initramfs.XXXXXX)"
@@ -1140,14 +1670,26 @@ fi
 mkdir -p \
     "${include_root}/etc/plymouth" \
     "${include_root}/usr/share/plymouth" \
+    "${include_root}/usr/share/pixmaps" \
     "${include_root}/usr/share/plymouth/themes"
-printf '[Daemon]\nTheme=kyth\nShowDelay=1\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
+printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' \
     > "${include_root}/etc/plymouth/plymouthd.conf"
 install -m 0644 \
     "${include_root}/etc/plymouth/plymouthd.conf" \
     "${include_root}/usr/share/plymouth/plymouthd.defaults"
+if [[ -r /usr/share/kyth/branding/transparent-watermark.png ]]; then
+    install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+        "${include_root}/usr/share/pixmaps/system-logo-white.png"
+else
+    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
+        | base64 -d > "${include_root}/usr/share/pixmaps/system-logo-white.png"
+fi
 cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
 ln -sfn kyth/kyth.plymouth "${include_root}/usr/share/plymouth/themes/default.plymouth"
+rm -rf \
+    "${include_root}/usr/share/plymouth/themes/bgrt-fedora" \
+    "${include_root}/usr/share/plymouth/themes/bgrt" \
+    "${include_root}/usr/share/plymouth/themes/spinner"
 
 if [[ -w /etc/plymouth ]]; then
     install -m 0644 "${include_root}/etc/plymouth/plymouthd.conf" /etc/plymouth/plymouthd.conf
@@ -1155,13 +1697,14 @@ fi
 if [[ -w /usr/share/plymouth ]]; then
     install -m 0644 "${include_root}/usr/share/plymouth/plymouthd.defaults" /usr/share/plymouth/plymouthd.defaults
 fi
+if [[ -w /usr/share/pixmaps ]]; then
+    install -m 0644 "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png
+fi
 
-shopt -s nullglob
 rebuilt=0
-for image in /boot/ostree/*/initramfs-*.img; do
+for image in "${images[@]}"; do
     kernel="${image##*/initramfs-}"
     kernel="${kernel%.img}"
-    [[ -d "/usr/lib/modules/${kernel}" ]] || continue
 
     TMPDIR=/var/tmp dracut \
         --tmpdir /var/tmp \
@@ -1173,22 +1716,7 @@ for image in /boot/ostree/*/initramfs-*.img; do
         --include "${include_root}" / \
         "${image}" \
         "${kernel}"
-    if command -v lsinitrd >/dev/null 2>&1; then
-        defaults="$(mktemp /tmp/kyth-plymouth-defaults.XXXXXX)"
-        listing="$(mktemp /tmp/kyth-plymouth-listing.XXXXXX)"
-        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "${image}" > "${defaults}"
-        lsinitrd "${image}" > "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth.plymouth' "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth.script' "${listing}"
-        grep -q 'usr/share/plymouth/themes/kyth/kyth-logo.png' "${listing}"
-        grep -q '^Theme=kyth$' "${defaults}"
-        grep -q '^DeviceTimeout=8$' "${defaults}"
-        if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
-            echo "ERROR: Plymouth fallback theme leaked into refreshed initramfs" >&2
-            exit 1
-        fi
-        rm -f "${defaults}" "${listing}"
-    fi
+    verify_image "${image}"
     rebuilt=1
 done
 
@@ -1199,16 +1727,20 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --force \
         --add "drm plymouth kyth-plymouth" \
         --include "${include_root}" /
+    collect_images
+    for image in "${images[@]}"; do
+        verify_image "${image}"
+    done
 fi
 
-touch /var/lib/kyth/boot-splash-initramfs-v15
+printf '%s\n' "${current_fingerprint}" > "${fingerprint_file}"
+touch "${migration_marker}"
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
 cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
-ConditionPathExists=!/var/lib/kyth/boot-splash-initramfs-v15
 After=local-fs.target
 
 [Service]
@@ -1399,6 +1931,9 @@ systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
 systemctl enable kyth-hw-setup.service 2>/dev/null || true
+systemctl enable kyth-update-watcher.timer 2>/dev/null || true
+systemctl --global enable kyth-sched.service 2>/dev/null || true
+systemctl --global enable kyth-telem.service 2>/dev/null || true
 
 # ── Steam first-run notification ─────────────────────────────────────────────
 # Wrap the Steam launcher so that on the very first launch, a passive popup

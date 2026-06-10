@@ -339,10 +339,27 @@ build: build-base
     REGISTRY="${REGISTRY:-ghcr.io/mrtrick37/kyth}"
     BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
     CACHE_BRANCH=$([ "${BRANCH}" = "testing" ] && echo "testing" || echo "main")
-    GE_PROTON_VER=$(curl -fsSL "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
-        | python3 -c 'import sys, json; print(json.load(sys).get("tag_name", ""))' \
-        2>/dev/null || true)
+
+    # Fetch GE-Proton and the five thirdparty tool versions in parallel so the
+    # total wait is the slowest single request instead of the sum of all requests.
+    _GH_API() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" \
+        | python3 -c 'import sys,json; print(json.load(sys).get("tag_name","unknown"))' \
+        2>/dev/null || echo unknown; }
+    _ge_tmp=$(mktemp) _tp_tmp=$(mktemp)
+    ( _GH_API GloriousEggroll/proton-ge-custom > "${_ge_tmp}" ) &
+    (
+        _top=$(_GH_API topgrade-rs/topgrade)
+        _wtx=$(_GH_API Winetricks/winetricks)
+        _umu=$(_GH_API Open-Wine-Components/umu-launcher)
+        _lfx=$(_GH_API ishitatsuyuki/LatencyFleX)
+        _scx=$(_GH_API sched-ext/scx)
+        printf '%s' "${_top}${_wtx}${_umu}${_lfx}${_scx}" | sha256sum | cut -c1-16 > "${_tp_tmp}"
+    ) &
+    wait
+    GE_PROTON_VER=$(cat "${_ge_tmp}"); rm -f "${_ge_tmp}"
+    THIRDPARTY_VERSIONS_HASH=$(cat "${_tp_tmp}"); rm -f "${_tp_tmp}"
     echo "GE-Proton: ${GE_PROTON_VER:-latest}"
+    echo "Thirdparty hash: ${THIRDPARTY_VERSIONS_HASH}"
     MOK_SECRET_ARG=()
     SECUREBOOT_SIGNING_REQUESTED=0
     if [[ -n "${MOK_KEY_FILE:-}" && ! -f "${MOK_KEY_FILE}" ]]; then
@@ -364,6 +381,7 @@ build: build-base
         --build-arg ENABLE_ANANICY="${ENABLE_ANANICY:-1}" \
         --build-arg ENABLE_SCX="${ENABLE_SCX:-1}" \
         --build-arg GE_PROTON_VER="${GE_PROTON_VER}" \
+        --build-arg THIRDPARTY_VERSIONS_HASH="${THIRDPARTY_VERSIONS_HASH}" \
         --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
         --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
         "${MOK_SECRET_ARG[@]}" \

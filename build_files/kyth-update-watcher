@@ -1,0 +1,348 @@
+#!/usr/bin/env python3
+"""
+kyth-update-watcher — intelligent bootc update scheduler for KythOS.
+
+Runs as a system service (root), invoked periodically by a systemd timer.
+Checks a set of safety conditions before staging a bootc upgrade so that
+updates never interrupt gaming, never saturate a metered connection, and
+never fire during user-configured quiet hours.
+
+Config:  /etc/kyth/auto-update.toml
+Status:  /var/lib/kyth/update-watcher-status.json  (read by System Hub)
+
+Design: oneshot script — examine conditions, run or skip, write status, exit.
+"""
+from __future__ import annotations
+
+import grp
+import json
+import logging
+import os
+import pwd
+import re
+import subprocess
+import sys
+import time
+import tomllib
+from datetime import datetime, time as dtime
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Defaults
+# ---------------------------------------------------------------------------
+
+LOG = logging.getLogger("kyth-update-watcher")
+
+STATUS_PATH = Path("/var/lib/kyth/update-watcher-status.json")
+
+DEFAULT_CONFIG: dict = {
+    "enabled":            True,
+    "quiet_hours_start":  "02:00",  # 24-h local time
+    "quiet_hours_end":    "07:00",
+    "skip_if_metered":    True,
+    "skip_if_gaming":     True,
+    "startup_grace_minutes": 20,
+    "bootc_timeout":      1800,     # seconds; a full OCI pull can take a while
+}
+
+SKIP_REASONS = []
+
+
+# ---------------------------------------------------------------------------
+# Config
+# ---------------------------------------------------------------------------
+
+def load_config() -> dict:
+    p = Path("/etc/kyth/auto-update.toml")
+    if p.exists():
+        try:
+            with open(p, "rb") as f:
+                data = tomllib.load(f)
+            return {**DEFAULT_CONFIG, **data.get("auto_update", data)}
+        except Exception as exc:
+            LOG.warning("Could not read config %s: %s", p, exc)
+    return DEFAULT_CONFIG.copy()
+
+
+# ---------------------------------------------------------------------------
+# Safety checks
+# ---------------------------------------------------------------------------
+
+def check_enabled(cfg: dict) -> str | None:
+    if not cfg.get("enabled", True):
+        return "auto-update disabled in config"
+    return None
+
+
+def check_quiet_hours(cfg: dict) -> str | None:
+    start_str = cfg.get("quiet_hours_start", "02:00")
+    end_str   = cfg.get("quiet_hours_end",   "07:00")
+    try:
+        h, m = map(int, start_str.split(":"))
+        start = dtime(h, m)
+        h, m = map(int, end_str.split(":"))
+        end = dtime(h, m)
+    except (ValueError, AttributeError):
+        return None
+
+    now = datetime.now().time().replace(second=0, microsecond=0)
+    if start <= end:
+        in_quiet = start <= now < end
+    else:  # wraps midnight
+        in_quiet = now >= start or now < end
+
+    if in_quiet:
+        return f"quiet hours ({start_str}–{end_str})"
+    return None
+
+
+def check_startup_grace(cfg: dict) -> str | None:
+    try:
+        grace_minutes = int(cfg.get("startup_grace_minutes", 20))
+    except (TypeError, ValueError):
+        return None
+    if grace_minutes <= 0:
+        return None
+
+    try:
+        uptime_seconds = float(Path("/proc/uptime").read_text().split()[0])
+    except Exception:
+        return None
+
+    grace_seconds = grace_minutes * 60
+    if uptime_seconds < grace_seconds:
+        remaining = max(1, int((grace_seconds - uptime_seconds + 59) // 60))
+        return f"startup grace period ({remaining} min remaining)"
+    return None
+
+
+def _active_uids() -> list[int]:
+    """Return UIDs with active systemd user sessions."""
+    try:
+        r = subprocess.run(
+            ["loginctl", "list-sessions", "--no-legend", "--no-pager"],
+            capture_output=True, text=True, timeout=5,
+        )
+        uids: list[int] = []
+        for line in r.stdout.splitlines():
+            parts = line.split()
+            if len(parts) >= 3:
+                try:
+                    uids.append(int(parts[2]))
+                except ValueError:
+                    pass
+        return list(set(uids))
+    except Exception:
+        return []
+
+
+def check_gaming(cfg: dict) -> str | None:
+    if not cfg.get("skip_if_gaming", True):
+        return None
+
+    # Check gamescope-session.lock for every active user
+    for uid in _active_uids():
+        lock = Path(f"/run/user/{uid}/gamescope-session.lock")
+        if lock.exists():
+            return f"gamescope session active (uid {uid})"
+
+    # Check GameMode via busctl for every active user session
+    for uid in _active_uids():
+        try:
+            env = {**os.environ, "DBUS_SESSION_BUS_ADDRESS": f"unix:path=/run/user/{uid}/bus"}
+            r = subprocess.run(
+                [
+                    "busctl", "--user",
+                    "--address", f"unix:path=/run/user/{uid}/bus",
+                    "call",
+                    "com.feralinteractive.GameMode",
+                    "/com/feralinteractive/GameMode",
+                    "com.feralinteractive.GameMode",
+                    "QueryStatus", "i", "0",
+                ],
+                capture_output=True, text=True, timeout=3, env=env, check=False,
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                val = r.stdout.strip().split()[-1]
+                if int(val) > 0:
+                    return f"GameMode active (uid {uid})"
+        except Exception:
+            pass
+
+    # Scan /proc for gamescope or pressure-vessel (indicates game running)
+    gaming_exes = frozenset({"gamescope", "pressure-vessel-wrap"})
+    try:
+        for entry in os.scandir("/proc"):
+            if not entry.name.isdigit():
+                continue
+            try:
+                exe = Path(os.readlink(f"/proc/{entry.name}/exe")).name
+                if exe in gaming_exes:
+                    return "gaming process detected (/proc scan)"
+            except OSError:
+                pass
+    except OSError:
+        pass
+
+    return None
+
+
+def check_metered(cfg: dict) -> str | None:
+    if not cfg.get("skip_if_metered", True):
+        return None
+    try:
+        r = subprocess.run(
+            ["busctl", "get-property",
+             "org.freedesktop.NetworkManager",
+             "/org/freedesktop/NetworkManager",
+             "org.freedesktop.NetworkManager",
+             "Metered"],
+            capture_output=True, text=True, timeout=5,
+        )
+        # "u 2" = yes metered, "u 4" = guessed metered; "u 1" or "u 3" = unmetered or guessed
+        if r.returncode == 0:
+            val = r.stdout.strip().split()[-1]
+            if val in ("2", "4"):
+                return "network connection is metered"
+    except Exception:
+        pass
+    return None
+
+
+# ---------------------------------------------------------------------------
+# User notifications
+# ---------------------------------------------------------------------------
+
+def _notify_staged_update() -> None:
+    """Send a desktop notification to each logged-in user session after staging."""
+    for uid in _active_uids():
+        try:
+            pw = pwd.getpwuid(uid)
+        except KeyError:
+            continue
+        env = {
+            "DBUS_SESSION_BUS_ADDRESS": f"unix:path=/run/user/{uid}/bus",
+            "XDG_RUNTIME_DIR": f"/run/user/{uid}",
+            "HOME": pw.pw_dir,
+            "USER": pw.pw_name,
+            "LOGNAME": pw.pw_name,
+            "PATH": "/usr/bin:/bin",
+        }
+        def _drop_privs(uid: int = uid, gid: int = pw.pw_gid) -> None:
+            os.setgroups([])
+            os.setgid(gid)
+            os.setuid(uid)
+        try:
+            subprocess.Popen(
+                [
+                    "notify-send",
+                    "--app-name=KythOS",
+                    "--icon=software-update-available",
+                    "--urgency=normal",
+                    "KythOS update ready",
+                    "New OS image staged. Restart when you are ready to apply it.",
+                ],
+                env=env,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                preexec_fn=_drop_privs,
+            )
+        except Exception as exc:
+            LOG.debug("Could not notify uid %d: %s", uid, exc)
+
+
+# ---------------------------------------------------------------------------
+# Update
+# ---------------------------------------------------------------------------
+
+def run_bootc_upgrade(timeout: int) -> tuple[bool, str]:
+    try:
+        r = subprocess.run(
+            ["bootc", "upgrade"],
+            capture_output=True, text=True,
+            timeout=timeout, check=False,
+        )
+        output = (r.stdout + r.stderr).strip()
+        return r.returncode == 0, output
+    except subprocess.TimeoutExpired:
+        return False, f"bootc upgrade timed out after {timeout}s"
+    except FileNotFoundError:
+        return False, "bootc not found"
+
+
+# ---------------------------------------------------------------------------
+# Status
+# ---------------------------------------------------------------------------
+
+def write_status(result: str, reason: str | None, output: str = "", ts: int | None = None) -> None:
+    STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        STATUS_PATH.write_text(json.dumps({
+            "result":     result,   # "skipped" | "upgraded" | "error" | "no_change"
+            "reason":     reason,
+            "output":     output[-2000:],  # last 2k chars of bootc output
+            "ts":         ts or int(time.time()),
+        }))
+    except OSError as exc:
+        LOG.warning("Could not write status: %s", exc)
+
+
+def read_last_status() -> dict:
+    try:
+        return json.loads(STATUS_PATH.read_text())
+    except Exception:
+        return {}
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(name)s: %(levelname)s %(message)s",
+        stream=sys.stderr,
+    )
+
+    if os.geteuid() != 0:
+        LOG.error("kyth-update-watcher must run as root")
+        sys.exit(1)
+
+    cfg = load_config()
+
+    checks = [
+        check_enabled,
+        check_startup_grace,
+        check_quiet_hours,
+        check_gaming,
+        check_metered,
+    ]
+
+    for check in checks:
+        reason = check(cfg)
+        if reason:
+            LOG.info("Skipping update: %s", reason)
+            write_status("skipped", reason)
+            sys.exit(0)
+
+    LOG.info("All checks passed — running bootc upgrade")
+    start_ts = int(time.time())
+    ok, output = run_bootc_upgrade(cfg["bootc_timeout"])
+
+    if ok:
+        if "No update available" in output or "already up to date" in output.lower():
+            LOG.info("System already up to date")
+            write_status("no_change", None, output, start_ts)
+        else:
+            LOG.info("Upgrade staged successfully")
+            write_status("upgraded", None, output, start_ts)
+            _notify_staged_update()
+    else:
+        LOG.error("bootc upgrade failed: %s", output[:500])
+        write_status("error", output[:500], output, start_ts)
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()

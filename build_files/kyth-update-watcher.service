@@ -1,0 +1,21 @@
+[Unit]
+Description=KythOS intelligent update watcher (oneshot)
+Documentation=https://github.com/mrtrick37/kyth
+After=network-online.target
+Wants=network-online.target
+ConditionACPower=true
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-update-watcher
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=kyth-update-watcher
+# Runs as root; bootc upgrade requires it
+User=root
+
+# Give the upgrade plenty of time (large container layers on slow connections)
+TimeoutStartSec=2400
+# Keep automatic staging from competing with the foreground desktop.
+Nice=10
+IOSchedulingClass=idle

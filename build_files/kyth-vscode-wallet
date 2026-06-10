@@ -1,39 +1,70 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Configure VS Code to use KWallet6 for secret storage.
-# Native RPM installs use ~/.config/Code/argv.json.
+# Keep Chromium/Electron apps from opening KWallet on startup.
+# VS Code reads argv.json. Native Brave and Flatpak Brave use Chromium-family
+# flag files; the Flatpak wrapper nests them under Brave's Cobalt ConfigDir and
+# may migrate from chrome-flags.conf. The "basic" password store is quiet/local.
 
-write_argv() {
-    local path="$1"
-    mkdir -p "$(dirname "${path}")"
+target_home="${HOME:?HOME must be set}"
+export KYTH_WALLET_HOME="${target_home}"
 
-    if command -v python3 >/dev/null 2>&1; then
-        python3 - "${path}" <<'PY'
+python3 <<'PY'
 import json
-import pathlib
-import sys
+import os
+from pathlib import Path
 
-path = pathlib.Path(sys.argv[1])
-try:
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict):
+home = Path(os.environ["KYTH_WALLET_HOME"])
+
+
+def write_code_argv(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+    except Exception:
         data = {}
-except Exception:
-    data = {}
 
-data["password-store"] = "kwallet6"
-path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    data["password-store"] = "basic"
+    path.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+
+
+def write_chromium_flags(path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        lines = path.read_text(encoding="utf-8").splitlines()
+    except FileNotFoundError:
+        lines = []
+
+    updated = []
+    wrote_password_store = False
+    for line in lines:
+        stripped = line.strip()
+        if stripped.startswith("--password-store=") or stripped.startswith("password-store="):
+            if not wrote_password_store:
+                updated.append("--password-store=basic")
+                wrote_password_store = True
+            continue
+        updated.append(line)
+
+    if not wrote_password_store:
+        updated.append("--password-store=basic")
+
+    path.write_text("\n".join(updated).rstrip() + "\n", encoding="utf-8")
+
+
+write_code_argv(home / ".config" / "Code" / "argv.json")
+for flags_path in (
+    home / ".config" / "brave-flags.conf",
+    home / ".config" / "BraveSoftware" / "Brave-Browser" / "brave-flags.conf",
+    home / ".config" / "BraveSoftware" / "Brave-Browser" / "chrome-flags.conf",
+    home / ".var" / "app" / "com.brave.Browser" / "config" / "brave-flags.conf",
+    home / ".var" / "app" / "com.brave.Browser" / "config" / "chrome-flags.conf",
+    home / ".var" / "app" / "com.brave.Browser" / "config" / "BraveSoftware" / "Brave-Browser" / "brave-flags.conf",
+    home / ".var" / "app" / "com.brave.Browser" / "config" / "BraveSoftware" / "Brave-Browser" / "chrome-flags.conf",
+):
+    write_chromium_flags(flags_path)
 PY
-    else
-        cat > "${path}" <<'EOF'
-{
-  "password-store": "kwallet6"
-}
-EOF
-    fi
-}
 
-write_argv "${HOME}/.config/Code/argv.json"
-
-echo "VS Code wallet integration configured for ${USER:-this user}."
+echo "VS Code and Brave wallet prompts disabled for ${USER:-this user}."

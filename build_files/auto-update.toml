@@ -1,0 +1,28 @@
+# KythOS automatic update configuration
+# Managed by: kyth-update-watcher (system timer, roughly every 6 hours)
+# Edit this file or use the System Hub → Updates page to configure.
+
+[auto_update]
+# Set to false to disable automatic staging entirely
+enabled = true
+
+# Do not run during these local wall-clock hours (24h format)
+# Default: stage between 07:00 and 02:00 (i.e. skip 02:00–07:00)
+quiet_hours_start = "02:00"
+quiet_hours_end   = "07:00"
+
+# Skip staging if the active network connection is metered
+# (detected via NetworkManager D-Bus Metered property)
+skip_if_metered = true
+
+# Skip staging if a game is currently running
+# (checked via GameMode D-Bus, gamescope lock file, and /proc scan)
+skip_if_gaming = true
+
+# Skip automatic staging shortly after boot/login so first-login setup, desktop
+# startup, and user-launched apps get the machine first.
+startup_grace_minutes = 20
+
+# Timeout in seconds for a single bootc upgrade call
+# A full OCI layer pull on a slow connection can take 20–30 minutes
+bootc_timeout = 1800

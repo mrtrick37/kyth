@@ -95,16 +95,39 @@ PY
 # Install a full system codec stack so common local playback, browser media,
 # and creator workflows work without extra setup.  RPM Fusion provides the
 # patent-encumbered pieces Fedora does not ship by default.
-# gstreamer1-plugins-bad-freeworld conflicts with Fedora's
-# gstreamer1-plugins-bad; ensure we prefer the RPM Fusion variant.
+#
+# Package rationale:
+#   gstreamer1-plugins-good      — Fedora "good" tier: OGG/Vorbis, FLAC, WAV,
+#     AIFF, MP4/isomp4, MKV/Matroska, WebM, AVI, VP8, QuickTime. Not pulled in
+#     transitively — without it KDE Elisa, Gwenview, and any GStreamer-based app
+#     cannot open these common formats.
+#   gstreamer1-plugins-bad-freeworld — RPM Fusion nonfree: H.264 encode (x264),
+#     HEVC encode (x265), and other patent-encumbered encoders/decoders.
+#   gstreamer1-plugins-ugly      — RPM Fusion free: MP3 decode (mad), MPEG-1/2
+#     A/V, AC3 (Dolby Digital).
+#   gstreamer1-libav             — ffmpeg-backed GStreamer plugin; handles
+#     virtually every container/codec ffmpeg supports.
+#   gstreamer1-vaapi             — GStreamer VA-API plugin (vaapidecode element).
+#     The VA-API driver backends (iHD, radeonsi_drv_video.so) are already
+#     installed; without this plugin GStreamer apps do software decode even on
+#     capable hardware.
+#   NOTE: pipewire-codec-aptx (RPM Fusion nonfree) was removed. PipeWire 1.6.5
+#     on Fedora 44 ships pipewire-libs-extra which bundles aptX/aptX-HD and LDAC
+#     natively — the RPM Fusion package conflicts with the same file path.
+#
+# gstreamer1-plugins-bad-freeworld conflicts with Fedora's stock
+# gstreamer1-plugins-bad; remove the stock build first, then install the RPM
+# Fusion replacement with --allowerasing.
 dnf5 remove -y gstreamer1-plugins-bad || true
 dnf5 install -y --allowerasing --skip-unavailable --exclude=gstreamer1-plugins-bad \
 	ffmpeg \
 	ffmpegthumbnailer \
+	gstreamer1-plugins-good \
 	gstreamer1-plugin-openh264 \
 	gstreamer1-plugins-bad-freeworld \
 	gstreamer1-plugins-ugly \
 	gstreamer1-libav \
+	gstreamer1-vaapi \
 	mozilla-openh264 \
 	mpv
 
@@ -123,6 +146,7 @@ dnf5 install -y --skip-unavailable \
 	irqbalance \
 	p7zip \
 	p7zip-plugins \
+	cabextract \
 	ntfs-3g \
 	ntfsprogs \
 	cifs-utils \
@@ -224,6 +248,12 @@ optional_gaming_packages=(
 	corectrl
 	akmod-v4l2loopback
 	v4l2loopback
+	joycond
+	gamescope-session-plus
+	openrgb
+	libwacom
+	libwacom-data
+	hplip
 )
 
 install_available_optional_packages() {
@@ -472,6 +502,8 @@ optional_desktop_packages=(
 	jetbrains-mono-fonts
 	cascadia-code-fonts
 	liberation-fonts-all
+	inter-fonts
+	papirus-icon-theme
 )
 
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"
@@ -481,8 +513,13 @@ install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
 #   SourceForge at install time, which is unreliable in CI builds.
-# OpenRGB stays opt-in through System Hub so hardware-specific controls do not
-# clutter a fresh desktop. The Flatpak install path grants device access.
+# openrgb: RGB peripheral control installed by default; udev rules grant LED device
+#   access to the logged-in user. Autostarted at login via XDG autostart entry.
+# libwacom/libwacom-data: tablet pressure-curve database used by KWin/libinput on
+#   Wayland for Wacom and Wacom-compatible tablets. Without this, pressure sensitivity
+#   maps incorrectly and drawing feels like a binary on/off signal.
+# hplip: HP printer driver stack. Auto-detects most HP USB/network printers without
+#   manual CUPS configuration.
 # input-remapper is already installed in the gaming packages block above.
 
 # ── VS Code ───────────────────────────────────────────────────────────────────

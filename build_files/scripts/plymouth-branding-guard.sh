@@ -8,6 +8,12 @@ source_svg="${1:-}"
 asset_dir=/usr/share/kyth/branding
 transparent_svg="${asset_dir}/transparent-watermark.svg"
 transparent_png="${asset_dir}/transparent-watermark.png"
+pixmaps_dir=/usr/share/pixmaps
+plymouth_conf='[Daemon]
+Theme=kyth
+ShowDelay=0
+DeviceTimeout=8
+UseFirmwareBackground=false'
 
 mkdir -p "${asset_dir}"
 if [[ -n "${source_svg}" && -r "${source_svg}" ]]; then
@@ -26,6 +32,9 @@ elif [[ ! -r "${transparent_png}" ]]; then
     printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
         | base64 -d > "${transparent_png}"
 fi
+
+mkdir -p "${pixmaps_dir}"
+install -m 0644 "${transparent_png}" "${pixmaps_dir}/system-logo-white.png"
 
 for theme_dir in \
     /usr/share/plymouth/themes/spinner \
@@ -56,29 +65,12 @@ for theme_dir in \
     done
 done
 
-# Remove both Fedora-branded and plain bgrt themes from the system filesystem.
-# The bgrt theme can render the firmware BGRT image, which may still be Fedora
-# artwork from the inherited boot path. Removing it leaves only KythOS or text.
-rm -rf /usr/share/plymouth/themes/bgrt-fedora
-rm -rf /usr/share/plymouth/themes/bgrt
-plymouth-set-default-theme kyth
+install_kyth_plymouth_dracut_module() {
+    rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
 
-# Keep host-side Plymouth config explicit too. Fedora's dracut Plymouth module
-# reads these files before our late kyth-plymouth module reinforces the initramfs.
-mkdir -p /etc/plymouth /usr/share/plymouth
-cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
-[Daemon]
-Theme=kyth
-ShowDelay=1
-DeviceTimeout=8
-UseFirmwareBackground=false
-PLYMOUTHCONF
-install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
-
-rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
-kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth
-mkdir -p "${kyth_plymouth_dracut_dir}"
-cat > "${kyth_plymouth_dracut_dir}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+    local kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth
+    mkdir -p "${kyth_plymouth_dracut_dir}"
+    cat > "${kyth_plymouth_dracut_dir}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash
 
 check() {
@@ -93,27 +85,30 @@ depends() {
 install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
+        "${initdir}/usr/share/plymouth" \
+        "${initdir}/usr/share/pixmaps" \
         "${initdir}/usr/share/plymouth/themes"
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHDEFAULTS
-    ln -sfn kyth/kyth.plymouth \
-        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth" \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \
         "${initdir}/usr/share/plymouth/themes/spinner"
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /usr/libexec/kyth-plymouth-branding-guard \
@@ -122,21 +117,45 @@ PLYMOUTHDEFAULTS
         /usr/share/plymouth/themes/kyth/kyth-logo.png
     inst_multiple -o \
         /etc/os-release \
-        /usr/lib/os-release
+        /usr/lib/os-release \
+        /usr/share/kyth/branding/transparent-watermark.svg \
+        /usr/share/kyth/branding/transparent-watermark.png
+    rm -f "${initdir}/usr/share/pixmaps/system-logo-white.png"
+    inst_simple \
+        /usr/share/kyth/branding/transparent-watermark.png \
+        /usr/share/pixmaps/system-logo-white.png
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
 }
 KYTHPLYMOUTHEOF
-chmod 0755 "${kyth_plymouth_dracut_dir}/module-setup.sh"
+    chmod 0755 "${kyth_plymouth_dracut_dir}/module-setup.sh"
+}
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-            /etc/dracut.conf.d/99-kyth.conf
-        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
-    fi
+    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 else
     cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+
+# Remove both Fedora-branded and plain bgrt themes from the system filesystem.
+# The bgrt theme can render the firmware BGRT image, which may still be Fedora
+# artwork from the inherited boot path. Removing it leaves only KythOS or text.
+rm -rf /usr/share/plymouth/themes/bgrt-fedora
+rm -rf /usr/share/plymouth/themes/bgrt
+plymouth-set-default-theme kyth
+
+# Keep host-side Plymouth config explicit too. Fedora's dracut Plymouth module
+# reads these files before our late kyth-plymouth module reinforces the initramfs.
+mkdir -p /etc/plymouth /usr/share/plymouth
+printf '%s\n' "${plymouth_conf}" > /etc/plymouth/plymouthd.conf
+install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
+
+install_kyth_plymouth_dracut_module

@@ -174,6 +174,69 @@ LANG=en_US.UTF-8
 LC_TIME=en_US.UTF-8
 LOCALEEOF
 
+# ── KDE Plasma locale: force English for all users ───────────────────────────
+# KDE applications (including Discover) use their own locale stack: they read
+# plasma-localerc → [Translations] LANGUAGE before falling back to the system
+# LANG. Without an explicit entry, KDE may pick whichever AppStream translation
+# lands first in the XML (historically Arabic for some packages). Seed the
+# system-wide XDG default and the per-user skel so that every session starts
+# with English metadata display regardless of LANG propagation timing.
+mkdir -p /etc/xdg /etc/skel/.config
+cat >/etc/xdg/plasma-localerc <<'PLASMALOCALEEOF'
+[Formats]
+LC_TIME=en_US.UTF-8
+
+[Translations]
+LANGUAGE=en_US
+PLASMALOCALEEOF
+cp /etc/xdg/plasma-localerc /etc/skel/.config/plasma-localerc
+
+# ── Office MIME defaults → LibreOffice ───────────────────────────────────────
+# Without explicit system defaults, KDE's file manager and browser downloads
+# open .docx/.xlsx/.pptx files with "Open With…" dialogs or pick the wrong app.
+# Map all Microsoft Office and ODF types to the corresponding LibreOffice
+# Flatpak sub-app so the right component opens directly (Writer, not the
+# LibreOffice Start Center for a .docx).
+cat >/etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+[Default Applications]
+application/msword=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.openxmlformats-officedocument.wordprocessingml.document=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.ms-word.document.macroenabled.12=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.ms-excel=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.openxmlformats-officedocument.spreadsheetml.sheet=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.ms-excel.sheet.macroenabled.12=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.ms-powerpoint=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.openxmlformats-officedocument.presentationml.presentation=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.ms-powerpoint.presentation.macroenabled.12=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.oasis.opendocument.text=org.libreoffice.LibreOffice.writer.desktop
+application/vnd.oasis.opendocument.spreadsheet=org.libreoffice.LibreOffice.calc.desktop
+application/vnd.oasis.opendocument.presentation=org.libreoffice.LibreOffice.impress.desktop
+application/vnd.oasis.opendocument.graphics=org.libreoffice.LibreOffice.draw.desktop
+application/rtf=org.libreoffice.LibreOffice.writer.desktop
+text/rtf=org.libreoffice.LibreOffice.writer.desktop
+text/csv=org.libreoffice.LibreOffice.calc.desktop
+MIMEAPPSEOF
+
+# ── KWin VRR policy — Automatic (fullscreen / direct scanout) ────────────────
+# KDE Plasma ships with VRR disabled (VrrPolicy=0 / Never). Gaming users expect
+# their 144 Hz / VRR monitor to actually use variable refresh in games.
+# "Automatic" (1) enables VRR only when KWin hands a surface directly to the
+# display (fullscreen / direct scanout) — i.e., during games — and reverts to
+# fixed rate on the desktop. "Always" (2) would enable VRR even on composited
+# desktop, which causes flicker artifacts on some panels and wastes panel power.
+mkdir -p /etc/xdg
+cat >/etc/xdg/kwinrc <<'KWINRCEOF'
+[Effect-blur]
+BlurStrength=7
+NoiseStrength=0
+
+[Plugins]
+blurEnabled=true
+
+[Wayland]
+VrrPolicy=1
+KWINRCEOF
+
 # ── Transparent Huge Pages → madvise ─────────────────────────────────────────
 # 'always' (kernel default) forces THP on all allocations and causes stutter.
 # 'madvise' lets apps that benefit (e.g. JVMs, some game engines) opt in.
@@ -513,6 +576,52 @@ cat >/etc/NetworkManager/conf.d/wifi-powersave-off.conf <<'NMEOF'
 wifi.powersave = 2
 NMEOF
 
+# Prefer the last Wi-Fi profile that connected successfully. NetworkManager
+# already honors connection.autoconnect-priority; this dispatcher just keeps the
+# most recently proven Wi-Fi profile at the front of the autoconnect list.
+mkdir -p /etc/NetworkManager/dispatcher.d
+cat >/etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi <<'NMDISPEOF'
+#!/usr/bin/env bash
+set -u
+
+action="${2:-${NM_DISPATCHER_ACTION:-}}"
+case "${action}" in
+    up) ;;
+    *) exit 0 ;;
+esac
+
+command -v nmcli >/dev/null 2>&1 || exit 0
+
+uuid="${CONNECTION_UUID:-}"
+[[ -n "${uuid}" ]] || exit 0
+
+type="$(nmcli -g connection.type connection show "${uuid}" 2>/dev/null || true)"
+case "${type}" in
+    802-11-wireless|wifi) ;;
+    *) exit 0 ;;
+esac
+
+autoconnect="$(nmcli -g connection.autoconnect connection show "${uuid}" 2>/dev/null || true)"
+[[ "${autoconnect}" != "no" ]] || exit 0
+
+nmcli connection modify "${uuid}" connection.autoconnect-priority 100 >/dev/null 2>&1 || exit 0
+
+while IFS=: read -r other_uuid other_type; do
+    [[ -n "${other_uuid}" && "${other_uuid}" != "${uuid}" ]] || continue
+    case "${other_type}" in
+        802-11-wireless|wifi) ;;
+        *) continue ;;
+    esac
+
+    priority="$(nmcli -g connection.autoconnect-priority connection show "${other_uuid}" 2>/dev/null || echo 0)"
+    [[ "${priority}" =~ ^-?[0-9]+$ ]] || priority=0
+    if (( priority >= 100 )); then
+        nmcli connection modify "${other_uuid}" connection.autoconnect-priority 90 >/dev/null 2>&1 || true
+    fi
+done < <(nmcli -t -f UUID,TYPE connection show 2>/dev/null || true)
+NMDISPEOF
+chmod 0755 /etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi
+
 # ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
@@ -558,16 +667,16 @@ ACTION=="add|change", KERNEL=="vd[a-z]*", ATTR{queue/scheduler}="mq-deadline"
 IOEOF
 
 # ── PipeWire low-latency audio ─────────────────────────────────────────────────
-# 128 samples at 48 kHz = ~2.7 ms latency — low enough to eliminate perceptible
-# audio lag in games while staying stable on typical hardware.
-# min-quantum=32 lets pro-audio apps request sub-1 ms when needed.
+# 256 samples at 48 kHz = ~5.3 ms latency — still responsive for games while
+# giving Bluetooth, USB audio, and busy CPUs more underrun headroom.
+# min-quantum=64 lets pro-audio apps request lower latency when needed.
 # Apps that need higher buffering (e.g. Bluetooth) negotiate up automatically.
 mkdir -p /etc/pipewire/pipewire.conf.d
 cat >/etc/pipewire/pipewire.conf.d/99-kyth.conf <<'PWEOF'
 context.properties = {
     default.clock.rate          = 48000
-    default.clock.quantum       = 128
-    default.clock.min-quantum   = 32
+    default.clock.quantum       = 256
+    default.clock.min-quantum   = 64
     default.clock.max-quantum   = 8192
     # Allow PipeWire to switch between 44100 and 48000 Hz rather than resampling.
     # Without this, a game or app that outputs at 44100 Hz forces the entire graph
@@ -576,6 +685,62 @@ context.properties = {
     default.clock.allowed-rates = [ 44100 48000 ]
 }
 PWEOF
+
+# ── WirePlumber audio policy ───────────────────────────────────────────────────
+# Two concerns addressed here:
+#   1. Bluetooth codec quality: pipewire-libs-extra ships LDAC and aptX, but
+#      WirePlumber defaults to SBC when codec order is unspecified.  Listing
+#      LDAC first forces codec negotiation to prefer it (990 kbps HQ mode)
+#      before falling back to aptX HD → aptX → AAC → SBC XQ → SBC.
+#   2. Device priority: USB audio and Bluetooth get higher session priority than
+#      built-in speakers, so plugging in a headset makes it the active output
+#      without a manual switch in the volume mixer.
+mkdir -p /etc/wireplumber/wireplumber.conf.d
+cat >/etc/wireplumber/wireplumber.conf.d/99-kyth-audio.conf <<'WPEOF'
+# Automatically switch to headset Bluetooth profile (A2DP → HFP) when a call
+# application opens a mic/output pair.  Without this, Bluetooth headsets stay
+# in A2DP (stereo playback) and mic input fails silently in Discord/Teams.
+wireplumber.settings = {
+  bluetooth.autoswitch-to-headset-profile = true
+}
+
+# Bluetooth codec negotiation order — LDAC first, SBC last.
+# Applies to every Bluetooth audio card that WirePlumber discovers.
+monitor.bluez.rules = [
+  {
+    matches = [{ device.name = "~bluez_card.*" }]
+    actions = {
+      update-props = {
+        bluez5.codecs           = [ ldac aptx_hd aptx aac sbc_xq sbc ]
+        bluez5.a2dp.ldac.quality = hq
+        bluez5.auto-connect     = [ a2dp_sink hfp_ag hsp_ag ]
+      }
+    }
+  }
+]
+
+# Device session priority: Bluetooth (200) > USB audio (150) > built-in (100).
+# When WirePlumber has no saved default for a session, the highest-priority
+# available device wins — so plugging in a USB headset or Bluetooth headphones
+# makes them the active output without opening the volume mixer.
+monitor.alsa.rules = [
+  {
+    matches = [{ device.name = "~alsa_card.usb*" }]
+    actions = { update-props = { priority.session = 150 } }
+  }
+  {
+    matches = [{ device.name = "~alsa_card.pci*" }]
+    actions = { update-props = { priority.session = 100 } }
+  }
+]
+
+monitor.bluez.rules = [
+  {
+    matches = [{ node.name = "~bluez_output.*" }]
+    actions = { update-props = { priority.session = 200 } }
+  }
+]
+WPEOF
 
 # ── Proton / RADV environment variables ───────────────────────────────────────
 # PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
@@ -611,11 +776,12 @@ PROTON_NO_WINDOWS_CRASH_DIALOG=1
 DXVK_LOG_LEVEL=none
 PROTONEOF
 
-# obs-vkcapture: make game capture available by default for OBS users. The layer
-# is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
-# a Nobara-like "works without launch-option archaeology" setup.
+# obs-vkcapture is available, but do not inject it into every desktop process by
+# default. Global capture hooks are convenient for streamers, but they can become
+# another compatibility variable for games and GPU apps. `ujust install-obs`
+# enables OBS_VKCAPTURE for the OBS Flatpak specifically.
 cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
-OBS_VKCAPTURE=1
+# OBS_VKCAPTURE intentionally left unset globally.
 OBSVKCAPTUREEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
@@ -645,10 +811,42 @@ DefaultLimitNOFILE=1048576' >/etc/systemd/system.conf.d/99-kyth-limits.conf
 echo '[Manager]
 DefaultLimitNOFILE=1048576' >/etc/systemd/user.conf.d/99-kyth-limits.conf
 
-# ── VS Code / Brave: quiet local secret store ────────────────────────────────
-# Seed new users with local password-store defaults so Code and Brave do not
-# open KWallet on first launch.
+# ── VS Code: avoid KWallet password prompts ──────────────────────────────────
+# Seed new users with argv.json pointing at VS Code's basic password store.
+# KWallet PAM unlock is fragile across autologin/session restore paths; the
+# local encrypted-at-rest desktop is less annoying when apps do not wake KWallet.
 HOME=/etc/skel /ctx/kyth-vscode-wallet
+
+# ── KWallet: login-unlocked session defaults ─────────────────────────────────
+# KWallet's normal low-friction path is a wallet named "kdewallet" protected by
+# the login password and opened by kwallet-pam during graphical login. Keep that
+# wallet open for the desktop session so Electron/Chromium apps do not trigger a
+# second password prompt after the user has already logged in.
+mkdir -p /etc/skel/.config
+cat >/etc/skel/.config/kwalletrc <<'KWALLETRCEOF'
+[Wallet]
+Enabled=true
+Default Wallet=kdewallet
+Local Wallet=kdewallet
+Use One Wallet=true
+Close When Idle=false
+Close on Screensaver=false
+Leave Open=true
+KWALLETRCEOF
+
+# ── KWallet PAM bridge: wire pam_kwallet5.so into the SDDM PAM stack ─────────
+# kwallet-pam is installed but Fedora's sddm package does NOT enable it by
+# default. Without these lines the wallet is never unlocked at login, so the
+# first app that touches it (e.g. VS Code) receives a "wallet is closed" error
+# and falls back to prompting the user for a password.
+# pam_kwallet5.so handles both kwalletd5 and kwalletd6 (the .so name is stable
+# across KDE generations).
+SDDM_PAM=/etc/pam.d/sddm
+if [ -f "${SDDM_PAM}" ] && ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
+    # Append as optional lines so they never block login. PAM processes
+    # optional modules in file order; appending after include lines is fine.
+    printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_kwallet5.so auto_start\n' >> "${SDDM_PAM}"
+fi
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
 # Baloo (KDE's file indexer) runs heavy I/O scans on first boot and after game
@@ -757,98 +955,277 @@ cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
 </fontconfig>
 FONTCONFIGEOF
 
-# systemd-remount-fs tries to remount the root filesystem, which is immutable
-# on bootc/ostree systems and always fails with exit status 32. Mask it.
-systemctl mask systemd-remount-fs.service
 
-# Re-enforce display-manager and default target symlinks here (layer 6).
-# The dnf5 upgrade in layer 3 can re-apply systemd presets and reset the
-# display-manager alias.  Use explicit symlinks — systemctl enable is a
-# no-op in a container build (no running systemd bus, silently swallowed
-# by 2>/dev/null || true).
-ln -sf /usr/lib/systemd/system/sddm.service \
-	/etc/systemd/system/display-manager.service
-mkdir -p /etc/systemd/system/graphical.target.wants
-ln -sf /etc/systemd/system/display-manager.service \
-	/etc/systemd/system/graphical.target.wants/display-manager.service
-ln -sf /usr/lib/systemd/system/graphical.target \
-	/etc/systemd/system/default.target
+# ── SELinux: relabel /var/home after each new deployment ──────────────────────
+# bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
+# is writable state — it is never touched. On enforcing systems, /var/home
+# files with missing labels cause PAM and dbus-broker to be denied, making
+# login impossible.
+#
+# Running restorecon -RF /var/home on every boot adds ~45s to startup. Instead,
+# gate it on a per-deployment sentinel: only relabel when the booted deployment
+# checksum (from /run/ostree-booted or `ostree admin status`) differs from the
+# last one we relabeled for. After first boot of a new deployment, subsequent
+# reboots skip it entirely. If a user needs to force a relabel, they can remove
+# /var/lib/kyth/selinux-relabel-home.stamp.
+cat >/usr/lib/systemd/system/kyth-selinux-relabel-home.service <<'RELABELEOF'
+[Unit]
+Description=SELinux relabel /var/home (once per deployment)
+DefaultDependencies=no
+After=local-fs.target
+Before=sddm.service
+ConditionSecurity=selinux
 
+[Service]
+Type=oneshot
+ExecStart=/usr/libexec/kyth-selinux-relabel-home
+RemainAfterExit=yes
 
-systemctl enable rtkit-daemon.service 2>/dev/null || true
-systemctl enable input-remapper.service 2>/dev/null || true
-# joycond: pairs left + right Joy-Cons into a single virtual controller.
-# Only active when Joy-Con hardware is detected; no-op on other systems.
-systemctl enable joycond.service 2>/dev/null || true
-# Periodic SSD TRIM — reclaims blocks marked free by the filesystem. Safe on
-# all modern SSDs and NVMe drives; the timer runs weekly by default.
-systemctl enable fstrim.timer 2>/dev/null || true
-# Distribute hardware IRQs across all CPU cores. Without this all IRQs land on
-# cpu0, causing it to spike during heavy I/O or network activity mid-game.
-systemctl enable irqbalance.service 2>/dev/null || true
-# Fedora/libvirt can expose either legacy libvirtd or modular virtqemud units.
-# Enable whichever socket exists so image builds stay portable across releases.
-if systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^libvirtd\.socket'; then
-	systemctl enable libvirtd.socket 2>/dev/null || true
-elif systemctl list-unit-files --type=socket --no-legend 2>/dev/null | grep -q '^virtqemud\.socket'; then
-	systemctl enable virtqemud.socket 2>/dev/null || true
-else
-	echo "libvirt socket unit not found; skipping enable."
+[Install]
+WantedBy=multi-user.target
+RELABELEOF
+
+install -d -m 0755 /usr/libexec
+cat >/usr/libexec/kyth-selinux-relabel-home <<'SCRIPTEOF'
+#!/usr/bin/bash
+# Relabel /var/home only once per ostree/bootc deployment.
+# Keyed on the booted deployment checksum so a fresh deployment triggers one
+# relabel, then all subsequent reboots of the same deployment skip it.
+set -euo pipefail
+
+STAMP_DIR=/var/lib/kyth
+STAMP_FILE="${STAMP_DIR}/selinux-relabel-home.stamp"
+
+# Derive a stable deployment identifier. Prefer `ostree admin status --json`
+# if available; fall back to parsing the booted checksum from plain output;
+# finally fall back to the kernel cmdline ostree= argument.
+deployment_id=""
+if command -v ostree >/dev/null 2>&1; then
+    deployment_id="$(ostree admin status 2>/dev/null \
+        | awk '/^\* /{print $2" "$3; exit}')"
 fi
-systemctl enable docker.socket 2>/dev/null || true
-systemctl enable fwupd 2>/dev/null || true
-
-# ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
-# rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
-# Disable it entirely — bootc-fetch-apply-updates.timer is also disabled because
-# its default behaviour (bootc upgrade --apply) reboots the system automatically
-# whenever a new image is available, causing unexpected reboots ~1h after boot.
-# Users should update manually: sudo bootc upgrade && sudo systemctl reboot
-systemctl disable rpm-ostreed-automatic.timer rpm-ostreed-automatic.service 2>/dev/null || true
-systemctl disable bootc-fetch-apply-updates.timer bootc-fetch-apply-updates.service 2>/dev/null || true
-# Keep Fedora's standalone CountMe timer enabled on installed atomic systems.
-# bootc upgrades do not normally fetch RPM repository metadata, so DNF's
-# countme=True setting alone is not enough to report active installed systems.
-if systemctl list-unit-files --type=timer --no-legend 2>/dev/null | grep -q '^rpm-ostree-countme\.timer'; then
-	systemctl enable rpm-ostree-countme.timer 2>/dev/null || true
+if [ -z "$deployment_id" ] && [ -r /proc/cmdline ]; then
+    deployment_id="$(tr ' ' '\n' < /proc/cmdline | grep '^ostree=' || true)"
 fi
-# Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
-# plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
-# DNF/PackageKit backend as a belt-and-suspenders measure. Discover's Flatpak
-# backend does not use PackageKit and is unaffected.
-systemctl mask packagekit.service 2>/dev/null || true
+# Last-resort fingerprint: mtime of the active deployment root.
+if [ -z "$deployment_id" ]; then
+    deployment_id="fallback-$(stat -c %Y /usr 2>/dev/null || echo 0)"
+fi
 
-# ── Boot-time noise reduction ─────────────────────────────────────────────────
-# NetworkManager-wait-online blocks network-online.target (and thus multi-user
-# and graphical targets) until the network is fully up — adds ~5s on every
-# boot. Desktop systems don't need the network ready before the login screen;
-# services that genuinely need network declare their own After=network-online.
-systemctl disable NetworkManager-wait-online.service 2>/dev/null || true
+if [ -r "$STAMP_FILE" ] && [ "$(cat "$STAMP_FILE")" = "$deployment_id" ]; then
+    echo "kyth-selinux-relabel-home: already relabeled for this deployment, skipping"
+    exit 0
+fi
 
-# flatpak-system-update runs on every boot and takes 20+ seconds fetching
-# Flatpak metadata. Flatpaks are updated explicitly via topgrade or ujust.
-systemctl disable flatpak-system-update.service flatpak-system-update.timer 2>/dev/null || true
+echo "kyth-selinux-relabel-home: relabeling /var/home for deployment ${deployment_id}"
+/sbin/restorecon -RF /var/home
 
-# fedora-atomic-desktop-appstream-cache-refresh regenerates the AppStream cache
-# on every boot (~4s). Runs on-demand when the software center needs it.
-systemctl disable fedora-atomic-desktop-appstream-cache-refresh.service 2>/dev/null || true
+mkdir -p "$STAMP_DIR"
+printf '%s' "$deployment_id" > "$STAMP_FILE"
+SCRIPTEOF
+chmod 0755 /usr/libexec/kyth-selinux-relabel-home
 
-# serial-getty@ttyS0 waits 45s for a serial device that doesn't exist on this
-# hardware before timing out. Mask it so the timeout doesn't hold up boot.
-systemctl mask serial-getty@ttyS0.service 2>/dev/null || true
+systemctl enable kyth-selinux-relabel-home.service 2>/dev/null || true
 
-# Apply the same account repair in the image now so the deployed /etc starts
-# correct, then keep the enabled service as a boot-time guardrail.
-/usr/libexec/kyth-fix-system-accounts || true
+# ── First-boot Plymouth message ───────────────────────────────────────────────
+# On the very first boot after install, the SELinux relabel and other setup
+# tasks add a few extra seconds before login. Show a message on the boot splash
+# so the user knows something is happening. The sentinel file ensures this only
+# ever runs once — after first boot it is a no-op for all future reboots.
+cat >/usr/lib/systemd/system/kyth-first-boot-message.service <<'FIRSTBOOTEOF'
+[Unit]
+Description=KythOS first-boot splash message
+DefaultDependencies=no
+After=plymouth-start.service local-fs.target
+Before=sddm.service
+ConditionPathExists=!/var/lib/kyth/.first-boot-complete
 
-# useradd only reads /etc/group, but Fedora system groups live in /usr/lib/group.
-# Copy any missing groups into /etc/group; create with groupadd if absent entirely.
-for grp in users video audio gamemode docker disk kvm tty clock kmem input render lp utmp plugdev dbus sddm polkitd; do
-	if ! grep -q "^${grp}:" /etc/group; then
-		if getent group "$grp" >/dev/null 2>&1; then
-			getent group "$grp" >>/etc/group
-		else
-			groupadd "$grp"
-		fi
-	fi
+[Service]
+Type=oneshot
+# Only send the message if the Plymouth daemon is actually listening.
+# On fast boots SDDM may already have started and stopped Plymouth before
+# this service runs; "plymouth message" would then exit non-zero and the
+# sentinel file would never be written, causing a retry on every boot.
+ExecCondition=/usr/bin/plymouth --ping
+ExecStart=/usr/bin/plymouth message --text="Running first boot setup, this may take a few moments..."
+ExecStart=/bin/bash -c 'mkdir -p /var/lib/kyth && touch /var/lib/kyth/.first-boot-complete'
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+FIRSTBOOTEOF
+systemctl enable kyth-first-boot-message.service 2>/dev/null || true
+
+# ── AMD CPU Energy Performance Preference helper ─────────────────────────────
+# kyth-performance-mode calls this via sudo to set EPP on all CPU cores.
+# On amd_pstate=active systems, EPP is the primary
+# frequency/voltage scaling knob — more direct than powerprofilesctl alone.
+# Valid values: performance, balance_performance, balance_power, power, default
+install -m 0755 /dev/stdin /usr/bin/kyth-set-epp <<'EPPEOF'
+#!/bin/bash
+EPP="${1:-balance_performance}"
+case "$EPP" in
+    performance|balance_performance|balance_power|power|default) ;;
+    *)
+        echo "kyth-set-epp: invalid EPP value: ${EPP}" >&2
+        echo "Valid values: performance, balance_performance, balance_power, power, default" >&2
+        exit 1
+        ;;
+esac
+changed=0
+for f in /sys/devices/system/cpu/cpu*/cpufreq/energy_performance_preference; do
+    [[ -f "$f" ]] || continue
+    echo "$EPP" > "$f" 2>/dev/null && changed=1 || true
 done
+[[ $changed -eq 1 ]] || echo "kyth-set-epp: no EPP sysfs nodes found (non-AMD or pstate inactive)" >&2
+EPPEOF
+
+# ── Sudoers: passwordless safe upgrade/firmware operations ────────────────────
+# bootc upgrade/switch stages a new image but does not modify the running system —
+# a reboot is always required to activate it. fwupdmgr operations are similarly
+# safe (refresh = metadata fetch; get-updates/update = firmware staging).
+# Allowing these without a password lets KythOS update flows run without a
+# mid-stream sudo prompt that breaks the terminal flow.
+# The 0440 mode (owner+group read, no write) is required by sudo's NOPASSWD check.
+install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
+# KythOS: wheel group may run safe update/firmware commands without a password.
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc upgrade
+%wheel ALL=(root) NOPASSWD: /usr/bin/bootc switch ghcr.io/mrtrick37/kyth\:*
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr refresh
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr update
+%wheel ALL=(root) NOPASSWD: /usr/bin/fwupdmgr get-updates
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-set-epp *
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-rclone-update
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx set *
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx restart
+%wheel ALL=(root) NOPASSWD: /usr/bin/kyth-scx stop
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl start kyth-flathub-setup.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl start kyth-default-flatpaks.service
+%wheel ALL=(root) NOPASSWD: /usr/bin/systemctl restart kyth-default-flatpaks.service
+# distrobox enter --root internally calls "sudo podman exec/start/inspect" to
+# manage rootful containers.  From a KDE app launcher (no TTY) sudo cannot
+# prompt for a password, so GUI apps like zenmap would silently fail.
+# Granting blanket podman access here is equivalent to the user's existing
+# full sudo access — it only removes the interactive prompt for GUI launches.
+%wheel ALL=(root) NOPASSWD: /usr/bin/podman
+SUDOEOF
+
+# ── Sleep reliability ─────────────────────────────────────────────────────────
+# Hybrid sleep and suspend-then-hibernate are common causes of black screen on
+# wake for gaming PCs: the NVRAM hibernation image doesn't survive a full power
+# cycle on NVMe + proprietary GPU combinations, and the kernel's resume path
+# can hang waiting for a swap partition that may not exist.
+#
+# AllowHibernation=no disables hibernation entirely; SuspendState=mem requests
+# S3 (hardware-level suspend-to-RAM) rather than s2idle (CPU halt + PCIe active),
+# which drains more power and is more prone to wake-on-USB spurious events.
+# s2idle is still used as a fallback on systems that don't advertise S3 support.
+mkdir -p /etc/systemd/sleep.conf.d
+cat >/etc/systemd/sleep.conf.d/kyth-sleep.conf <<'SLEEPEOF'
+[Sleep]
+AllowSuspend=yes
+AllowHibernation=no
+AllowHybridSleep=no
+AllowSuspendThenHibernate=no
+SuspendState=mem standby freeze
+SLEEPEOF
+
+# ── DualSense controller — hidraw userspace access ───────────────────────────
+# The hid-playstation kernel module exposes PS5 DualSense haptics and adaptive
+# triggers through the hidraw interface.  Without these rules the device node
+# is root-only, so Proton/Steam cannot send haptic or trigger commands.
+# TAG+="uaccess" grants access to the logged-in seat user automatically via
+# systemd-logind — no manual chmod or group membership required.
+#
+# 054c = Sony Corp vendor ID
+# 0ce6 = DualSense (USB and BT)
+# 0df2 = DualSense Edge (USB and BT)
+cat >/usr/lib/udev/rules.d/99-kyth-dualsense.rules <<'DSEOF'
+# DualSense (USB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ce6", SUBSYSTEM=="hidraw", TAG+="uaccess"
+# DualSense Edge (USB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0df2", SUBSYSTEM=="hidraw", TAG+="uaccess"
+# DualSense (Bluetooth — matched via device path rather than idVendor)
+KERNEL=="hidraw*", KERNELS=="*054C:0CE6*", TAG+="uaccess"
+KERNEL=="hidraw*", KERNELS=="*054C:0DF2*", TAG+="uaccess"
+DSEOF
+
+# ── NXM mod link handler ──────────────────────────────────────────────────────
+# Nexus Mods uses nxm:// URIs to hand off mod downloads to a local manager
+# (Vortex, Mod Organizer 2).  Register a system-wide handler so Firefox and
+# Chrome pass these URIs to kyth-nxm-handler, which routes them to the
+# user's installed mod manager (Vortex in Bottles preferred, then MO2).
+cat >/usr/bin/kyth-nxm-handler <<'NXMEOF'
+#!/usr/bin/env bash
+# Route nxm:// URIs to the user's mod manager.
+# Vortex in Bottles is the recommended default; MO2 is a supported alternative.
+NXM_URL="${1:-}"
+if [[ -z "${NXM_URL}" ]]; then
+    echo "Usage: kyth-nxm-handler nxm://..." >&2
+    exit 1
+fi
+
+# Check for Vortex bottle
+VORTEX_BOTTLE="${HOME}/.local/share/bottles/bottles/Vortex"
+if [[ -d "${VORTEX_BOTTLE}" ]] && command -v bottles-cli >/dev/null 2>&1; then
+    bottles-cli run -b Vortex -e "Vortex.exe" -- "${NXM_URL}"
+    exit 0
+fi
+
+# Fallback: notify the user
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "NXM Link" \
+        "Install Vortex in Bottles to handle Nexus Mods download links automatically.\nLink: ${NXM_URL}" \
+        --icon=application-x-addon
+fi
+
+# Open the Gaming page guidance in a terminal
+echo "NXM link received: ${NXM_URL}"
+echo "Install Vortex via Bottles to enable automatic mod downloads."
+NXMEOF
+chmod +x /usr/bin/kyth-nxm-handler
+
+cat >/usr/share/applications/kyth-nxm-handler.desktop <<'NXMDESKEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS NXM Handler
+Comment=Route Nexus Mods download links to your mod manager
+Exec=/usr/bin/kyth-nxm-handler %u
+MimeType=x-scheme-handler/nxm;x-scheme-handler/nxm-protocol;
+NoDisplay=true
+Terminal=false
+NXMDESKEOF
+
+# ── OpenRGB — RGB peripheral control ─────────────────────────────────────────
+# OpenRGB ships its own udev rules file that grants access to LED controllers
+# via i2c, hidraw, and USB. The package installs them to /usr/lib/udev/rules.d/
+# automatically; this block adds an XDG autostart entry so RGB profiles are
+# applied at login without the user having to launch OpenRGB manually.
+# The --noGui --startminimized flags load the saved profile and stay in the tray.
+mkdir -p /etc/skel/.config/autostart
+cat >/etc/skel/.config/autostart/openrgb.desktop <<'ORGBEOF'
+[Desktop Entry]
+Type=Application
+Name=OpenRGB
+Comment=Apply saved RGB profile at login
+Exec=openrgb --noGui --startminimized
+Icon=openrgb
+Terminal=false
+X-KDE-autostart-condition=false
+ORGBEOF
+
+# ── Wacom / drawing tablet — udev hidraw access ───────────────────────────────
+# libwacom (installed in packages.sh) provides the tablet database that KWin and
+# libinput use on Wayland to map pressure curves correctly. The udev rules below
+# grant the logged-in user direct hidraw access so tools like Krita and Blender
+# can read raw pressure data without requiring root.
+cat >/usr/lib/udev/rules.d/99-kyth-tablets.rules <<'TABLETEOF'
+# Wacom tablets — hidraw access for the logged-in user
+KERNEL=="hidraw*", ATTRS{idVendor}=="056a", TAG+="uaccess"
+# HUION tablets
+KERNEL=="hidraw*", ATTRS{idVendor}=="256c", TAG+="uaccess"
+# XP-Pen tablets
+KERNEL=="hidraw*", ATTRS{idVendor}=="28bd", TAG+="uaccess"
+# Gaomon tablets
+KERNEL=="hidraw*", ATTRS{idVendor}=="201a", TAG+="uaccess"
+TABLETEOF

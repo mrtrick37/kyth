@@ -69,6 +69,10 @@ except ImportError:
 _CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
 _APP_ICON_NAME = "network-vpn"
 _SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
+# Which GP interface openconnect was probing when SAML was requested.
+# A prelogin-cookie is only valid on the interface that issued it, so the
+# reconnect must use portal:<field> vs gateway:<field> accordingly.
+_GP_PRELOGIN_IFACE_RE = re.compile(r"POST https?://[^/]+/(global-protect|ssl-vpn)/prelogin\.esp")
 _GP_SAML_FIELDS = frozenset({
     "preloginuserauthcookie",
     "portal-userauthcookie",
@@ -279,7 +283,18 @@ QPushButton#saml-cancel:pressed {
             header_layout.addWidget(self._info)
             layout.addWidget(header)
 
-            self._profile = QWebEngineProfile(self)
+            # Named persistent profile: keeps the IdP session cookies so the
+            # gateway SAML leg (and future reconnects) can complete without
+            # re-entering credentials. An unnamed profile is off-the-record and
+            # would force a full sign-in for every leg.
+            _store = Path.home() / ".local" / "share" / "kyth-vpn-connect" / "webengine"
+            _store.mkdir(parents=True, exist_ok=True)
+            self._profile = QWebEngineProfile("kyth-vpn-saml", self)
+            self._profile.setPersistentStoragePath(str(_store))
+            self._profile.setCachePath(str(_store / "cache"))
+            self._profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+            )
             # Intercept form.submit() and window.location navigation at document
             # creation time so we see them even if the page's own script fires first.
             from PyQt6.QtWebEngineCore import QWebEngineScript
@@ -755,9 +770,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._worker: _VpnWorker | None = None
         self._saml_in_progress = False
+        self._gp_interface = "portal"
         self._status_state = "disconnected"
         self._hid_after_connect = False
         self._pending_reconnect = False
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
         self.setWindowTitle("VPN Connect")
         self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
         self.setMinimumSize(560, 560)
@@ -889,63 +907,6 @@ class MainWindow(QMainWindow):
         self._log.setFont(QFont("monospace", 9))
         layout.addWidget(self._log)
 
-    def _setup_tray(self) -> None:
-        self._tray = QSystemTrayIcon(QIcon.fromTheme(_APP_ICON_NAME), self)
-        self._tray.setToolTip("VPN Connect — Disconnected")
-
-        menu = QMenu()
-
-        self._tray_status_action = QAction("● Disconnected", menu)
-        self._tray_status_action.setEnabled(False)
-        menu.addAction(self._tray_status_action)
-        menu.addSeparator()
-
-        show_action = QAction("Show", menu)
-        show_action.triggered.connect(self._show_window)
-        menu.addAction(show_action)
-
-        self._tray_disconnect_action = QAction("Disconnect", menu)
-        self._tray_disconnect_action.triggered.connect(self._on_disconnect)
-        self._tray_disconnect_action.setEnabled(False)
-        menu.addAction(self._tray_disconnect_action)
-
-        self._tray_reconnect_action = QAction("Reconnect", menu)
-        self._tray_reconnect_action.triggered.connect(self._on_tray_reconnect)
-        self._tray_reconnect_action.setEnabled(False)
-        menu.addAction(self._tray_reconnect_action)
-
-        menu.addSeparator()
-        quit_action = QAction("Quit", menu)
-        quit_action.triggered.connect(self._quit_app)
-        menu.addAction(quit_action)
-
-        self._tray.setContextMenu(menu)
-        self._tray.activated.connect(self._on_tray_activated)
-        self._tray.show()
-
-    def _show_window(self) -> None:
-        self.show()
-        self.raise_()
-        self.activateWindow()
-
-    def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason == QSystemTrayIcon.ActivationReason.Trigger:
-            if self.isVisible():
-                self.hide()
-            else:
-                self._show_window()
-
-    def _on_tray_reconnect(self) -> None:
-        self._pending_reconnect = True
-        self._on_disconnect()
-
-    def _quit_app(self) -> None:
-        if self._worker and self._worker.isRunning():
-            self._worker.stop()
-            self._worker.wait(3000)
-        self._tray.hide()
-        QApplication.quit()
-
     def _load_saved_config(self) -> None:
         cfg = _load_config()
         if "vpn" not in cfg:
@@ -981,6 +942,9 @@ class MainWindow(QMainWindow):
 
         self._log.clear()
         self._hid_after_connect = False
+        self._gp_interface = "portal"
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
         self._set_status("connecting")
         self._connect_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
@@ -1015,10 +979,34 @@ class MainWindow(QMainWindow):
         sb.setValue(sb.maximum())
         if _vpn_line_is_connected(line):
             self._set_status("connected")
-        else:
-            m = _SAML_URL_RE.search(line)
-            if m:
-                self._on_saml_required(m.group(1))
+            return
+        m = _GP_PRELOGIN_IFACE_RE.search(line)
+        if m:
+            self._gp_interface = "portal" if m.group(1) == "global-protect" else "gateway"
+            return
+        if (
+            "fgets (stdin)" in line
+            and self._gp_interface == "gateway"
+            and not self._saml_in_progress
+            and not self._gateway_saml_attempted
+        ):
+            # Portal accepted the SAML cookie, but the gateway then demanded
+            # its own prelogin-cookie (the portal cookie is interface-bound and
+            # the portal returned no portal-userauthcookie to carry over).
+            # openconnect prompted for it on an exhausted stdin and died — redo
+            # SAML directly against the gateway once this process exits.
+            self._pending_gateway_saml = True
+            return
+        if "Unexpected 512 result from server" in line:
+            self._log.append(
+                "[Hint: the GlobalProtect server rejected the SAML token — "
+                "usually a portal/gateway mismatch or a username that doesn't "
+                "match the SAML account]"
+            )
+            return
+        m = _SAML_URL_RE.search(line)
+        if m:
+            self._on_saml_required(m.group(1))
 
     def _on_saml_required(self, saml_url: str) -> None:
         if _WEBENGINE_AVAILABLE:
@@ -1077,16 +1065,43 @@ class MainWindow(QMainWindow):
         ]
         worker_stdin = ""
         if protocol == "gp" and field and value:
-            cmd += ["--passwd-on-stdin", "--usergroup", f"portal:{field}"]
+            cmd += ["--passwd-on-stdin", "--usergroup", f"{self._gp_interface}:{field}"]
             worker_stdin = value
-            print(f"[SAML dbg] reconnecting via portal with {field} and username={'yes' if (username or saml_username) else 'no'}")
+            print(f"[SAML dbg] reconnecting via {self._gp_interface} with {field} and username={'yes' if (username or saml_username) else 'no'}")
         else:
             cmd += ["--cookie", cookie]
-        username = username or saml_username
+        # The GP prelogin-cookie is bound to the SAML identity — the server
+        # 512s if --user doesn't match it exactly, so it wins over the form.
+        username = saml_username or username
         if username:
             cmd += ["--user", username]
         cmd.append(gateway)
         self._start_worker(cmd, worker_stdin)
+
+    def _start_gateway_probe(self) -> None:
+        """Re-run the openconnect SAML probe against the GP gateway interface.
+
+        Used when the portal leg succeeded but the gateway demanded its own
+        prelogin-cookie, which only a gateway-issued SAML login can provide.
+        The probe prints the gateway's SAML URL, the embedded browser replays
+        the (now session-cached) IdP login, and the reconnect then uses
+        gateway:<field>.
+        """
+        gateway = self._gateway.text().strip()
+        username = self._username.text().strip()
+        self._gp_interface = "gateway"
+        self._set_status("connecting")
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", self._protocol.currentText(),
+            "--os", self._os_emul.currentText(),
+            "--script", "/usr/libexec/kyth-vpnc-script",
+            "--usergroup", "gateway",
+        ]
+        if username:
+            cmd += ["--user", username]
+        cmd.append(gateway)
+        self._start_worker(cmd)
 
     def _start_worker(self, cmd: list[str], stdin_text: str = "") -> None:
         worker = _VpnWorker(cmd, stdin_text)
@@ -1105,6 +1120,15 @@ class MainWindow(QMainWindow):
         if self._saml_in_progress:
             # First openconnect probe exits naturally after outputting the SAML
             # URL — the SAML dialog is still open, so don't reset the UI yet.
+            return
+        if self._pending_gateway_saml:
+            self._pending_gateway_saml = False
+            self._gateway_saml_attempted = True
+            self._log.append(
+                "[GP] Gateway requires its own SAML sign-in — restarting "
+                "authentication against the gateway interface…"
+            )
+            QTimer.singleShot(500, self._start_gateway_probe)
             return
         self._set_status("disconnected")
         self._connect_btn.setEnabled(True)
@@ -1134,10 +1158,6 @@ class MainWindow(QMainWindow):
         elif state == "connecting":
             self._status.setText("● Connecting…")
             self._status.setStyleSheet("color: #ff9800; font-weight: bold;")
-            self._tray_status_action.setText("● Connecting…")
-            self._tray.setToolTip("VPN Connect — Connecting…")
-            self._tray_disconnect_action.setEnabled(True)
-            self._tray_reconnect_action.setEnabled(False)
         else:
             self._status.setText("● Disconnected")
             self._status.setStyleSheet("color: palette(mid); font-weight: bold;")

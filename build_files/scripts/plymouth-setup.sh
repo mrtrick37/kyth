@@ -43,87 +43,29 @@ install -Dm0755 /tmp/plymouth-branding-guard.sh \
 /usr/libexec/kyth-plymouth-branding-guard \
     /tmp/kyth-branding/transparent-watermark.svg
 
-# Custom dracut module that explicitly forces Plymouth theme + script plugin
-# inclusion into the initramfs. Fedora's upstream 45plymouth module only
-# installs whichever theme is the default at dracut run time; 99kyth-plymouth
-# runs late and hard-wires the kyth theme so early-boot never falls back to
-# upstream artwork.
+# The guard owns the late 99kyth-plymouth dracut module. Keep setup focused on
+# the theme files and host defaults so there is one generated module body.
 mkdir -p /etc/plymouth /usr/share/plymouth
 cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 
-rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
-KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
-mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
-cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
-#!/usr/bin/bash
-
-check() {
-    return 0
-}
-
-depends() {
-    echo plymouth
-    return 0
-}
-
-install() {
-    mkdir -p \
-        "${initdir}/etc/plymouth" \
-        "${initdir}/usr/share/plymouth/themes"
-    cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
-[Daemon]
-Theme=kyth
-ShowDelay=1
-DeviceTimeout=8
-UseFirmwareBackground=false
-PLYMOUTHCONF
-    cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
-[Daemon]
-Theme=kyth
-ShowDelay=1
-DeviceTimeout=8
-UseFirmwareBackground=false
-PLYMOUTHDEFAULTS
-    ln -sfn kyth/kyth.plymouth \
-        "${initdir}/usr/share/plymouth/themes/default.plymouth"
-    rm -rf \
-        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
-        "${initdir}/usr/share/plymouth/themes/bgrt" \
-        "${initdir}/usr/share/plymouth/themes/spinner"
-    inst_libdir_file "plymouth/script.so"
-    inst_multiple \
-        /usr/libexec/kyth-plymouth-branding-guard \
-        /usr/share/plymouth/themes/kyth/kyth.plymouth \
-        /usr/share/plymouth/themes/kyth/kyth.script \
-        /usr/share/plymouth/themes/kyth/kyth-logo.png
-    inst_multiple -o \
-        /etc/os-release \
-        /usr/lib/os-release
-}
-KYTHPLYMOUTHEOF
-chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
-unset KYTH_PLYMOUTH_DRACUT_DIR
-
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    if ! grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf; then
-        sed -i 's/add_dracutmodules+="\([^"]*\)"/add_dracutmodules+="\1 kyth-plymouth"/' \
-            /etc/dracut.conf.d/99-kyth.conf
-        grep -q 'kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-            printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
-    fi
+    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 else
     cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
+    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
 
 plymouth-set-default-theme kyth
 

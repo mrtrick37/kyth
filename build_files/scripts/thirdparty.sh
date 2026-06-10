@@ -472,6 +472,59 @@ SCXEOF
 	rm -rf "${TMPDIR_SCX}"
 }
 
+install_msfonts() {
+	# Microsoft "Core Fonts for the Web" — legally redistributable TrueType fonts
+	# shipped by Windows since the late 1990s. Arial, Times New Roman, Verdana,
+	# Georgia, Courier New, Impact, Trebuchet MS, Comic Sans, Andale Mono, Webdings.
+	# Required for correct rendering of Office documents and many websites that
+	# hard-code "Arial" or "Times New Roman" without web-safe fallbacks.
+	# Without these fonts, LibreOffice substitutes Liberation metrics-compatible
+	# equivalents which are visually close but not pixel-identical to Windows.
+	local tmp
+	tmp=$(mktemp -d)
+
+	local sf_base="https://downloads.sourceforge.net/project/corefonts/the%20fonts/final"
+	local -a exes=(
+		andale32.exe  arial32.exe   arialb32.exe  comic32.exe  courie32.exe
+		georgi32.exe  impact32.exe  times32.exe   trebuc32.exe verdan32.exe
+		webdin32.exe
+	)
+
+	local failed=0
+	for exe in "${exes[@]}"; do
+		if ! curl --retry 3 --retry-delay 3 -fsSL -o "${tmp}/${exe}" "${sf_base}/${exe}"; then
+			echo "msfonts: failed to download ${exe}" >&2
+			(( failed++ )) || true
+		fi
+	done
+
+	if [[ $failed -gt 0 ]]; then
+		rm -rf "$tmp"
+		echo "msfonts: ${failed} download(s) failed — skipping font install" >&2
+		return 1
+	fi
+
+	mkdir -p /usr/share/fonts/msttcorefonts
+	for exe in "${exes[@]}"; do
+		local exdir="${tmp}/x_${exe%.exe}"
+		mkdir -p "$exdir"
+		# Cabinet archives may fail silently on non-font files; extract what we can.
+		cabextract -q -d "$exdir" "${tmp}/${exe}" 2>/dev/null || true
+		find "$exdir" -iname "*.ttf" -exec cp {} /usr/share/fonts/msttcorefonts/ \;
+	done
+
+	# Some cabinets ship uppercase .TTF — normalize to lowercase for consistent queries.
+	find /usr/share/fonts/msttcorefonts -name "*.TTF" | while IFS= read -r f; do
+		mv "$f" "${f%.TTF}.ttf"
+	done
+
+	local count
+	count=$(find /usr/share/fonts/msttcorefonts -name "*.ttf" | wc -l)
+	fc-cache -f /usr/share/fonts/msttcorefonts
+	rm -rf "$tmp"
+	echo "msfonts: installed ${count} TrueType fonts"
+}
+
 # ── Parallel download + install ───────────────────────────────────────────────
 # All five tools are independent — fan them out and collect results.
 # Background jobs don't propagate set -e to the parent; track exit codes via
@@ -496,6 +549,7 @@ _launch topgrade install_topgrade
 _launch winetricks install_winetricks
 _launch umu install_umu
 _launch latencyflex install_latencyflex
+_launch msfonts install_msfonts
 is_enabled "${ENABLE_SCX:-1}" && _launch scx install_scx || true
 
 # Wait for all background jobs and check their status files.

@@ -132,6 +132,7 @@ KythOS focuses on making Linux gaming smoother, not making impossible promises.
 Useful project docs:
 
 - [Daily-driver validation](docs/daily-driver-validation.md)
+- [Stability principles](docs/stability-principles.md)
 - [Gaming validation matrix](docs/gaming-validation-matrix.md)
 - [Gaming results](docs/gaming-results/)
 - [Modding on KythOS](docs/modding-on-kythos.md)

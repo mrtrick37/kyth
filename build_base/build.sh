@@ -102,6 +102,16 @@ mkdir -p "${PLYMOUTH_DIR}"
 cp /run/plymouth/kyth.plymouth "${PLYMOUTH_DIR}/kyth.plymouth"
 cp /run/plymouth/kyth.script   "${PLYMOUTH_DIR}/kyth.script"
 rsvg-convert -w 200 /run/plymouth/kyth-logo.svg -o "${PLYMOUTH_DIR}/kyth-logo.png"
+mkdir -p /usr/share/kyth/branding /usr/share/pixmaps
+cat > /usr/share/kyth/branding/transparent-watermark.svg <<'SVEOF'
+<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">
+  <rect width="1" height="1" fill="none"/>
+</svg>
+SVEOF
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
+    | base64 -d > /usr/share/kyth/branding/transparent-watermark.png
+install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+    /usr/share/pixmaps/system-logo-white.png
 plymouth-set-default-theme kyth
 rm -rf /usr/share/plymouth/themes/bgrt-fedora
 rm -rf /usr/share/plymouth/themes/bgrt
@@ -111,7 +121,8 @@ dnf5 remove -y librsvg2-tools || true
 # CachyOS rebuilds its initramfs in this base layer, before the main image layer
 # installs the reusable KythOS Plymouth guard. Provide the same dracut module
 # locally so dracut can resolve kyth-plymouth here too.
-KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/46kyth-plymouth
+rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
+KYTH_PLYMOUTH_DRACUT_DIR=/usr/lib/dracut/modules.d/99kyth-plymouth
 mkdir -p "${KYTH_PLYMOUTH_DRACUT_DIR}"
 cat > "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash
@@ -128,27 +139,30 @@ depends() {
 install() {
     mkdir -p \
         "${initdir}/etc/plymouth" \
+        "${initdir}/usr/share/plymouth" \
+        "${initdir}/usr/share/pixmaps" \
         "${initdir}/usr/share/plymouth/themes"
     cat > "${initdir}/etc/plymouth/plymouthd.conf" <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
     cat > "${initdir}/usr/share/plymouth/plymouthd.defaults" <<'PLYMOUTHDEFAULTS'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHDEFAULTS
-    ln -sfn kyth/kyth.plymouth \
-        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     rm -rf \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth" \
         "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
         "${initdir}/usr/share/plymouth/themes/bgrt" \
         "${initdir}/usr/share/plymouth/themes/spinner"
+    ln -sfn kyth/kyth.plymouth \
+        "${initdir}/usr/share/plymouth/themes/default.plymouth"
     inst_libdir_file "plymouth/script.so"
     inst_multiple \
         /usr/share/plymouth/themes/kyth/kyth.plymouth \
@@ -156,7 +170,17 @@ PLYMOUTHDEFAULTS
         /usr/share/plymouth/themes/kyth/kyth-logo.png
     inst_multiple -o \
         /etc/os-release \
-        /usr/lib/os-release
+        /usr/lib/os-release \
+        /usr/share/kyth/branding/transparent-watermark.svg \
+        /usr/share/kyth/branding/transparent-watermark.png
+    rm -f "${initdir}/usr/share/pixmaps/system-logo-white.png"
+    inst_simple \
+        /usr/share/kyth/branding/transparent-watermark.png \
+        /usr/share/pixmaps/system-logo-white.png
+    rm -rf \
+        "${initdir}/usr/share/plymouth/themes/bgrt-fedora" \
+        "${initdir}/usr/share/plymouth/themes/bgrt" \
+        "${initdir}/usr/share/plymouth/themes/spinner"
 }
 KYTHPLYMOUTHEOF
 chmod 0755 "${KYTH_PLYMOUTH_DRACUT_DIR}/module-setup.sh"
@@ -167,6 +191,7 @@ unset KYTH_PLYMOUTH_DRACUT_DIR
 mkdir -p /etc/dracut.conf.d
 cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
+force_add_dracutmodules+=" kyth-plymouth "
 add_drivers+=" virtio_blk virtio_scsi virtio_pci nvme ahci virtio_gpu qxl bochs overlay "
 DRACUTEOF
 
@@ -176,7 +201,7 @@ mkdir -p /etc/plymouth /usr/share/plymouth
 cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
@@ -191,7 +216,7 @@ if [[ "${KYTH_KERNEL_FLAVOR}" == "cachy" ]]; then
     cat > /etc/plymouth/plymouthd.conf <<'PLYMOUTHCONF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 PLYMOUTHCONF
@@ -199,11 +224,14 @@ PLYMOUTHCONF
     _kyth_plymouth_include_root="$(mktemp -d)"
     mkdir -p \
         "${_kyth_plymouth_include_root}/etc/plymouth" \
-        "${_kyth_plymouth_include_root}/usr/share/plymouth"
+        "${_kyth_plymouth_include_root}/usr/share/plymouth" \
+        "${_kyth_plymouth_include_root}/usr/share/pixmaps"
     install -m 0644 /etc/plymouth/plymouthd.conf \
         "${_kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
     install -m 0644 /usr/share/plymouth/plymouthd.defaults \
         "${_kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
+    install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+        "${_kyth_plymouth_include_root}/usr/share/pixmaps/system-logo-white.png"
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -1" \
@@ -229,8 +257,18 @@ PLYMOUTHCONF
             echo "ERROR: CachyOS initramfs does not contain KythOS Plymouth logo" >&2
             exit 1
         }
+        if ! lsinitrd -f /usr/share/pixmaps/system-logo-white.png "/usr/lib/modules/${KVER}/initramfs" | cmp -s - /usr/share/kyth/branding/transparent-watermark.png; then
+            echo "ERROR: CachyOS initramfs still contains distro Plymouth system logo" >&2
+            exit 1
+        fi
         if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^Theme=kyth$'; then
             echo "ERROR: CachyOS initramfs Plymouth defaults do not force Theme=kyth" >&2
+            echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
+            lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
+            exit 1
+        fi
+        if ! lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^ShowDelay=0$'; then
+            echo "ERROR: CachyOS initramfs Plymouth defaults do not draw immediately" >&2
             echo "---- /usr/share/plymouth/plymouthd.defaults from initramfs ----" >&2
             lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" >&2 || true
             exit 1

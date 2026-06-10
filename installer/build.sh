@@ -281,7 +281,7 @@ mkdir -p /etc/plymouth /usr/share/plymouth
 cat >/etc/plymouth/plymouthd.conf <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 EOF
@@ -289,18 +289,21 @@ install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.conf
 cat >/usr/share/plymouth/plymouthd.defaults <<'EOF'
 [Daemon]
 Theme=kyth
-ShowDelay=1
+ShowDelay=0
 DeviceTimeout=8
 UseFirmwareBackground=false
 EOF
 kyth_plymouth_include_root="$(mktemp -d)"
 mkdir -p \
 	"${kyth_plymouth_include_root}/etc/plymouth" \
-	"${kyth_plymouth_include_root}/usr/share/plymouth"
+	"${kyth_plymouth_include_root}/usr/share/plymouth" \
+	"${kyth_plymouth_include_root}/usr/share/pixmaps"
 install -m 0644 /etc/plymouth/plymouthd.conf \
 	"${kyth_plymouth_include_root}/etc/plymouth/plymouthd.conf"
 install -m 0644 /usr/share/plymouth/plymouthd.defaults \
 	"${kyth_plymouth_include_root}/usr/share/plymouth/plymouthd.defaults"
+install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
+	"${kyth_plymouth_include_root}/usr/share/pixmaps/system-logo-white.png"
 DRACUT_NO_XATTR=1 dracut -v --force --zstd --no-hostonly \
 	--add "kyth-plymouth plymouth dmsquash-live dmsquash-live-autooverlay" \
 	--include "${kyth_plymouth_include_root}" / \
@@ -322,12 +325,20 @@ if command -v lsinitrd >/dev/null 2>&1; then
 		echo "ERROR: live initramfs does not contain KythOS Plymouth logo" >&2
 		exit 1
 	}
+	lsinitrd -f /usr/share/pixmaps/system-logo-white.png "/usr/lib/modules/${kernel}/initramfs.img" | cmp -s - /usr/share/kyth/branding/transparent-watermark.png || {
+		echo "ERROR: live initramfs still contains distro Plymouth system logo" >&2
+		exit 1
+	}
 	grep -q 'usr/share/plymouth/themes/default.plymouth' "${initrd_listing}" || {
 		echo "ERROR: live initramfs does not force the KythOS Plymouth default theme" >&2
 		exit 1
 	}
 	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^Theme=kyth$' || {
 		echo "ERROR: live initramfs Plymouth defaults do not force Theme=kyth" >&2
+		exit 1
+	}
+	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^ShowDelay=0$' || {
+		echo "ERROR: live initramfs Plymouth defaults do not draw immediately" >&2
 		exit 1
 	}
 	lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${kernel}/initramfs.img" | grep -q '^DeviceTimeout=8$' || {
@@ -338,6 +349,11 @@ if command -v lsinitrd >/dev/null 2>&1; then
 	(cd "${initrd_extract}" && lsinitrd --unpack "/usr/lib/modules/${kernel}/initramfs.img" etc/plymouth/plymouthd.conf)
 	grep -q '^Theme=kyth$' "${initrd_extract}/etc/plymouth/plymouthd.conf" || {
 		echo "ERROR: live initramfs Plymouth daemon config does not force Theme=kyth" >&2
+		rm -rf "${initrd_extract}"
+		exit 1
+	}
+	grep -q '^ShowDelay=0$' "${initrd_extract}/etc/plymouth/plymouthd.conf" || {
+		echo "ERROR: live initramfs Plymouth daemon config does not draw immediately" >&2
 		rm -rf "${initrd_extract}"
 		exit 1
 	}

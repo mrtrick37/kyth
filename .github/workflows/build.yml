@@ -231,7 +231,7 @@ jobs:
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
             --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
             "${TAG_ARGS[@]}" \
-            --push \
+            --output "type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true" \
             .
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
