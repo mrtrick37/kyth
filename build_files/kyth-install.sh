@@ -18,9 +18,17 @@ fi
 
 # ── Disk selection ────────────────────────────────────────────────────────────
 # Build a list of real block devices (exclude loop, CD-ROM, and the live media)
-mapfile -t DISKS < <(lsblk -dpno NAME,SIZE,MODEL |
+# Avoid mapfile+pipefail+process-substitution: under set -euo pipefail the
+# pipeline exiting non-zero (grep matching nothing) can kill the script
+# instead of reaching the "No suitable disks found" dialog below.
+# Capture first, then parse.
+DISK_LIST="$(lsblk -dpno NAME,SIZE,MODEL |
 	grep -Ev 'loop|sr[0-9]' |
-	awk '{printf "%s\t%s %s\n", $1, $2, $3}')
+	awk '{printf "%s\t%s %s\n", $1, $2, $3}')" || true
+DISKS=()
+while IFS= read -r line; do
+	[[ -n "${line}" ]] && DISKS+=("${line}")
+done <<<"${DISK_LIST}"
 
 if [[ ${#DISKS[@]} -eq 0 ]]; then
 	if command -v kdialog &>/dev/null; then
