@@ -18708,15 +18708,15 @@ class MainWindow(QMainWindow):
             (None, [
                 ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
             ]),
+            ("Apps & Files", [
+                ("⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
+                ("⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+            ]),
             ("Play Games", [
                 ("◉", "Gaming", "Gaming", GamingPage),
                 ("⚡", "Performance", "Performance", PerformancePage),
                 ("◎", "Compatibility", "Compatibility", CompatibilityPage),
                 ("⎮", "Controllers", "Controllers", ControllerPage),
-            ]),
-            ("Apps & Files", [
-                ("⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
-                ("⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("Maintain", [
                 ("↻", "Updates", "Update", UpdatePage),
