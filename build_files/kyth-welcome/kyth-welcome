@@ -66,6 +66,15 @@ _SYNC_INTERVAL_MS = 5 * 60 * 1000  # 5 minutes
 _WIZARD_SENTINEL = os.path.expanduser("~/.config/kyth-welcome-done")
 _SMB_CONFIG = os.path.expanduser("~/.config/kyth-smb-shares.json")
 _SMB_CREDS_DIR = "/etc/kyth-smb-creds"
+_PROTONDB_CACHE_PATH = os.path.expanduser("~/.cache/kyth-protondb.json")
+_PROTONDB_TIER_STYLE: dict[str, tuple[str, str]] = {
+    "platinum": ("#102010", "#7ee8a2"),
+    "gold":     ("#2b2410", "#d4a843"),
+    "silver":   ("#181e2b", "#8cadcf"),
+    "bronze":   ("#2b1a10", "#c47c4a"),
+    "borked":   ("#3a1010", "#f48771"),
+    "pending":  ("#252526", "#858585"),
+}
 
 
 def _is_live_session() -> bool:
@@ -2868,6 +2877,57 @@ def _detect_installed_games() -> list[dict]:
     games.extend(_detect_bottles_apps())
     games.sort(key=lambda item: (item.get("launcher", ""), item.get("name", "").lower()))
     return games
+
+
+def _load_protondb_cache() -> dict[str, str]:
+    try:
+        with open(_PROTONDB_CACHE_PATH, encoding="utf-8") as _f:
+            data = json.load(_f)
+            if isinstance(data, dict):
+                return data
+    except (OSError, json.JSONDecodeError):
+        pass
+    return {}
+
+
+def _save_protondb_cache(cache: dict[str, str]) -> None:
+    try:
+        os.makedirs(os.path.dirname(_PROTONDB_CACHE_PATH), exist_ok=True)
+        with open(_PROTONDB_CACHE_PATH, "w", encoding="utf-8") as _f:
+            json.dump(cache, _f)
+    except OSError:
+        pass
+
+
+class _ProtonDbBatchWorker(QThread):
+    """Fetches ProtonDB tiers for a list of Steam appids, skipping already-cached ones."""
+    tier_fetched = pyqtSignal(str, str)   # (appid, tier)
+    finished_all = pyqtSignal(dict)       # full {appid: tier} map
+
+    def __init__(self, appids: list[str], existing: dict[str, str]):
+        super().__init__()
+        self._appids = appids
+        self._existing = dict(existing)
+
+    def run(self):
+        result = dict(self._existing)
+        for appid in self._appids:
+            if not appid or appid in result:
+                continue
+            try:
+                req = Request(
+                    f"https://www.protondb.com/api/v1/reports/summaries/{appid}.json",
+                    headers={"User-Agent": "KythOS-GameCheck/1.0"},
+                )
+                with urlopen(req, timeout=8) as resp:
+                    data = json.loads(resp.read().decode("utf-8"))
+                    tier = data.get("tier") or "pending"
+                    result[appid] = tier
+                    self.tier_fetched.emit(appid, tier)
+            except Exception:
+                result[appid] = "pending"
+            time.sleep(0.06)
+        self.finished_all.emit(result)
 
 
 def _streaming_health_items() -> list[tuple[str, str, str]]:
@@ -6901,6 +6961,24 @@ class RepairPage(Page):
         startup_btn.clicked.connect(lambda _=False: subprocess.Popen(["kcmshell6", "autostart"])
             if shutil.which("kcmshell6") else None)
         quick_btns.addWidget(startup_btn)
+        exe_fix_btn = QPushButton("Fix .exe Files")
+        exe_fix_btn.setToolTip(
+            "Set Bottles as the default handler for Windows .exe and .msi files, "
+            "so double-clicking them opens Bottles instead of the archive manager."
+        )
+        exe_fix_btn.clicked.connect(self._fix_exe_association)
+        quick_btns.addWidget(exe_fix_btn)
+        clipboard_btn = QPushButton("Enable Clipboard History")
+        clipboard_btn.setToolTip(
+            "Turn on KDE clipboard history (Klipper) so you can access recently copied text "
+            "— equivalent to Windows PowerToys clipboard history."
+        )
+        clipboard_btn.clicked.connect(self._enable_clipboard_history)
+        quick_btns.addWidget(clipboard_btn)
+        nightlight_btn = QPushButton("Night Light Settings")
+        nightlight_btn.setToolTip("Open KDE Night Light / blue light filter settings to set a schedule.")
+        nightlight_btn.clicked.connect(self._open_night_light)
+        quick_btns.addWidget(nightlight_btn)
         quick_btns.addStretch()
         quick_layout.addLayout(quick_btns)
         self._add(quick)
@@ -7099,6 +7177,48 @@ class RepairPage(Page):
             "Right-click the speaker icon in the system tray and choose Audio Volume Settings,\n"
             "or look for 'Audio Volume' in System Settings."
         )
+
+    def _fix_exe_association(self):
+        mimes = ["application/x-ms-dos-executable", "application/x-msdos-program", "application/x-msi"]
+        bottles_desktop = "com.usebottles.bottles.desktop"
+        try:
+            for mime in mimes:
+                subprocess.run(["xdg-mime", "default", bottles_desktop, mime], timeout=5, check=False)
+            QMessageBox.information(
+                self, "Fix .exe Files",
+                "Done. Double-clicking .exe and .msi files will now open Bottles.\n"
+                "If Bottles is not installed, install it from the App Store first."
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Fix .exe Files", f"Could not update file associations: {exc}")
+
+    def _enable_clipboard_history(self):
+        try:
+            subprocess.run(
+                ["kwriteconfig6", "--file", "klipperrc",
+                 "--group", "General", "--key", "KeepClipboardContents", "true"],
+                timeout=5, check=False,
+            )
+            subprocess.run(
+                ["kwriteconfig6", "--file", "klipperrc",
+                 "--group", "General", "--key", "MaxClipItems", "25"],
+                timeout=5, check=False,
+            )
+            subprocess.run(["systemctl", "--user", "restart", "plasma-klipper.service"],
+                           timeout=5, check=False)
+            QMessageBox.information(
+                self, "Clipboard History",
+                "Clipboard history enabled (25 items).\n"
+                "Press Meta+V (Windows key + V) to open the clipboard history popup."
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Clipboard History", f"Could not enable clipboard history: {exc}")
+
+    def _open_night_light(self):
+        if shutil.which("kcmshell6"):
+            subprocess.Popen(["kcmshell6", "kcm_nightcolor"])
+        else:
+            QDesktopServices.openUrl(QUrl("settings://kcm_nightcolor"))
 
     def _run_quick_fix(self, label: str, cmd: list[str]):
         if self._worker and self._worker.isRunning():
@@ -8096,6 +8216,8 @@ class GamingPage(Page):
         self._win_lib_probed = False
         self._data_workers: dict[str, DataWorker] = {}
         self._dashboard_loaded = False
+        self._protondb_worker: _ProtonDbBatchWorker | None = None
+        self._last_detected_games: list[dict] = []
 
         self._page_header(
             "Apps",
@@ -8513,6 +8635,55 @@ class GamingPage(Page):
         streaming_btns.addWidget(install_obs)
         streaming_btns.addStretch()
         streaming_layout.addLayout(streaming_btns)
+
+        # Discord screen share fix card
+        discord_fix_card, discord_fix_layout = _make_card()
+        discord_fix_title = QLabel("Fix Discord screen share on Wayland")
+        discord_fix_title.setObjectName("card-title")
+        discord_fix_layout.addWidget(discord_fix_title)
+        discord_fix_body = QLabel(
+            "Discord screen share is broken by default under Wayland. "
+            "This applies the correct Flatpak environment flags and enables PipeWire capture. "
+            "Restart Discord after applying. Alternatively, Vesktop (in Gaming Tools above) "
+            "has screen share working out of the box."
+        )
+        discord_fix_body.setObjectName("card-copy")
+        discord_fix_body.setWordWrap(True)
+        discord_fix_layout.addWidget(discord_fix_body)
+        discord_fix_btns = QHBoxLayout()
+        discord_fix_btns.setSpacing(8)
+        self._discord_fix_btn = QPushButton("Fix Discord Screen Share")
+        self._discord_fix_btn.setObjectName("primary")
+        self._discord_fix_btn.clicked.connect(self._fix_discord_screenshare)
+        discord_fix_btns.addWidget(self._discord_fix_btn)
+        self._discord_fix_status = QLabel()
+        self._discord_fix_status.setObjectName("card-copy")
+        discord_fix_btns.addWidget(self._discord_fix_status, 1)
+        discord_fix_layout.addLayout(discord_fix_btns)
+
+        # OBS PipeWire setup
+        obs_fix_note = QLabel("Fix OBS audio capture (apply PipeWire/Wayland Flatpak permissions)")
+        obs_fix_note.setObjectName("card-title")
+        obs_fix_note.setStyleSheet("margin-top:8px;")
+        discord_fix_layout.addWidget(obs_fix_note)
+        obs_fix_body = QLabel(
+            "OBS installed from Flathub may not capture audio or display correctly under Wayland. "
+            "This grants the required Flatpak socket permissions for PipeWire and Wayland output."
+        )
+        obs_fix_body.setObjectName("card-copy")
+        obs_fix_body.setWordWrap(True)
+        discord_fix_layout.addWidget(obs_fix_body)
+        obs_fix_btns = QHBoxLayout()
+        obs_fix_btns.setSpacing(8)
+        self._obs_fix_btn = QPushButton("Fix OBS Audio + Display")
+        self._obs_fix_btn.clicked.connect(self._fix_obs_pipewire)
+        obs_fix_btns.addWidget(self._obs_fix_btn)
+        self._obs_fix_status = QLabel()
+        self._obs_fix_status.setObjectName("card-copy")
+        obs_fix_btns.addWidget(self._obs_fix_status, 1)
+        discord_fix_layout.addLayout(obs_fix_btns)
+        self._add(discord_fix_card)
+
         self._add(streaming_card)
 
         self._divider()
@@ -9287,6 +9458,58 @@ class GamingPage(Page):
         for status, title, summary in items:
             self._streaming_rows_layout.addWidget(self._make_health_row(status, title, summary))
 
+    def _fix_discord_screenshare(self):
+        self._discord_fix_btn.setEnabled(False)
+        self._discord_fix_status.setText("Applying…")
+        cmd = [
+            "bash", "-c",
+            "flatpak override --user com.discordapp.Discord "
+            "--env=ELECTRON_OZONE_PLATFORM_HINT=auto "
+            "--socket=wayland --socket=fallback-x11 --device=dri "
+            "--talk-name=org.freedesktop.portal.Desktop "
+            "--talk-name=org.kde.StatusNotifierWatcher",
+        ]
+        try:
+            result = subprocess.run(cmd, timeout=10, capture_output=True)
+            if result.returncode == 0:
+                self._discord_fix_status.setText("Applied. Restart Discord to take effect.")
+                self._discord_fix_status.setObjectName("status-ok")
+            else:
+                err = result.stderr.decode("utf-8", errors="replace").strip()
+                self._discord_fix_status.setText(f"Failed: {err or 'unknown error'}")
+                self._discord_fix_status.setObjectName("status-err")
+        except Exception as exc:
+            self._discord_fix_status.setText(f"Error: {exc}")
+            self._discord_fix_status.setObjectName("status-err")
+        finally:
+            self._discord_fix_btn.setEnabled(True)
+            _restyle(self._discord_fix_status)
+
+    def _fix_obs_pipewire(self):
+        self._obs_fix_btn.setEnabled(False)
+        self._obs_fix_status.setText("Applying…")
+        cmd = [
+            "bash", "-c",
+            "flatpak override --user com.obsproject.Studio "
+            "--socket=wayland --socket=pulseaudio --device=dri "
+            "--talk-name=org.freedesktop.portal.Desktop",
+        ]
+        try:
+            result = subprocess.run(cmd, timeout=10, capture_output=True)
+            if result.returncode == 0:
+                self._obs_fix_status.setText("Applied. Restart OBS to take effect.")
+                self._obs_fix_status.setObjectName("status-ok")
+            else:
+                err = result.stderr.decode("utf-8", errors="replace").strip()
+                self._obs_fix_status.setText(f"Failed: {err or 'unknown error'}")
+                self._obs_fix_status.setObjectName("status-err")
+        except Exception as exc:
+            self._obs_fix_status.setText(f"Error: {exc}")
+            self._obs_fix_status.setObjectName("status-err")
+        finally:
+            self._obs_fix_btn.setEnabled(True)
+            _restyle(self._obs_fix_status)
+
     def _refresh_save_status(self):
         if not hasattr(self, "_saves_status_lbl"):
             return
@@ -9305,12 +9528,12 @@ class GamingPage(Page):
         }.get(status, "Optional")
         self._saves_status_lbl.setText(f"{prefix}: {title} - {summary}")
 
-    def _make_my_game_row(self, game_info: dict) -> QFrame:
+    def _make_my_game_row(self, game_info: dict, protondb_tier: str = "") -> QFrame:
         compat = self._find_compat_game(game_info.get("name", ""))
         if compat is None:
             status = "dim"
             status_text = "Unknown"
-            summary = "Not in curated compatibility list yet. Check ProtonDB before promising support."
+            summary = "Not in curated list. ProtonDB rating shown when available."
             profile = "kyth-gamescope quality -- %command%"
         else:
             status = "ok" if compat.status in ("native", "proton") else "warn" if compat.status == "tweaks" else "err"
@@ -9347,6 +9570,16 @@ class GamingPage(Page):
         }.get(status, ("#252526", "#858585"))
         badge.setStyleSheet(f"background:{badge_bg}; color:{badge_fg}; border:1px solid {badge_fg}; border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
         top.addWidget(badge)
+        tier = protondb_tier.lower().strip()
+        if tier and game_info.get("launcher") == "Steam":
+            tier_bg, tier_fg = _PROTONDB_TIER_STYLE.get(tier, ("#252526", "#858585"))
+            pdb_badge = QLabel(f"  PDB: {tier.capitalize()}  ")
+            pdb_badge.setToolTip(f"ProtonDB community rating: {tier.capitalize()}")
+            pdb_badge.setStyleSheet(
+                f"background:{tier_bg}; color:{tier_fg}; border:1px solid {tier_fg};"
+                " border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;"
+            )
+            top.addWidget(pdb_badge)
         layout.addLayout(top)
 
         detail = QLabel(
@@ -9381,13 +9614,17 @@ class GamingPage(Page):
             return
         self._render_my_games(_detect_installed_games())
 
-    def _render_my_games(self, games: list[dict]):
+    def _render_my_games(self, games: list[dict], cache: dict[str, str] | None = None):
+        self._last_detected_games = games
         self._clear_rows(self._my_games_rows_layout)
         if not games:
             self._my_games_summary_lbl.setText(
                 "No installed games detected yet. Install a game in Steam, Heroic, Lutris, or Bottles, then scan again."
             )
             return
+
+        if cache is None:
+            cache = _load_protondb_cache()
 
         matched = sum(1 for game in games if self._find_compat_game(game.get("name", "")))
         by_launcher: dict[str, int] = {}
@@ -9400,11 +9637,28 @@ class GamingPage(Page):
         )
 
         for game in games[:20]:
-            self._my_games_rows_layout.addWidget(self._make_my_game_row(game))
+            appid = game.get("appid", "")
+            tier = cache.get(appid, "") if appid else ""
+            self._my_games_rows_layout.addWidget(self._make_my_game_row(game, tier))
         if len(games) > 20:
             more = QLabel(f"{len(games) - 20} more detected. Showing the first 20 to keep the dashboard fast.")
             more.setObjectName("card-copy")
             self._my_games_rows_layout.addWidget(more)
+
+        uncached = [
+            g.get("appid", "") for g in games
+            if g.get("launcher") == "Steam" and g.get("appid") and g.get("appid") not in cache
+        ]
+        if uncached and (self._protondb_worker is None or not self._protondb_worker.isRunning()):
+            self._protondb_worker = _ProtonDbBatchWorker(uncached, cache)
+            self._protondb_worker.finished_all.connect(self._on_protondb_done)
+            _release_worker_when_finished(self, "_protondb_worker", self._protondb_worker)
+            self._protondb_worker.start()
+
+    def _on_protondb_done(self, full_cache: dict):
+        _save_protondb_cache(full_cache)
+        if self._last_detected_games:
+            self._render_my_games(self._last_detected_games, full_cache)
 
     def _find_compat_game(self, query: str):
         needle = query.strip().lower()
@@ -10887,6 +11141,71 @@ class CompatibilityPage(Page):
             self._game_rows.append((row, game.status))
             self._add(row)
 
+        # ── Windows apps via Bottles / Lutris ─────────────────────────────────
+        self._divider()
+        winapps_head = QLabel("Known-working Windows apps")
+        winapps_head.setObjectName("heading")
+        winapps_head.setStyleSheet("font-size:17px; font-weight:700; color:#ffffff;")
+        self._add(winapps_head)
+
+        winapps_intro = QLabel(
+            "These apps run on KythOS via Bottles or Lutris. "
+            "Use the Gaming page → Launcher setup to install launchers. "
+            "For standalone .exe or .msi installers, open Bottles and create a new bottle."
+        )
+        winapps_intro.setObjectName("card-copy")
+        winapps_intro.setWordWrap(True)
+        self._add(winapps_intro)
+
+        _WINAPPS: list[tuple[str, str, str, str]] = [
+            # (name, status, tool, note)
+            ("EA App",            "proton",  "Lutris",   "Use the Gaming page → Install EA App button. Installs via Lutris script."),
+            ("Battle.net",        "proton",  "Lutris",   "Use the Gaming page → Install Battle.net. Installs Overwatch, Diablo, etc."),
+            ("Ubisoft Connect",   "proton",  "Lutris",   "Use the Gaming page → Install Ubisoft Connect for Ubisoft game library."),
+            ("Rockstar Launcher", "tweaks",  "Bottles",  "Create a Gaming bottle in Bottles and run the RGSC installer .exe."),
+            ("Vortex (Nexus)",    "tweaks",  "Bottles",  "Create a Gaming bottle, install Vortex .exe. Works for most Bethesda mods."),
+            ("GOG Galaxy",        "proton",  "Heroic",   "Heroic handles your GOG library natively — no GOG Galaxy needed."),
+            ("Epic Games Store",  "proton",  "Heroic",   "Heroic replaces the Epic Games Launcher for your Epic library."),
+            ("Xbox App",          "blocked", "—",        "No Linux client. Use Xbox Cloud Gaming (above) for Game Pass streaming."),
+        ]
+        for name, status, tool, note in _WINAPPS:
+            badge_text, badge_css, border_color = CompatibilityPage._STATUS_STYLE.get(
+                status, CompatibilityPage._STATUS_STYLE["tweaks"]
+            )
+            wa_row = QFrame()
+            wa_row.setObjectName("hw-card-dim")
+            wa_row.setStyleSheet(
+                f"QFrame#hw-card-dim {{ border-left: 3px solid {border_color}; border-radius:4px; }}"
+            )
+            wa_rl = QHBoxLayout(wa_row)
+            wa_rl.setContentsMargins(14, 8, 14, 8)
+            wa_rl.setSpacing(10)
+            wa_name = QLabel(name)
+            wa_name.setObjectName("card-summary")
+            wa_name.setStyleSheet("font-size:13px; font-weight:600;")
+            wa_rl.addWidget(wa_name, 1)
+            wa_tool_lbl = QLabel(f"  {tool}  ")
+            wa_tool_lbl.setStyleSheet(
+                "font-size:10px; font-weight:600; border-radius:3px; padding:1px 6px; "
+                "background:#252526; color:#cccccc; border:1px solid #3c3c3c;"
+            )
+            wa_rl.addWidget(wa_tool_lbl)
+            wa_badge = QLabel(f"  {badge_text}  ")
+            wa_badge.setStyleSheet(badge_css + " border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
+            wa_badge.setToolTip(note)
+            wa_rl.addWidget(wa_badge)
+            note_lbl = QLabel(note)
+            note_lbl.setObjectName("card-copy")
+            note_lbl.setWordWrap(True)
+            wa_vl = QVBoxLayout()
+            wa_vl.setSpacing(0)
+            wa_vl.addWidget(wa_row)
+            note_lbl.setContentsMargins(17, 2, 0, 0)
+            wa_vl.addWidget(note_lbl)
+            container = QWidget()
+            container.setLayout(wa_vl)
+            self._add(container)
+
         # ── ProtonDB CTA ──────────────────────────────────────────────────────
         self._divider()
         pdb_card, pdb_layout = _make_card()
@@ -10907,6 +11226,65 @@ class CompatibilityPage(Page):
         )
         pdb_layout.addWidget(pdb_btn)
         self._add(pdb_card)
+
+        # ── Cloud Gaming — Xbox Game Pass workaround ──────────────────────────
+        self._divider()
+        cloud_head = QLabel("Cloud gaming (Xbox Game Pass workaround)")
+        cloud_head.setObjectName("heading")
+        cloud_head.setStyleSheet("font-size:17px; font-weight:700; color:#ffffff;")
+        self._add(cloud_head)
+
+        cloud_card, cloud_layout = _make_card("card-accent-warn")
+        cloud_title = QLabel("Xbox Game Pass — cloud streaming works today")
+        cloud_title.setObjectName("card-title")
+        cloud_layout.addWidget(cloud_title)
+        cloud_body = QLabel(
+            "The native Xbox app is Windows-only and there is no Linux client. "
+            "However, Xbox Cloud Gaming (xCloud) streams your Game Pass library to any "
+            "browser — no install required. Performance depends on your connection, "
+            "and a controller is strongly recommended. For competitive or latency-sensitive games, "
+            "keep a Windows dual-boot until a native solution ships."
+        )
+        cloud_body.setObjectName("card-copy")
+        cloud_body.setWordWrap(True)
+        cloud_layout.addWidget(cloud_body)
+        cloud_btns = QHBoxLayout()
+        cloud_btns.setSpacing(8)
+        xbox_btn = QPushButton("Open Xbox Cloud Gaming")
+        xbox_btn.setObjectName("primary")
+        xbox_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl("https://www.xbox.com/play"))
+        )
+        cloud_btns.addWidget(xbox_btn)
+        cloud_btns.addStretch()
+        cloud_layout.addLayout(cloud_btns)
+        self._add(cloud_card)
+
+        alt_card, alt_layout = _make_card()
+        alt_title = QLabel("Other cloud gaming services — fully supported on Linux")
+        alt_title.setObjectName("card-title")
+        alt_layout.addWidget(alt_title)
+        alt_body = QLabel(
+            "These services work in Firefox or Chrome on KythOS with no configuration needed. "
+            "GeForce NOW is the best option for library games you already own on Steam."
+        )
+        alt_body.setObjectName("card-copy")
+        alt_body.setWordWrap(True)
+        alt_layout.addWidget(alt_body)
+        alt_btns = QHBoxLayout()
+        alt_btns.setSpacing(8)
+        for label, url in (
+            ("GeForce NOW", "https://www.geforcenow.com"),
+            ("Amazon Luna",  "https://luna.amazon.com"),
+            ("Boosteroid",   "https://boosteroid.com"),
+        ):
+            btn = QPushButton(label)
+            btn.clicked.connect(lambda _=False, u=url: QDesktopServices.openUrl(QUrl(u)))
+            alt_btns.addWidget(btn)
+        alt_btns.addStretch()
+        alt_layout.addLayout(alt_btns)
+        self._add(alt_card)
+
         self._stretch()
 
     # ── helpers ───────────────────────────────────────────────────────────────
