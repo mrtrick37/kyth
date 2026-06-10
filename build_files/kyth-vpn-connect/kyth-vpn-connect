@@ -283,7 +283,18 @@ QPushButton#saml-cancel:pressed {
             header_layout.addWidget(self._info)
             layout.addWidget(header)
 
-            self._profile = QWebEngineProfile(self)
+            # Named persistent profile: keeps the IdP session cookies so the
+            # gateway SAML leg (and future reconnects) can complete without
+            # re-entering credentials. An unnamed profile is off-the-record and
+            # would force a full sign-in for every leg.
+            _store = Path.home() / ".local" / "share" / "kyth-vpn-connect" / "webengine"
+            _store.mkdir(parents=True, exist_ok=True)
+            self._profile = QWebEngineProfile("kyth-vpn-saml", self)
+            self._profile.setPersistentStoragePath(str(_store))
+            self._profile.setCachePath(str(_store / "cache"))
+            self._profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+            )
             # Intercept form.submit() and window.location navigation at document
             # creation time so we see them even if the page's own script fires first.
             from PyQt6.QtWebEngineCore import QWebEngineScript
@@ -763,6 +774,8 @@ class MainWindow(QMainWindow):
         self._status_state = "disconnected"
         self._hid_after_connect = False
         self._pending_reconnect = False
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
         self.setWindowTitle("VPN Connect")
         self.setWindowIcon(QIcon.fromTheme(_APP_ICON_NAME))
         self.setMinimumSize(560, 560)
@@ -930,6 +943,8 @@ class MainWindow(QMainWindow):
         self._log.clear()
         self._hid_after_connect = False
         self._gp_interface = "portal"
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
         self._set_status("connecting")
         self._connect_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
@@ -968,6 +983,19 @@ class MainWindow(QMainWindow):
         m = _GP_PRELOGIN_IFACE_RE.search(line)
         if m:
             self._gp_interface = "portal" if m.group(1) == "global-protect" else "gateway"
+            return
+        if (
+            "fgets (stdin)" in line
+            and self._gp_interface == "gateway"
+            and not self._saml_in_progress
+            and not self._gateway_saml_attempted
+        ):
+            # Portal accepted the SAML cookie, but the gateway then demanded
+            # its own prelogin-cookie (the portal cookie is interface-bound and
+            # the portal returned no portal-userauthcookie to carry over).
+            # openconnect prompted for it on an exhausted stdin and died — redo
+            # SAML directly against the gateway once this process exits.
+            self._pending_gateway_saml = True
             return
         if "Unexpected 512 result from server" in line:
             self._log.append(
@@ -1050,6 +1078,31 @@ class MainWindow(QMainWindow):
         cmd.append(gateway)
         self._start_worker(cmd, worker_stdin)
 
+    def _start_gateway_probe(self) -> None:
+        """Re-run the openconnect SAML probe against the GP gateway interface.
+
+        Used when the portal leg succeeded but the gateway demanded its own
+        prelogin-cookie, which only a gateway-issued SAML login can provide.
+        The probe prints the gateway's SAML URL, the embedded browser replays
+        the (now session-cached) IdP login, and the reconnect then uses
+        gateway:<field>.
+        """
+        gateway = self._gateway.text().strip()
+        username = self._username.text().strip()
+        self._gp_interface = "gateway"
+        self._set_status("connecting")
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", self._protocol.currentText(),
+            "--os", self._os_emul.currentText(),
+            "--script", "/usr/libexec/kyth-vpnc-script",
+            "--usergroup", "gateway",
+        ]
+        if username:
+            cmd += ["--user", username]
+        cmd.append(gateway)
+        self._start_worker(cmd)
+
     def _start_worker(self, cmd: list[str], stdin_text: str = "") -> None:
         worker = _VpnWorker(cmd, stdin_text)
         self._worker = worker
@@ -1067,6 +1120,15 @@ class MainWindow(QMainWindow):
         if self._saml_in_progress:
             # First openconnect probe exits naturally after outputting the SAML
             # URL — the SAML dialog is still open, so don't reset the UI yet.
+            return
+        if self._pending_gateway_saml:
+            self._pending_gateway_saml = False
+            self._gateway_saml_attempted = True
+            self._log.append(
+                "[GP] Gateway requires its own SAML sign-in — restarting "
+                "authentication against the gateway interface…"
+            )
+            QTimer.singleShot(500, self._start_gateway_probe)
             return
         self._set_status("disconnected")
         self._connect_btn.setEnabled(True)
