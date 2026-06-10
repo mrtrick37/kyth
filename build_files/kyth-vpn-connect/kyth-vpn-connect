@@ -69,6 +69,10 @@ except ImportError:
 _CONFIG_PATH = Path.home() / ".config" / "kyth-vpn-connect"
 _APP_ICON_NAME = "network-vpn"
 _SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
+# Which GP interface openconnect was probing when SAML was requested.
+# A prelogin-cookie is only valid on the interface that issued it, so the
+# reconnect must use portal:<field> vs gateway:<field> accordingly.
+_GP_PRELOGIN_IFACE_RE = re.compile(r"POST https?://[^/]+/(global-protect|ssl-vpn)/prelogin\.esp")
 _GP_SAML_FIELDS = frozenset({
     "preloginuserauthcookie",
     "portal-userauthcookie",
@@ -755,6 +759,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self._worker: _VpnWorker | None = None
         self._saml_in_progress = False
+        self._gp_interface = "portal"
         self._status_state = "disconnected"
         self._hid_after_connect = False
         self._pending_reconnect = False
@@ -924,6 +929,7 @@ class MainWindow(QMainWindow):
 
         self._log.clear()
         self._hid_after_connect = False
+        self._gp_interface = "portal"
         self._set_status("connecting")
         self._connect_btn.setEnabled(False)
         self._disconnect_btn.setEnabled(True)
@@ -958,10 +964,21 @@ class MainWindow(QMainWindow):
         sb.setValue(sb.maximum())
         if _vpn_line_is_connected(line):
             self._set_status("connected")
-        else:
-            m = _SAML_URL_RE.search(line)
-            if m:
-                self._on_saml_required(m.group(1))
+            return
+        m = _GP_PRELOGIN_IFACE_RE.search(line)
+        if m:
+            self._gp_interface = "portal" if m.group(1) == "global-protect" else "gateway"
+            return
+        if "Unexpected 512 result from server" in line:
+            self._log.append(
+                "[Hint: the GlobalProtect server rejected the SAML token — "
+                "usually a portal/gateway mismatch or a username that doesn't "
+                "match the SAML account]"
+            )
+            return
+        m = _SAML_URL_RE.search(line)
+        if m:
+            self._on_saml_required(m.group(1))
 
     def _on_saml_required(self, saml_url: str) -> None:
         if _WEBENGINE_AVAILABLE:
@@ -1020,12 +1037,14 @@ class MainWindow(QMainWindow):
         ]
         worker_stdin = ""
         if protocol == "gp" and field and value:
-            cmd += ["--passwd-on-stdin", "--usergroup", f"gateway:{field}"]
+            cmd += ["--passwd-on-stdin", "--usergroup", f"{self._gp_interface}:{field}"]
             worker_stdin = value
-            print(f"[SAML dbg] reconnecting via gateway with {field} and username={'yes' if (username or saml_username) else 'no'}")
+            print(f"[SAML dbg] reconnecting via {self._gp_interface} with {field} and username={'yes' if (username or saml_username) else 'no'}")
         else:
             cmd += ["--cookie", cookie]
-        username = username or saml_username
+        # The GP prelogin-cookie is bound to the SAML identity — the server
+        # 512s if --user doesn't match it exactly, so it wins over the form.
+        username = saml_username or username
         if username:
             cmd += ["--user", username]
         cmd.append(gateway)
