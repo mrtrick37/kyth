@@ -17740,6 +17740,10 @@ def _save_vpn_config(gateway: str, protocol: str, os_emul: str, username: str) -
 
 
 _SAML_URL_RE = re.compile(r"SAML REDIRECT.*?via (https?://\S+)")
+# Which GP interface openconnect was probing when SAML was requested.
+# A prelogin-cookie is only valid on the interface that issued it, so the
+# reconnect must use portal:<field> vs gateway:<field> accordingly.
+_GP_PRELOGIN_IFACE_RE = re.compile(r"POST https?://[^/]+/(global-protect|ssl-vpn)/prelogin\.esp")
 _GP_SAML_FIELDS = frozenset({
     "preloginuserauthcookie",
     "portal-userauthcookie",
@@ -17916,7 +17920,19 @@ QPushButton#saml-cancel:pressed {
             header_layout.addWidget(self._info)
             layout.addWidget(header)
 
-            self._profile = QWebEngineProfile(self)
+            # Named persistent profile: keeps the IdP session cookies so the
+            # gateway SAML leg (and future reconnects) can complete without
+            # re-entering credentials. An unnamed profile is off-the-record and
+            # would force a full sign-in for every leg.
+            from pathlib import Path
+            _store = Path.home() / ".local" / "share" / "kyth-welcome" / "webengine"
+            _store.mkdir(parents=True, exist_ok=True)
+            self._profile = QWebEngineProfile("kyth-vpn-saml", self)
+            self._profile.setPersistentStoragePath(str(_store))
+            self._profile.setCachePath(str(_store / "cache"))
+            self._profile.setPersistentCookiesPolicy(
+                QWebEngineProfile.PersistentCookiesPolicy.ForcePersistentCookies
+            )
             from PyQt6.QtWebEngineCore import QWebEngineScript
             _intercept = QWebEngineScript()
             _intercept.setName("gp-submit-intercept")
@@ -18343,6 +18359,9 @@ class VpnPage(Page):
         super().__init__()
         self._worker: _VpnConnectWorker | None = None
         self._saml_pending = False
+        self._gp_interface = "portal"
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
         self._saml_gateway = ""
         self._saml_protocol = "gp"
         self._saml_os_emul = "win"
@@ -18482,6 +18501,9 @@ class VpnPage(Page):
         self._saml_os_emul = os_emul
         self._saml_username = username
         self._saml_pending = False
+        self._gp_interface = "portal"
+        self._pending_gateway_saml = False
+        self._gateway_saml_attempted = False
 
         self._vpn_log.clear()
         self._set_vpn_status("connecting")
@@ -18490,7 +18512,12 @@ class VpnPage(Page):
         for w in self._vpn_config_widgets():
             w.setEnabled(False)
 
-        cmd = ["sudo", "-E", "-A", "/usr/bin/openconnect", "--protocol", protocol, "--os", os_emul]
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", protocol,
+            "--os", os_emul,
+            "--script", "/usr/libexec/kyth-vpnc-script",
+        ]
         if username:
             cmd += ["--user", username]
         if password:
@@ -18510,6 +18537,30 @@ class VpnPage(Page):
         sb.setValue(sb.maximum())
         if _vpn_line_is_connected(line):
             self._set_vpn_status("connected")
+            return
+        m = _GP_PRELOGIN_IFACE_RE.search(line)
+        if m:
+            self._gp_interface = "portal" if m.group(1) == "global-protect" else "gateway"
+            return
+        if (
+            "fgets (stdin)" in line
+            and self._gp_interface == "gateway"
+            and not self._saml_pending
+            and not self._gateway_saml_attempted
+        ):
+            # Portal accepted the SAML cookie, but the gateway then demanded
+            # its own prelogin-cookie (the portal cookie is interface-bound and
+            # the portal returned no portal-userauthcookie to carry over).
+            # openconnect prompted for it on an exhausted stdin and died — redo
+            # SAML directly against the gateway once this process exits.
+            self._pending_gateway_saml = True
+            return
+        if "Unexpected 512 result from server" in line:
+            self._vpn_log.append(
+                "[Hint: the GlobalProtect server rejected the SAML token — "
+                "usually a portal/gateway mismatch or a username that doesn't "
+                "match the SAML account]"
+            )
 
     def _start_vpn_worker(self, cmd: list[str], stdin_text: str = "") -> None:
         worker = _VpnConnectWorker(cmd, stdin_text)
@@ -18527,12 +18578,44 @@ class VpnPage(Page):
         worker.deleteLater()
         if self._saml_pending:
             return
+        if self._pending_gateway_saml:
+            self._pending_gateway_saml = False
+            self._gateway_saml_attempted = True
+            self._vpn_log.append(
+                "[GP] Gateway requires its own SAML sign-in — restarting "
+                "authentication against the gateway interface…"
+            )
+            QTimer.singleShot(500, self._start_gateway_probe)
+            return
         self._set_vpn_status("disconnected")
         self._connect_btn.setEnabled(True)
         self._disconnect_btn.setEnabled(False)
         for w in self._vpn_config_widgets():
             w.setEnabled(True)
         self._vpn_log.append(f"\n[openconnect exited: code {code}]")
+
+    def _start_gateway_probe(self) -> None:
+        """Re-run the openconnect SAML probe against the GP gateway interface.
+
+        Used when the portal leg succeeded but the gateway demanded its own
+        prelogin-cookie, which only a gateway-issued SAML login can provide.
+        The probe prints the gateway's SAML URL, the embedded browser replays
+        the (now session-cached) IdP login, and the reconnect then uses
+        gateway:<field>.
+        """
+        self._gp_interface = "gateway"
+        self._set_vpn_status("connecting")
+        cmd = [
+            "sudo", "-E", "-A", "/usr/bin/openconnect",
+            "--protocol", self._saml_protocol,
+            "--os", self._saml_os_emul,
+            "--script", "/usr/libexec/kyth-vpnc-script",
+            "--usergroup", "gateway",
+        ]
+        if self._saml_username:
+            cmd += ["--user", self._saml_username]
+        cmd.append(self._saml_gateway)
+        self._start_vpn_worker(cmd)
 
     def _on_saml_required(self, saml_url: str) -> None:
         if not _WEBENGINE_AVAILABLE:
@@ -18559,14 +18642,18 @@ class VpnPage(Page):
             "sudo", "-E", "-A", "/usr/bin/openconnect",
             "--protocol", self._saml_protocol,
             "--os", self._saml_os_emul,
+            "--script", "/usr/libexec/kyth-vpnc-script",
         ]
         worker_stdin = ""
         if self._saml_protocol == "gp" and field and value:
-            cmd += ["--passwd-on-stdin", "--usergroup", f"portal:{field}"]
+            cmd += ["--passwd-on-stdin", "--usergroup", f"{self._gp_interface}:{field}"]
             worker_stdin = value
+            print(f"[SAML dbg] reconnecting via {self._gp_interface} with {field} and username={'yes' if (self._saml_username or saml_username) else 'no'}")
         else:
             cmd += ["--cookie", cookie]
-        username = self._saml_username or saml_username
+        # The GP prelogin-cookie is bound to the SAML identity — the server
+        # 512s if --user doesn't match it exactly, so it wins over the form.
+        username = saml_username or self._saml_username
         if username:
             cmd += ["--user", username]
         cmd.append(self._saml_gateway)
