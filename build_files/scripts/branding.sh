@@ -839,6 +839,22 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     # KDE's default context menu puts display settings behind two clicks.
     kwriteconfig6 --file kwinrc --group Plugins --key desktopchangeosdEnabled --type bool false
 
+    # Mixed refresh rate — compositor latency policy.
+    # KWin Plasma 6 renders each output at its own refresh rate independently, but
+    # defaults to "medium" latency which can cause visible tearing and flicker when
+    # a window is dragged between a 144 Hz and 60 Hz display. "extreme" eliminates
+    # the per-frame delay that causes the jitter without increasing CPU usage.
+    kwriteconfig6 --file kwinrc --group Compositing --key LatencyPolicy extreme
+    # Disable adaptive sync on secondary displays by default to prevent frame-rate
+    # lock-step when the primary is in VRR mode and the secondary is fixed-refresh.
+    kwriteconfig6 --file kwinrc --group Compositing --key AllowTearing --type bool false
+
+    # KDE Discover update notifications — disabled in favour of kyth-update-notifier.
+    # Having two independent "update available" badges (Discover + kyth tray) confuses
+    # users who don't know which one covers what. The kyth tray handles both OS image
+    # updates and Flatpak app updates; Discover's badge is redundant and contradictory.
+    kwriteconfig6 --file plasma-discoverrc --group UpdatesNotifier --key UseNotifications --type bool false
+
     # Dolphin/File Explorer comfort: remember view properties per folder, keep
     # previews available, and use a visible location bar instead of breadcrumbs
     # for easier path copy/paste during support and migration.

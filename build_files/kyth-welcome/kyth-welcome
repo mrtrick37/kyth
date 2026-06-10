@@ -4857,6 +4857,7 @@ class HardwarePage(Page):
 
         self._add(self._make_personality_card())
         self._add(self._make_bt_audio_card())
+        self._add(self._make_display_card())
 
         # Card container inside the page's scroll area
         self._card_container = QWidget()
@@ -4868,6 +4869,78 @@ class HardwarePage(Page):
 
         self._stretch()
         self.refresh()
+
+    def _make_display_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Display — HDR & Variable Refresh Rate")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        # Read current display state via kscreen-doctor
+        raw = _command_stdout(["kscreen-doctor", "-o"], timeout=6)
+        hdr_outputs: list[tuple[str, str]] = []   # (name, hdr_state)
+        vrr_outputs: list[tuple[str, str]] = []   # (name, vrr_state)
+        if raw:
+            cur_name = ""
+            for line in raw.splitlines():
+                stripped = line.strip()
+                if stripped.startswith("Output:") or (stripped and not line.startswith(" ")):
+                    parts = stripped.split()
+                    if len(parts) >= 2:
+                        cur_name = parts[-1].rstrip(":")
+                elif stripped.lower().startswith("hdr:") and cur_name:
+                    hdr_outputs.append((cur_name, stripped.split(":", 1)[1].strip()))
+                elif stripped.lower().startswith("vrr:") and cur_name:
+                    vrr_outputs.append((cur_name, stripped.split(":", 1)[1].strip()))
+
+        if hdr_outputs or vrr_outputs:
+            lines = []
+            seen = set()
+            for name, hdr in hdr_outputs:
+                seen.add(name)
+                vrr = next((v for n, v in vrr_outputs if n == name), "unknown")
+                hdr_str = "HDR on" if hdr == "enabled" else "HDR off"
+                vrr_str = f"VRR {vrr}" if vrr not in ("unknown", "") else "VRR unknown"
+                lines.append(f"{name}: {hdr_str}  ·  {vrr_str}")
+            for name, vrr in vrr_outputs:
+                if name not in seen:
+                    lines.append(f"{name}: VRR {vrr}")
+            status_lbl = QLabel("\n".join(lines))
+        else:
+            status_lbl = QLabel("Display info unavailable — kscreen not running or no outputs detected.")
+        status_lbl.setObjectName("card-copy")
+        status_lbl.setWordWrap(True)
+        layout.addWidget(status_lbl)
+
+        body = QLabel(
+            "HDR and Variable Refresh Rate (FreeSync/G-Sync) are configured per monitor in "
+            "KDE Display Settings. Enable HDR for your primary display, then set per-game "
+            "HDR via Steam → game properties → General → HDR."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        display_btn = QPushButton("Display Settings")
+        display_btn.setObjectName("primary")
+        display_btn.setToolTip("Open KDE Display Settings — HDR, VRR, refresh rate, and multi-monitor layout.")
+        display_btn.clicked.connect(
+            lambda _=False: subprocess.Popen(["kcmshell6", "kcm_kscreen"])
+            if shutil.which("kcmshell6") else QDesktopServices.openUrl(QUrl("settings://display"))
+        )
+        btns.addWidget(display_btn)
+        color_btn = QPushButton("Color & Night Light")
+        color_btn.setToolTip("Color profiles and Night Light blue-light filter settings.")
+        color_btn.clicked.connect(
+            lambda _=False: subprocess.Popen(["kcmshell6", "kcm_nightcolor"])
+            if shutil.which("kcmshell6") else None
+        )
+        btns.addWidget(color_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
 
     def _make_personality_card(self) -> QFrame:
         pci = _command_stdout(["lspci"], timeout=5).lower()
@@ -8726,9 +8799,9 @@ class GamingPage(Page):
             {
                 "flatpak": "org.openrgb.OpenRGB",
                 "name": "OpenRGB",
-                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals.",
+                "desc": "Unified RGB lighting control for motherboards, RAM, GPUs, and peripherals. Pre-installed — RGB profiles are applied automatically at login.",
                 "ujust": "install-openrgb",
-                "launch": ["flatpak", "run", "org.openrgb.OpenRGB"],
+                "launch": ["openrgb"],
             },
             {
                 "flatpak": "io.github.benjamimgois.goverlay",
@@ -9765,6 +9838,17 @@ class GamingPage(Page):
         }.get(status, ("#252526", "#858585"))
         badge.setStyleSheet(f"background:{badge_bg}; color:{badge_fg}; border:1px solid {badge_fg}; border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;")
         top.addWidget(badge)
+        if compat is not None and compat.status == "blocked" and compat.anticheat and compat.anticheat.lower() not in ("none", ""):
+            ac_badge = QLabel(f"  ⛔ {compat.anticheat}  ")
+            ac_badge.setToolTip(
+                f"Blocked by {compat.anticheat} anti-cheat — not supported on Linux. "
+                "No workaround exists; this game requires Windows."
+            )
+            ac_badge.setStyleSheet(
+                "background:#3a1010; color:#f48771; border:1px solid #f48771;"
+                " border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;"
+            )
+            top.addWidget(ac_badge)
         tier = protondb_tier.lower().strip()
         if tier and game_info.get("launcher") == "Steam":
             tier_bg, tier_fg = _PROTONDB_TIER_STYLE.get(tier, ("#252526", "#858585"))

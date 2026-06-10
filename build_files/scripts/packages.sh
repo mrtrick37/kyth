@@ -250,6 +250,10 @@ optional_gaming_packages=(
 	v4l2loopback
 	joycond
 	gamescope-session-plus
+	openrgb
+	libwacom
+	libwacom-data
+	hplip
 )
 
 install_available_optional_packages() {
@@ -509,8 +513,13 @@ install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
 #   SourceForge at install time, which is unreliable in CI builds.
-# OpenRGB stays opt-in through System Hub so hardware-specific controls do not
-# clutter a fresh desktop. The Flatpak install path grants device access.
+# openrgb: RGB peripheral control installed by default; udev rules grant LED device
+#   access to the logged-in user. Autostarted at login via XDG autostart entry.
+# libwacom/libwacom-data: tablet pressure-curve database used by KWin/libinput on
+#   Wayland for Wacom and Wacom-compatible tablets. Without this, pressure sensitivity
+#   maps incorrectly and drawing feels like a binary on/off signal.
+# hplip: HP printer driver stack. Auto-detects most HP USB/network printers without
+#   manual CUPS configuration.
 # input-remapper is already installed in the gaming packages block above.
 
 # ── VS Code ───────────────────────────────────────────────────────────────────
