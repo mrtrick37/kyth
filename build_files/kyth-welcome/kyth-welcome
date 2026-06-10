@@ -8014,7 +8014,7 @@ class FeedbackPage(Page):
         self._worker = None
 
         self._page_header(
-            "Expert",
+            "Advanced",
             "Feedback",
             "Report a bug or request a feature. Your report goes directly to the KythOS issue tracker.",
         )
@@ -18737,7 +18737,7 @@ class MainWindow(QMainWindow):
         advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
         advanced_items.append(("⎇", "Channels", "Channels", BranchesPage))
         advanced_items.append(("✉", "Feedback", "Feedback", FeedbackPage))
-        nav_groups.append(("Expert", advanced_items))
+        nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
         global_idx = 0
