@@ -4856,6 +4856,7 @@ class HardwarePage(Page):
         self._add(driver_card)
 
         self._add(self._make_personality_card())
+        self._add(self._make_bt_audio_card())
 
         # Card container inside the page's scroll area
         self._card_container = QWidget()
@@ -4903,6 +4904,115 @@ class HardwarePage(Page):
         btns.addStretch()
         layout.addLayout(btns)
         return card
+
+    def _make_bt_audio_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Bluetooth Audio")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        desc = QLabel(
+            "KythOS prefers LDAC (990 kbps HQ) over SBC when your headset supports it. "
+            "If your Bluetooth headset sounds worse than on Windows, use the controls below "
+            "to check the active codec, switch audio to your headset, or reconnect to renegotiate the codec."
+        )
+        desc.setObjectName("card-copy")
+        desc.setWordWrap(True)
+        layout.addWidget(desc)
+
+        self._bt_status_lbl = QLabel("Click Refresh Devices to scan.")
+        self._bt_status_lbl.setObjectName("card-copy")
+        self._bt_status_lbl.setWordWrap(True)
+        layout.addWidget(self._bt_status_lbl)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        refresh_btn = QPushButton("Refresh Devices")
+        refresh_btn.clicked.connect(self._refresh_bt_audio)
+        btns.addWidget(refresh_btn)
+        switch_btn = QPushButton("Switch to BT Output")
+        switch_btn.setToolTip("Set the connected Bluetooth audio device as the default audio output.")
+        switch_btn.clicked.connect(self._switch_to_bt_audio)
+        btns.addWidget(switch_btn)
+        ldac_btn = QPushButton("Force LDAC Reconnect")
+        ldac_btn.setToolTip(
+            "Disconnect and reconnect the active Bluetooth device to renegotiate codec. "
+            "Use this if your headset falls back to SBC instead of LDAC."
+        )
+        ldac_btn.clicked.connect(self._force_ldac_reconnect)
+        btns.addWidget(ldac_btn)
+        bt_settings_btn = QPushButton("Bluetooth Settings")
+        bt_settings_btn.clicked.connect(
+            lambda: subprocess.Popen(["kcmshell6", "kcm_bluetooth"])
+            if shutil.which("kcmshell6") else QDesktopServices.openUrl(QUrl("settings://bluetooth"))
+        )
+        btns.addWidget(bt_settings_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
+    def _refresh_bt_audio(self):
+        paired = _command_stdout(["bluetoothctl", "devices", "Paired"], timeout=5)
+        connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
+        connected_addrs = {
+            line.split()[1] for line in connected.splitlines()
+            if len(line.split()) >= 2
+        }
+        sinks_raw = _command_stdout(
+            ["bash", "-c", "wpctl status 2>/dev/null | grep -E 'bluez_output' | head -8"],
+            timeout=5,
+        )
+        lines: list[str] = []
+        for line in paired.splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) < 3:
+                continue
+            addr, name = parts[1], parts[2]
+            state = "Connected" if addr in connected_addrs else "Paired (not connected)"
+            lines.append(f"{name}  [{addr}]  —  {state}")
+        if sinks_raw.strip():
+            lines.append(f"\nWirePlumber BT sinks:\n{sinks_raw.strip()}")
+        self._bt_status_lbl.setText(
+            "\n".join(lines) if lines
+            else "No paired Bluetooth devices found. Pair a headset via Bluetooth Settings."
+        )
+
+    def _switch_to_bt_audio(self):
+        result = subprocess.run(
+            ["bash", "-c",
+             "wpctl status 2>/dev/null | grep -E '\\bbluez_output' | head -1"
+             " | awk '{print $1}' | tr -d '.*'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        sink_id = result.stdout.strip()
+        if sink_id:
+            subprocess.run(["wpctl", "set-default", sink_id], timeout=5, check=False)
+            self._bt_status_lbl.setText(
+                f"Audio output switched to Bluetooth device (WirePlumber ID: {sink_id}). "
+                "If the change doesn't take effect, log out and back in."
+            )
+        else:
+            self._bt_status_lbl.setText(
+                "No Bluetooth audio output found. Make sure your headset is connected, then refresh."
+            )
+
+    def _force_ldac_reconnect(self):
+        connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
+        for line in connected.splitlines():
+            parts = line.split(" ", 2)
+            if len(parts) < 2:
+                continue
+            addr = parts[1]
+            self._bt_status_lbl.setText(f"Reconnecting {addr} to renegotiate codec…")
+            subprocess.run(["bluetoothctl", "disconnect", addr], timeout=6, check=False)
+            time.sleep(1.5)
+            subprocess.run(["bluetoothctl", "connect", addr], timeout=12, check=False)
+            self._bt_status_lbl.setText(
+                f"Reconnected {addr}. LDAC should now be active if your device supports it. "
+                "Refresh Devices to confirm the WirePlumber sink is present."
+            )
+            return
+        self._bt_status_lbl.setText("No connected Bluetooth device found. Connect your headset first.")
 
     def refresh(self):
         self._refresh_btn.setEnabled(False)
@@ -7127,7 +7237,92 @@ class RepairPage(Page):
         self._log.setMinimumHeight(120)
         self._log.hide()
         self._add(self._log)
+
+        # ── Sleep diagnostics ─────────────────────────────────────────────────
+        sleep_card, sleep_layout = _make_card()
+        sleep_title = QLabel("Sleep / Wake Reliability")
+        sleep_title.setObjectName("card-title")
+        sleep_layout.addWidget(sleep_title)
+
+        mem_sleep = _command_stdout(["cat", "/sys/power/mem_sleep"], timeout=3)
+        sleep_state = _command_stdout(["cat", "/sys/power/state"], timeout=3)
+        current_mode = "unknown"
+        if "[deep]" in mem_sleep:
+            current_mode = "S3 deep (good)"
+        elif "[s2idle]" in mem_sleep:
+            current_mode = "s2idle (modern standby — may wake early)"
+        elif mem_sleep:
+            current_mode = mem_sleep.strip()
+
+        sleep_body = QLabel(
+            f"Current sleep mode: {current_mode}\n"
+            f"Available states: {sleep_state.strip() or 'unknown'}\n\n"
+            "KythOS disables hybrid sleep and suspend-then-hibernate by default — "
+            "these are common causes of black screens on wake for gaming PCs. "
+            "If you get a black screen when resuming from sleep, try 'Force Deep Sleep' below."
+        )
+        sleep_body.setObjectName("card-copy")
+        sleep_body.setWordWrap(True)
+        sleep_layout.addWidget(sleep_body)
+        sleep_btns = QHBoxLayout()
+        sleep_btns.setSpacing(8)
+        deep_sleep_btn = QPushButton("Force Deep Sleep (S3)")
+        deep_sleep_btn.setToolTip(
+            "Writes 'deep' to /sys/power/mem_sleep for this session, overriding s2idle. "
+            "Effective immediately; reverts on reboot. If sleep works correctly after this, "
+            "add mem_sleep_default=deep to your kernel parameters permanently."
+        )
+        deep_sleep_btn.clicked.connect(self._force_deep_sleep)
+        sleep_btns.addWidget(deep_sleep_btn)
+        wakeup_btn = QPushButton("Show Wake Sources")
+        wakeup_btn.setToolTip("List devices that can wake the system from sleep. Useful for diagnosing spurious wake-ups.")
+        wakeup_btn.clicked.connect(self._show_wakeup_sources)
+        sleep_btns.addWidget(wakeup_btn)
+        sleep_btns.addStretch()
+        sleep_layout.addLayout(sleep_btns)
+        self._sleep_fix_status = QLabel()
+        self._sleep_fix_status.setObjectName("card-copy")
+        self._sleep_fix_status.setWordWrap(True)
+        sleep_layout.addWidget(self._sleep_fix_status)
+        self._add(sleep_card)
+
         self._stretch()
+
+    def _force_deep_sleep(self):
+        try:
+            result = subprocess.run(
+                ["sudo", "-A", "bash", "-c", "echo deep > /sys/power/mem_sleep"],
+                timeout=8, capture_output=True,
+            )
+            if result.returncode == 0:
+                self._sleep_fix_status.setText(
+                    "Deep sleep (S3) forced for this session. Put the system to sleep and wake it — "
+                    "if it works correctly, the fix is working. Add mem_sleep_default=deep to your "
+                    "kernel arguments to make this permanent."
+                )
+                self._sleep_fix_status.setObjectName("status-ok")
+            else:
+                err = result.stderr.decode("utf-8", errors="replace").strip()
+                self._sleep_fix_status.setText(
+                    f"Could not set sleep mode (may not be supported on this platform): {err}"
+                )
+                self._sleep_fix_status.setObjectName("status-err")
+        except Exception as exc:
+            self._sleep_fix_status.setText(f"Error: {exc}")
+            self._sleep_fix_status.setObjectName("status-err")
+        _restyle(self._sleep_fix_status)
+
+    def _show_wakeup_sources(self):
+        result = _command_stdout(
+            ["bash", "-c", "grep -r . /sys/bus/*/devices/*/power/wakeup 2>/dev/null | grep ':enabled' | sed 's|/sys/bus/||;s|/devices/||;s|/power/wakeup:enabled||' | sort"],
+            timeout=5,
+        )
+        if result.strip():
+            self._sleep_fix_status.setText(f"Wake-enabled devices:\n{result.strip()}")
+        else:
+            self._sleep_fix_status.setText("No wake sources found (or /sys/bus path unavailable).")
+        self._sleep_fix_status.setObjectName("card-copy")
+        _restyle(self._sleep_fix_status)
 
     def _run_session_snapshot(self):
         if self._snapshot_worker and self._snapshot_worker.isRunning():
@@ -11531,9 +11726,9 @@ class ControllerPage(Page):
         ps_title.setObjectName("card-title")
         ps_layout.addWidget(ps_title)
         ps_desc = QLabel(
-            "PlayStation controllers work wired and over Bluetooth with no drivers or "
-            "configuration. DualSense adaptive triggers and haptics are supported in "
-            "native Linux games and via Steam Input."
+            "DualSense works wired and over Bluetooth. KythOS ships udev rules that grant "
+            "the hidraw interface to the logged-in user, enabling adaptive triggers and haptics "
+            "in supported games via Steam Input and the hid-playstation kernel module."
         )
         ps_desc.setObjectName("card-copy")
         ps_desc.setWordWrap(True)
@@ -11541,9 +11736,14 @@ class ControllerPage(Page):
 
         ps_bt_steps = QLabel(
             "Pair over Bluetooth:\n"
-            "  DualSense (PS5):  hold PS + Create until light bar blinks\n"
-            "  DualShock 4 (PS4):  hold PS + Share until light bar blinks\n"
-            "  Then: System Tray → Bluetooth → Add Device"
+            "  DualSense (PS5):  hold PS + Create until the light bar blinks\n"
+            "  DualShock 4 (PS4):  hold PS + Share until the light bar blinks\n"
+            "  Then: System Tray → Bluetooth → Add Device\n\n"
+            "For haptics and adaptive triggers in Proton games:\n"
+            "  Steam → Settings → Controller → Enable PlayStation controller support\n"
+            "  In each game's controller settings: enable DualSense features\n"
+            "  Avoid DS4Windows or similar emulation tools — they hide the native DualSense\n"
+            "  from Proton and prevent haptic/trigger passthrough"
         )
         ps_bt_steps.setObjectName("card-copy")
         ps_layout.addWidget(ps_bt_steps)
@@ -11553,9 +11753,20 @@ class ControllerPage(Page):
         self._ds_status_lbl.hide()
         ps_layout.addWidget(self._ds_status_lbl)
 
+        ps_btns = QHBoxLayout()
+        ps_btns.setSpacing(8)
         ps_bt_btn = QPushButton("Open Bluetooth Settings")
         ps_bt_btn.clicked.connect(lambda: subprocess.Popen(["systemsettings", "kcm_bluetooth"]))
-        ps_layout.addWidget(ps_bt_btn)
+        ps_btns.addWidget(ps_bt_btn)
+        steam_ctrl_btn = QPushButton("Open Steam Controller Settings")
+        steam_ctrl_btn.setToolTip("Opens Steam to the Controller settings page where you enable DualSense support.")
+        steam_ctrl_btn.clicked.connect(
+            lambda: subprocess.Popen(["flatpak", "run", "--command=steam", "com.valvesoftware.Steam",
+                                      "steam://open/controllersettings"])
+        )
+        ps_btns.addWidget(steam_ctrl_btn)
+        ps_btns.addStretch()
+        ps_layout.addLayout(ps_btns)
         self._add(ps_card)
 
         # ── Nintendo / 8BitDo / Other ──────────────────────────────────────────
@@ -13609,6 +13820,7 @@ class SoftwarePage(Page):
             layout.addWidget(self._make_starter_pack_panel(pack))
 
         layout.addWidget(self._make_ms_fonts_card())
+        layout.addWidget(self._make_m365_webapps_card())
 
         self._starter_status = QLabel()
         self._starter_status.setObjectName("subheading")
@@ -13688,6 +13900,53 @@ class SoftwarePage(Page):
             self._ms_fonts_status.setText("✓ Fonts installed. Restart LibreOffice to apply them.")
         else:
             self._ms_fonts_status.setText("✗ Installation failed. Check your network connection and try again.")
+
+    def _make_m365_webapps_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Microsoft 365 — Web App Shortcuts")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Microsoft 365 runs fully in the browser. These shortcuts open each app in a dedicated "
+            "Chromium window so they feel like native apps — pinnable to the taskbar, no tab clutter."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        _M365_APPS = [
+            ("Outlook",   "https://outlook.office.com/mail/",      "Email and calendar"),
+            ("Word",      "https://office.live.com/start/Word.aspx",   "Documents"),
+            ("Excel",     "https://office.live.com/start/Excel.aspx",  "Spreadsheets"),
+            ("PowerPoint","https://office.live.com/start/PowerPoint.aspx", "Presentations"),
+            ("OneNote",   "https://www.onenote.com/notebooks",     "Notes"),
+            ("Teams",     "https://teams.microsoft.com/",           "Chat and meetings"),
+        ]
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        for name, url, tip in _M365_APPS:
+            btn = QPushButton(name)
+            btn.setToolTip(f"{tip} — opens in a dedicated Chromium window")
+            btn.clicked.connect(
+                lambda _=False, u=url, n=name: subprocess.Popen([
+                    "chromium-browser", f"--app={u}",
+                    f"--class=Microsoft365-{n}", f"--name=Microsoft365-{n}",
+                ])
+            )
+            btns.addWidget(btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+
+        note = QLabel(
+            "Tip: right-click any open Chromium app window → "
+            "\"More tools\" → \"Create shortcut…\" to pin it to the KDE application launcher."
+        )
+        note.setObjectName("card-copy")
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #858585; font-size: 11px;")
+        layout.addWidget(note)
+        return card
 
     def _make_install_hierarchy_card(self) -> QFrame:
         card, layout = _make_card()

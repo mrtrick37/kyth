@@ -686,6 +686,62 @@ context.properties = {
 }
 PWEOF
 
+# ── WirePlumber audio policy ───────────────────────────────────────────────────
+# Two concerns addressed here:
+#   1. Bluetooth codec quality: pipewire-libs-extra ships LDAC and aptX, but
+#      WirePlumber defaults to SBC when codec order is unspecified.  Listing
+#      LDAC first forces codec negotiation to prefer it (990 kbps HQ mode)
+#      before falling back to aptX HD → aptX → AAC → SBC XQ → SBC.
+#   2. Device priority: USB audio and Bluetooth get higher session priority than
+#      built-in speakers, so plugging in a headset makes it the active output
+#      without a manual switch in the volume mixer.
+mkdir -p /etc/wireplumber/wireplumber.conf.d
+cat >/etc/wireplumber/wireplumber.conf.d/99-kyth-audio.conf <<'WPEOF'
+# Automatically switch to headset Bluetooth profile (A2DP → HFP) when a call
+# application opens a mic/output pair.  Without this, Bluetooth headsets stay
+# in A2DP (stereo playback) and mic input fails silently in Discord/Teams.
+wireplumber.settings = {
+  bluetooth.autoswitch-to-headset-profile = true
+}
+
+# Bluetooth codec negotiation order — LDAC first, SBC last.
+# Applies to every Bluetooth audio card that WirePlumber discovers.
+monitor.bluez.rules = [
+  {
+    matches = [{ device.name = "~bluez_card.*" }]
+    actions = {
+      update-props = {
+        bluez5.codecs           = [ ldac aptx_hd aptx aac sbc_xq sbc ]
+        bluez5.a2dp.ldac.quality = hq
+        bluez5.auto-connect     = [ a2dp_sink hfp_ag hsp_ag ]
+      }
+    }
+  }
+]
+
+# Device session priority: Bluetooth (200) > USB audio (150) > built-in (100).
+# When WirePlumber has no saved default for a session, the highest-priority
+# available device wins — so plugging in a USB headset or Bluetooth headphones
+# makes them the active output without opening the volume mixer.
+monitor.alsa.rules = [
+  {
+    matches = [{ device.name = "~alsa_card.usb*" }]
+    actions = { update-props = { priority.session = 150 } }
+  }
+  {
+    matches = [{ device.name = "~alsa_card.pci*" }]
+    actions = { update-props = { priority.session = 100 } }
+  }
+]
+
+monitor.bluez.rules = [
+  {
+    matches = [{ node.name = "~bluez_output.*" }]
+    actions = { update-props = { priority.session = 200 } }
+  }
+]
+WPEOF
+
 # ── Proton / RADV environment variables ───────────────────────────────────────
 # PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
 #   Forces 32-bit Windows games to use the full 4 GB address space, reducing
@@ -1053,3 +1109,89 @@ install -m 0440 /dev/stdin /etc/sudoers.d/kyth-upgrade <<'SUDOEOF'
 # full sudo access — it only removes the interactive prompt for GUI launches.
 %wheel ALL=(root) NOPASSWD: /usr/bin/podman
 SUDOEOF
+
+# ── Sleep reliability ─────────────────────────────────────────────────────────
+# Hybrid sleep and suspend-then-hibernate are common causes of black screen on
+# wake for gaming PCs: the NVRAM hibernation image doesn't survive a full power
+# cycle on NVMe + proprietary GPU combinations, and the kernel's resume path
+# can hang waiting for a swap partition that may not exist.
+#
+# AllowHibernation=no disables hibernation entirely; SuspendState=mem requests
+# S3 (hardware-level suspend-to-RAM) rather than s2idle (CPU halt + PCIe active),
+# which drains more power and is more prone to wake-on-USB spurious events.
+# s2idle is still used as a fallback on systems that don't advertise S3 support.
+mkdir -p /etc/systemd/sleep.conf.d
+cat >/etc/systemd/sleep.conf.d/kyth-sleep.conf <<'SLEEPEOF'
+[Sleep]
+AllowSuspend=yes
+AllowHibernation=no
+AllowHybridSleep=no
+AllowSuspendThenHibernate=no
+SuspendState=mem standby freeze
+SLEEPEOF
+
+# ── DualSense controller — hidraw userspace access ───────────────────────────
+# The hid-playstation kernel module exposes PS5 DualSense haptics and adaptive
+# triggers through the hidraw interface.  Without these rules the device node
+# is root-only, so Proton/Steam cannot send haptic or trigger commands.
+# TAG+="uaccess" grants access to the logged-in seat user automatically via
+# systemd-logind — no manual chmod or group membership required.
+#
+# 054c = Sony Corp vendor ID
+# 0ce6 = DualSense (USB and BT)
+# 0df2 = DualSense Edge (USB and BT)
+cat >/usr/lib/udev/rules.d/99-kyth-dualsense.rules <<'DSEOF'
+# DualSense (USB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0ce6", SUBSYSTEM=="hidraw", TAG+="uaccess"
+# DualSense Edge (USB)
+KERNEL=="hidraw*", ATTRS{idVendor}=="054c", ATTRS{idProduct}=="0df2", SUBSYSTEM=="hidraw", TAG+="uaccess"
+# DualSense (Bluetooth — matched via device path rather than idVendor)
+KERNEL=="hidraw*", KERNELS=="*054C:0CE6*", TAG+="uaccess"
+KERNEL=="hidraw*", KERNELS=="*054C:0DF2*", TAG+="uaccess"
+DSEOF
+
+# ── NXM mod link handler ──────────────────────────────────────────────────────
+# Nexus Mods uses nxm:// URIs to hand off mod downloads to a local manager
+# (Vortex, Mod Organizer 2).  Register a system-wide handler so Firefox and
+# Chrome pass these URIs to kyth-nxm-handler, which routes them to the
+# user's installed mod manager (Vortex in Bottles preferred, then MO2).
+cat >/usr/bin/kyth-nxm-handler <<'NXMEOF'
+#!/usr/bin/env bash
+# Route nxm:// URIs to the user's mod manager.
+# Vortex in Bottles is the recommended default; MO2 is a supported alternative.
+NXM_URL="${1:-}"
+if [[ -z "${NXM_URL}" ]]; then
+    echo "Usage: kyth-nxm-handler nxm://..." >&2
+    exit 1
+fi
+
+# Check for Vortex bottle
+VORTEX_BOTTLE="${HOME}/.local/share/bottles/bottles/Vortex"
+if [[ -d "${VORTEX_BOTTLE}" ]] && command -v bottles-cli >/dev/null 2>&1; then
+    bottles-cli run -b Vortex -e "Vortex.exe" -- "${NXM_URL}"
+    exit 0
+fi
+
+# Fallback: notify the user
+if command -v notify-send >/dev/null 2>&1; then
+    notify-send "NXM Link" \
+        "Install Vortex in Bottles to handle Nexus Mods download links automatically.\nLink: ${NXM_URL}" \
+        --icon=application-x-addon
+fi
+
+# Open the Gaming page guidance in a terminal
+echo "NXM link received: ${NXM_URL}"
+echo "Install Vortex via Bottles to enable automatic mod downloads."
+NXMEOF
+chmod +x /usr/bin/kyth-nxm-handler
+
+cat >/usr/share/applications/kyth-nxm-handler.desktop <<'NXMDESKEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS NXM Handler
+Comment=Route Nexus Mods download links to your mod manager
+Exec=/usr/bin/kyth-nxm-handler %u
+MimeType=x-scheme-handler/nxm;x-scheme-handler/nxm-protocol;
+NoDisplay=true
+Terminal=false
+NXMDESKEOF

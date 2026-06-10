@@ -825,6 +825,20 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key show_clipboard_history \
         'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 
+    # Alt+Tab window switcher — thumbnail grid instead of KDE's default icon strip.
+    # Windows users expect large previews when switching windows; the KDE default
+    # "Breeze" switcher shows small icons only and is disorienting for switchers.
+    # "thumbnails" renders a grid of live window previews (closest to Windows Alt+Tab).
+    # TabBoxAlternative* sets the same layout for the reverse direction (Alt+Shift+Tab).
+    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBox --key ShowDesktop --type bool false
+    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnails
+
+    # Desktop right-click menu — surface "Configure Desktop" prominently so
+    # "right-click desktop → change wallpaper" works like Windows users expect.
+    # KDE's default context menu puts display settings behind two clicks.
+    kwriteconfig6 --file kwinrc --group Plugins --key desktopchangeosdEnabled --type bool false
+
     # Dolphin/File Explorer comfort: remember view properties per folder, keep
     # previews available, and use a visible location bar instead of breadcrumbs
     # for easier path copy/paste during support and migration.
