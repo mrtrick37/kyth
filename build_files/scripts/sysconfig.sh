@@ -540,6 +540,16 @@ cat >/etc/modprobe.d/iwlmvm-kyth.conf <<'IWLMVMEOF'
 options iwlmvm power_scheme=1
 IWLMVMEOF
 
+# btusb (USB Bluetooth, incl. MediaTek MT7922/MT7925 combo radios): disable
+# USB autosuspend. The CachyOS kernel builds btusb with autosuspend enabled,
+# which suspends the adapter after 2 s idle. USB remote wakeup is unreliable
+# on these parts, so a suspended adapter misses traffic from low-bandwidth BLE
+# peripherals — mice silently drop every few minutes and only reconnect on
+# user input, and reconnect after boot/login is slow for the same reason.
+cat >/etc/modprobe.d/btusb-kyth.conf <<'BTUSBEOF'
+options btusb enable_autosuspend=0
+BTUSBEOF
+
 # ── I/O schedulers ─────────────────────────────────────────────────────────
 # Keep NVMe on kernel defaults. Testers can opt into the experimental KythOS
 # profile with `ujust nvme-tuning kyth` and compare it against a clean reboot
