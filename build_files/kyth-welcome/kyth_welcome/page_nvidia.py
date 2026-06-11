@@ -21,7 +21,7 @@ class NvidiaPage(Page):
         self._poll_timer.timeout.connect(self._refresh_status)
 
         self._page_header(
-            "System",
+            "Advanced",
             "NVIDIA Drivers",
             "Build and verify proprietary NVIDIA kernel modules.",
         )

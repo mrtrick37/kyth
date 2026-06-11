@@ -60,31 +60,38 @@ from .page_windows_migration import (  # noqa: E501
     WindowsMigrationPage,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QDesktopServices, QFrame, QHBoxLayout, QIcon, QLabel, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
+    QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
-    _divider, _make_card, _set_log_panel,
+    _divider, _make_card, _set_log_panel, _theme_icon,
 )
 
 # ── Sidebar nav button ─────────────────────────────────────────────────────────
 def _nav_section_label(text: str) -> QLabel:
-    """Create a sidebar section header label (e.g. 'SYSTEM', 'APPS')."""
-    lbl = QLabel(text.upper())
+    """Create a sidebar section header label (e.g. 'System', 'Apps')."""
+    lbl = QLabel(text)
     lbl.setObjectName("nav-section")
     lbl.setContentsMargins(20, 14, 16, 4)
     return lbl
 
 
 class NavButton(QPushButton):
-    def __init__(self, icon: str, label: str):
-        super().__init__(f"  {icon}  {label}")
+    def __init__(self, icon_names: tuple[str, ...], glyph: str, label: str):
+        icon = _theme_icon(*icon_names)
+        if icon.isNull():
+            # No matching theme icon installed — fall back to the text glyph.
+            super().__init__(f"  {glyph}  {label}")
+        else:
+            super().__init__(f"  {label}")
+            self.setIcon(icon)
+            self.setIconSize(QSize(16, 16))
         self.setObjectName("nav-item")
         self.setCheckable(False)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         sp = self.sizePolicy()
         sp.setHorizontalPolicy(QSizePolicy.Policy.Expanding)
         self.setSizePolicy(sp)
-        self.setMinimumHeight(38)
+        self.setMinimumHeight(36)
 
     def set_active(self, active: bool):
         self.setObjectName("nav-item-active" if active else "nav-item")
@@ -135,6 +142,52 @@ class MainWindow(QMainWindow):
             banner_layout.addWidget(install_btn)
             central_layout.addWidget(banner)
 
+        # ── Top command bar: back/forward, breadcrumb, search ────────────────
+        topbar = QWidget()
+        topbar.setObjectName("topbar")
+        topbar.setFixedHeight(46)
+        topbar_layout = QHBoxLayout(topbar)
+        topbar_layout.setContentsMargins(8, 6, 14, 6)
+        topbar_layout.setSpacing(4)
+
+        self._back_btn = QPushButton("←")
+        self._back_btn.setObjectName("topbar-nav")
+        self._back_btn.setFixedSize(36, 30)
+        self._back_btn.setToolTip("Back")
+        self._back_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._back_btn.clicked.connect(self._go_back)
+        topbar_layout.addWidget(self._back_btn)
+
+        self._fwd_btn = QPushButton("→")
+        self._fwd_btn.setObjectName("topbar-nav")
+        self._fwd_btn.setFixedSize(36, 30)
+        self._fwd_btn.setToolTip("Forward")
+        self._fwd_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._fwd_btn.clicked.connect(self._go_forward)
+        topbar_layout.addWidget(self._fwd_btn)
+
+        topbar_layout.addSpacing(8)
+
+        home_crumb = QPushButton("System Hub")
+        home_crumb.setObjectName("breadcrumb-link")
+        home_crumb.setCursor(Qt.CursorShape.PointingHandCursor)
+        home_crumb.clicked.connect(lambda: self._navigate_to("Welcome"))
+        topbar_layout.addWidget(home_crumb)
+
+        self._crumb_lbl = QLabel("")
+        self._crumb_lbl.setObjectName("breadcrumb")
+        topbar_layout.addWidget(self._crumb_lbl)
+        topbar_layout.addStretch()
+
+        self._search_box = QLineEdit()
+        self._search_box.setObjectName("search-box")
+        self._search_box.setPlaceholderText("Find a setting")
+        self._search_box.setFixedWidth(280)
+        self._search_box.setClearButtonEnabled(True)
+        topbar_layout.addWidget(self._search_box)
+
+        central_layout.addWidget(topbar)
+
         root = QWidget()
         root.setObjectName("content-area")
         root_layout = QHBoxLayout(root)
@@ -171,54 +224,57 @@ class MainWindow(QMainWindow):
         sidebar_layout.addWidget(logo_area)
         sidebar_layout.addWidget(_divider())
 
-        # Nav groups: (section_label, [(icon, label, key, factory), ...])
-        # section_label=None omits the header row (used for Overview).
-        page_specs: list[tuple[str, str, object]] = []
+        # Nav groups: (section_label, [(icon_names, glyph, label, key, factory), ...])
+        # section_label=None omits the header row (used for Home).
+        page_specs: list[tuple[str, object]] = []
 
-        nav_groups: list[tuple[str | None, list[tuple[str, str, str, object]]]] = [
+        NavItem = tuple[tuple[str, ...], str, str, str, object]
+        nav_groups: list[tuple[str | None, list[NavItem]]] = [
             (None, [
-                ("⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
+                (("go-home",), "⌂", "Home", "Welcome", lambda: WelcomePage(navigate=self._navigate_to)),
             ]),
-            ("Apps & Files", [
-                ("⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
-                ("⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+            ("Gaming", [
+                (("applications-games", "input-gaming"), "◉", "Gaming", "Gaming", GamingPage),
+                (("speedometer", "utilities-system-monitor"), "⚡", "Performance", "Performance", PerformancePage),
+                (("dialog-ok-apply", "checkmark"), "◎", "Compatibility", "Compatibility", CompatibilityPage),
+                (("input-gamepad", "input-gaming"), "⎮", "Controllers", "Controllers", ControllerPage),
             ]),
-            ("Play Games", [
-                ("◉", "Gaming", "Gaming", GamingPage),
-                ("⚡", "Performance", "Performance", PerformancePage),
-                ("◎", "Compatibility", "Compatibility", CompatibilityPage),
-                ("⎮", "Controllers", "Controllers", ControllerPage),
+            ("Apps", [
+                (("plasmadiscover", "applications-all"), "⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
+                (("document-import", "drive-harddisk"), "⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
-            ("Maintain", [
-                ("↻", "Updates", "Update", UpdatePage),
-                ("◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
-                ("☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
-                ("◫", "Network Shares", "Network Shares", NetworkSharesPage),
-                ("⬡", "VPN", "VPN", VpnPage),
+            ("System", [
+                (("system-software-update", "update-none"), "↻", "Updates", "Update", UpdatePage),
+                (("computer", "computer-laptop"), "◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+                (("view-statistics", "office-chart-bar"), "◌", "Health Report", "Diagnostics", DiagnosticsPage),
+                (("tools-wizard", "configure"), "⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
-            ("Recover", [
-                ("◌", "Health Report", "Diagnostics", DiagnosticsPage),
-                ("⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
+            ("Network & Internet", [
+                (("network-vpn", "security-high"), "⬡", "VPN", "VPN", VpnPage),
+                (("folder-network", "network-workgroup"), "◫", "Network Shares", "Network Shares", NetworkSharesPage),
+                (("folder-cloud", "weather-clouds"), "☁", "Cloud Storage", "Cloud Storage", CloudStoragePage),
             ]),
         ]
 
-        advanced_items: list[tuple[str, str, str, object]] = []
+        advanced_items: list[NavItem] = []
         if _detect_nvidia():
-            advanced_items.append(("▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
-        advanced_items.append(("◌", "Kernel", "Kernel", KernelPage))
-        advanced_items.append(("⎇", "Channels", "Channels", BranchesPage))
-        advanced_items.append(("✉", "Feedback", "Feedback", FeedbackPage))
+            advanced_items.append((("video-display", "preferences-desktop-display"), "▣", "NVIDIA Drivers", "NVIDIA", NvidiaPage))
+        advanced_items.append((("cpu", "applications-system"), "◌", "Kernel", "Kernel", KernelPage))
+        advanced_items.append((("vcs-branch", "system-switch-user"), "⎇", "Channels", "Channels", BranchesPage))
+        advanced_items.append((("mail-send", "mail-message"), "✉", "Feedback", "Feedback", FeedbackPage))
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
+        self._page_crumbs: list[tuple[str | None, str]] = []
         global_idx = 0
         for section_title, items in nav_groups:
             sidebar_layout.addSpacing(4)
             if section_title is not None:
                 sidebar_layout.addWidget(_nav_section_label(section_title))
-            for icon, label, key, factory in items:
+            for icon_names, glyph, label, key, factory in items:
                 page_specs.append((key, factory))
-                btn = NavButton(icon, label)
+                self._page_crumbs.append((section_title, label))
+                btn = NavButton(icon_names, glyph, label)
                 btn.clicked.connect(self._make_nav_handler(global_idx))
                 sidebar_layout.addWidget(btn)
                 self._nav_buttons.append(btn)
@@ -248,7 +304,69 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
 
+        self._history: list[int] = []
+        self._history_pos: int = -1
+        self._setup_search()
         self._switch_page(0)
+
+    # ── Search ("Find a setting") ─────────────────────────────────────────────
+
+    # Windows-familiar phrasings mapped to page keys, so converts can search
+    # for what they knew the task as on Windows.
+    _SEARCH_ALIASES: dict[str, list[str]] = {
+        "Welcome": ["Home", "Control Panel"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG"],
+        "Performance": ["Performance", "Task Manager"],
+        "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
+        "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
+        "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program"],
+        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves"],
+        "Update": ["Check for updates", "Windows Update", "Updates"],
+        "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
+        "Diagnostics": ["Health report", "System information", "Diagnostics"],
+        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback"],
+        "VPN": ["VPN", "VPN settings"],
+        "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
+        "Cloud Storage": ["Cloud storage", "OneDrive", "Google Drive", "Dropbox"],
+        "NVIDIA": ["NVIDIA drivers", "Graphics drivers", "GeForce"],
+        "Kernel": ["Kernel", "Advanced system settings"],
+        "Channels": ["Update channel", "Channels", "Insider program"],
+        "Feedback": ["Feedback", "Send feedback", "Feedback Hub"],
+    }
+
+    def _setup_search(self):
+        self._search_key_by_entry: dict[str, str] = {}
+        for key, aliases in self._SEARCH_ALIASES.items():
+            if key not in self._page_index_by_key:
+                continue
+            for alias in aliases:
+                self._search_key_by_entry.setdefault(alias, key)
+
+        entries = sorted(self._search_key_by_entry)
+        completer = QCompleter(entries, self._search_box)
+        completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        completer.setFilterMode(Qt.MatchFlag.MatchContains)
+        completer.activated.connect(self._on_search_pick)
+        self._search_box.setCompleter(completer)
+        self._search_box.returnPressed.connect(self._on_search_return)
+
+    def _on_search_pick(self, entry: str):
+        key = self._search_key_by_entry.get(entry)
+        if key is not None:
+            self._navigate_to(key)
+        self._search_box.clear()
+
+    def _on_search_return(self):
+        text = self._search_box.text().strip().lower()
+        if not text:
+            return
+        for entry, key in sorted(self._search_key_by_entry.items()):
+            if text in entry.lower():
+                self._navigate_to(key)
+                self._search_box.clear()
+                return
+
+    # ── Navigation ────────────────────────────────────────────────────────────
 
     def _make_nav_handler(self, index: int):
         return lambda: self._switch_page(index)
@@ -262,10 +380,37 @@ class MainWindow(QMainWindow):
             return
         self._switch_page(destination)
 
-    def _switch_page(self, index: int):
+    def _go_back(self):
+        if self._history_pos > 0:
+            self._history_pos -= 1
+            self._switch_page(self._history[self._history_pos], record=False)
+
+    def _go_forward(self):
+        if self._history_pos < len(self._history) - 1:
+            self._history_pos += 1
+            self._switch_page(self._history[self._history_pos], record=False)
+
+    def _switch_page(self, index: int, record: bool = True):
         for i, btn in enumerate(self._nav_buttons):
             btn.set_active(i == index)
         self._stack.setCurrentIndex(index)
+        if record:
+            del self._history[self._history_pos + 1:]
+            if not self._history or self._history[-1] != index:
+                self._history.append(index)
+            self._history_pos = len(self._history) - 1
+        self._update_topbar(index)
+
+    def _update_topbar(self, index: int):
+        self._back_btn.setEnabled(self._history_pos > 0)
+        self._fwd_btn.setEnabled(self._history_pos < len(self._history) - 1)
+        section, label = self._page_crumbs[index]
+        if index == 0:
+            self._crumb_lbl.setText("")
+        elif section and section != label:
+            self._crumb_lbl.setText(f"›  {section}  ›  {label}")
+        else:
+            self._crumb_lbl.setText(f"›  {label}")
 
     def closeEvent(self, event):
         active = [
@@ -329,7 +474,7 @@ class WizardWindow(QMainWindow):
             if i > 0:
                 connector = QFrame()
                 connector.setFixedSize(28, 2)
-                connector.setStyleSheet("background: #505050; border: none;")
+                connector.setStyleSheet("background: #4a4a4a; border: none;")
                 progress_layout.addWidget(connector)
 
             step_col = QWidget()
@@ -355,13 +500,10 @@ class WizardWindow(QMainWindow):
         header_layout.addWidget(progress_widget)
         root_layout.addWidget(header)
 
-        # Gradient accent line
+        # Accent line
         accent = QFrame()
         accent.setFixedHeight(2)
-        accent.setStyleSheet(
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:0,"
-            "stop:0 #c586c0, stop:0.5 #4fc1ff, stop:1 #3c3c3c);"
-        )
+        accent.setStyleSheet("background: #0078d4; border: none;")
         root_layout.addWidget(accent)
 
         # ── Content stack ─────────────────────────────────────────────────
@@ -521,7 +663,7 @@ class WizardWindow(QMainWindow):
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.VLine)
                 sep.setFixedWidth(1)
-                sep.setStyleSheet("background: #3c3c3c; border: none; max-width: 1px;")
+                sep.setStyleSheet("background: #3a3a3a; border: none; max-width: 1px;")
                 stats_layout.addSpacing(28)
                 stats_layout.addWidget(sep)
                 stats_layout.addSpacing(28)
@@ -853,7 +995,7 @@ class WizardWindow(QMainWindow):
         )
         tip.setObjectName("card-copy")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #c586c0; margin-top: 6px;")
+        tip.setStyleSheet("color: #4cc2ff; margin-top: 6px;")
         pc_layout.addWidget(tip)
         ps_layout.addWidget(proton_card)
         outer.addWidget(proton_section)
@@ -905,7 +1047,7 @@ class WizardWindow(QMainWindow):
 
         check = QLabel("✓")
         check.setStyleSheet(
-            "font-size: 52px; color: #4fc1ff; font-weight: 300; background: transparent;"
+            "font-size: 52px; color: #6ccb5f; font-weight: 300; background: transparent;"
         )
         layout.addWidget(check)
         layout.addSpacing(18)

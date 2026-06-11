@@ -37,7 +37,7 @@ class WindowsMigrationPage(Page):
         self._worker: WindowsLibraryWorker | None = None
 
         self._page_header(
-            "System",
+            "Apps",
             "Move From Windows",
             "Bring your files, games, and familiar habits over without touching the Windows install.",
         )

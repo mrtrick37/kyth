@@ -40,7 +40,7 @@ class GamingPage(Page):
         self._last_detected_games: list[dict] = []
 
         self._page_header(
-            "Apps",
+            "Gaming",
             "Gaming",
             "KythOS ships a full gaming stack — Gamescope, MangoHud, GE-Proton, and more. "
             "Install your preferred launchers below.",

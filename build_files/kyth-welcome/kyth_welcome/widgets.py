@@ -5,8 +5,17 @@ from .core import (  # noqa: E501
     HardwareProbe, _restyle,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget, Qt,
+    QFrame, QHBoxLayout, QIcon, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget, Qt,
 )
+
+def _theme_icon(*names: str) -> QIcon:
+    """Return the first available system theme icon, or a null icon."""
+    for name in names:
+        icon = QIcon.fromTheme(name)
+        if not icon.isNull():
+            return icon
+    return QIcon()
+
 
 def _divider() -> QFrame:
     f = QFrame()
@@ -102,10 +111,10 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #121e2d; color: #4fc1ff; border: 1px solid #1c3d60;",  "OK"),
-        "warn": ("background: #1e1a06; color: #d4a843; border: 1px solid #5c4e14;",  "Warning"),
-        "err":  ("background: #3a1010; color: #f48771; border: 1px solid #5a1a1a;",  "Issue"),
-        "dim":  ("background: #252526; color: #858585; border: 1px solid #3c3c3c;",  "Info"),
+        "ok":   ("background: #283028; color: #6ccb5f; border: 1px solid #3e573c;",  "OK"),
+        "warn": ("background: #322d20; color: #d9b54a; border: 1px solid #5c5126;",  "Warning"),
+        "err":  ("background: #332527; color: #ff99a4; border: 1px solid #5e3338;",  "Issue"),
+        "dim":  ("background: #2b2b2b; color: #a6a6a6; border: 1px solid #3a3a3a;",  "Info"),
     }
 
     def __init__(self, probe: HardwareProbe):

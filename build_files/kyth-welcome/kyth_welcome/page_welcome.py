@@ -2,16 +2,16 @@ import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _find_ntfs_drives, _has_rollback_deployment, _has_staged_update,
+    _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _has_rollback_deployment, _has_staged_update,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QLabel, QPushButton,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSize, QSizePolicy, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
-    Page, StatTile, _make_card,
+    Page, StatTile, _make_card, _theme_icon,
 )
 
-# ── Page: Welcome ─────────────────────────────────────────────────────────────
+# ── Page: Welcome (Control Panel-style home) ──────────────────────────────────
 class WelcomePage(Page):
     def __init__(self, navigate=None):
         super().__init__()
@@ -19,25 +19,30 @@ class WelcomePage(Page):
 
         self._page_header(
             "System Hub",
-            "Command Center",
-            "One place to play, update, install, check hardware, and recover.",
+            "Home",
+            "Adjust your system's settings — gaming, apps, updates, and recovery in one place.",
         )
 
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
         kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
+        hostname = _command_stdout(["hostname"], timeout=5) or "This PC"
         windows_found = bool(_find_ntfs_drives())
 
+        # Device summary row, like the device card at the top of Settings
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
+
+        self._device_tile = StatTile("Device", hostname)
+        tiles_row.addWidget(self._device_tile, 1)
 
         self._branch_tile = StatTile("Channel", branch)
         tiles_row.addWidget(self._branch_tile, 1)
 
-        staged_val = "Update Staged" if staged else "Up to Date"
+        staged_val = "Restart Pending" if staged else "Up to Date"
         staged_style = "stat-value-warn" if staged else "stat-value-ok"
-        self._update_tile = StatTile("System", staged_val, staged_style)
+        self._update_tile = StatTile("Updates", staged_val, staged_style)
         tiles_row.addWidget(self._update_tile, 1)
 
         rollback_val = "Available" if rollback else "None"
@@ -52,42 +57,68 @@ class WelcomePage(Page):
 
         self._add(self._make_recommended_card(staged, rollback, windows_found))
 
-        section_lbl = QLabel("Sections")
-        section_lbl.setObjectName("section-heading")
-        self._add(section_lbl)
+        # ── Category grid, like the Control Panel category view ──────────────
+        categories: list[tuple[tuple[str, ...], str, str, list[tuple[str, str]]]] = [
+            (
+                ("applications-games", "input-gaming"), "◉", "Games",
+                [
+                    ("Set up game launchers", "Gaming"),
+                    ("Tune performance", "Performance"),
+                    ("Check if your games work", "Compatibility"),
+                    ("Connect a controller", "Controllers"),
+                ],
+            ),
+            (
+                ("plasmadiscover", "applications-all"), "⬡", "Apps",
+                [
+                    ("Browse and install apps", "App Store"),
+                    ("Move files and saves from Windows", "Move From Windows"),
+                ],
+            ),
+            (
+                ("computer", "computer-laptop"), "◈", "System & Security",
+                [
+                    ("Check for updates", "Update"),
+                    ("View hardware and devices", "Hardware"),
+                    ("Run a health report", "Diagnostics"),
+                    ("Fix problems", "Repair"),
+                ],
+            ),
+            (
+                ("folder-network", "network-workgroup"), "◫", "Network & Internet",
+                [
+                    ("Connect to a VPN", "VPN"),
+                    ("Map network shares", "Network Shares"),
+                    ("Set up cloud storage", "Cloud Storage"),
+                ],
+            ),
+        ]
 
-        lanes = QHBoxLayout()
-        lanes.setSpacing(12)
-        lanes.addWidget(self._make_task_card(
-            "PLAY",
-            "Gaming",
-            "Launchers, Proton, performance profiles, saves, and game checks.",
-            "Open",
-            "Gaming",
-        ), 1)
-        lanes.addWidget(self._make_task_card(
-            "MAINTAIN",
-            "Updates & Hardware",
-            "Stage updates, confirm rollback, inspect drivers, firmware, and devices.",
-            "Open",
-            "Update" if staged else "Hardware",
-            primary=staged,
-        ), 1)
-        lanes.addWidget(self._make_task_card(
-            "APPS",
-            "App Store",
-            "Trending apps, curated shelves, search, installs, and software management.",
-            "Open",
-            "App Store",
-        ), 1)
-        lanes.addWidget(self._make_task_card(
-            "RECOVER",
-            "Repair",
-            "Health reports, quick fixes, rollback guidance, snapshots, and support paths.",
-            "Open",
-            "Repair",
-        ), 1)
-        self._add_layout(lanes)
+        advanced_tasks: list[tuple[str, str]] = []
+        if _detect_nvidia():
+            advanced_tasks.append(("Manage NVIDIA drivers", "NVIDIA"))
+        advanced_tasks.append(("Choose a kernel", "Kernel"))
+        advanced_tasks.append(("Pick an update channel", "Channels"))
+        categories.append((("cpu", "applications-system"), "◌", "Advanced", advanced_tasks))
+
+        categories.append((
+            ("help-contents", "mail-send"), "✉", "Help & Feedback",
+            [
+                ("Send feedback or report a problem", "Feedback"),
+                ("Open repair and recovery tools", "Repair"),
+            ],
+        ))
+
+        grid = QGridLayout()
+        grid.setSpacing(12)
+        for i, (icon_names, glyph, title, tasks) in enumerate(categories):
+            grid.addWidget(
+                self._make_category_card(icon_names, glyph, title, tasks),
+                i // 2, i % 2,
+            )
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        self._add_layout(grid)
 
         note = QLabel("Reopen this window anytime from the application menu.")
         note.setObjectName("status-dim")
@@ -104,12 +135,12 @@ class WelcomePage(Page):
             )
             buttons = [("Check Hardware", "Hardware", True), ("Install KythOS", None, False)]
         elif staged:
-            title = "Reboot to finish your update"
+            title = "Restart to finish your update"
             copy = (
-                "A new KythOS image is staged. Reboot when convenient; your previous "
+                "A new KythOS image is staged. Restart when convenient; your previous "
                 "system remains available as a rollback target."
             )
-            buttons = [("Reboot Now", "reboot", True), ("View Update", "Update", False)]
+            buttons = [("Restart Now", "reboot", True), ("View Update", "Update", False)]
         elif rollback:
             title = "Your previous system is saved"
             copy = (
@@ -127,8 +158,8 @@ class WelcomePage(Page):
         else:
             title = "Everything starts here"
             copy = (
-                "Pick a section below. The hub keeps gaming, updates, apps, and "
-                "recovery in one place."
+                "Pick a category below, or use the search box at the top to find "
+                "any setting — Windows names like \"Device Manager\" work too."
             )
             buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "App Store", False)]
 
@@ -159,37 +190,50 @@ class WelcomePage(Page):
         layout.addLayout(btns)
         return card
 
-    def _make_task_card(
+    def _make_category_card(
         self,
-        icon: str,
+        icon_names: tuple[str, ...],
+        glyph: str,
         title: str,
-        desc: str,
-        button_label: str,
-        page_key: str,
-        primary: bool = False,
+        tasks: list[tuple[str, str]],
     ) -> QFrame:
-        card, layout = _make_card("home-action-card")
-        layout.setSpacing(10)
+        card = QFrame()
+        card.setObjectName("cp-category")
+        card.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
+        layout = QHBoxLayout(card)
+        layout.setContentsMargins(18, 16, 18, 16)
+        layout.setSpacing(14)
 
-        icon_lbl = QLabel(icon)
-        icon_lbl.setObjectName("home-action-icon")
-        layout.addWidget(icon_lbl)
+        icon = _theme_icon(*icon_names)
+        icon_lbl = QLabel()
+        if icon.isNull():
+            icon_lbl.setText(glyph)
+            icon_lbl.setObjectName("home-action-icon")
+            icon_lbl.setStyleSheet("font-size: 24px;")
+        else:
+            icon_lbl.setPixmap(icon.pixmap(QSize(32, 32)))
+        icon_lbl.setFixedWidth(36)
+        layout.addWidget(icon_lbl, 0, Qt.AlignmentFlag.AlignTop)
 
-        title_lbl = QLabel(title)
-        title_lbl.setObjectName("home-action-title")
-        layout.addWidget(title_lbl)
+        text_col = QVBoxLayout()
+        text_col.setSpacing(4)
 
-        desc_lbl = QLabel(desc)
-        desc_lbl.setObjectName("home-action-copy")
-        desc_lbl.setWordWrap(True)
-        layout.addWidget(desc_lbl)
+        first_key = tasks[0][1] if tasks else None
+        # "&" is a mnemonic marker in QPushButton text; escape it for display
+        title_btn = QPushButton(title.replace("&", "&&"))
+        title_btn.setObjectName("cp-category-title")
+        title_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        if first_key:
+            title_btn.clicked.connect(lambda _=False, k=first_key: self._navigate(k))
+        text_col.addWidget(title_btn, 0, Qt.AlignmentFlag.AlignLeft)
 
-        btn_row = QHBoxLayout()
-        btn_row.addStretch()
-        btn = QPushButton(button_label)
-        if primary:
-            btn.setObjectName("primary")
-        btn.clicked.connect(lambda _=False, key=page_key: self._navigate(key))
-        btn_row.addWidget(btn)
-        layout.addLayout(btn_row)
+        for label, key in tasks:
+            link = QPushButton(label)
+            link.setObjectName("task-link")
+            link.setCursor(Qt.CursorShape.PointingHandCursor)
+            link.clicked.connect(lambda _=False, k=key: self._navigate(k))
+            text_col.addWidget(link, 0, Qt.AlignmentFlag.AlignLeft)
+
+        text_col.addStretch()
+        layout.addLayout(text_col, 1)
         return card

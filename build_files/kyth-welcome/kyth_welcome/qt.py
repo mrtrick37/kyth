@@ -17,9 +17,11 @@ try:
         QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
         QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
         QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
-        QDialogButtonBox,
+        QDialogButtonBox, QGridLayout, QCompleter,
     )
-    from PySide6.QtCore import Qt, QThread, Signal, QTimer, QUrl, QLibraryInfo
+    from PySide6.QtCore import (
+        Qt, QThread, Signal, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,
+    )
     from PySide6.QtGui import QDesktopServices, QIcon
 
     QT_BINDING = "PySide6"
@@ -29,9 +31,11 @@ except ImportError:
         QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
         QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
         QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
-        QDialogButtonBox,
+        QDialogButtonBox, QGridLayout, QCompleter,
     )
-    from PyQt6.QtCore import Qt, QThread, QTimer, QUrl, QLibraryInfo
+    from PyQt6.QtCore import (
+        Qt, QThread, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,
+    )
     from PyQt6.QtCore import pyqtSignal as Signal
     from PyQt6.QtGui import QDesktopServices, QIcon
 

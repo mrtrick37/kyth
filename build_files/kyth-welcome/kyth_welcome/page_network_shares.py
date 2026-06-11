@@ -22,7 +22,7 @@ class NetworkSharesPage(Page):
         self._shares: list[dict] = _load_smb_config()
 
         self._page_header(
-            "Network",
+            "Network & Internet",
             "Network Shares",
             "Mount Windows file shares (SMB/CIFS) and access them as local folders. "
             "Shares can auto-mount at boot so they are always available.",

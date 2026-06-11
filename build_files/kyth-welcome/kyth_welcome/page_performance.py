@@ -18,7 +18,7 @@ class PerformancePage(Page):
     def __init__(self):
         super().__init__()
         self._page_header(
-            "Play",
+            "Gaming",
             "Scheduler & Performance",
             "kyth-sched auto-switches between scx_lavd (gaming) and scx_bpfland (desktop) "
             "based on active game detection. Session history is captured by kyth-telem "

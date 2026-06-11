@@ -28,7 +28,7 @@ class BranchesPage(Page):
         self._heartbeat.timeout.connect(self._heartbeat_tick)
 
         self._page_header(
-            "System",
+            "Advanced",
             "Channels",
             "Choose which KythOS image stream this system follows.",
         )

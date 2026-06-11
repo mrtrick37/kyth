@@ -665,7 +665,7 @@ class VpnPage(Page):
         self._saml_username = ""
 
         self._page_header(
-            "Network",
+            "Network & Internet",
             "VPN",
             "Connect to a VPN gateway using openconnect. Settings are saved for next time.",
         )

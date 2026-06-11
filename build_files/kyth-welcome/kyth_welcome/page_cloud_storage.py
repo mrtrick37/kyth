@@ -216,8 +216,7 @@ class RcloneSetupWizard(QDialog):
         # ── Header ─────────────────────────────────────────────────────────────
         header = QWidget()
         header.setStyleSheet(
-            "QWidget { background: qlineargradient(x1:0, y1:0, x2:0, y2:1,"
-            " stop:0 #252526, stop:1 #1e1e1e); border-bottom: 1px solid #3c3c3c; }"
+            "QWidget { background: #1b1b1c; border-bottom: 1px solid #2e2e2e; }"
         )
         hdr_layout = QHBoxLayout(header)
         hdr_layout.setContentsMargins(28, 16, 28, 16)
@@ -523,9 +522,9 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(197, 134, 192, 0.16); "
-                    "border: 2px solid #c586c0; "
-                    "border-radius: 8px; text-align: left; }"
+                    "QPushButton { background: rgba(0, 120, 212, 0.16); "
+                    "border: 2px solid #0078d4; "
+                    "border-radius: 6px; text-align: left; }"
                 )
             else:
                 btn.setChecked(False)
@@ -713,7 +712,7 @@ class CloudStoragePage(Page):
         self._sync_config: dict = _load_sync_config()
 
         self._page_header(
-            "Network",
+            "Network & Internet",
             "Cloud Storage",
             "Connect Google Drive, OneDrive, or Dropbox to keep your files automatically in sync.",
         )

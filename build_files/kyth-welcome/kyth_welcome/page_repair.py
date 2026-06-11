@@ -23,7 +23,7 @@ class RepairPage(Page):
         self._navigate = navigate or (lambda _key: None)
 
         self._page_header(
-            "Advanced",
+            "System",
             "Repair",
             "Reset the OS back to a clean KythOS state. Your personal files in /home are never touched.",
         )

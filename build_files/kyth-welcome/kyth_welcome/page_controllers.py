@@ -26,7 +26,7 @@ class ControllerPage(Page):
         self._probed = False
 
         self._page_header(
-            "Apps",
+            "Gaming",
             "Controllers",
             "Connect a controller and KythOS will configure it automatically. "
             "This page helps with wireless setup, driver status, and DualSense features.",
