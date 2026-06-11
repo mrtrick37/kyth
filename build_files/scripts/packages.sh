@@ -13,14 +13,17 @@ echo '%_install_langs en_US' >>/etc/rpm/macros
 # UBlue, Bazzite, and recommended in Fedora documentation.
 # Prevent any package dependency from pulling in a new kernel (e.g. akmod deps
 # installing kernel-modules without kernel-core, which leaves a modules dir
-# with no vmlinuz and breaks the bootc kernel check downstream).
+# with no vmlinuz and breaks the bootc kernel check downstream). The bare
+# `kernel` meta package is pinned too: its subpackages are excluded, so dnf5
+# upgrade would otherwise report it as a broken-dependency Problem every day
+# (the kernel version is fixed from the base image by design).
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
 # accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
 # aggregate trend in the README when exported CountMe data is available.
 cat >>/etc/dnf/dnf.conf <<'DNFCONFEOF'
 max_parallel_downloads=10
-excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
+excludepkgs=kernel,kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
 countme=True
 DNFCONFEOF
 

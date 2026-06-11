@@ -26,6 +26,19 @@ EOF
 }
 
 latest_kernel_version() {
+    # Prefer module dirs that contain an actual kernel image — the upstream base
+    # image can carry kernel-less debris dirs (kmods prebuilt for a kernel it
+    # does not ship yet), so the highest-versioned dir is not necessarily it.
+    local with_kernel
+    with_kernel=$(
+        for d in /usr/lib/modules/*/; do
+            [ -s "${d}vmlinuz" ] && basename "${d}"
+        done | sort -V | tail -n 1
+    )
+    if [[ -n "${with_kernel}" ]]; then
+        printf '%s\n' "${with_kernel}"
+        return
+    fi
     find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1
 }
 

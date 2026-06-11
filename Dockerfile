@@ -103,10 +103,27 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
     : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
-    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    : "Pick the newest modules dir that contains a real kernel. The upstream base" && \
+    : "image can ship kernel-less debris dirs (kmods prebuilt for a kernel it does" && \
+    : "not ship yet, e.g. /usr/lib/modules/<newer-kver>/ with modules but no" && \
+    : "vmlinuz), so the highest-versioned dir is not necessarily the kernel." && \
+    KVER=""; \
+    for _kdir in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V); do \
+        if [ -s "/usr/lib/modules/${_kdir}/vmlinuz" ]; then KVER="${_kdir}"; fi; \
+    done; \
+    if [ -z "${KVER}" ]; then \
+        KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)"; \
+    fi && \
     test -n "${KVER}" \
         || { echo "ERROR: no kernel found in /usr/lib/modules after upgrade; contents: $(ls /usr/lib/modules/ 2>&1)" >&2; exit 1; } && \
     echo "==> kernel: ${KVER}" && \
+    for _kdir in /usr/lib/modules/*/; do \
+        _kbase="$(basename "${_kdir}")"; \
+        if [ "${_kbase}" != "${KVER}" ] && [ ! -s "${_kdir}vmlinuz" ]; then \
+            echo "  Pruning kernel-less module dir: ${_kbase}"; \
+            rm -rf "${_kdir}"; \
+        fi; \
+    done && \
     if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then \
         _src=$(find /boot -name "vmlinuz-${KVER}" 2>/dev/null | head -1); \
         if [ -n "${_src}" ] && [ -s "${_src}" ]; then \
@@ -169,9 +186,12 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     bash /ctx/scripts/branding.sh && \
     : "── Rebuild boot splash initramfs after final branding ───────────────────" && \
     /usr/libexec/kyth-plymouth-branding-guard /ctx/branding/transparent-watermark.svg && \
-    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    KVER=""; \
+    for _kdir in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V); do \
+        if [ -s "/usr/lib/modules/${_kdir}/vmlinuz" ]; then KVER="${_kdir}"; fi; \
+    done && \
     test -n "${KVER}" \
-        || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
+        || { echo "ERROR: no kernel with vmlinuz found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
     mkdir -p /etc/plymouth /usr/share/plymouth && \
     printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
