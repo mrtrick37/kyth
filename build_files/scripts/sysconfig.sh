@@ -520,11 +520,14 @@ cat >/etc/modprobe.d/cfg80211-kyth.conf <<'CFG80211EOF'
 options cfg80211 ieee80211_regdom=US
 CFG80211EOF
 
-# MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
+# MT7921/MT7925 PCIe (MediaTek Filogic): disable Active State Power Management.
 # ASPM puts the PCIe device into a low-power state it may not reliably wake
-# from, causing sudden disconnects and requiring a driver reload or reboot.
+# from, causing sudden disconnects, intermittent scan results, and sometimes
+# requiring a driver reload or reboot. mt7925e (Wi-Fi 7 parts, e.g. HP ZBook)
+# is a separate module from mt7921e and needs its own options line.
 cat >/etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
 options mt7921e disable_aspm=1
+options mt7925e disable_aspm=1
 MT76EOF
 
 # iwlwifi/iwlmvm (Intel Wi-Fi): keep the radio in CAM/active mode and disable
