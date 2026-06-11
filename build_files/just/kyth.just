@@ -13,18 +13,28 @@ kyth-upgrade:
     # ── Check for rpm-ostree layers ───────────────────────────────────────────
     # bootc upgrade fails if any packages have been layered via rpm-ostree.
     # Detect this upfront and give a clear fix rather than a cryptic error.
+    # requested-packages covers repo-layered packages (e.g. 'rpm-ostree install
+    # waydroid' from ujust setup-waydroid); requested-local-packages covers
+    # local RPM files; layered-commit-packages covers commit-layered ones.
     layered=$(rpm-ostree status --json 2>/dev/null \
-        | python3 -c "import sys,json; d=json.load(sys.stdin).get('deployments', [{}])[0]; pkgs=d.get('requested-local-packages', []) + d.get('layered-commit-packages', []); print(' '.join(pkgs) if pkgs else '')" 2>/dev/null || true)
+        | python3 -c "import sys,json; d=json.load(sys.stdin).get('deployments', [{}])[0]; pkgs=d.get('requested-packages', []) + d.get('requested-local-packages', []) + d.get('layered-commit-packages', []); print(' '.join(pkgs) if pkgs else '')" 2>/dev/null || true)
 
     if [[ -n "${layered}" ]]; then
-        echo "  ERROR: local rpm-ostree packages are layered:" >&2
+        echo "  ERROR: rpm-ostree packages are layered:" >&2
         echo "    ${layered}" >&2
         echo >&2
         echo "  These conflict with bootc upgrades. To fix:" >&2
         echo "    rpm-ostree reset     # removes all layered packages" >&2
         echo "    ujust kyth-upgrade   # then retry" >&2
         echo >&2
-        echo "  If you still need those packages, install them via Flatpak instead." >&2
+        if [[ " ${layered} " == *" waydroid "* ]]; then
+            echo "  NOTE: 'waydroid' was layered by 'ujust setup-waydroid'." >&2
+            echo "  'rpm-ostree reset' removes the Waydroid package (your Android" >&2
+            echo "  data in /var/lib/waydroid is kept). After the OS update, rerun" >&2
+            echo "  'ujust setup-waydroid' to layer it again." >&2
+        else
+            echo "  If you still need those packages, install them via Flatpak instead." >&2
+        fi
         exit 1
     fi
 
