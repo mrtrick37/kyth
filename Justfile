@@ -48,8 +48,7 @@ fix:
 clean:
     #!/usr/bin/bash
     set -eoux pipefail
-    touch _build
-    find *_build* -exec rm -rf {} \;
+    rm -rf _build* *_build*
     rm -f previous.manifest.json
     rm -f changelog.md
     rm -f output.env
@@ -74,7 +73,7 @@ disk-usage:
         | sort | xargs -r du -sh 2>/dev/null || echo "(none)"
     echo ""
     echo "── /var/tmp kyth-live build dirs ─────────────────────────────────────────"
-    find /var/tmp -maxdepth 1 -name "kyth-live.*" -exec du -sh {} \; 2>/dev/null || echo "(none)"
+    find /var/tmp -maxdepth 1 \( -name "kyth-live.*" -o -name "kyth-titanoboa.*" \) -exec du -sh {} \; 2>/dev/null || echo "(none)"
 
 # Set up a Kali Linux security toolbox via the shipped KythOS ujust recipe.
 [group('Utility')]
@@ -160,7 +159,8 @@ prune-live-dev:
     find /tmp -maxdepth 1 -type f -name 'kyth-live-test.qcow2' -delete || true
     find /var/tmp -maxdepth 2 -type f -name 'kyth-live-test.qcow2' -delete || true
     find /tmp -maxdepth 1 -type d -name 'kyth-vm-share-*' -exec rm -rf {} + || true
-    find /var/tmp -maxdepth 1 -type d -name 'kyth-live.*' -exec rm -rf {} + || true
+    # kyth-titanoboa.* dirs are written by rootful podman — remove with sudo.
+    sudo find /var/tmp -maxdepth 1 -type d \( -name 'kyth-live.*' -o -name 'kyth-titanoboa.*' \) -exec rm -rf {} + || true
 
     echo ""
     echo "── Post-cleanup summary ───────────────────────────────────────────────────"
@@ -193,8 +193,8 @@ purge:
     fi
 
     echo ""
-    echo "── /var/tmp/kyth-live.* build dirs ──────────────────────────────────────"
-    if sudo find /var/tmp -maxdepth 1 -name "kyth-live.*" -print -exec rm -rf {} + 2>/dev/null | grep -q .; then
+    echo "── /var/tmp kyth-live.* / kyth-titanoboa.* build dirs ───────────────────"
+    if sudo find /var/tmp -maxdepth 1 \( -name "kyth-live.*" -o -name "kyth-titanoboa.*" \) -print -exec rm -rf {} + 2>/dev/null | grep -q .; then
         echo "  Done"
     else
         echo "  (none)"
@@ -306,9 +306,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
     docker pull {{ base_image }}
     CACHYOS_KERNEL_VER=unused
     if [[ "{{ kernel_flavor }}" != "fedora" ]]; then
-        CACHYOS_KERNEL_VER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
-            | python3 -c 'import sys, json, datetime; d = json.load(sys.stdin); sp = d["package"]["builds"]["latest_succeeded"]["source_package"]; ver = sp.get("version", ""); rel = sp.get("release", ""); nvr = f"{ver}-{rel}".strip("-") if (ver or rel) else ""; print(nvr or datetime.date.today().isoformat())' \
-            2>/dev/null || date +%Y-%m-%d)
+        CACHYOS_KERNEL_VER=$(./build_files/scripts/resolve-versions.sh cachyos-kernel)
     fi
     echo "CachyOS kernel: ${CACHYOS_KERNEL_VER}"
     echo "Kernel flavor: {{ kernel_flavor }}"
@@ -342,19 +340,10 @@ build: build-base
 
     # Fetch GE-Proton and the five thirdparty tool versions in parallel so the
     # total wait is the slowest single request instead of the sum of all requests.
-    _GH_API() { curl -fsSL "https://api.github.com/repos/$1/releases/latest" \
-        | python3 -c 'import sys,json; print(json.load(sys).get("tag_name","unknown"))' \
-        2>/dev/null || echo unknown; }
+    # resolve-versions.sh is shared with CI (.github/workflows/build.yml).
     _ge_tmp=$(mktemp) _tp_tmp=$(mktemp)
-    ( _GH_API GloriousEggroll/proton-ge-custom > "${_ge_tmp}" ) &
-    (
-        _top=$(_GH_API topgrade-rs/topgrade)
-        _wtx=$(_GH_API Winetricks/winetricks)
-        _umu=$(_GH_API Open-Wine-Components/umu-launcher)
-        _lfx=$(_GH_API ishitatsuyuki/LatencyFleX)
-        _scx=$(_GH_API sched-ext/scx)
-        printf '%s' "${_top}${_wtx}${_umu}${_lfx}${_scx}" | sha256sum | cut -c1-16 > "${_tp_tmp}"
-    ) &
+    ( ./build_files/scripts/resolve-versions.sh ge-proton > "${_ge_tmp}" ) &
+    ( ./build_files/scripts/resolve-versions.sh thirdparty-hash > "${_tp_tmp}" ) &
     wait
     GE_PROTON_VER=$(cat "${_ge_tmp}"); rm -f "${_ge_tmp}"
     THIRDPARTY_VERSIONS_HASH=$(cat "${_tp_tmp}"); rm -f "${_tp_tmp}"
@@ -385,7 +374,7 @@ build: build-base
         --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
         --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
         "${MOK_SECRET_ARG[@]}" \
-        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}" \
+        --cache-from "type=registry,ref=${REGISTRY}:buildcache-final-${CACHE_BRANCH}-fedora" \
         --tag localhost/kyth:latest \
         --load \
         .
@@ -454,9 +443,16 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
     # Create build temp under $TMPDIR (fallback /var/tmp) so repository root isn't filled
     TMPDIR=${TMPDIR:-/var/tmp}
     BUILDTMP=$(mktemp -p "${TMPDIR}" -d -t _build-bib.XXXXXXXXXX)
-    # Ensure temporary build directory is cleaned on exit
-    trap 'sudo rm -rf "${BUILDTMP}" >/dev/null 2>&1 || true' EXIT
     BUILDDIR=${PWD}
+
+    # Single EXIT trap for all cleanup — bash keeps only the last EXIT trap, so
+    # registering a second one later would silently drop the BUILDTMP cleanup.
+    REG_NAME="kyth-bib-registry-$$"
+    _bib_cleanup() {
+        docker stop "${REG_NAME}" 2>/dev/null || true
+        sudo rm -rf "${BUILDTMP}" >/dev/null 2>&1 || true
+    }
+    trap _bib_cleanup EXIT
 
         # Allow providing the repo GPG key(s) in the workspace so dnf inside the builder
         # can access file:///etc/pki/rpm-gpg/RPM-GPG-KEY-terra43-mesa (or other keys).
@@ -488,10 +484,13 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
 
         # BIB needs to pull the image from a registry. Push to a temporary local
         # registry so BIB can reach it via --net=host without touching the image store.
+        # Unique name + free-port scan so concurrent builds don't collide.
         REG_PORT=5099
-        docker run -d --rm --name kyth-bib-registry \
-            -p "127.0.0.1:${REG_PORT}:5000" registry:2
-        trap 'docker stop kyth-bib-registry 2>/dev/null || true' EXIT
+        while grep -q ":${REG_PORT}\b" <<< "$(ss -tunal)"; do
+            REG_PORT=$(( REG_PORT + 1 ))
+        done
+        docker run -d --rm --name "${REG_NAME}" \
+            -p "127.0.0.1:${REG_PORT}:5000" docker.io/library/registry:2
         BIB_IMAGE_REF="localhost:${REG_PORT}/${target_image##*/}:${tag}"
         docker tag "${target_image}:${tag}" "${BIB_IMAGE_REF}"
         docker push "${BIB_IMAGE_REF}"
@@ -509,7 +508,7 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
             ${args} \
             "${BIB_IMAGE_REF}"
 
-        docker stop kyth-bib-registry 2>/dev/null || true
+        docker stop "${REG_NAME}" 2>/dev/null || true
 
     mkdir -p output
     # If bootc produced a manifest but lorax product/version are empty, patch them

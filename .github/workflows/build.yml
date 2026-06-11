@@ -20,10 +20,9 @@ jobs:
   build_push:
     name: Build and push (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
     runs-on: ubuntu-24.04
-    # The live ISO is built from the Fedora-kernel image only. Keep advanced
-    # kernel variants visible, but do not let them block the beginner-friendly
-    # ISO pipeline.
-    continue-on-error: ${{ github.event_name == 'schedule' && matrix.kernel_flavor != 'fedora' }}
+    # fail-fast is false below, so a cachy failure never blocks the fedora leg
+    # or the live ISO dispatch. Let it mark the run red — continue-on-error here
+    # would hide scheduled cachy build breakage indefinitely.
     env:
       DOCKER_CONFIG: /tmp/kyth-docker-config
 
@@ -138,13 +137,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Version resolution lives in build_files/scripts/resolve-versions.sh,
+      # shared with the Justfile so the parsing logic exists in one place.
       - name: Resolve latest CachyOS kernel version
         id: cachyos_kernel
         if: matrix.kernel_flavor == 'cachy'
         run: |
-          KVER=$(curl -fsSL "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" \
-            | python3 -c "import sys,json,datetime; d=json.load(sys.stdin); print(d['package']['builds']['latest_succeeded']['source_package'].get('version') or datetime.date.today().isoformat())" \
-            2>/dev/null || date +%Y-%m-%d)
+          KVER=$(./build_files/scripts/resolve-versions.sh cachyos-kernel)
           echo "version=${KVER}" >> $GITHUB_OUTPUT
           echo "Resolved CachyOS kernel: ${KVER}"
 
@@ -153,11 +152,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          GE_VER=$(curl -fsSL \
-            -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-            "https://api.github.com/repos/GloriousEggroll/proton-ge-custom/releases/latest" \
-            | python3 -c "import sys,json; print(json.load(sys).get('tag_name', ''))" \
-            2>/dev/null || true)
+          GE_VER=$(./build_files/scripts/resolve-versions.sh ge-proton)
           echo "version=${GE_VER}" >> $GITHUB_OUTPUT
           echo "Resolved GE-Proton: ${GE_VER:-latest}"
 
@@ -166,22 +161,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          _ver() {
-            curl -fsSL \
-              -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-              "https://api.github.com/repos/$1/releases/latest" \
-              | python3 -c "import sys,json; print(json.load(sys).get('tag_name','unknown'))" \
-              2>/dev/null || echo unknown
-          }
-          TOPGRADE=$(_ver topgrade-rs/topgrade)
-          WINETRICKS=$(_ver Winetricks/winetricks)
-          UMU=$(_ver Open-Wine-Components/umu-launcher)
-          LFX=$(_ver ishitatsuyuki/LatencyFleX)
-          SCX=$(_ver sched-ext/scx)
-          HASH=$(printf '%s' "${TOPGRADE}${WINETRICKS}${UMU}${LFX}${SCX}" \
-                 | sha256sum | cut -c1-16)
+          HASH=$(./build_files/scripts/resolve-versions.sh thirdparty-hash)
           echo "hash=${HASH}" >> $GITHUB_OUTPUT
-          echo "Resolved thirdparty: topgrade=${TOPGRADE} winetricks=${WINETRICKS} umu=${UMU} lfx=${LFX} scx=${SCX} → hash=${HASH}"
+          echo "Resolved thirdparty hash: ${HASH}"
 
       - name: Build base image
         run: |
@@ -218,6 +200,9 @@ jobs:
           SECUREBOOT_SIGNING_REQUESTED=0
           if [[ -n "${MOK_KEY:-}" ]]; then
             MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+            # Strict mode: with a key configured, a mismatched/unreadable key
+            # must fail the build instead of silently shipping unsigned vmlinuz.
+            SECUREBOOT_SIGNING_REQUESTED=1
           fi
 
           docker buildx build \

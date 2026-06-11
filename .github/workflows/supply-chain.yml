@@ -5,7 +5,9 @@ on:
   workflow_run:
     workflows: ["Build container image"]
     types: [completed]
-    branches: [main]
+    # testing included so push-built :testing images are signed/SBOM'd
+    # immediately instead of waiting for the next scheduled main build.
+    branches: [main, testing]
   workflow_dispatch:
     inputs:
       source_tag:

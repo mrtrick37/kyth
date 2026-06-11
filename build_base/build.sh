@@ -45,6 +45,11 @@ install_cachyos_kernel() {
         kernel-cachyos \
         kernel-cachyos-core
 
+    # Matching kernel headers so akmods (akmod-nvidia, installed in the main
+    # image layer) can build modules for this kernel at first boot.
+    dnf5 install -y --skip-unavailable kernel-cachyos-devel-matched ||
+        echo "WARNING: kernel-cachyos-devel-matched unavailable; first-boot akmod builds will fail." >&2
+
     depmod -a "${kver}"
 
     if ! find "/usr/lib/modules/${kver}" -name 'asus-armoury.ko*' -print -quit | grep -q .; then

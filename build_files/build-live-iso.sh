@@ -57,7 +57,9 @@ sudo podman build \
 
 mkdir -p "${OUTPUT_DIR}"
 WORK="$(mktemp -d -p "${TMPDIR:-/var/tmp}" kyth-titanoboa.XXXXXXXXXX)"
-trap 'rm -rf "${WORK}"' EXIT
+# Rootful podman writes root-owned files into ${WORK} — an unprivileged rm
+# would fail silently and leak multi-GB dirs in /var/tmp.
+trap 'sudo rm -rf "${WORK}"' EXIT
 
 echo "==> Assembling ISO with Titanoboa"
 sudo podman run --rm -i \
@@ -66,6 +68,6 @@ sudo podman run --rm -i \
 	-v "${TITANOBOA_DIR}/build_iso.sh:/src/build_iso.sh:ro" \
 	--mount type=image,source="${LIVE_TAG}",dst=/rootfs \
 	-v "${WORK}:/output" \
-	quay.io/fedora/fedora:latest /src/build_iso.sh
+	quay.io/fedora/fedora:44 /src/build_iso.sh
 mv "${WORK}/KYTHOS-44-LIVE.iso" "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
 echo "==> KythOS live ISO ready: ${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"

@@ -29,11 +29,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          # Full history so the push/PR base commit exists locally — with the
+          # default shallow clone, git diff fails with "bad object" and the
+          # changed-file detection silently skips every shellcheck run.
+          fetch-depth: 0
 
       - name: Compute changed shell files
         id: changed
         if: github.event_name == 'push' || github.event_name == 'pull_request'
         run: |
+          set -o pipefail
           if [[ "${{ github.event_name }}" == "pull_request" ]]; then
             BASE="${{ github.event.pull_request.base.sha }}"
             HEAD="${{ github.event.pull_request.head.sha }}"
@@ -42,7 +48,15 @@ jobs:
             HEAD="${{ github.sha }}"
           fi
 
-          FILES=$(git diff --name-only "${BASE}" "${HEAD}" -- '*.sh' | tr '\n' ' ')
+          # New branches / force pushes can reference a base we don't have
+          # (or the all-zeros SHA) — fall back to scanning every script.
+          if git cat-file -e "${BASE}^{commit}" 2>/dev/null; then
+            # --diff-filter=d: deleted scripts can't be shellchecked.
+            FILES=$(git diff --name-only --diff-filter=d "${BASE}" "${HEAD}" -- '*.sh' | tr '\n' ' ')
+          else
+            echo "Base ${BASE} unavailable; falling back to full scan"
+            FILES=$(git ls-files '*.sh' | tr '\n' ' ')
+          fi
           echo "files=${FILES}" >> "$GITHUB_OUTPUT"
 
       - name: Run shellcheck (changed files)
