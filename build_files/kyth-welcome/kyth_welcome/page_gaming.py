@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, Worker, _PROTONDB_TIER_STYLE, _ProtonDbBatchWorker, _apply_install_badge, _cancel_worker, _collect_gaming_dashboard, _command_stdout, _compat_tool_version, _detect_installed_games, _find_ntfs_drives, _find_steam_libraries, _finish_worker, _gamescope_installed, _gaming_health_items, _gaming_migration_checklist_items, _ge_proton_version, _is_flatpak_installed, _load_protondb_cache, _ludusavi_backup_summary, _mangohud_installed, _open_terminal_with_cmd, _release_worker_when_finished, _restyle, _save_protondb_cache, _streaming_health_items, _vkbasalt_installed,
+    DataWorker, Worker, _PROTONDB_TIER_STYLE, _ProtonDbBatchWorker, _apply_install_badge, _cancel_worker, _collect_gaming_dashboard, _command_stdout, _compat_tool_version, _detect_installed_games, _find_ntfs_drives, _find_steam_libraries, _finish_worker, _gamescope_installed, _gaming_health_items, _gaming_migration_checklist_items, _ge_proton_version, _install_flatpak_inline, _is_flatpak_installed, _load_protondb_cache, _ludusavi_backup_summary, _mangohud_installed, _release_worker_when_finished, _restyle, _save_protondb_cache, _scan_steamapps_manifests, _streaming_health_items, _vkbasalt_installed,
 )
 from .page_cloud_storage import (  # noqa: E501
     SteamCopyWorker, _copy_text, _launch_opt_label, _launch_opt_value,
@@ -413,13 +413,14 @@ class GamingPage(Page):
         tuning_btns = QHBoxLayout()
         tuning_btns.setSpacing(8)
         lact_btn = QPushButton("Install LACT")
-        lact_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-lact"], "Install LACT"))
+        lact_btn.clicked.connect(lambda _=False, b=lact_btn: _install_flatpak_inline(
+            self, b, "io.github.ilya_zlobintsev.LACT", "LACT"))
         tuning_btns.addWidget(lact_btn)
         corectrl_btn = QPushButton("Open CoreCtrl")
         corectrl_btn.clicked.connect(lambda _=False: self._open_corectrl())
         tuning_btns.addWidget(corectrl_btn)
         obs_btn = QPushButton("Install OBS")
-        obs_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-obs"], "Install OBS"))
+        obs_btn.clicked.connect(lambda _=False, b=obs_btn: self._install_obs_inline(b))
         tuning_btns.addWidget(obs_btn)
         tuning_btns.addStretch()
         tuning_layout.addLayout(tuning_btns)
@@ -448,10 +449,11 @@ class GamingPage(Page):
         streaming_btns = QHBoxLayout()
         streaming_btns.setSpacing(8)
         install_discord = QPushButton("Install Discord")
-        install_discord.clicked.connect(lambda _=False: self._install_flatpak_app("com.discordapp.Discord", "Discord"))
+        install_discord.clicked.connect(lambda _=False, b=install_discord: _install_flatpak_inline(
+            self, b, "com.discordapp.Discord", "Discord"))
         streaming_btns.addWidget(install_discord)
         install_obs = QPushButton("Install OBS")
-        install_obs.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-obs"], "Install OBS"))
+        install_obs.clicked.connect(lambda _=False, b=install_obs: self._install_obs_inline(b))
         streaming_btns.addWidget(install_obs)
         streaming_btns.addStretch()
         streaming_layout.addLayout(streaming_btns)
@@ -961,6 +963,27 @@ class GamingPage(Page):
         self._lib_combo.hide()
         migrate_layout.addWidget(self._lib_combo)
 
+        # Per-game readiness for the scanned Windows library — answers
+        # "can I play *my* games?" before any copying happens.
+        check_row = QHBoxLayout()
+        check_row.setSpacing(8)
+        self._winlib_check_btn = QPushButton("Check My Games")
+        self._winlib_check_btn.hide()
+        self._winlib_check_btn.clicked.connect(self._check_windows_library_compat)
+        check_row.addWidget(self._winlib_check_btn)
+        check_row.addStretch()
+        migrate_layout.addLayout(check_row)
+        self._winlib_summary_lbl = QLabel()
+        self._winlib_summary_lbl.setObjectName("card-copy")
+        self._winlib_summary_lbl.setWordWrap(True)
+        self._winlib_summary_lbl.hide()
+        migrate_layout.addWidget(self._winlib_summary_lbl)
+        self._winlib_rows = QVBoxLayout()
+        self._winlib_rows.setSpacing(6)
+        migrate_layout.addLayout(self._winlib_rows)
+        self._winlib_games: list[dict] = []
+        self._winlib_protondb_worker: _ProtonDbBatchWorker | None = None
+
         # Destination
         dst_row = QHBoxLayout()
         dst_row.setSpacing(8)
@@ -1040,7 +1063,8 @@ class GamingPage(Page):
         saves_btns = QHBoxLayout()
         saves_btns.setSpacing(8)
         ludusavi_btn = QPushButton("Install Ludusavi")
-        ludusavi_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-ludusavi"], "Install Ludusavi"))
+        ludusavi_btn.clicked.connect(lambda _=False, b=ludusavi_btn: _install_flatpak_inline(
+            self, b, "com.github.mtkennerly.ludusavi", "Ludusavi"))
         saves_btns.addWidget(ludusavi_btn)
         ludusavi_open_btn = QPushButton("Open Ludusavi")
         ludusavi_open_btn.clicked.connect(lambda _=False: subprocess.Popen(["flatpak", "run", "com.github.mtkennerly.ludusavi"]))
@@ -1074,7 +1098,8 @@ class GamingPage(Page):
         protonup_btn.clicked.connect(lambda _=False: self._open_protonupqt())
         mods_btns.addWidget(protonup_btn)
         bottles_btn = QPushButton("Install Bottles")
-        bottles_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["ujust", "install-bottles"], "Install Bottles"))
+        bottles_btn.clicked.connect(lambda _=False, b=bottles_btn: _install_flatpak_inline(
+            self, b, "com.usebottles.bottles", "Bottles"))
         mods_btns.addWidget(bottles_btn)
         mods_doc_btn = QPushButton("Modding Guide")
         mods_doc_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/blob/main/docs/modding-on-kythos.md")))
@@ -1591,10 +1616,11 @@ class GamingPage(Page):
         _copy_text(text)
         self._fix_status_lbl.setText("Copied support snapshot command.")
 
-    def _install_flatpak_app(self, app_id: str, name: str):
-        _open_terminal_with_cmd(
-            ["flatpak", "install", "-y", "flathub", app_id],
-            f"Install {name}",
+    def _install_obs_inline(self, btn: QPushButton):
+        # ujust install-obs also enables obs-vkcapture; mirror that here.
+        _install_flatpak_inline(
+            self, btn, "com.obsproject.Studio", "OBS Studio",
+            extra_cmd="flatpak override --user --env=OBS_VKCAPTURE=1 com.obsproject.Studio || true",
         )
 
     def _make_tool_tile(self, tool: dict) -> tuple[QFrame, dict]:
@@ -1785,9 +1811,16 @@ class GamingPage(Page):
         if _is_flatpak_installed("net.davidotek.pupgui2"):
             subprocess.Popen(["flatpak", "run", "net.davidotek.pupgui2"])
             return
-        _open_terminal_with_cmd(
-            ["flatpak", "install", "-y", "flathub", "net.davidotek.pupgui2"],
-            "Install ProtonUp-Qt",
+        btn = self.sender()
+        if not isinstance(btn, QPushButton):
+            btn = QPushButton()
+
+        def _launch_when_done(code: int):
+            if code == 0:
+                subprocess.Popen(["flatpak", "run", "net.davidotek.pupgui2"])
+
+        _install_flatpak_inline(
+            self, btn, "net.davidotek.pupgui2", "ProtonUp-Qt", done_cb=_launch_when_done,
         )
 
     def _open_corectrl(self):
@@ -2256,11 +2289,21 @@ class GamingPage(Page):
             _restyle(self._migrate_status)
             QApplication.processEvents()
             try:
+                # Prefer the kernel ntfs3 driver: it is dramatically faster than
+                # the FUSE ntfs-3g default for the multi-hundred-GB copies this
+                # page encourages. Read-only either way; fall back to the stock
+                # driver when udisks or the kernel rejects ntfs3.
                 r = subprocess.run(
-                    ["udisksctl", "mount", "-b", drive["dev"],
+                    ["udisksctl", "mount", "-b", drive["dev"], "-t", "ntfs3",
                      "--options", "ro", "--no-user-interaction"],
                     capture_output=True, text=True, timeout=15,
                 )
+                if r.returncode != 0:
+                    r = subprocess.run(
+                        ["udisksctl", "mount", "-b", drive["dev"],
+                         "--options", "ro", "--no-user-interaction"],
+                        capture_output=True, text=True, timeout=15,
+                    )
                 if r.returncode != 0:
                     err = r.stderr.strip()
                     if "hibernate" in err.lower() or "windows" in err.lower():
@@ -2296,9 +2339,12 @@ class GamingPage(Page):
 
         libs = _find_steam_libraries(mount)
         self._lib_combo.clear()
+        self._clear_rows(self._winlib_rows)
+        self._winlib_summary_lbl.hide()
         if not libs:
             self._migrate_found_lbl.setText(f"No Steam libraries found on {mount}.")
             self._lib_combo.hide()
+            self._winlib_check_btn.hide()
             self._copy_btn.setEnabled(False)
             self._migrate_status.setText("No Steam libraries found on this drive.")
             self._migrate_status.setObjectName("status-err")
@@ -2308,11 +2354,120 @@ class GamingPage(Page):
         for lib in libs:
             self._lib_combo.addItem(lib)
         self._lib_combo.show()
+        self._winlib_check_btn.show()
         self._migrate_found_lbl.setText(f"Found {len(libs)} steamapps folder(s) — select one:")
         self._copy_btn.setEnabled(True)
-        self._migrate_status.setText(f"Found {len(libs)} folder(s). Select one and click Copy Library.")
+        self._migrate_status.setText(
+            f"Found {len(libs)} folder(s). Click Check My Games for a per-game readiness "
+            "report, or Copy Library to start migrating."
+        )
         self._migrate_status.setObjectName("status-ok")
         _restyle(self._migrate_status)
+
+    _READY_TIERS = ("native", "platinum", "gold", "silver")
+
+    def _blocked_compat_lookup(self) -> tuple[dict[str, str], set[str]]:
+        """Blocked Steam appids (from compat source URLs) and lowercase names."""
+        appids: dict[str, str] = {}
+        names: set[str] = set()
+        for game in _COMPAT_GAMES:
+            if game.status != "blocked":
+                continue
+            names.add(game.name.lower())
+            m = re.search(r"protondb\.com/app/(\d+)", game.source_url)
+            if m:
+                appids[m.group(1)] = game.name
+        return appids, names
+
+    def _check_windows_library_compat(self):
+        steamapps = self._lib_combo.currentText().strip()
+        if not steamapps:
+            return
+        games = _scan_steamapps_manifests(steamapps)
+        self._winlib_games = games
+        self._winlib_summary_lbl.show()
+        if not games:
+            self._clear_rows(self._winlib_rows)
+            self._winlib_summary_lbl.setText("No game manifests found in this folder.")
+            return
+        cache = _load_protondb_cache()
+        self._render_winlib_compat(games, cache)
+        uncached = [g["appid"] for g in games if g["appid"] and g["appid"] not in cache]
+        if uncached and (self._winlib_protondb_worker is None or not self._winlib_protondb_worker.isRunning()):
+            self._winlib_summary_lbl.setText(
+                self._winlib_summary_lbl.text() + "  Fetching ProtonDB ratings…"
+            )
+            worker = _ProtonDbBatchWorker(uncached, cache)
+            worker.finished_all.connect(self._on_winlib_protondb_done)
+            self._winlib_protondb_worker = worker
+            _release_worker_when_finished(self, "_winlib_protondb_worker", worker)
+            worker.start()
+
+    def _on_winlib_protondb_done(self, full_cache: dict):
+        _save_protondb_cache(full_cache)
+        if self._winlib_games:
+            self._render_winlib_compat(self._winlib_games, full_cache)
+
+    def _render_winlib_compat(self, games: list[dict], cache: dict[str, str]):
+        self._clear_rows(self._winlib_rows)
+        blocked_appids, blocked_names = self._blocked_compat_lookup()
+        graded: list[tuple[dict, str, str]] = []  # (game, category, badge text)
+        ready = blocked = 0
+        for game in games:
+            appid = game.get("appid", "")
+            name_l = game.get("name", "").lower()
+            tier = (cache.get(appid) or "").lower()
+            if appid in blocked_appids or name_l in blocked_names:
+                blocked += 1
+                graded.append((game, "blocked", "Blocked"))
+            elif tier in self._READY_TIERS:
+                ready += 1
+                graded.append((game, "ready", "Native" if tier == "native" else tier.capitalize()))
+            elif tier in ("bronze", "borked"):
+                graded.append((game, "risky", tier.capitalize()))
+            else:
+                graded.append((game, "unknown", "Not rated"))
+        total = len(games)
+        self._winlib_summary_lbl.setText(
+            f"{ready} of {total} of your games look ready to play on KythOS. "
+            f"{blocked} blocked by anti-cheat, {total - ready - blocked} unrated or with mixed reports. "
+            "Based on KythOS compatibility data and ProtonDB community reports."
+        )
+        # Blocked games first so the bad news is impossible to miss.
+        order = {"blocked": 0, "risky": 1, "unknown": 2, "ready": 3}
+        graded.sort(key=lambda item: (order[item[1]], item[0]["name"].lower()))
+        for game, category, badge_text in graded[:30]:
+            self._winlib_rows.addWidget(self._make_winlib_row(game, category, badge_text))
+        if len(graded) > 30:
+            more = QLabel(f"{len(graded) - 30} more games scanned — the summary above covers all of them.")
+            more.setObjectName("card-copy")
+            self._winlib_rows.addWidget(more)
+
+    def _make_winlib_row(self, game: dict, category: str, badge_text: str) -> QFrame:
+        row = QFrame()
+        row.setObjectName({"blocked": "hw-card-err", "risky": "hw-card-warn"}.get(category, "hw-card-dim"))
+        layout = QHBoxLayout(row)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(10)
+        name_lbl = QLabel(game["name"])
+        name_lbl.setObjectName("card-summary")
+        layout.addWidget(name_lbl, 1)
+        badge = QLabel(f"  {badge_text}  ")
+        if category == "blocked":
+            badge.setStyleSheet(
+                "background:#3a1010; color:#f48771; border:1px solid #5a1a1a; "
+                "border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;"
+            )
+        else:
+            # Native builds aren't a ProtonDB tier; show them platinum-green.
+            tier_key = "platinum" if badge_text == "Native" else badge_text.lower()
+            bg, fg = _PROTONDB_TIER_STYLE.get(tier_key, ("#252526", "#cccccc"))
+            badge.setStyleSheet(
+                f"background:{bg}; color:{fg}; "
+                "border-radius:3px; padding:2px 8px; font-size:11px; font-weight:700;"
+            )
+        layout.addWidget(badge)
+        return row
 
     def _browse_migrate_dst(self):
         path = QFileDialog.getExistingDirectory(

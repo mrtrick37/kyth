@@ -1,15 +1,44 @@
+import os
 import subprocess
+import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _has_rollback_deployment, _has_staged_update,
+    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _release_worker_when_finished,
 )
 from .qt import (  # noqa: E501
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSize, QSizePolicy, QVBoxLayout, Qt,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
     Page, StatTile, _make_card, _theme_icon,
 )
+
+# ── First-week follow-up ──────────────────────────────────────────────────────
+# Anchored to markers that only exist once per install (first-boot flatpak setup
+# and the welcome wizard), so installs older than the window never see the card.
+_FIRST_WEEK_DISMISS = os.path.expanduser("~/.config/kyth-first-week-done")
+_FIRST_BOOT_MARKERS = (
+    "/var/lib/kyth/default-flatpaks-v5-done",
+    os.path.expanduser("~/.config/kyth-welcome-done"),
+)
+_FIRST_WEEK_MIN_DAYS = 2   # let the first-boot banner have the spotlight first
+_FIRST_WEEK_MAX_DAYS = 30
+
+
+def _first_week_days() -> int | None:
+    """Days since first boot, or None when unknown or already dismissed."""
+    if os.path.exists(_FIRST_WEEK_DISMISS):
+        return None
+    stamps = []
+    for marker in _FIRST_BOOT_MARKERS:
+        try:
+            stamps.append(os.stat(marker).st_mtime)
+        except OSError:
+            continue
+    if not stamps:
+        return None
+    return int((time.time() - min(stamps)) / 86400)
+
 
 # ── Page: Welcome (Control Panel-style home) ──────────────────────────────────
 class WelcomePage(Page):
@@ -55,7 +84,38 @@ class WelcomePage(Page):
 
         self._add_layout(tiles_row)
 
+        # ── First-boot app setup banner ───────────────────────────────────────
+        # Steam and the other default apps download in the background on first
+        # boot; without this banner the app menu just looks broken until they
+        # land. Hidden once setup is complete.
+        self._setup_card, setup_layout = _make_card("card-accent-warn")
+        setup_title = QLabel("Setting up your apps")
+        setup_title.setObjectName("card-title")
+        setup_layout.addWidget(setup_title)
+        self._setup_lbl = QLabel("Checking app setup progress…")
+        self._setup_lbl.setObjectName("card-copy")
+        self._setup_lbl.setWordWrap(True)
+        setup_layout.addWidget(self._setup_lbl)
+        self._setup_progress = QProgressBar()
+        self._setup_progress.setRange(0, len(_DEFAULT_FIRST_RUN_APPS))
+        self._setup_progress.setTextVisible(False)
+        setup_layout.addWidget(self._setup_progress)
+        self._setup_card.hide()
+        self._add(self._setup_card)
+        self._setup_worker: DataWorker | None = None
+        self._setup_timer = QTimer(self)
+        self._setup_timer.setInterval(15000)
+        self._setup_timer.timeout.connect(self._poll_first_run_setup)
+        if not _IS_LIVE and not os.path.exists("/var/lib/kyth/default-flatpaks-v5-done"):
+            self._setup_timer.start()
+            QTimer.singleShot(400, self._poll_first_run_setup)
+
         self._add(self._make_recommended_card(staged, rollback, windows_found))
+
+        # ── First-week tips: the things people discover too late ─────────────
+        days = None if _IS_LIVE else _first_week_days()
+        if days is not None and _FIRST_WEEK_MIN_DAYS <= days <= _FIRST_WEEK_MAX_DAYS:
+            self._add(self._make_first_week_card(days))
 
         # ── Category grid, like the Control Panel category view ──────────────
         categories: list[tuple[tuple[str, ...], str, str, list[tuple[str, str]]]] = [
@@ -125,6 +185,73 @@ class WelcomePage(Page):
         note.setWordWrap(True)
         self._add(note)
         self._stretch()
+
+    def _poll_first_run_setup(self):
+        if self._setup_worker is not None and self._setup_worker.isRunning():
+            return
+        worker = DataWorker("first-run", _first_run_app_setup_state)
+        worker.result.connect(self._on_first_run_state)
+        self._setup_worker = worker
+        _release_worker_when_finished(self, "_setup_worker", worker)
+        worker.start()
+
+    def _on_first_run_state(self, _key: str, state_tuple):
+        state, message, missing = state_tuple
+        if state in ("ready", "live"):
+            self._setup_card.hide()
+            self._setup_timer.stop()
+            return
+        total = len(_DEFAULT_FIRST_RUN_APPS)
+        done = max(0, total - len(missing))
+        self._setup_progress.setValue(done)
+        self._setup_lbl.setText(
+            f"{message}  {done} of {total} headline apps are ready — new apps appear "
+            "in the launcher as they finish. No action needed."
+        )
+        self._setup_card.show()
+
+    def _make_first_week_card(self, days: int) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel(f"Day {days} on KythOS — a few things people find out late")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        for text, btn_label, page_key in (
+            ("Every update keeps your previous system as a rollback, so trying the "
+             "latest is risk-free — restart when it suits you.", "Updates", "Update"),
+            ("Set up Ludusavi once and your game saves are backed up before any "
+             "modding or library experiments.", "Gaming", "Gaming"),
+            ("Something feels off after a change? Repair can roll the whole OS back "
+             "to its previous state in one click.", "Repair", "Repair"),
+            ("Power-user shortcut: open Konsole and type ujust — every KythOS tweak "
+             "is one command away.", None, None),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            lbl = QLabel("•  " + text)
+            lbl.setObjectName("card-copy")
+            lbl.setWordWrap(True)
+            row.addWidget(lbl, 1)
+            if page_key:
+                btn = QPushButton(btn_label)
+                btn.clicked.connect(lambda _=False, k=page_key: self._navigate(k))
+                row.addWidget(btn, 0, Qt.AlignmentFlag.AlignTop)
+            layout.addLayout(row)
+        dismiss_row = QHBoxLayout()
+        dismiss_btn = QPushButton("Got it — hide this")
+        dismiss_btn.clicked.connect(lambda _=False, c=card: self._dismiss_first_week(c))
+        dismiss_row.addWidget(dismiss_btn)
+        dismiss_row.addStretch()
+        layout.addLayout(dismiss_row)
+        return card
+
+    def _dismiss_first_week(self, card: QFrame):
+        try:
+            os.makedirs(os.path.dirname(_FIRST_WEEK_DISMISS), exist_ok=True)
+            with open(_FIRST_WEEK_DISMISS, "w", encoding="utf-8") as fh:
+                fh.write(str(int(time.time())))
+        except OSError:
+            pass
+        card.hide()
 
     def _make_recommended_card(self, staged: bool, rollback: bool, windows_found: bool = False) -> QFrame:
         if _IS_LIVE:

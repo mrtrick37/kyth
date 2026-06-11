@@ -320,7 +320,7 @@ class MainWindow(QMainWindow):
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
         "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program"],
-        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves"],
+        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "KDE Connect"],
         "Update": ["Check for updates", "Windows Update", "Updates"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
         "Diagnostics": ["Health report", "System information", "Diagnostics"],

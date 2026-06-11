@@ -1,8 +1,12 @@
+import json
+import os
 from dataclasses import dataclass
+from datetime import datetime
+from urllib.request import Request, urlopen
 
 # __KYTH_GENERATED_IMPORTS__
 from .qt import (  # noqa: E501
-    QDesktopServices, QFrame, QHBoxLayout, QLabel, QPushButton, QUrl, QVBoxLayout, QWidget, Qt,
+    QDesktopServices, QFrame, QHBoxLayout, QLabel, QPushButton, QThread, QUrl, QVBoxLayout, QWidget, Qt, Signal,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card,
@@ -23,52 +27,94 @@ class CompatGame:
 # Status values: "native" | "proton" | "tweaks" | "blocked"
 # Anti-cheat values used as display tags. Every entry carries a date/source so
 # stale anti-cheat claims are easy to audit during release validation.
-_COMPAT_GAMES: list[CompatGame] = [
-    # ── Native Linux builds ──────────────────────────────────────────────────
-    CompatGame("Counter-Strike 2", "VAC", "native", "Native Linux client; full competitive matchmaking.", "2026-05-18", "Steam store / KythOS validation target", "https://store.steampowered.com/app/730/CounterStrike_2/"),
-    CompatGame("Dota 2", "VAC", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/570/Dota_2/"),
-    CompatGame("Team Fortress 2", "VAC", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/440/Team_Fortress_2/"),
-    CompatGame("Baldur's Gate 3", "None", "native", "Native Linux client. Proton is also worth testing for regressions.", "2026-05-18", "Steam store / validation matrix", "https://store.steampowered.com/app/1086940/Baldurs_Gate_3/"),
-    CompatGame("The Witcher 3", "None", "native", "Native Linux client included.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/292030/The_Witcher_3_Wild_Hunt/"),
-    CompatGame("Hollow Knight", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/367520/Hollow_Knight/"),
-    CompatGame("Stardew Valley", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/413150/Stardew_Valley/"),
-    CompatGame("Terraria", "None", "native", "Native Linux client.", "2026-05-18", "Steam store", "https://store.steampowered.com/app/105600/Terraria/"),
-    # ── Works via Proton (no AC or AC with Linux support) ────────────────────
-    CompatGame("Elden Ring", "None", "proton", "Platinum-rated community reports; online path is part of KythOS validation.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1245620"),
-    CompatGame("Cyberpunk 2077", "None", "proton", "Excellent Proton support. Test HDR, FSR, and frame pacing on each release.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1091500"),
-    CompatGame("Red Dead Redemption 2", "Rockstar", "proton", "Gold community reports; Rockstar Launcher remains the risk surface.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/1174180"),
-    CompatGame("GTA V", "Rockstar", "proton", "Story mode and launcher path need periodic revalidation.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/271590"),
-    CompatGame("God of War", "None", "proton", "Platinum-rated community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1593500"),
-    CompatGame("Hogwarts Legacy", "None", "proton", "Gold-rated community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/990080"),
-    CompatGame("Spider-Man Remastered", "None", "proton", "Gold/Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1817070"),
-    CompatGame("Resident Evil 4 (2023)", "None", "proton", "Works via Proton.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/2050650"),
-    CompatGame("Sekiro", "None", "proton", "Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/814380"),
-    CompatGame("Dark Souls III", "VAC", "proton", "Works via Proton; VAC does not restrict Linux for this title.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/374320"),
-    CompatGame("Monster Hunter: World", "None", "proton", "Gold community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/582010"),
-    CompatGame("Hades", "None", "proton", "Platinum community reports.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1145360"),
-    CompatGame("Deep Rock Galactic", "EAC", "proton", "EAC Linux support is enabled; retest after major anti-cheat updates.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/548430"),
-    CompatGame("Dead by Daylight", "EAC", "proton", "EAC Linux support is enabled; retest after major game updates.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/381210"),
-    CompatGame("The Finals", "EAC", "proton", "EAC Linux path has community support; validate matchmaking on release images.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/2073850"),
-    CompatGame("Halo Infinite", "EAC", "proton", "EAC Linux support is enabled.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/1240440"),
-    CompatGame("Overwatch 2", "Warden", "proton", "Runs via Proton + Battle.net through Lutris/umu. Launcher flow is the main risk.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/2357570"),
-    CompatGame("Paladins", "EAC", "proton", "EAC Linux support is enabled by the publisher.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/444090"),
-    # ── Works with tweaks ────────────────────────────────────────────────────
-    CompatGame("Rainbow Six Siege", "BattlEye", "tweaks", "Mostly works; occasional BattlEye launch failures. Try PROTON_NO_ESYNC=1 if it fails to start.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/359550"),
-    CompatGame("Hunt: Showdown", "BattlEye", "tweaks", "BattlEye enabled but reports are mixed. Check ProtonDB before promising support.", "2026-05-18", "ProtonDB", "https://www.protondb.com/app/594650"),
-    CompatGame("Warframe", "EAC", "tweaks", "EAC Linux support enabled; occasionally needs a specific Proton version.", "2026-05-18", "ProtonDB / KythOS validation target", "https://www.protondb.com/app/230410"),
-    # ── Blocked ──────────────────────────────────────────────────────────────
-    CompatGame("Apex Legends", "EAC", "blocked", "EA removed Steam Deck/Linux support in 2024. Retest only if EA announces a policy reversal.", "2026-05-18", "EA / ProtonDB", "https://www.protondb.com/app/1172470"),
-    CompatGame("Destiny 2", "BattlEye", "blocked", "Bungie states SteamOS/Proton is unsupported and warns against bypass attempts.", "2026-05-18", "Bungie Help", "https://help.bungie.net/hc/en-us/articles/360049517431-Destiny-Account-Restrictions-and-Banning-Policies"),
-    CompatGame("Rust", "EAC", "blocked", "Facepunch has publicly said there are no current Proton/Linux support plans.", "2026-05-18", "Facepunch statement coverage", "https://www.pcgamer.com/games/survival-crafting/rust-developer-has-no-plans-for-linux-or-proton-support-says-games-that-support-them-are-not-serious-about-anti-cheat/"),
-    CompatGame("PUBG", "BattlEye", "blocked", "Treat as blocked until KythOS validation confirms current official Proton support.", "2026-05-18", "KythOS conservative policy", "https://areweanticheatyet.com"),
-    CompatGame("Valorant", "Vanguard", "blocked", "Riot Vanguard requires ring-0 kernel access: Windows-only driver. No Linux support from Riot.", "2026-05-18", "Riot Vanguard architecture", "https://support-valorant.riotgames.com/hc/en-us/articles/360046160933-VALORANT-anti-cheat-FAQ"),
-    CompatGame("Fortnite", "EAC", "blocked", "Epic has not enabled Linux support for Fortnite, despite EAC supporting Linux for other games.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
-    CompatGame("Call of Duty (MP/WZ)", "RICOCHET", "blocked", "RICOCHET anti-cheat runs at kernel level on Windows and has no Linux support.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
-    CompatGame("Roblox", "Hyperion", "blocked", "Roblox's Byfron/Hyperion anti-cheat blocks Wine/Proton paths.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
-    CompatGame("League of Legends", "Vanguard", "blocked", "Riot migrated LoL to Vanguard in 2024. Same Linux blocker as Valorant.", "2026-05-18", "Riot Vanguard architecture", "https://www.leagueoflegends.com/en-us/news/dev/dev-vanguard-x-lol/"),
-    CompatGame("Escape from Tarkov", "BattlEye", "blocked", "BattlEye can support Linux, but this title has not enabled a supported Proton path.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
-    CompatGame("Lost Ark", "GameGuard", "blocked", "nProtect GameGuard is kernel-level and blocks Linux.", "2026-05-18", "Are We Anti-Cheat Yet", "https://areweanticheatyet.com"),
-]
+#
+# The data lives in compat_games.json (bundled with this package) so it can be
+# refreshed at runtime from the repo's main branch — anti-cheat status is the
+# most volatile fact in Linux gaming and must not be frozen into an OS image.
+_COMPAT_BUNDLED_PATH = os.path.join(os.path.dirname(__file__), "compat_games.json")
+_COMPAT_CACHE_PATH = os.path.expanduser("~/.cache/kyth-compat-games.json")
+_COMPAT_REMOTE_URL = (
+    "https://raw.githubusercontent.com/mrtrick37/kyth/main/"
+    "build_files/kyth-welcome/kyth_welcome/compat_games.json"
+)
+_COMPAT_STALE_DAYS = 45
+
+
+def _parse_compat_payload(data: object) -> tuple[str, list[CompatGame]]:
+    if not isinstance(data, dict):
+        return "", []
+    games: list[CompatGame] = []
+    for entry in data.get("games", []):
+        if not isinstance(entry, dict) or not entry.get("name"):
+            continue
+        status = str(entry.get("status", ""))
+        if status not in ("native", "proton", "tweaks", "blocked"):
+            continue
+        games.append(CompatGame(
+            name=str(entry.get("name", "")),
+            anticheat=str(entry.get("anticheat", "None")),
+            status=status,
+            note=str(entry.get("note", "")),
+            checked=str(entry.get("checked", "")),
+            source=str(entry.get("source", "")),
+            source_url=str(entry.get("source_url", "")),
+        ))
+    return str(data.get("updated", "")), games
+
+
+def _load_compat_games() -> tuple[str, list[CompatGame]]:
+    """Return the newest of the image-bundled data and the runtime cache."""
+    best_date, best_games = "", []
+    for path in (_COMPAT_BUNDLED_PATH, _COMPAT_CACHE_PATH):
+        try:
+            with open(path, encoding="utf-8") as fh:
+                updated, games = _parse_compat_payload(json.load(fh))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if games and updated >= best_date:
+            best_date, best_games = updated, games
+    return best_date, best_games
+
+
+_COMPAT_DATA_UPDATED, _COMPAT_GAMES = _load_compat_games()
+
+
+def _adopt_compat_data(updated: str, games: list[CompatGame]) -> None:
+    # Mutate the list in place so modules that imported _COMPAT_GAMES see it too.
+    global _COMPAT_DATA_UPDATED
+    _COMPAT_DATA_UPDATED = updated
+    _COMPAT_GAMES[:] = games
+
+
+def _compat_data_age_days() -> int | None:
+    try:
+        return (datetime.now() - datetime.strptime(_COMPAT_DATA_UPDATED, "%Y-%m-%d")).days
+    except ValueError:
+        return None
+
+
+class _CompatRefreshWorker(QThread):
+    """Fetch newer compatibility data from the repo and cache it per-user."""
+    refreshed = Signal(str, list)   # (updated, list[CompatGame])
+    unchanged = Signal()
+
+    def run(self):
+        try:
+            req = Request(_COMPAT_REMOTE_URL, headers={"User-Agent": "KythOS-Compat/1.0"})
+            with urlopen(req, timeout=10) as resp:
+                raw = resp.read().decode("utf-8")
+            updated, games = _parse_compat_payload(json.loads(raw))
+            if not games or updated <= _COMPAT_DATA_UPDATED:
+                self.unchanged.emit()
+                return
+            os.makedirs(os.path.dirname(_COMPAT_CACHE_PATH), exist_ok=True)
+            with open(_COMPAT_CACHE_PATH, "w", encoding="utf-8") as fh:
+                fh.write(raw)
+            self.refreshed.emit(updated, games)
+        except Exception:
+            self.unchanged.emit()
+
+
 
 _COMPAT_AC_EXPLAINERS: list[tuple[str, str, str]] = [
     # (ac_name, status, explanation)
@@ -114,28 +160,20 @@ class CompatibilityPage(Page):
         )
 
         # ── Summary bar ───────────────────────────────────────────────────────
-        works   = sum(1 for game in _COMPAT_GAMES if game.status in ("native", "proton", "tweaks"))
-        blocked = sum(1 for game in _COMPAT_GAMES if game.status == "blocked")
-        total   = len(_COMPAT_GAMES)
-        oldest_check = min((game.checked for game in _COMPAT_GAMES), default="unknown")
-
         sum_card, sum_layout = _make_card("card-accent-ok")
         sum_layout.setSpacing(4)
-        sum_title = QLabel(
-            f"{works} of the {total} listed games work on KythOS — "
-            f"including most of the Steam top 100."
-        )
-        sum_title.setObjectName("card-title")
-        sum_title.setWordWrap(True)
-        sum_layout.addWidget(sum_title)
-        sum_copy = QLabel(
-            f"The {blocked} blocked titles are tracked conservatively: if a publisher blocks "
-            "or refuses SteamOS/Proton, KythOS marks it blocked until release validation proves "
-            f"otherwise. Oldest source check in this list: {oldest_check}."
-        )
-        sum_copy.setObjectName("card-copy")
-        sum_copy.setWordWrap(True)
-        sum_layout.addWidget(sum_copy)
+        self._sum_title = QLabel()
+        self._sum_title.setObjectName("card-title")
+        self._sum_title.setWordWrap(True)
+        sum_layout.addWidget(self._sum_title)
+        self._sum_copy = QLabel()
+        self._sum_copy.setObjectName("card-copy")
+        self._sum_copy.setWordWrap(True)
+        sum_layout.addWidget(self._sum_copy)
+        self._freshness_lbl = QLabel()
+        self._freshness_lbl.setWordWrap(True)
+        sum_layout.addWidget(self._freshness_lbl)
+        self._update_summary(refresh_note="Checking for newer compatibility data…")
         self._add(sum_card)
 
         # ── Anti-cheat explainers ─────────────────────────────────────────────
@@ -192,10 +230,11 @@ class CompatibilityPage(Page):
         self._add_layout(filter_row)
 
         self._game_rows: list[tuple[QFrame, str]] = []  # (widget, status)
-        for game in _COMPAT_GAMES:
-            row = self._make_game_row(game)
-            self._game_rows.append((row, game.status))
-            self._add(row)
+        self._active_filter: tuple | None = None
+        self._games_rows_layout = QVBoxLayout()
+        self._games_rows_layout.setSpacing(8)
+        self._add_layout(self._games_rows_layout)
+        self._rebuild_game_rows()
 
         # ── Windows apps via Bottles / Lutris ─────────────────────────────────
         self._divider()
@@ -343,7 +382,64 @@ class CompatibilityPage(Page):
 
         self._stretch()
 
+        # Refresh the compatibility data in the background so blocked/working
+        # status stays current between OS image updates.
+        self._refresh_worker = _CompatRefreshWorker()
+        self._refresh_worker.refreshed.connect(self._on_compat_refreshed)
+        self._refresh_worker.unchanged.connect(self._on_compat_unchanged)
+        self._refresh_worker.start()
+
     # ── helpers ───────────────────────────────────────────────────────────────
+
+    def _update_summary(self, refresh_note: str = ""):
+        works   = sum(1 for game in _COMPAT_GAMES if game.status in ("native", "proton", "tweaks"))
+        blocked = sum(1 for game in _COMPAT_GAMES if game.status == "blocked")
+        total   = len(_COMPAT_GAMES)
+        oldest_check = min((game.checked for game in _COMPAT_GAMES), default="unknown")
+        self._sum_title.setText(
+            f"{works} of the {total} listed games work on KythOS — "
+            f"including most of the Steam top 100."
+        )
+        self._sum_copy.setText(
+            f"The {blocked} blocked titles are tracked conservatively: if a publisher blocks "
+            "or refuses SteamOS/Proton, KythOS marks it blocked until release validation proves "
+            f"otherwise. Oldest source check in this list: {oldest_check}."
+        )
+        age = _compat_data_age_days()
+        if age is not None and age > _COMPAT_STALE_DAYS:
+            self._freshness_lbl.setStyleSheet("font-size:11px; color:#d4a843;")
+            note = (
+                f"⚠ Compatibility data is {age} days old (updated {_COMPAT_DATA_UPDATED}). "
+                "Double-check ProtonDB before relying on a specific title."
+            )
+        else:
+            self._freshness_lbl.setStyleSheet("font-size:11px; color:#858585;")
+            note = f"Compatibility data updated {_COMPAT_DATA_UPDATED or 'unknown'}."
+        if refresh_note:
+            note += f"  {refresh_note}"
+        self._freshness_lbl.setText(note)
+
+    def _rebuild_game_rows(self):
+        while self._games_rows_layout.count():
+            item = self._games_rows_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        self._game_rows = []
+        for game in _COMPAT_GAMES:
+            row = self._make_game_row(game)
+            self._game_rows.append((row, game.status))
+            self._games_rows_layout.addWidget(row)
+        if self._active_filter is not None:
+            for row, status in self._game_rows:
+                row.setVisible(status in self._active_filter)
+
+    def _on_compat_refreshed(self, updated: str, games: list):
+        _adopt_compat_data(updated, games)
+        self._rebuild_game_rows()
+        self._update_summary(refresh_note="Refreshed just now.")
+
+    def _on_compat_unchanged(self):
+        self._update_summary()
 
     def _make_filter_btn(self, label: str, statuses: tuple | None, active: bool) -> QPushButton:
         btn = QPushButton(label)
@@ -359,6 +455,7 @@ class CompatibilityPage(Page):
         return btn
 
     def _apply_filter(self, statuses: tuple | None):
+        self._active_filter = statuses
         for btn in (self._filter_all, self._filter_works, self._filter_tweaks, self._filter_blocked):
             btn.setChecked(False)
         if statuses is None:

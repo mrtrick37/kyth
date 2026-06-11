@@ -794,6 +794,47 @@ def _is_flatpak_installed(app_id: str) -> bool:
     return result is not None and result.returncode == 0
 
 
+def _install_flatpak_inline(owner: object, btn: QPushButton, app_id: str, name: str,
+                            extra_cmd: str = "", done_cb=None) -> None:
+    """Install a Flathub app on a Worker thread, driving the button state.
+
+    In-app replacement for terminal-popping installs: the button itself shows
+    progress and outcome, and polkit/askpass handles any elevation. extra_cmd
+    is shell appended after a successful install (e.g. a flatpak override).
+    One worker per app id, kept on `owner` so concurrent clicks are ignored.
+    """
+    attr = "_inline_install_" + re.sub(r"\W", "_", app_id)
+    existing = getattr(owner, attr, None)
+    if existing is not None and existing.isRunning():
+        return
+    orig = btn.text()
+    btn.setEnabled(False)
+    btn.setText("Installing…")
+    cmd = (
+        "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
+        f" && flatpak install -y --or-update flathub {shlex.quote(app_id)}"
+    )
+    if extra_cmd:
+        cmd += f" && {extra_cmd}"
+    worker = Worker(["bash", "-c", cmd])
+
+    def _done(code: int):
+        _finish_worker(owner, attr=attr)
+        if code == 0:
+            btn.setText("✓ Installed")
+            btn.setToolTip(f"{name} is installed. Find it in the app launcher.")
+        else:
+            btn.setText(orig)
+            btn.setEnabled(True)
+            btn.setToolTip(f"Install failed (exit {code}). Check your network connection and try again.")
+        if done_cb:
+            done_cb(code)
+
+    worker.done.connect(_done)
+    setattr(owner, attr, worker)
+    worker.start()
+
+
 _DEFAULT_FIRST_RUN_APPS = (
     ("com.valvesoftware.Steam", "Steam"),
     ("net.lutris.Lutris", "Lutris"),
@@ -2943,6 +2984,34 @@ def _find_steam_libraries(mount_point: str) -> list[str]:
     except (PermissionError, OSError):
         pass
     return found
+
+
+# Steam tooling entries that show up in appmanifests but are not games.
+_STEAM_NON_GAME_PATTERNS = (
+    "steamworks common redistributables",
+    "steam linux runtime",
+    "proton",
+    "steamvr",
+)
+
+
+def _scan_steamapps_manifests(steamapps_dir: str) -> list[dict]:
+    """List games recorded in a steamapps directory (works on read-only NTFS mounts)."""
+    games: list[dict] = []
+    seen: set[str] = set()
+    for manifest in glob.glob(os.path.join(steamapps_dir, "appmanifest_*.acf")):
+        data = _parse_steam_acf(manifest)
+        name = data.get("name", "").strip()
+        appid = data.get("appid", "").strip()
+        if not name or (appid or name.lower()) in seen:
+            continue
+        lowered = name.lower()
+        if any(lowered.startswith(pat) for pat in _STEAM_NON_GAME_PATTERNS):
+            continue
+        seen.add(appid or lowered)
+        games.append({"name": name, "appid": appid})
+    games.sort(key=lambda item: item["name"].lower())
+    return games
 
 # ── Page: Controllers ─────────────────────────────────────────────────────────
 
