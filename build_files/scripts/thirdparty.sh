@@ -579,7 +579,9 @@ _launch winetricks install_winetricks
 _launch umu install_umu
 _launch latencyflex install_latencyflex
 _launch msfonts install_msfonts
-is_enabled "${ENABLE_SCX:-1}" && _launch scx install_scx || true
+if is_enabled "${ENABLE_SCX:-1}"; then
+	_launch scx install_scx
+fi
 
 # Wait for all background jobs and check their status files.
 wait
