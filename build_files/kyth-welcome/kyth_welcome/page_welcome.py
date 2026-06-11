@@ -4,7 +4,7 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _release_worker_when_finished,
+    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _release_worker_when_finished, _steam_libraries_on_ntfs,
 )
 from .qt import (  # noqa: E501
     QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt,
@@ -112,6 +112,13 @@ class WelcomePage(Page):
 
         self._add(self._make_recommended_card(staged, rollback, windows_found))
 
+        # ── NTFS Steam library warning ────────────────────────────────────────
+        # Proton on a Windows-formatted drive fails in ways that read as
+        # "Linux gaming is broken"; catch it here before the first bad evening.
+        ntfs_libs = [] if _IS_LIVE else _steam_libraries_on_ntfs()
+        if ntfs_libs:
+            self._add(self._make_ntfs_library_card(ntfs_libs))
+
         # ── First-week tips: the things people discover too late ─────────────
         days = None if _IS_LIVE else _first_week_days()
         if days is not None and _FIRST_WEEK_MIN_DAYS <= days <= _FIRST_WEEK_MAX_DAYS:
@@ -210,6 +217,37 @@ class WelcomePage(Page):
         )
         self._setup_card.show()
 
+    def _make_ntfs_library_card(self, libs: list[str]) -> QFrame:
+        card, layout = _make_card("card-accent-warn")
+        title = QLabel("Your Steam library is on a Windows-formatted drive")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        home = os.path.expanduser("~")
+        listed = ",  ".join(lib.replace(home, "~", 1) for lib in libs[:3])
+        if len(libs) > 3:
+            listed += f"  (+{len(libs) - 3} more)"
+        body = QLabel(
+            f"Steam is using a library on an NTFS/exFAT drive: {listed}.  Proton needs a "
+            "Linux-formatted disk — games on Windows-formatted drives crash, hang at launch, "
+            "or corrupt their save prefixes, and it won't look like a drive problem when they do. "
+            "Copy the games onto your KythOS disk instead; your Windows drive stays untouched."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        copy_btn = QPushButton("Copy Games to KythOS")
+        copy_btn.setObjectName("primary")
+        copy_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
+        btns.addWidget(copy_btn)
+        learn_btn = QPushButton("Why This Breaks")
+        learn_btn.clicked.connect(lambda _=False: self._navigate("Move From Windows"))
+        btns.addWidget(learn_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        return card
+
     def _make_first_week_card(self, days: int) -> QFrame:
         card, layout = _make_card()
         title = QLabel(f"Day {days} on KythOS — a few things people find out late")
@@ -220,10 +258,12 @@ class WelcomePage(Page):
              "latest is risk-free — restart when it suits you.", "Updates", "Update"),
             ("Set up Ludusavi once and your game saves are backed up before any "
              "modding or library experiments.", "Gaming", "Gaming"),
+            ("Downloaded an installer? Use App Store first; .exe and .rpm files "
+             "open KythOS guidance instead of changing the base system silently.", "App Store", "App Store"),
             ("Something feels off after a change? Repair can roll the whole OS back "
              "to its previous state in one click.", "Repair", "Repair"),
-            ("Power-user shortcut: open Konsole and type ujust — every KythOS tweak "
-             "is one command away.", None, None),
+            ("If a forum tells you to paste terminal commands, search System Hub for "
+             "the Windows name of the task first. Many fixes already have buttons here.", None, None),
         ):
             row = QHBoxLayout()
             row.setSpacing(10)

@@ -1343,6 +1343,52 @@ def _steam_library_roots() -> list[str]:
     return roots
 
 
+_PROC_MOUNT_ESCAPE_RE = re.compile(r"\\([0-7]{3})")
+
+
+def _decode_proc_mount_field(value: str) -> str:
+    """Decode the octal escapes used by /proc/mounts fields."""
+    return _PROC_MOUNT_ESCAPE_RE.sub(
+        lambda match: chr(int(match.group(1), 8)),
+        value,
+    )
+
+
+def _steam_libraries_on_ntfs() -> list[str]:
+    """Steam library roots that sit on an NTFS/Windows filesystem.
+
+    Reusing the old Windows game drive as a Steam library is the first thing
+    most switchers try, and Proton breaks on NTFS in ways that look like
+    "Linux gaming is broken" rather than "wrong filesystem" — so detect it
+    proactively instead of waiting for the support request.
+    """
+    mounts: list[tuple[str, str]] = []
+    try:
+        with open("/proc/mounts", encoding="utf-8") as fh:
+            for line in fh:
+                parts = line.split()
+                if len(parts) >= 3:
+                    # /proc/mounts octal-escapes spaces and tabs in mount points.
+                    mount_point = _decode_proc_mount_field(parts[1])
+                    mounts.append((mount_point, parts[2].lower()))
+    except OSError:
+        return []
+    # Longest mount point first so nested mounts resolve to the right fs.
+    mounts.sort(key=lambda entry: len(entry[0]), reverse=True)
+
+    flagged: list[str] = []
+    for root in _steam_library_roots():
+        real = os.path.realpath(root)
+        for mount_point, fstype in mounts:
+            if real == mount_point or real.startswith(mount_point.rstrip("/") + "/"):
+                # ntfs-3g mounts report as "fuseblk"; exFAT/FAT are equally
+                # unfit for Proton prefixes (no symlinks), so flag them too.
+                if fstype in ("ntfs", "ntfs3", "fuseblk", "exfat", "vfat"):
+                    flagged.append(root)
+                break
+    return flagged
+
+
 def _detect_steam_games() -> list[dict]:
     games: list[dict] = []
     seen: set[tuple[str, str]] = set()

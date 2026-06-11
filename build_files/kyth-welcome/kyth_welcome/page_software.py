@@ -236,6 +236,7 @@ class SoftwarePage(Page):
         ("Word / Excel / PowerPoint", "LibreOffice Writer, Calc, and Impress are drop-in replacements. Install below.", "org.libreoffice.LibreOffice"),
         ("Outlook", "Use Thunderbird for mail/calendar, or pin Outlook Web as a Web App.", "org.mozilla.Thunderbird"),
         ("Teams", "Use Teams in the browser and pin it with WebApp Manager.", "io.github.vikdevelop.WebApp"),
+        ("OneDrive", "Use the OneDrive web app, KDE Online Accounts, or the Cloud Storage page for sync-style workflows.", ""),
         ("Zoom", "Install the Zoom Flatpak — full video calls, screen share, and breakout rooms.", "us.zoom.Zoom"),
         ("Slack", "Install Slack from Flatpak.", "com.slack.Slack"),
         ("Notepad++", "Use Kate (already installed — find it in the app menu) or VS Code.", ""),
@@ -246,11 +247,13 @@ class SoftwarePage(Page):
         ("Edge", "Pin any web app with WebApp Manager, or use Brave Browser.", "com.brave.Browser"),
         # Creative
         ("Photoshop", "Use GIMP for raster editing; Krita is excellent for painting.", "org.gimp.GIMP"),
+        ("Adobe Creative Cloud", "Most Adobe desktop apps do not run cleanly here. Use web apps, native alternatives, or keep a Windows VM/dual boot for those projects.", ""),
         ("Paint.NET / MS Paint", "Use GIMP for editing or Krita for painting. Kolourpaint is simpler.", "org.gimp.GIMP"),
         ("Illustrator", "Use Inkscape for vector graphics.", "org.inkscape.Inkscape"),
         ("Premiere", "Use Kdenlive or install DaVinci Resolve from Creator tools.", "org.kde.kdenlive"),
         ("After Effects", "Use Kdenlive or Blender's compositor for motion graphics.", "org.kde.kdenlive"),
         # Gaming
+        ("Game Pass / Xbox app", "Use Xbox Cloud Gaming in the browser. Local PC Game Pass installs still need Windows.", "com.brave.Browser"),
         ("Battle.net", "Use Lutris for Battle.net and Blizzard games.", "net.lutris.Lutris"),
         ("Epic Games", "Use Heroic Games Launcher for Epic, GOG, and Amazon libraries.", "com.heroicgameslauncher.hgl"),
         ("Vortex / MO2", "Use SteamTinkerLaunch per game, or Bottles for standalone mod tools.", ""),
@@ -275,8 +278,11 @@ class SoftwarePage(Page):
         ("VLC", "Install VLC from Flatpak — plays everything.", "org.videolan.VLC"),
         ("iTunes", "Use Spotify or a local music player like Lollypop or Elisa.", "com.spotify.Client"),
         # Hardware / peripherals
-        ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported.", "org.freedesktop.Piper"),
-        ("iCUE / Razer Synapse", "Use OpenRGB for unified RGB control across most brands.", ""),
+        ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported; some cloud profiles and onboard memory flows still need Windows.", "org.freedesktop.Piper"),
+        ("Corsair iCUE", "Use OpenRGB for lighting where supported. Advanced fan, macro, and ecosystem profiles may still need Windows.", ""),
+        ("Razer Synapse", "Use OpenRGB and OpenRazer-compatible tools where supported. Some device features remain vendor-only.", ""),
+        ("SteelSeries GG", "Use OpenRGB or per-device onboard profiles where supported. Sonar and cloud features remain Windows-first.", ""),
+        ("iCUE / Razer Synapse", "Use OpenRGB for unified RGB control across most brands, with vendor-tool gaps for advanced features.", ""),
         # Fonts & documents
         ("Microsoft fonts", "Run 'ujust install-ms-fonts' to install Times New Roman, Arial, and other core fonts for LibreOffice.", ""),
         ("LibreOffice", "LibreOffice is the drop-in Office suite. Install it from Flatpak if not already present.", "org.libreoffice.LibreOffice"),
@@ -608,9 +614,9 @@ class SoftwarePage(Page):
         layout.addWidget(title)
 
         rows = [
-            ("1. Flatpak", "Your new .exe — 99% of apps live here. Browse Flathub or use the Starter Packs below."),
+            ("1. Flatpak", "Your new .exe — most desktop apps live here. Browse Flathub or use the Starter Packs below."),
             ("2. Distrobox", "For anything not on Flatpak. Creates a container where you can dnf/apt install as normal."),
-            ("3. rpm-ostree", "System-level tools only (e.g. NVIDIA drivers). Requires a reboot and is rarely needed."),
+            ("3. rpm-ostree", "System-level tools only, such as drivers. Random downloaded .rpm files are rarely the right answer."),
         ]
         for label, desc in rows:
             row = QHBoxLayout()

@@ -8,7 +8,7 @@ from .qt import (  # noqa: E501
     QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QTimer,
 )
 from .widgets import (  # noqa: E501
-    Page, _set_log_panel,
+    Page, _make_card, _set_log_panel,
 )
 
 # ── Page: NVIDIA Drivers ──────────────────────────────────────────────────────
@@ -30,6 +30,20 @@ class NvidiaPage(Page):
         self._status_lbl = QLabel()
         self._status_lbl.setWordWrap(True)
         self._add(self._status_lbl)
+
+        reality_card, reality_layout = _make_card("card-accent-warn")
+        reality_title = QLabel("NVIDIA is supported, but it is the special path")
+        reality_title.setObjectName("card-title")
+        reality_layout.addWidget(reality_title)
+        reality_body = QLabel(
+            "KythOS is tuned hardest for AMD and Intel's in-kernel graphics stack. "
+            "NVIDIA uses the proprietary kernel module, so driver builds, Secure Boot "
+            "enrollment, and a reboot after kernel changes are normal parts of the flow."
+        )
+        reality_body.setObjectName("card-copy")
+        reality_body.setWordWrap(True)
+        reality_layout.addWidget(reality_body)
+        self._add(reality_card)
 
         btn_row = QHBoxLayout()
         self._install_btn = QPushButton("Build Driver Now")

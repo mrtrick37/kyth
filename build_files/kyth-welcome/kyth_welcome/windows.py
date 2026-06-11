@@ -3,7 +3,7 @@ import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _IS_LIVE, _cancel_worker, _command_stdout, _current_branch, _detect_nvidia, _finish_worker, _ge_proton_version, _is_flatpak_installed, _mark_wizard_done, _restyle,
+    Worker, _IS_LIVE, _cancel_worker, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _finish_worker, _ge_proton_version, _has_rollback_deployment, _is_flatpak_installed, _mark_wizard_done, _restyle,
 )
 from .page_branches import (  # noqa: E501
     BranchesPage,
@@ -12,7 +12,7 @@ from .page_cloud_storage import (  # noqa: E501
     CloudStoragePage,
 )
 from .page_compatibility import (  # noqa: E501
-    CompatibilityPage,
+    CompatibilityPage, _COMPAT_GAMES,
 )
 from .page_controllers import (  # noqa: E501
     ControllerPage,
@@ -315,16 +315,16 @@ class MainWindow(QMainWindow):
     # for what they knew the task as on Windows.
     _SEARCH_ALIASES: dict[str, list[str]] = {
         "Welcome": ["Home", "Control Panel"],
-        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Battle.net"],
         "Performance": ["Performance", "Task Manager"],
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
         "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
-        "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program"],
+        "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
         "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "KDE Connect"],
         "Update": ["Check for updates", "Windows Update", "Updates"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
         "Diagnostics": ["Health report", "System information", "Diagnostics"],
-        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback"],
+        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell"],
         "VPN": ["VPN", "VPN settings"],
         "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
         "Cloud Storage": ["Cloud storage", "OneDrive", "Google Drive", "Dropbox"],
@@ -595,6 +595,50 @@ class WizardWindow(QMainWindow):
         layout.addWidget(page, 1)
         return container
 
+    def _blocked_game_summary(self, limit: int = 5) -> str:
+        blocked = [game for game in _COMPAT_GAMES if game.status == "blocked"]
+        if not blocked:
+            return ""
+        names = [game.name for game in blocked[:limit]]
+        summary = ", ".join(names)
+        if len(blocked) > limit:
+            summary += f", and {len(blocked) - limit} more"
+        return summary
+
+    def _make_switch_preflight_card(self) -> QFrame | None:
+        rows: list[str] = []
+        blocked_summary = self._blocked_game_summary()
+        if blocked_summary:
+            rows.append(
+                "Known hard blockers: "
+                f"{blocked_summary}. These are publisher anti-cheat decisions, not Proton settings."
+            )
+        if not _IS_LIVE and _find_ntfs_drives():
+            rows.append(
+                "Windows game drive detected. Copy Steam libraries to a Linux-formatted disk before using Proton."
+            )
+        if _detect_nvidia():
+            rows.append(
+                "NVIDIA GPU detected. The driver page will verify the proprietary module and reboot state."
+            )
+        if _has_rollback_deployment():
+            rows.append(
+                "Rollback is available. If an update makes games worse, return to the previous image first."
+            )
+        if not rows:
+            return None
+
+        card, layout = _make_card("card-accent-warn")
+        title = QLabel("Check these before moving your library")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        for text in rows:
+            row = QLabel("- " + text)
+            row.setObjectName("card-copy")
+            row.setWordWrap(True)
+            layout.addWidget(row)
+        return card
+
     def _make_welcome_step(self) -> QWidget:
         page = QWidget()
         page.setObjectName("content-area")
@@ -620,15 +664,18 @@ class WizardWindow(QMainWindow):
         hero_layout.addSpacing(8)
 
         desc = QLabel(
-            "KythOS runs your Steam library, Epic games, and GOG titles through Proton — "
-            "with no extra setup required. "
-            "Xbox and PlayStation controllers connect automatically. "
-            "It uses Fedora's smooth default kernel, with a CachyOS kernel image "
-            "available for advanced users."
+            "KythOS runs many Steam, Epic, and GOG games through Proton, then checks "
+            "the traps Windows players usually hit first: anti-cheat blockers, "
+            "Windows-formatted game drives, drivers, and rollback. Xbox and "
+            "PlayStation controllers connect automatically."
         )
         desc.setObjectName("wizard-desc")
         desc.setWordWrap(True)
         hero_layout.addWidget(desc)
+
+        preflight_card = self._make_switch_preflight_card()
+        if preflight_card is not None:
+            hero_layout.addWidget(preflight_card)
 
         outer.addWidget(hero, 1)
         outer.addWidget(_divider())
@@ -713,6 +760,48 @@ class WizardWindow(QMainWindow):
         core_layout.addWidget(core_copy)
         layout.addWidget(core_card)
 
+        prep_row = QHBoxLayout()
+        prep_row.setSpacing(12)
+
+        install_model, install_model_layout = _make_card("card-accent-ok")
+        install_model_title = QLabel("Install apps the KythOS way")
+        install_model_title.setObjectName("card-title")
+        install_model_layout.addWidget(install_model_title)
+        install_model_copy = QLabel(
+            "Use App Store or Flathub first. Standalone Windows .exe and .msi installers "
+            "belong in Bottles, while downloaded .rpm packages are system packages for "
+            "mutable Fedora-style installs and are usually the wrong path on KythOS."
+        )
+        install_model_copy.setObjectName("card-copy")
+        install_model_copy.setWordWrap(True)
+        install_model_layout.addWidget(install_model_copy)
+        install_model_btns = QHBoxLayout()
+        install_model_btns.setSpacing(8)
+        flathub_btn = QPushButton("Browse Flathub")
+        flathub_btn.clicked.connect(
+            lambda _=False: QDesktopServices.openUrl(QUrl("https://flathub.org"))
+        )
+        install_model_btns.addWidget(flathub_btn)
+        install_model_btns.addStretch()
+        install_model_layout.addLayout(install_model_btns)
+        prep_row.addWidget(install_model, 1)
+
+        gaps_card, gaps_layout = _make_card()
+        gaps_title = QLabel("Check daily-driver gaps now")
+        gaps_title.setObjectName("card-title")
+        gaps_layout.addWidget(gaps_title)
+        gaps_copy = QLabel(
+            "Game Pass is browser/cloud-first here, Microsoft 365 and OneDrive use web "
+            "or cloud helpers, Adobe apps need native alternatives, and iCUE, G HUB, "
+            "Synapse, and SteelSeries GG become OpenRGB, Piper, or vendor-limited "
+            "workflows depending on the device."
+        )
+        gaps_copy.setObjectName("card-copy")
+        gaps_copy.setWordWrap(True)
+        gaps_layout.addWidget(gaps_copy)
+        prep_row.addWidget(gaps_card, 1)
+        layout.addLayout(prep_row)
+
         self._wizard_extra_apps = [
             ("com.valvesoftware.Steam",      "Steam",         "Valve's game store and Proton launcher for your Steam library."),
             ("com.discordapp.Discord",       "Discord",       "Voice, text, and community chat — used by almost every gaming community."),
@@ -721,6 +810,7 @@ class WizardWindow(QMainWindow):
             ("org.videolan.VLC",             "VLC",           "Plays virtually every video and audio format without extra codecs."),
             ("org.libreoffice.LibreOffice",  "LibreOffice",   "Open Word, Excel, and PowerPoint files — full office suite."),
             ("com.github.mtkennerly.ludusavi","Ludusavi",      "Back up and restore game saves before migration or modding."),
+            ("org.freedesktop.Piper",         "Piper",         "Configure supported gaming mice for DPI, buttons, and LEDs."),
             ("com.moonlight_stream.Moonlight","Moonlight",     "Stream games from another PC or NVIDIA Shield on your network."),
         ]
 
@@ -936,6 +1026,29 @@ class WizardWindow(QMainWindow):
         _restyle(self._wizard_install_status)
         self._update_nav()
 
+    def _make_windows_game_drive_card(self, drives: list[dict]) -> QFrame:
+        card, layout = _make_card("card-accent-warn")
+        title = QLabel("Windows game drive found")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        names = []
+        for drive in drives[:3]:
+            label = drive.get("label") or drive.get("name") or drive.get("dev") or "Windows drive"
+            size = drive.get("size") or ""
+            names.append(f"{label} {size}".strip())
+        listed = ", ".join(names)
+        if len(drives) > 3:
+            listed += f", and {len(drives) - 3} more"
+        body = QLabel(
+            f"Detected: {listed}. Do not point Steam at the NTFS library and start playing. "
+            "Copy the library into Steam on a Linux-formatted disk first, then let Proton "
+            "build clean prefixes there. The migration tool below mounts Windows read-only."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        return card
+
     def _make_gaming_step(self) -> QWidget:
         container = QWidget()
         container.setObjectName("content-area")
@@ -967,6 +1080,10 @@ class WizardWindow(QMainWindow):
         ps_layout = QVBoxLayout(proton_section)
         ps_layout.setContentsMargins(56, 20, 56, 0)
         ps_layout.setSpacing(10)
+
+        windows_drives = [] if _IS_LIVE else _find_ntfs_drives()
+        if windows_drives:
+            ps_layout.addWidget(self._make_windows_game_drive_card(windows_drives))
 
         proton_head = QLabel("Enable Proton — play your entire Windows library")
         proton_head.setObjectName("heading")
@@ -1009,13 +1126,29 @@ class WizardWindow(QMainWindow):
 
         compat_card, cc_layout = _make_card()
         cc_layout.setSpacing(6)
-        compat_lbl = QLabel("Not sure if your games work on Linux?")
+        compat_lbl = QLabel("Check your must-play games now — before you commit an evening to one")
         compat_lbl.setObjectName("card-copy")
         compat_lbl.setStyleSheet("font-weight: 600; color: #ffffff;")
+        cc_layout.addWidget(compat_lbl)
+        # Front-load the hard wall: kernel-level anti-cheat is the #1 reason
+        # Windows switchers give up, and no Proton setting will ever fix it.
+        # Showing the blocked titles here beats discovering them the hard way.
+        blocked = [game for game in _COMPAT_GAMES if game.status == "blocked"]
+        if blocked:
+            blocked_names = "  ·  ".join(
+                f"{game.name} ({game.anticheat})" for game in blocked
+            )
+            blocked_lbl = QLabel(
+                f"Will NOT run — blocked by kernel-level anti-cheat on every Linux system: {blocked_names}."
+            )
+            blocked_lbl.setObjectName("card-copy")
+            blocked_lbl.setWordWrap(True)
+            blocked_lbl.setStyleSheet("color: #f48771;")
+            cc_layout.addWidget(blocked_lbl)
         compat_sub = QLabel(
-            "The Compatibility page in the System Hub lists which titles work out of the box, "
-            "which need a tweak, and which are blocked by kernel-level anti-cheat. "
-            "You can also look up any game on ProtonDB."
+            "The rest of the tracked list is marked native, works through Proton, or needs "
+            "specific tweaks. The Compatibility page in the System Hub keeps the full list "
+            "current, and ProtonDB has reports for nearly every Steam title."
         )
         compat_sub.setObjectName("card-copy")
         compat_sub.setWordWrap(True)
@@ -1025,7 +1158,6 @@ class WizardWindow(QMainWindow):
         compat_btn.clicked.connect(
             lambda: QDesktopServices.openUrl(QUrl("https://www.protondb.com"))
         )
-        cc_layout.addWidget(compat_lbl)
         cc_layout.addWidget(compat_sub)
         cc_layout.addWidget(compat_btn)
         cs_layout.addWidget(compat_card, 1)
@@ -1060,7 +1192,8 @@ class WizardWindow(QMainWindow):
         subtitle = QLabel(
             "Open Steam, go to Settings → Compatibility, and enable Proton for all titles.\n"
             "Your full Windows library will appear and be ready to install.\n\n"
-            "The System Hub is always available from the app menu when you need it."
+            "If an update makes games worse, open System Hub → Update and use Roll Back "
+            "before reinstalling anything. The System Hub is always available from the app menu."
         )
         subtitle.setObjectName("finish-subtitle")
         subtitle.setWordWrap(True)

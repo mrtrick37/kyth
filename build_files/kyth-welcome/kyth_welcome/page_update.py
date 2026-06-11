@@ -125,6 +125,25 @@ class UpdatePage(Page):
         self._avail_card = avail_card
         self._add(self._avail_card)
 
+        rollback_help, rollback_help_layout = _make_card("card-accent-warn")
+        rollback_help_title = QLabel("Bad update? Roll back before reinstalling")
+        rollback_help_title.setObjectName("card-title")
+        rollback_help_layout.addWidget(rollback_help_title)
+        self._rollback_help_lbl = QLabel()
+        self._rollback_help_lbl.setObjectName("card-copy")
+        self._rollback_help_lbl.setWordWrap(True)
+        rollback_help_layout.addWidget(self._rollback_help_lbl)
+        rollback_help_btns = QHBoxLayout()
+        rollback_help_btns.setSpacing(8)
+        self._quick_rollback_btn = QPushButton("Roll Back to Previous Image")
+        self._quick_rollback_btn.setObjectName("primary")
+        self._quick_rollback_btn.setToolTip("Stage the previous deployment for the next boot. Your home folder stays in place.")
+        self._quick_rollback_btn.clicked.connect(self._run_rollback)
+        rollback_help_btns.addWidget(self._quick_rollback_btn)
+        rollback_help_btns.addStretch()
+        rollback_help_layout.addLayout(rollback_help_btns)
+        self._add(rollback_help)
+
         # Action buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
@@ -419,6 +438,7 @@ class UpdatePage(Page):
         self._os_btn.setEnabled(enabled)
         rollback_ok = enabled and _has_rollback_deployment()
         self._rollback_btn.setEnabled(rollback_ok)
+        self._quick_rollback_btn.setEnabled(rollback_ok)
         # Branch buttons: disable everything during any operation;
         # _refresh_summary re-enables the non-current one when done.
         if not enabled:
@@ -767,6 +787,10 @@ class UpdatePage(Page):
             self._rollback_val.setText("—")
             self._rollback_btn.setEnabled(False)
             self._rollback_btn.setText("Roll Back")
+            self._quick_rollback_btn.setEnabled(False)
+            self._rollback_help_lbl.setText(
+                "An update operation is running. Let it finish before changing rollback state."
+            )
             self._reboot_plan_lbl.setText("An update operation is running. The reboot plan will update when staging finishes.")
             self._reboot_plan_btn.hide()
             return
@@ -791,12 +815,23 @@ class UpdatePage(Page):
             self._rollback_val.setText(rb_text)
             self._rollback_val.setStyleSheet("")
             self._rollback_btn.setText(f"Roll Back  ({rollback_ts})" if rollback_ts else "Roll Back")
+            self._rollback_help_lbl.setText(
+                "If a driver, Mesa, game launcher, or desktop update suddenly feels worse, "
+                "roll back first. This stages the previous OS image for the next boot and "
+                "keeps your files, saves, Flatpaks, and home folder in place."
+                + (f"\n\nPrevious image built: {rollback_ts}" if rollback_ts else "")
+            )
         else:
             self._rollback_val.setText("None")
             self._rollback_val.setStyleSheet("color: #888888;")
             self._rollback_btn.setText("Roll Back")
+            self._rollback_help_lbl.setText(
+                "No previous OS image is available yet. After your next OS update, KythOS "
+                "will keep the current image here as a one-click recovery target."
+            )
 
         self._rollback_btn.setEnabled(rollback and self._worker is None)
+        self._quick_rollback_btn.setEnabled(rollback and self._worker is None)
 
         digest = _bootc_image_digest("booted")
         digest_hint = f" Running digest: {digest[0]}." if digest else ""
