@@ -479,6 +479,348 @@ def _configure_dynamic_lock_service(enabled: bool) -> tuple[bool, str]:
     return True, "Dynamic Lock is on." if enabled else "Dynamic Lock is off."
 
 
+# ── Windows drive extras: wallpaper, fonts, game saves, notes, RDP ───────────
+# Everything here reads from the mounted Windows partitions found by
+# _probe_windows_partitions and never writes to them.
+
+_FONT_EXTS = (".ttf", ".ttc", ".otf")
+
+# AppData top-level folders that are launcher caches, browser profiles, or OS
+# plumbing — never game saves. Lowercased exact matches.
+_APPDATA_SKIP = {
+    "adobe", "amd", "battle.net", "blizzard entertainment", "brave",
+    "bravesoftware", "cache", "comms", "connecteddevicesplatform",
+    "crashdumps", "d3dscache", "discord", "dropbox", "epicgameslauncher",
+    "google", "gog.com", "intel", "microsoft", "mozilla", "ngc", "nvidia",
+    "nvidia corporation", "onedrive", "opera software", "packages",
+    "peernetworking", "programs", "publishers", "slack", "spotify",
+    "squirreltemp", "steam", "temp", "ubisoft game launcher", "unity",
+    "vivaldi", "zoom",
+}
+_SAVE_DIR_RE = re.compile(r"^(saves?|savegames?|savedata|saved games|save files)$", re.I)
+_SAVE_FILE_RE = re.compile(r"\.(sav|save|sl2|sl3|ess|fos|rpgsave)$", re.I)
+
+
+def _dir_contains_saves(root: str, max_entries: int = 1000, max_depth: int = 5) -> bool:
+    """Bounded look for save-shaped content under root — a dir named like
+    'Saves' or files with well-known save extensions."""
+    stack = [(root, 0)]
+    seen = 0
+    while stack:
+        path, depth = stack.pop()
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    seen += 1
+                    if seen > max_entries:
+                        return False
+                    if entry.is_dir(follow_symlinks=False):
+                        if _SAVE_DIR_RE.match(entry.name):
+                            return True
+                        if depth + 1 < max_depth:
+                            stack.append((entry.path, depth + 1))
+                    elif _SAVE_FILE_RE.search(entry.name):
+                        return True
+        except OSError:
+            continue
+    return False
+
+
+def _scan_profile_game_saves(profile: dict) -> list[dict]:
+    hits: list[dict] = []
+    base = profile["path"]
+    user = profile["name"]
+    # Dedicated save roots: every subfolder is game data by definition.
+    for rel in ("Documents/My Games", "Saved Games"):
+        root = os.path.join(base, rel)
+        try:
+            entries = sorted(os.scandir(root), key=lambda e: e.name.lower())
+        except OSError:
+            continue
+        for entry in entries:
+            if entry.is_dir(follow_symlinks=False):
+                hits.append({
+                    "user": user, "src": entry.path,
+                    "label": os.path.join(os.path.basename(rel), entry.name),
+                })
+    # AppData: only folders that actually look like they hold saves.
+    for rel in ("AppData/Local", "AppData/LocalLow", "AppData/Roaming"):
+        root = os.path.join(base, rel)
+        try:
+            entries = sorted(os.scandir(root), key=lambda e: e.name.lower())
+        except OSError:
+            continue
+        for entry in entries:
+            if not entry.is_dir(follow_symlinks=False):
+                continue
+            if entry.name.lower() in _APPDATA_SKIP:
+                continue
+            if _dir_contains_saves(entry.path):
+                hits.append({
+                    "user": user, "src": entry.path,
+                    "label": os.path.join(os.path.basename(rel), entry.name),
+                })
+    return hits
+
+
+def _best_profile_wallpaper(profile_path: str) -> str:
+    """Highest-resolution wallpaper file Windows cached for this profile."""
+    themes = os.path.join(
+        profile_path, "AppData", "Roaming", "Microsoft", "Windows", "Themes")
+    candidates = glob.glob(os.path.join(themes, "CachedFiles", "*"))
+    transcoded = os.path.join(themes, "TranscodedWallpaper")
+    if os.path.isfile(transcoded):
+        candidates.append(transcoded)
+    best, best_size = "", 0
+    for path in candidates:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            continue
+        if size > best_size:
+            best, best_size = path, size
+    return best
+
+
+def _image_extension(path: str) -> str:
+    """TranscodedWallpaper has no extension; sniff the magic bytes."""
+    try:
+        with open(path, "rb") as fh:
+            head = fh.read(8)
+    except OSError:
+        return ".jpg"
+    if head.startswith(b"\x89PNG"):
+        return ".png"
+    if head.startswith(b"BM"):
+        return ".bmp"
+    return ".jpg"
+
+
+def _read_sticky_notes(profile_path: str) -> list[str]:
+    """Read note texts from the Sticky Notes app database (plum.sqlite).
+
+    The database is copied to a temp dir first so sqlite's WAL replay never
+    touches the (possibly read-only) Windows drive."""
+    src_dir = os.path.join(
+        profile_path, "AppData", "Local", "Packages",
+        "Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe", "LocalState")
+    db = os.path.join(src_dir, "plum.sqlite")
+    if not os.path.isfile(db):
+        return []
+    notes: list[str] = []
+    try:
+        with tempfile.TemporaryDirectory(prefix="kyth-sticky-") as tmp:
+            for suffix in ("", "-wal", "-shm"):
+                src = db + suffix
+                if os.path.isfile(src):
+                    shutil.copy2(src, os.path.join(tmp, "plum.sqlite" + suffix))
+            conn = sqlite3.connect(os.path.join(tmp, "plum.sqlite"))
+            try:
+                rows = conn.execute("SELECT Text FROM Note").fetchall()
+            finally:
+                conn.close()
+        for (text,) in rows:
+            if not text:
+                continue
+            # Sticky Notes embeds per-paragraph "\id=<guid>" markers.
+            clean = re.sub(r"\\id=[0-9a-fA-F-]{36}\s?", "", str(text)).strip()
+            if clean:
+                notes.append(clean)
+    except Exception:
+        return []
+    return notes
+
+
+def _parse_rdp_file(path: str) -> dict | None:
+    """Pull host and username out of a Windows .rdp file (usually UTF-16)."""
+    try:
+        with open(path, "rb") as fh:
+            raw = fh.read(65536)
+    except OSError:
+        return None
+    if raw.startswith(b"\xff\xfe"):
+        text = raw.decode("utf-16", errors="replace")
+    else:
+        text = raw.decode("utf-8", errors="replace")
+    host = username = ""
+    for line in text.splitlines():
+        if line.lower().startswith("full address:s:"):
+            host = line.split(":s:", 1)[1].strip()
+        elif line.lower().startswith("username:s:"):
+            username = line.split(":s:", 1)[1].strip()
+    if not host:
+        return None
+    return {
+        "name": os.path.splitext(os.path.basename(path))[0],
+        "host": host,
+        "username": username,
+        "path": path,
+    }
+
+
+def _scan_windows_extras(partitions: list) -> dict:
+    """One worker-thread pass over the mounted Windows partitions for the
+    wallpaper / fonts / game-saves / sticky-notes / RDP cards."""
+    wallpapers: list[dict] = []
+    saves: list[dict] = []
+    sticky: list[dict] = []
+    rdp: list[dict] = []
+    font_dirs: list[str] = []
+    font_count = 0
+    font_bytes = 0
+
+    def _count_fonts(path: str) -> tuple[int, int]:
+        count = size = 0
+        try:
+            with os.scandir(path) as it:
+                for entry in it:
+                    if entry.is_file() and entry.name.lower().endswith(_FONT_EXTS):
+                        count += 1
+                        try:
+                            size += entry.stat().st_size
+                        except OSError:
+                            pass
+        except OSError:
+            pass
+        return count, size
+
+    for part in partitions:
+        mount = part.get("mountpoint") or ""
+        if mount:
+            count, size = _count_fonts(os.path.join(mount, "Windows", "Fonts"))
+            if count:
+                font_dirs.append(os.path.join(mount, "Windows", "Fonts"))
+                font_count += count
+                font_bytes += size
+            # Ubisoft Connect keeps saves outside the user profile.
+            ubi = os.path.join(
+                mount, "Program Files (x86)", "Ubisoft",
+                "Ubisoft Game Launcher", "savegames")
+            if os.path.isdir(ubi):
+                saves.append({"user": "", "src": ubi, "label": "Ubisoft savegames"})
+        for prof in part.get("user_profiles") or []:
+            user = prof["name"]
+            wp = _best_profile_wallpaper(prof["path"])
+            if wp:
+                wallpapers.append({"user": user, "path": wp})
+            user_fonts = os.path.join(
+                prof["path"], "AppData", "Local", "Microsoft", "Windows", "Fonts")
+            count, size = _count_fonts(user_fonts)
+            if count:
+                font_dirs.append(user_fonts)
+                font_count += count
+                font_bytes += size
+            saves.extend(_scan_profile_game_saves(prof))
+            notes = _read_sticky_notes(prof["path"])
+            if notes:
+                sticky.append({"user": user, "notes": notes})
+            for pattern in ("Desktop/*.rdp", "Desktop/*/*.rdp",
+                            "Documents/*.rdp", "Documents/*/*.rdp",
+                            "Downloads/*.rdp"):
+                for path in glob.glob(os.path.join(prof["path"], pattern)):
+                    parsed = _parse_rdp_file(path)
+                    if parsed:
+                        parsed["user"] = user
+                        rdp.append(parsed)
+    return {
+        "wallpapers": wallpapers,
+        "fonts": {"dirs": font_dirs, "count": font_count, "bytes": font_bytes},
+        "saves": saves,
+        "sticky": sticky,
+        "rdp": rdp,
+    }
+
+
+def _copy_windows_fonts(font_dirs: list[str]) -> tuple[int, int]:
+    """Copy font files into the user font dir; returns (copied, skipped)."""
+    dest = os.path.expanduser("~/.local/share/fonts/windows-carryover")
+    os.makedirs(dest, exist_ok=True)
+    copied = skipped = 0
+    for font_dir in font_dirs:
+        try:
+            entries = list(os.scandir(font_dir))
+        except OSError:
+            continue
+        for entry in entries:
+            if not (entry.is_file() and entry.name.lower().endswith(_FONT_EXTS)):
+                continue
+            target = os.path.join(dest, entry.name)
+            if os.path.exists(target):
+                skipped += 1
+                continue
+            try:
+                shutil.copy2(entry.path, target)
+                copied += 1
+            except OSError:
+                skipped += 1
+    subprocess.run(["fc-cache", "-f", dest], capture_output=True, timeout=120)
+    return copied, skipped
+
+
+def _copy_game_saves(saves: list[dict]) -> tuple[int, int, str]:
+    """Copy rescued save folders under ~/Documents; returns (ok, failed, dest)."""
+    base = os.path.join(_windows_folder_dest("Documents"), "Rescued Windows Saves")
+    ok = failed = 0
+    for item in saves:
+        sub = os.path.join(item["user"], item["label"]) if item["user"] else item["label"]
+        target = os.path.join(base, sub)
+        try:
+            shutil.copytree(item["src"], target, dirs_exist_ok=True)
+            ok += 1
+        except Exception:
+            failed += 1
+    return ok, failed, base
+
+
+def _export_sticky_notes(sticky: list[dict]) -> tuple[int, str]:
+    """Write each note as a text file; returns (count, folder)."""
+    base = os.path.join(_windows_folder_dest("Documents"), "Sticky Notes")
+    count = 0
+    for source in sticky:
+        folder = os.path.join(base, source["user"]) if len(sticky) > 1 else base
+        os.makedirs(folder, exist_ok=True)
+        for idx, text in enumerate(source["notes"], start=1):
+            first_line = text.splitlines()[0][:40].strip() or "Note"
+            safe = re.sub(r'[<>:"/\\|?*\n]', "", first_line)
+            path = os.path.join(folder, f"{idx:02d} — {safe}.txt")
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(text + "\n")
+                count += 1
+            except OSError:
+                pass
+    return count, base
+
+
+def _import_rdp_bookmarks(connections: list[dict]) -> tuple[int, int]:
+    """Add rdp:// bookmarks to KRDC's bookmarks.xbel; returns (added, dupes)."""
+    import xml.etree.ElementTree as ET
+    path = os.path.expanduser("~/.local/share/krdc/bookmarks.xbel")
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if os.path.isfile(path):
+        tree = ET.parse(path)
+        root = tree.getroot()
+    else:
+        root = ET.Element("xbel", {"folded": "no"})
+        tree = ET.ElementTree(root)
+    existing = {bm.get("href") for bm in root.iter("bookmark")}
+    added = dupes = 0
+    for conn in connections:
+        user_part = f"{conn['username']}@" if conn["username"] else ""
+        href = f"rdp://{user_part}{conn['host']}"
+        if href in existing:
+            dupes += 1
+            continue
+        bm = ET.SubElement(root, "bookmark", {"href": href})
+        title = ET.SubElement(bm, "title")
+        title.text = conn["name"]
+        existing.add(href)
+        added += 1
+    if added:
+        tree.write(path, encoding="UTF-8", xml_declaration=True)
+    return added, dupes
+
+
 # ── Page: Move From Windows ──────────────────────────────────────────────────
 class WindowsMigrationPage(Page):
     def __init__(self, navigate=None):
@@ -495,6 +837,11 @@ class WindowsMigrationPage(Page):
         self._bm_sources: list[dict] = []
         self._bm_dest = ""
         self._hw_worker: DataWorker | None = None
+        self._extras: dict = {}
+        self._extras_worker: DataWorker | None = None
+        self._fonts_copy_worker: DataWorker | None = None
+        self._saves_copy_worker: DataWorker | None = None
+        self._wsl_worker: Worker | None = None
         self._phone_worker: DataWorker | None = None
         self._phone_action_worker: DataWorker | None = None
         self._dynamic_lock_worker: DataWorker | None = None
@@ -1004,6 +1351,166 @@ class WindowsMigrationPage(Page):
         bm_layout.addLayout(bm_btns)
         self._add(bm_card)
 
+        # ── Windows wallpaper ─────────────────────────────────────────────────
+        wp_card, wp_layout = _make_card()
+        wp_title = QLabel("Keep your Windows wallpaper")
+        wp_title.setObjectName("card-title")
+        wp_layout.addWidget(wp_title)
+        wp_body = QLabel(
+            "Your desktop background comes straight off the Windows drive and is saved "
+            "into Pictures — one click and the desktop feels like home."
+        )
+        wp_body.setObjectName("card-copy")
+        wp_body.setWordWrap(True)
+        wp_layout.addWidget(wp_body)
+        self._wp_status = QLabel("Scan drives above — wallpapers are found automatically.")
+        self._wp_status.setObjectName("card-copy")
+        self._wp_status.setWordWrap(True)
+        wp_layout.addWidget(self._wp_status)
+        self._wp_combo = QComboBox()
+        self._wp_combo.hide()
+        wp_layout.addWidget(self._wp_combo)
+        wp_btns = QHBoxLayout()
+        wp_btns.setSpacing(8)
+        self._wp_apply_btn = QPushButton("Use This Wallpaper")
+        self._wp_apply_btn.setObjectName("primary")
+        self._wp_apply_btn.hide()
+        self._wp_apply_btn.clicked.connect(self._apply_windows_wallpaper)
+        wp_btns.addWidget(self._wp_apply_btn)
+        wp_btns.addStretch()
+        wp_layout.addLayout(wp_btns)
+        self._add(wp_card)
+
+        # ── Windows fonts ─────────────────────────────────────────────────────
+        fonts_card, fonts_layout = _make_card()
+        fonts_title = QLabel("Bring your Windows fonts")
+        fonts_title.setObjectName("card-title")
+        fonts_layout.addWidget(fonts_title)
+        fonts_body = QLabel(
+            "Modern documents use Segoe UI, Calibri, and Cambria — fonts the downloadable "
+            "core-fonts set doesn't include. Copying your own fonts from the Windows install "
+            "on this PC makes documents render identically here."
+        )
+        fonts_body.setObjectName("card-copy")
+        fonts_body.setWordWrap(True)
+        fonts_layout.addWidget(fonts_body)
+        self._fonts_status = QLabel("Scan drives above — Windows font folders are found automatically.")
+        self._fonts_status.setObjectName("card-copy")
+        self._fonts_status.setWordWrap(True)
+        fonts_layout.addWidget(self._fonts_status)
+        fonts_btns = QHBoxLayout()
+        fonts_btns.setSpacing(8)
+        self._fonts_btn = QPushButton("Copy Windows Fonts")
+        self._fonts_btn.setObjectName("primary")
+        self._fonts_btn.hide()
+        self._fonts_btn.clicked.connect(self._copy_fonts_clicked)
+        fonts_btns.addWidget(self._fonts_btn)
+        fonts_btns.addStretch()
+        fonts_layout.addLayout(fonts_btns)
+        self._add(fonts_card)
+
+        # ── Game saves rescue ─────────────────────────────────────────────────
+        saves_card, saves_layout = _make_card()
+        saves_title = QLabel("Rescue game saves from the Windows drive")
+        saves_title.setObjectName("card-title")
+        saves_layout.addWidget(saves_title)
+        saves_body = QLabel(
+            "Saves hide in My Games, Saved Games, AppData, and Ubisoft's launcher folder. "
+            "This finds them and copies everything into Documents → Rescued Windows Saves, "
+            "so nothing is lost when the Windows drive goes away. Ludusavi can help place "
+            "them into each game's new home."
+        )
+        saves_body.setObjectName("card-copy")
+        saves_body.setWordWrap(True)
+        saves_layout.addWidget(saves_body)
+        self._saves_status = QLabel("Scan drives above — save locations are found automatically.")
+        self._saves_status.setObjectName("card-copy")
+        self._saves_status.setWordWrap(True)
+        saves_layout.addWidget(self._saves_status)
+        self._saves_rows = QVBoxLayout()
+        self._saves_rows.setSpacing(4)
+        saves_layout.addLayout(self._saves_rows)
+        saves_btns = QHBoxLayout()
+        saves_btns.setSpacing(8)
+        self._saves_btn = QPushButton("Copy All Found Saves")
+        self._saves_btn.setObjectName("primary")
+        self._saves_btn.hide()
+        self._saves_btn.clicked.connect(self._copy_saves_clicked)
+        saves_btns.addWidget(self._saves_btn)
+        self._saves_show_btn = QPushButton("Show Folder")
+        self._saves_show_btn.hide()
+        self._saves_show_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(
+            QUrl.fromLocalFile(os.path.join(_windows_folder_dest("Documents"), "Rescued Windows Saves"))))
+        saves_btns.addWidget(self._saves_show_btn)
+        saves_btns.addStretch()
+        saves_layout.addLayout(saves_btns)
+        self._add(saves_card)
+
+        # ── Sticky Notes ──────────────────────────────────────────────────────
+        sticky_card, sticky_layout = _make_card()
+        sticky_title = QLabel("Bring your Sticky Notes")
+        sticky_title.setObjectName("card-title")
+        sticky_layout.addWidget(sticky_title)
+        sticky_body = QLabel(
+            "Notes from the Windows Sticky Notes app are read from the drive and saved as "
+            "text files in Documents → Sticky Notes. For the same look here, right-click "
+            "the desktop → Add Widgets → Sticky Note, then paste a note in."
+        )
+        sticky_body.setObjectName("card-copy")
+        sticky_body.setWordWrap(True)
+        sticky_layout.addWidget(sticky_body)
+        self._sticky_status = QLabel("Scan drives above — Sticky Notes are found automatically.")
+        self._sticky_status.setObjectName("card-copy")
+        self._sticky_status.setWordWrap(True)
+        sticky_layout.addWidget(self._sticky_status)
+        sticky_btns = QHBoxLayout()
+        sticky_btns.setSpacing(8)
+        self._sticky_btn = QPushButton("Export Notes")
+        self._sticky_btn.setObjectName("primary")
+        self._sticky_btn.hide()
+        self._sticky_btn.clicked.connect(self._export_sticky_clicked)
+        sticky_btns.addWidget(self._sticky_btn)
+        self._sticky_show_btn = QPushButton("Show Folder")
+        self._sticky_show_btn.hide()
+        self._sticky_show_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(
+            QUrl.fromLocalFile(os.path.join(_windows_folder_dest("Documents"), "Sticky Notes"))))
+        sticky_btns.addWidget(self._sticky_show_btn)
+        sticky_btns.addStretch()
+        sticky_layout.addLayout(sticky_btns)
+        self._add(sticky_card)
+
+        # ── Remote Desktop connections ────────────────────────────────────────
+        rdp_card, rdp_layout = _make_card()
+        rdp_title = QLabel("Remote Desktop connections")
+        rdp_title.setObjectName("card-title")
+        rdp_layout.addWidget(rdp_title)
+        rdp_body = QLabel(
+            "Saved .rdp files from your Windows Desktop, Documents, and Downloads become "
+            "bookmarks in KRDC — the built-in Remote Desktop client (the mstsc equivalent)."
+        )
+        rdp_body.setObjectName("card-copy")
+        rdp_body.setWordWrap(True)
+        rdp_layout.addWidget(rdp_body)
+        self._rdp_status = QLabel("Scan drives above — saved connections are found automatically.")
+        self._rdp_status.setObjectName("card-copy")
+        self._rdp_status.setWordWrap(True)
+        rdp_layout.addWidget(self._rdp_status)
+        rdp_btns = QHBoxLayout()
+        rdp_btns.setSpacing(8)
+        self._rdp_btn = QPushButton("Add to KRDC")
+        self._rdp_btn.setObjectName("primary")
+        self._rdp_btn.hide()
+        self._rdp_btn.clicked.connect(self._import_rdp_clicked)
+        rdp_btns.addWidget(self._rdp_btn)
+        self._rdp_open_btn = QPushButton("Open KRDC")
+        self._rdp_open_btn.hide()
+        self._rdp_open_btn.clicked.connect(
+            lambda _=False: subprocess.Popen(["krdc"]) if shutil.which("krdc") else None)
+        rdp_btns.addWidget(self._rdp_open_btn)
+        rdp_btns.addStretch()
+        rdp_layout.addLayout(rdp_btns)
+        self._add(rdp_card)
+
         exe_card, exe_layout = _make_card()
         exe_title = QLabel("What about .exe installers?")
         exe_title.setObjectName("card-title")
@@ -1028,6 +1535,37 @@ class WindowsMigrationPage(Page):
         exe_btns.addStretch()
         exe_layout.addLayout(exe_btns)
         self._add(exe_card)
+
+        # ── WSL equivalent ────────────────────────────────────────────────────
+        wsl_card, wsl_layout = _make_card()
+        wsl_title = QLabel("Where's my WSL?")
+        wsl_title.setObjectName("card-title")
+        wsl_layout.addWidget(wsl_title)
+        wsl_body = QLabel(
+            "On Windows, WSL gave you a Linux environment inside your OS. Here the whole OS "
+            "is Linux — but the same workflow exists as Distrobox: full distros in containers "
+            "that share your home folder, with no VM overhead. One click creates an Ubuntu "
+            "environment; opening a terminal in it works just like typing wsl in PowerShell."
+        )
+        wsl_body.setObjectName("card-copy")
+        wsl_body.setWordWrap(True)
+        wsl_layout.addWidget(wsl_body)
+        self._wsl_status = QLabel("")
+        self._wsl_status.setObjectName("card-copy")
+        self._wsl_status.setWordWrap(True)
+        wsl_layout.addWidget(self._wsl_status)
+        wsl_btns = QHBoxLayout()
+        wsl_btns.setSpacing(8)
+        self._wsl_create_btn = QPushButton("Create Ubuntu Box")
+        self._wsl_create_btn.setObjectName("primary")
+        self._wsl_create_btn.clicked.connect(self._create_wsl_box)
+        wsl_btns.addWidget(self._wsl_create_btn)
+        self._wsl_open_btn = QPushButton("Open Ubuntu Terminal")
+        self._wsl_open_btn.clicked.connect(self._open_wsl_terminal)
+        wsl_btns.addWidget(self._wsl_open_btn)
+        wsl_btns.addStretch()
+        wsl_layout.addLayout(wsl_btns)
+        self._add(wsl_card)
 
         self._stretch()
 
@@ -1561,6 +2099,270 @@ class WindowsMigrationPage(Page):
         )
         self._bm_show_btn.show()
 
+    # ── Windows drive extras ──────────────────────────────────────────────────
+
+    def _start_extras_scan(self, partitions: list):
+        if self._extras_worker is not None and self._extras_worker.isRunning():
+            return
+        self._extras = {}
+        usable = [
+            part for part in partitions
+            if part.get("mountpoint") or part.get("user_profiles")
+        ]
+        if not usable:
+            no_drive = "No readable Windows drive — scan or unlock one above first."
+            for lbl in (self._wp_status, self._fonts_status, self._saves_status,
+                        self._sticky_status, self._rdp_status):
+                lbl.setText(no_drive)
+            for widget in (self._wp_combo, self._wp_apply_btn, self._fonts_btn,
+                           self._saves_btn, self._sticky_btn, self._rdp_btn):
+                widget.hide()
+            self._clear_layout(self._saves_rows)
+            return
+        for lbl in (self._wp_status, self._fonts_status, self._saves_status,
+                    self._sticky_status, self._rdp_status):
+            lbl.setText("Looking on the Windows drive…")
+        worker = DataWorker("win-extras", lambda: _scan_windows_extras(usable))
+        worker.result.connect(self._on_extras)
+        worker.failed.connect(
+            lambda _key, message: self._wp_status.setText(
+                f"Could not read the Windows drive: {message}"))
+        self._extras_worker = worker
+        _release_worker_when_finished(self, "_extras_worker", worker)
+        worker.start()
+
+    def _on_extras(self, _key: str, extras: dict):
+        self._extras = extras
+
+        wallpapers = extras.get("wallpapers") or []
+        self._wp_combo.clear()
+        if wallpapers:
+            for item in wallpapers:
+                self._wp_combo.addItem(f"Wallpaper of Windows user {item['user']}", item["path"])
+            self._wp_combo.setVisible(len(wallpapers) > 1)
+            self._wp_apply_btn.show()
+            self._wp_status.setText(
+                f"Found the desktop wallpaper for {len(wallpapers)} Windows "
+                f"user{'s' if len(wallpapers) != 1 else ''}."
+            )
+        else:
+            self._wp_combo.hide()
+            self._wp_apply_btn.hide()
+            self._wp_status.setText("No cached wallpaper found on the Windows drive.")
+
+        fonts = extras.get("fonts") or {}
+        if fonts.get("count"):
+            self._fonts_btn.show()
+            self._fonts_status.setText(
+                f"Found {fonts['count']} font files ({_human_bytes(fonts['bytes'])}) "
+                "in the Windows font folders."
+            )
+        else:
+            self._fonts_btn.hide()
+            self._fonts_status.setText("No font folders found on the Windows drive.")
+
+        saves = extras.get("saves") or []
+        self._clear_layout(self._saves_rows)
+        if saves:
+            for item in saves[:8]:
+                where = f"Windows user {item['user']}" if item["user"] else "Drive-level launcher folder"
+                self._saves_rows.addWidget(self._make_migration_row("ok", item["label"], where))
+            if len(saves) > 8:
+                self._saves_rows.addWidget(self._make_migration_row(
+                    "dim", f"+{len(saves) - 8} more", "All found locations are copied together."))
+            self._saves_btn.show()
+            self._saves_status.setText(
+                f"Found {len(saves)} likely save location{'s' if len(saves) != 1 else ''}:"
+            )
+        else:
+            self._saves_btn.hide()
+            self._saves_status.setText("No game save folders found on the Windows drive.")
+
+        sticky = extras.get("sticky") or []
+        total_notes = sum(len(src["notes"]) for src in sticky)
+        if total_notes:
+            self._sticky_btn.show()
+            users = ", ".join(src["user"] for src in sticky)
+            self._sticky_status.setText(
+                f"Found {total_notes} sticky note{'s' if total_notes != 1 else ''} "
+                f"from Windows user{'s' if len(sticky) != 1 else ''} {users}."
+            )
+        else:
+            self._sticky_btn.hide()
+            self._sticky_status.setText("No Sticky Notes found on the Windows drive.")
+
+        rdp = extras.get("rdp") or []
+        if rdp:
+            self._rdp_btn.show()
+            preview = ", ".join(f"{c['name']} ({c['host']})" for c in rdp[:4])
+            if len(rdp) > 4:
+                preview += f", +{len(rdp) - 4} more"
+            self._rdp_status.setText(
+                f"Found {len(rdp)} saved connection{'s' if len(rdp) != 1 else ''}: {preview}"
+            )
+        else:
+            self._rdp_btn.hide()
+            self._rdp_status.setText("No saved .rdp connection files found on the Windows drive.")
+
+    def _apply_windows_wallpaper(self):
+        src = self._wp_combo.currentData()
+        if not src:
+            wallpapers = self._extras.get("wallpapers") or []
+            src = wallpapers[0]["path"] if wallpapers else ""
+        if not src:
+            return
+        dest_dir = _windows_folder_dest("Pictures")
+        dest = os.path.join(dest_dir, "Windows Wallpaper" + _image_extension(src))
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.copy2(src, dest)
+        except OSError as exc:
+            self._wp_status.setText(f"Could not copy the wallpaper: {exc}")
+            return
+        home = os.path.expanduser("~")
+        shown = dest.replace(home, "~", 1)
+        if shutil.which("plasma-apply-wallpaperimage"):
+            result = _run_command(["plasma-apply-wallpaperimage", dest], timeout=30)
+            if result is not None and result.returncode == 0:
+                self._wp_status.setText(f"✓ Wallpaper applied — saved to {shown}.")
+                return
+        self._wp_status.setText(
+            f"✓ Saved to {shown}. Right-click the desktop → Configure Desktop and "
+            "Wallpaper to apply it."
+        )
+
+    def _copy_fonts_clicked(self):
+        if self._fonts_copy_worker is not None and self._fonts_copy_worker.isRunning():
+            return
+        dirs = list((self._extras.get("fonts") or {}).get("dirs") or [])
+        if not dirs:
+            return
+        self._fonts_btn.setEnabled(False)
+        self._fonts_status.setText("Copying fonts…")
+        worker = DataWorker("fonts-copy", lambda: _copy_windows_fonts(dirs))
+
+        def _done(_key: str, result: tuple):
+            copied, skipped = result
+            self._fonts_btn.setEnabled(True)
+            extra = f" ({skipped} already present)" if skipped else ""
+            self._fonts_status.setText(
+                f"✓ Installed {copied} fonts{extra}. Apps pick them up immediately; "
+                "documents now render with their original fonts."
+            )
+        worker.result.connect(_done)
+        worker.failed.connect(
+            lambda _key, message: (
+                self._fonts_btn.setEnabled(True),
+                self._fonts_status.setText(f"Could not copy fonts: {message}"),
+            ))
+        self._fonts_copy_worker = worker
+        _release_worker_when_finished(self, "_fonts_copy_worker", worker)
+        worker.start()
+
+    def _copy_saves_clicked(self):
+        if self._saves_copy_worker is not None and self._saves_copy_worker.isRunning():
+            return
+        saves = list(self._extras.get("saves") or [])
+        if not saves:
+            return
+        self._saves_btn.setEnabled(False)
+        self._saves_status.setText("Copying save folders…")
+        worker = DataWorker("saves-copy", lambda: _copy_game_saves(saves))
+
+        def _done(_key: str, result: tuple):
+            ok, failed, base = result
+            self._saves_btn.setEnabled(True)
+            home = os.path.expanduser("~")
+            text = f"✓ Copied {ok} save folder{'s' if ok != 1 else ''} to {base.replace(home, '~', 1)}."
+            if failed:
+                text += f" {failed} could not be read — if Windows wasn't fully shut down, boot it once and retry."
+            self._saves_status.setText(text)
+            self._saves_show_btn.show()
+        worker.result.connect(_done)
+        worker.failed.connect(
+            lambda _key, message: (
+                self._saves_btn.setEnabled(True),
+                self._saves_status.setText(f"Could not copy saves: {message}"),
+            ))
+        self._saves_copy_worker = worker
+        _release_worker_when_finished(self, "_saves_copy_worker", worker)
+        worker.start()
+
+    def _export_sticky_clicked(self):
+        sticky = self._extras.get("sticky") or []
+        if not sticky:
+            return
+        try:
+            count, base = _export_sticky_notes(sticky)
+        except OSError as exc:
+            self._sticky_status.setText(f"Could not export the notes: {exc}")
+            return
+        home = os.path.expanduser("~")
+        self._sticky_status.setText(
+            f"✓ Exported {count} note{'s' if count != 1 else ''} to {base.replace(home, '~', 1)}."
+        )
+        self._sticky_show_btn.show()
+
+    def _import_rdp_clicked(self):
+        rdp = self._extras.get("rdp") or []
+        if not rdp:
+            return
+        try:
+            added, dupes = _import_rdp_bookmarks(rdp)
+        except Exception as exc:
+            self._rdp_status.setText(f"Could not write the KRDC bookmarks: {exc}")
+            return
+        text = f"✓ Added {added} connection{'s' if added != 1 else ''} to KRDC bookmarks."
+        if dupes:
+            text += f" {dupes} already existed."
+        self._rdp_status.setText(text)
+        self._rdp_open_btn.show()
+
+    # ── WSL equivalent ────────────────────────────────────────────────────────
+
+    def _create_wsl_box(self):
+        if self._wsl_worker is not None and self._wsl_worker.isRunning():
+            return
+        self._wsl_create_btn.setEnabled(False)
+        self._wsl_status.setText(
+            "Creating the Ubuntu box — the first run downloads the image (a few hundred MB)…"
+        )
+        script = (
+            "set -e\n"
+            "command -v distrobox >/dev/null 2>&1 || { echo 'distrobox is not installed.'; exit 1; }\n"
+            "if distrobox list --no-color 2>/dev/null | awk -F'|' '{print $2}' | grep -qw ubuntu; then\n"
+            "    echo 'already exists'\n"
+            "    exit 0\n"
+            "fi\n"
+            "distrobox create --image ubuntu:24.04 --name ubuntu --yes\n"
+        )
+        worker = Worker(["bash", "-c", script])
+
+        def _done(code: int):
+            self._wsl_create_btn.setEnabled(True)
+            if code == 0:
+                self._wsl_status.setText(
+                    "✓ Ubuntu box ready. Open Ubuntu Terminal drops you at a bash prompt "
+                    "with apt available — your home folder is shared with KythOS."
+                )
+            else:
+                self._wsl_status.setText(
+                    "Could not create the Ubuntu box. Check the network connection and try again."
+                )
+        worker.done.connect(_done)
+        self._wsl_worker = worker
+        _release_worker_when_finished(self, "_wsl_worker", worker)
+        worker.start()
+
+    def _open_wsl_terminal(self):
+        if not shutil.which("konsole"):
+            self._wsl_status.setText("Konsole is not available in this session.")
+            return
+        subprocess.Popen(["konsole", "-e", "distrobox", "enter", "ubuntu"])
+        self._wsl_status.setText(
+            "If the box doesn't exist yet, the terminal will say so — use Create Ubuntu Box first."
+        )
+
     @staticmethod
     def _clear_layout(layout):
         while layout.count():
@@ -1593,6 +2395,7 @@ class WindowsMigrationPage(Page):
             _restyle(self._drive_status)
             self._populate_files_card([])
             self._start_bookmark_scan([])
+            self._start_extras_scan([])
             return
         self._drive_status.setText(f"Found {len(partitions)} Windows-style partition{'s' if len(partitions) != 1 else ''}.")
         self._drive_status.setObjectName("status-ok")
@@ -1617,6 +2420,7 @@ class WindowsMigrationPage(Page):
             self._drive_rows.addWidget(self._make_drive_row(part))
         self._populate_files_card(partitions)
         self._start_bookmark_scan(partitions)
+        self._start_extras_scan(partitions)
 
     def _run_ujust(self, recipe: str, btn: QPushButton):
         btn.setEnabled(False)
