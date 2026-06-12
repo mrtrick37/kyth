@@ -1126,6 +1126,7 @@ install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/kyth-nvme-tuning /usr/bin/kyth-nvme-tuning
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
+install -m 0755 /ctx/low-latency-run /usr/bin/low-latency-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
 install -m 0755 /ctx/kyth-smoke-check /usr/bin/kyth-smoke-check

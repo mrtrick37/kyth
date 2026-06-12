@@ -312,6 +312,18 @@ zink-run +args:
     set -euo pipefail
     /usr/bin/zink-run {{ args }}
 
+# Run a game with the Vulkan low-latency layer (Anti-Lag 2 / Reflex on any GPU).
+# Exposes VK_AMD_anti_lag by default; pass --reflex for VK_NV_low_latency2.
+# Also works as a Steam launch option: LOW_LATENCY_LAYER=1 %command%
+# Usage: ujust low-latency -- %command%
+
+# ujust low-latency --reflex -- %command%
+[group('KythOS')]
+low-latency +args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    exec /usr/bin/low-latency-run {{ args }}
+
 # Print a short KythOS system/kernel tuning summary.
 [group('KythOS')]
 kerver:

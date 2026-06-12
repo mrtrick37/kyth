@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Run a game with the Vulkan low-latency layer enabled (VK_AMD_anti_lag by
+# default). The layer is implicit but opt-in — it does nothing unless
+# LOW_LATENCY_LAYER=1 is set. --reflex exposes VK_NV_low_latency2 (Reflex)
+# instead, for games that only offer a Reflex toggle; Proton titles may also
+# need DXVK_CONFIG="dxgi.hideAmdGpu = True" for the toggle to appear.
+# Reference: https://github.com/Korthos-Software/low_latency_layer
+
+usage() {
+    echo "Usage: low-latency-run [--reflex] <command> [args...]" >&2
+    exit 1
+}
+
+if [[ $# -gt 0 && "$1" == "--reflex" ]]; then
+    export LOW_LATENCY_LAYER_REFLEX=1
+    shift
+fi
+
+[[ $# -gt 0 ]] || usage
+
+export LOW_LATENCY_LAYER=1
+
+exec "$@"
