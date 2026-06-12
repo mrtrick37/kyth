@@ -55,6 +55,24 @@ def _is_socket_capable_kali_box(name: str) -> bool:
         return False
 
 
+def _chromium_app_window_cmd(url: str, wm_class: str) -> list[str] | None:
+    """Build a command that opens url as a dedicated app window, or None.
+
+    KythOS ships Brave as a Flatpak, not a native chromium-browser binary, so
+    native binaries are only found on systems where the user installed one.
+    """
+    args = [f"--app={url}", f"--class={wm_class}", f"--name={wm_class}"]
+    for binary in ("chromium-browser", "chromium", "brave-browser",
+                   "microsoft-edge", "google-chrome"):
+        if shutil.which(binary):
+            return [binary, *args]
+    for app_id in ("com.brave.Browser", "org.chromium.Chromium",
+                   "com.microsoft.Edge", "com.google.Chrome"):
+        if _is_flatpak_installed(app_id):
+            return ["flatpak", "run", app_id, *args]
+    return None
+
+
 _INSTALL_VSCODE_CMD = [
     "bash", "-c",
     "set -euo pipefail\n"
@@ -588,10 +606,7 @@ class SoftwarePage(Page):
             btn = QPushButton(name)
             btn.setToolTip(f"{tip} — opens in a dedicated Chromium window")
             btn.clicked.connect(
-                lambda _=False, u=url, n=name: subprocess.Popen([
-                    "chromium-browser", f"--app={u}",
-                    f"--class=Microsoft365-{n}", f"--name=Microsoft365-{n}",
-                ])
+                lambda _=False, u=url, n=name: self._open_m365_webapp(u, n)
             )
             btns.addWidget(btn)
         btns.addStretch()
@@ -606,6 +621,21 @@ class SoftwarePage(Page):
         note.setStyleSheet("color: #858585; font-size: 11px;")
         layout.addWidget(note)
         return card
+
+    def _open_m365_webapp(self, url: str, name: str) -> None:
+        cmd = _chromium_app_window_cmd(url, f"Microsoft365-{name}")
+        if cmd is None:
+            QMessageBox.warning(
+                self, "No browser found",
+                "Opening web app shortcuts needs a Chromium-family browser "
+                "(Brave, Chromium, Edge, or Chrome), but none was found.\n\n"
+                "Install one from the Flatpak tab and try again.",
+            )
+            return
+        try:
+            subprocess.Popen(cmd)
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not open web app", str(exc))
 
     def _make_install_hierarchy_card(self) -> QFrame:
         card, layout = _make_card()
