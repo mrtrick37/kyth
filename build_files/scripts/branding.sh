@@ -649,7 +649,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v7"
+version="v8"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -867,14 +867,14 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key RectangularRegionScreenShot \
         'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
 
-    # Alt+Tab window switcher — thumbnail grid instead of KDE's default icon strip.
-    # Windows users expect large previews when switching windows; the KDE default
-    # "Breeze" switcher shows small icons only and is disorienting for switchers.
-    # "thumbnails" renders a grid of live window previews (closest to Windows Alt+Tab).
+    # Alt+Tab window switcher — Thumbnail Grid, the Windows 11-style switcher.
+    # KWin ships it built in and made it the default in Plasma 6.4, but configs
+    # carried over from earlier installs (or kyth's previous "thumbnails" strip
+    # override) can still select an older layout — pin the grid explicitly.
     # TabBoxAlternative* sets the same layout for the reverse direction (Alt+Shift+Tab).
-    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnail_grid
     kwriteconfig6 --file kwinrc --group TabBox --key ShowDesktop --type bool false
-    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnail_grid
 
     # Desktop right-click menu — surface "Configure Desktop" prominently so
     # "right-click desktop → change wallpaper" works like Windows users expect.
