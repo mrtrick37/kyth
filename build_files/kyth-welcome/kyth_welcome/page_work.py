@@ -43,6 +43,14 @@ def _ms_fonts_installed() -> bool:
         return False
 
 
+def _m365_icon(name: str) -> str:
+    icon = f"kyth-m365-{name.lower()}"
+    if os.path.exists(f"/usr/share/icons/hicolor/scalable/apps/{icon}.svg"):
+        return icon
+    # Older images don't ship the per-app icons yet.
+    return "internet-web-browser"
+
+
 def _m365_desktop_entry(name: str, url: str, comment: str) -> str | None:
     wm_class = f"Microsoft365-{name}"
     cmd = _chromium_app_window_cmd(url, wm_class)
@@ -54,7 +62,7 @@ def _m365_desktop_entry(name: str, url: str, comment: str) -> str | None:
         f"Name={name} (Microsoft 365)\n"
         f"Comment={comment}\n"
         f"Exec={shlex.join(cmd)}\n"
-        "Icon=internet-web-browser\n"
+        f"Icon={_m365_icon(name)}\n"
         "Categories=Office;Network;\n"
         f"StartupWMClass={wm_class}\n"
     )
@@ -123,6 +131,27 @@ def _convert_pst(path: str) -> tuple[bool, str]:
     if r.returncode != 0:
         return False, (r.stderr or r.stdout).strip() or "Conversion failed."
     return True, dest
+
+
+def _refresh_m365_shortcuts() -> None:
+    """Rewrite existing shortcuts whose generated content changed — e.g. the
+    pre-icon entries that left every web app with a generic globe."""
+    apps_dir = os.path.expanduser("~/.local/share/applications")
+    for name, url, comment in _M365_APPS:
+        path = os.path.join(apps_dir, f"kyth-m365-{name.lower()}.desktop")
+        if not os.path.exists(path):
+            continue
+        entry = _m365_desktop_entry(name, url, comment)
+        if entry is None:
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                current = fh.read()
+            if current != entry:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(entry)
+        except OSError:
+            pass
 
 
 def _m365_shortcuts_present() -> bool:
@@ -221,6 +250,7 @@ class WorkSetupPage(Page):
         btns = QHBoxLayout()
         btns.setSpacing(8)
         self._m365_btn = QPushButton("Add Microsoft 365 to App Launcher")
+        _refresh_m365_shortcuts()
         if _m365_shortcuts_present():
             self._m365_btn.setText("✓ Shortcuts added — find them in the app menu")
             self._m365_btn.setEnabled(False)

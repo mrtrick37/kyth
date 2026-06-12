@@ -528,6 +528,19 @@ else
     printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
 fi
 
+# Microsoft 365 web-app shortcut icons (referenced by the .desktop entries the
+# kyth-welcome Work Setup page writes; without them Kickoff shows a generic globe).
+for app in outlook word excel powerpoint onenote teams; do
+    cp "/ctx/branding/m365/kyth-m365-${app}.svg" \
+        /usr/share/icons/hicolor/scalable/apps/
+    for sz in 16 22 24 32 48 64 128 256; do
+        dir="/usr/share/icons/hicolor/${sz}x${sz}/apps"
+        mkdir -p "${dir}"
+        rsvg-convert -w "${sz}" -h "${sz}" "/ctx/branding/m365/kyth-m365-${app}.svg" \
+            -o "${dir}/kyth-m365-${app}.png"
+    done
+done
+
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
 rm -f /usr/share/icons/breeze/icon-theme.cache
