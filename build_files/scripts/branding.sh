@@ -715,6 +715,8 @@ kyth-exe-handler.desktop|application/x-dosexec
 kyth-exe-handler.desktop|application/x-msi
 kyth-exe-handler.desktop|application/x-msdownload
 kyth-exe-handler.desktop|application/vnd.microsoft.portable-executable
+kyth-exe-handler.desktop|application/x-rpm
+kyth-exe-handler.desktop|application/x-redhat-package-manager
 com.brave.Browser.desktop|x-scheme-handler/http
 com.brave.Browser.desktop|x-scheme-handler/https
 com.getmailspring.Mailspring.desktop|x-scheme-handler/mailto
@@ -1048,6 +1050,12 @@ install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
+# /usr/bin/kyth-welcome is a thin shim; the application package lives here.
+mkdir -p /usr/lib/kyth-welcome
+cp -a /ctx/kyth-welcome/kyth_welcome /usr/lib/kyth-welcome/
+rm -rf /usr/lib/kyth-welcome/kyth_welcome/__pycache__
+find /usr/lib/kyth-welcome -type d -exec chmod 0755 {} +
+find /usr/lib/kyth-welcome -type f -exec chmod 0644 {} +
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
@@ -1158,11 +1166,12 @@ install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
     /usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
-# ── .exe / .msi MIME interception ─────────────────────────────────────────────
-# When a Windows user double-clicks a .exe installer in Dolphin, show a dialog
-# that suggests the best Linux equivalent instead of opening a hex editor.
-# The handler is registered as the system-wide default for the Windows executable
-# MIME types; users can override per-app via Dolphin's "Open With" dialog.
+# ── Downloaded installer MIME interception ───────────────────────────────────
+# When a Windows user double-clicks a .exe/.msi or downloaded .rpm in Dolphin,
+# show a dialog that suggests the best KythOS path instead of failing silently
+# or teaching the wrong mutable-system model.
+# The handler is registered as the system-wide default for these installer MIME
+# types; users can override per-app via Dolphin's "Open With" dialog.
 install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
 install -m 0644 /ctx/kyth-exe-handler.desktop \
     /usr/share/applications/kyth-exe-handler.desktop
@@ -1192,7 +1201,7 @@ HIDDENDESKTOPEOF
 done
 unset _hidden_desktop
 
-# Register as system-wide default for Windows executable MIME types.
+# Register as system-wide default for common installer MIME types.
 # /etc/xdg/mimeapps.list is the XDG-standard location for system defaults;
 # it is read before per-user ~/.config/mimeapps.list so new users get it
 # automatically, and existing users can still override per-app.
@@ -1222,6 +1231,8 @@ application/x-dosexec=kyth-exe-handler.desktop
 application/x-msi=kyth-exe-handler.desktop
 application/x-msdownload=kyth-exe-handler.desktop
 application/vnd.microsoft.portable-executable=kyth-exe-handler.desktop
+application/x-rpm=kyth-exe-handler.desktop
+application/x-redhat-package-manager=kyth-exe-handler.desktop
 x-scheme-handler/http=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/https=com.brave.Browser.desktop;chromium-browser.desktop
 x-scheme-handler/mailto=com.getmailspring.Mailspring.desktop

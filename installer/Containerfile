@@ -13,7 +13,9 @@ FROM ${BASE_IMAGE}
 ARG BASE_IMAGE
 ARG SOURCE_TAG=latest
 
-# Override dnf mirrors with direct URLs (faster, more reliable than mirror lists)
+# Replace inherited repo files with a minimal known-good set. Keep [updates]
+# enabled so live-only packages (notably Chromium, the installer's kiosk
+# browser) install with current security fixes, not the GA release version.
 RUN mkdir -p /etc/yum.repos.d.bak && \
     mv /etc/yum.repos.d/*.repo /etc/yum.repos.d.bak/ 2>/dev/null || true && \
     printf '%s\n' \
@@ -23,6 +25,17 @@ RUN mkdir -p /etc/yum.repos.d.bak && \
         'enabled=1' \
         'countme=1' \
         'metadata_expire=7d' \
+        'gpgcheck=1' \
+        'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch' \
+        '' \
+        '[updates]' \
+        'name=Fedora $releasever - $basearch - Updates' \
+        'metalink=https://mirrors.fedoraproject.org/metalink?repo=updates-released-f$releasever&arch=$basearch' \
+        'enabled=1' \
+        'countme=1' \
+        'metadata_expire=6h' \
+        'gpgcheck=1' \
+        'gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-fedora-$releasever-$basearch' \
         > /etc/yum.repos.d/fedora.repo
 
 RUN --mount=type=bind,source=installer/build.sh,target=/src/installer/build.sh \

@@ -13,14 +13,17 @@ echo '%_install_langs en_US' >>/etc/rpm/macros
 # UBlue, Bazzite, and recommended in Fedora documentation.
 # Prevent any package dependency from pulling in a new kernel (e.g. akmod deps
 # installing kernel-modules without kernel-core, which leaves a modules dir
-# with no vmlinuz and breaks the bootc kernel check downstream).
+# with no vmlinuz and breaks the bootc kernel check downstream). The bare
+# `kernel` meta package is pinned too: its subpackages are excluded, so dnf5
+# upgrade would otherwise report it as a broken-dependency Problem every day
+# (the kernel version is fixed from the base image by design).
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
 # accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
 # aggregate trend in the README when exported CountMe data is available.
 cat >>/etc/dnf/dnf.conf <<'DNFCONFEOF'
 max_parallel_downloads=10
-excludepkgs=kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
+excludepkgs=kernel,kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*
 countme=True
 DNFCONFEOF
 
@@ -38,10 +41,13 @@ dnf5 install -y docker container-selinux
 # The release RPMs ship and install the GPG key themselves — this is the
 # standard RPM Fusion bootstrap pattern; there is no separately hosted key
 # URL to pre-import (unlike Brave/Negativo17).
+# Fail loudly: every later codec install uses --skip-unavailable, so a missing
+# RPM Fusion repo would otherwise ship an image silently lacking the
+# freeworld codec stack.
 dnf5 install -y \
 	https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-44.noarch.rpm \
-	https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm ||
-	true
+	https://mirrors.rpmfusion.org/nonfree/fedora/rpmfusion-nonfree-release-44.noarch.rpm
+rpm -q rpmfusion-free-release rpmfusion-nonfree-release
 
 # Fedora 44 transitions can leave debug/source repo metalinks unpublished or
 # intermittently unavailable. We never install from those repos in image builds,
@@ -437,7 +443,27 @@ dnf5 install -y --skip-unavailable \
 # Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
 # boot without requiring a manual rpm-ostree layer step. On AMD/Intel systems
 # the package sits dormant and the build is never triggered.
-dnf5 install -y --skip-unavailable akmod-nvidia || true
+#
+# kernel-devel* sits in dnf.conf excludepkgs (top of this script) to stop akmod
+# deps from dragging in a second kernel. That exclude made akmod-nvidia
+# unresolvable, and the old --skip-unavailable + || true silently shipped
+# images with no akmod-nvidia at all — breaking the first-boot NVIDIA path.
+# Clear the exclude for this one transaction, pin kernel-devel to the exact
+# kernel in the image so akmods finds matching headers at first boot, and
+# verify the result so a regression fails the build instead of first boot.
+KERNEL_FLAVOR="$(cat /usr/share/kyth/kernel-flavor 2>/dev/null || echo fedora)"
+if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
+	KERNEL_VR=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
+	dnf5 install -y --setopt=excludepkgs= \
+		"kernel-devel-${KERNEL_VR}" \
+		akmod-nvidia
+	rpm -q akmod-nvidia akmods "kernel-devel-${KERNEL_VR}"
+else
+	# CachyOS flavor: matching headers (kernel-cachyos-devel-matched) come from
+	# the COPR in build_base; only the akmod machinery is needed here.
+	dnf5 install -y --setopt=excludepkgs= akmod-nvidia
+	rpm -q akmod-nvidia akmods
+fi
 
 # Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
 # the VA-API driver is installed. Verify the capability and file ownership
@@ -525,14 +551,18 @@ install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # ── VS Code ───────────────────────────────────────────────────────────────────
 # Bake VS Code native RPM into the image so it has full access to the local
 # filesystem and terminal without the sandboxing constraints of a Flatpak.
-rpm --import https://packages.microsoft.com/keys/microsoft.asc
+# The Microsoft signing key is vendored in-repo (build_files/RPM-GPG-KEY-microsoft,
+# fingerprint BC528686B50D79E339D3721CEB3E94ADBE1229CF) and bind-mounted at /ctx,
+# so the build has no DNS-dependent rpm --import call.
+install -Dm 0644 /ctx/RPM-GPG-KEY-microsoft /etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
+rpm --import /etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
 cat >/etc/yum.repos.d/vscode.repo <<'EOF'
 [code]
 name=Visual Studio Code
 baseurl=https://packages.microsoft.com/yumrepos/vscode
 enabled=1
 gpgcheck=1
-gpgkey=https://packages.microsoft.com/keys/microsoft.asc
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
 EOF
 dnf5 install -y code
 # Disable so the Microsoft repo is not active in the running OS;

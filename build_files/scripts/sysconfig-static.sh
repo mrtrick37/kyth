@@ -622,6 +622,65 @@ done < <(nmcli -t -f UUID,TYPE connection show 2>/dev/null || true)
 NMDISPEOF
 chmod 0755 /etc/NetworkManager/dispatcher.d/90-kyth-prefer-last-wifi
 
+# Wired wins: turn the Wi-Fi radio off while any wired connection is active,
+# and back on when the last one goes away. Without this NetworkManager
+# activates every device with an autoconnect profile, so a docked laptop
+# associates to Wi-Fi (DHCP lease, radio airtime) even though all traffic
+# uses the wire. The stamp file records that *we* disabled the radio, so we
+# never surprise-enable Wi-Fi the user had turned off themselves; it lives in
+# /var/lib so a reboot while docked still restores Wi-Fi on later undock.
+# Known trade-off: plugging in ethernet stops a running Wi-Fi hotspot.
+cat >/etc/NetworkManager/dispatcher.d/80-kyth-wired-or-wireless <<'NMWIREDEOF'
+#!/usr/bin/env bash
+set -u
+
+iface="${1:-${DEVICE_IFACE:-}}"
+action="${2:-${NM_DISPATCHER_ACTION:-}}"
+case "${action}" in
+    up|down) ;;
+    *) exit 0 ;;
+esac
+
+command -v nmcli >/dev/null 2>&1 || exit 0
+
+uuid="${CONNECTION_UUID:-}"
+[[ -n "${uuid}" ]] || exit 0
+
+type="$(nmcli -g connection.type connection show "${uuid}" 2>/dev/null || true)"
+[[ "${type}" == "802-3-ethernet" ]] || exit 0
+
+stamp=/var/lib/kyth/wifi-off-for-wired
+
+# True if any ethernet device other than the one this event is about is
+# still activated (multi-NIC / dock plus built-in port).
+other_ethernet_active() {
+    nmcli -t -f DEVICE,TYPE,STATE device status 2>/dev/null |
+        awk -F: -v skip="${iface}" \
+            '$1 != skip && $2 == "ethernet" && $3 == "connected" { found = 1 } END { exit !found }'
+}
+
+case "${action}" in
+    up)
+        # Only stamp when the radio was on — if the user already had Wi-Fi
+        # off, leave it off after the wire goes away too.
+        if [[ "$(nmcli -g WIFI radio 2>/dev/null)" == "enabled" ]]; then
+            mkdir -p /var/lib/kyth
+            : >"${stamp}"
+            nmcli radio wifi off >/dev/null 2>&1 || true
+        fi
+        ;;
+    down)
+        if [[ -e "${stamp}" ]] && ! other_ethernet_active; then
+            rm -f "${stamp}"
+            nmcli radio wifi on >/dev/null 2>&1 || true
+        fi
+        ;;
+esac
+
+exit 0
+NMWIREDEOF
+chmod 0755 /etc/NetworkManager/dispatcher.d/80-kyth-wired-or-wireless
+
 # ── WiFi driver tweaks ───────────────────────────────────────────────────────
 mkdir -p /etc/modprobe.d
 
@@ -629,11 +688,14 @@ cat >/etc/modprobe.d/cfg80211-kyth.conf <<'CFG80211EOF'
 options cfg80211 ieee80211_regdom=US
 CFG80211EOF
 
-# MT7921 PCIe (MediaTek Filogic 330): disable Active State Power Management.
+# MT7921/MT7925 PCIe (MediaTek Filogic): disable Active State Power Management.
 # ASPM puts the PCIe device into a low-power state it may not reliably wake
-# from, causing sudden disconnects and requiring a driver reload or reboot.
+# from, causing sudden disconnects, intermittent scan results, and sometimes
+# requiring a driver reload or reboot. mt7925e (Wi-Fi 7 parts, e.g. HP ZBook)
+# is a separate module from mt7921e and needs its own options line.
 cat >/etc/modprobe.d/mt7921-kyth.conf <<'MT76EOF'
 options mt7921e disable_aspm=1
+options mt7925e disable_aspm=1
 MT76EOF
 
 # iwlwifi/iwlmvm (Intel Wi-Fi): keep the radio in CAM/active mode and disable
@@ -648,6 +710,16 @@ IWLEOF
 cat >/etc/modprobe.d/iwlmvm-kyth.conf <<'IWLMVMEOF'
 options iwlmvm power_scheme=1
 IWLMVMEOF
+
+# btusb (USB Bluetooth, incl. MediaTek MT7922/MT7925 combo radios): disable
+# USB autosuspend. The CachyOS kernel builds btusb with autosuspend enabled,
+# which suspends the adapter after 2 s idle. USB remote wakeup is unreliable
+# on these parts, so a suspended adapter misses traffic from low-bandwidth BLE
+# peripherals — mice silently drop every few minutes and only reconnect on
+# user input, and reconnect after boot/login is slow for the same reason.
+cat >/etc/modprobe.d/btusb-kyth.conf <<'BTUSBEOF'
+options btusb enable_autosuspend=0
+BTUSBEOF
 
 # ── I/O schedulers ─────────────────────────────────────────────────────────
 # Keep NVMe on kernel defaults. Testers can opt into the experimental KythOS

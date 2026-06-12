@@ -26,6 +26,19 @@ EOF
 }
 
 latest_kernel_version() {
+    # Prefer module dirs that contain an actual kernel image — the upstream base
+    # image can carry kernel-less debris dirs (kmods prebuilt for a kernel it
+    # does not ship yet), so the highest-versioned dir is not necessarily it.
+    local with_kernel
+    with_kernel=$(
+        for d in /usr/lib/modules/*/; do
+            [ -s "${d}vmlinuz" ] && basename "${d}"
+        done | sort -V | tail -n 1
+    )
+    if [[ -n "${with_kernel}" ]]; then
+        printf '%s\n' "${with_kernel}"
+        return
+    fi
     find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1
 }
 
@@ -44,6 +57,11 @@ install_cachyos_kernel() {
     dnf5 install -y --setopt=tsflags=noscripts --skip-unavailable \
         kernel-cachyos \
         kernel-cachyos-core
+
+    # Matching kernel headers so akmods (akmod-nvidia, installed in the main
+    # image layer) can build modules for this kernel at first boot.
+    dnf5 install -y --skip-unavailable kernel-cachyos-devel-matched ||
+        echo "WARNING: kernel-cachyos-devel-matched unavailable; first-boot akmod builds will fail." >&2
 
     depmod -a "${kver}"
 

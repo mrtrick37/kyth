@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""kyth-exe-handler — intercept Windows .exe/.msi files and suggest Linux alternatives.
+"""kyth-exe-handler — intercept Windows and RPM installers with KythOS guidance.
 
-Registered as the default MIME handler for common Windows executable and
-installer MIME types so that double-clicking a file in Dolphin shows a curated
-suggestion dialog instead of silently failing or opening a hex editor.
+Registered as the default MIME handler for common Windows executable,
+installer, and RPM package MIME types so that double-clicking a download in
+Dolphin shows a curated suggestion dialog instead of silently failing or
+teaching the wrong mutable-Fedora mental model.
 """
 
 import os
@@ -142,6 +143,15 @@ def _lookup(filepath: str):
     return None, None, None
 
 
+def _is_rpm_installer(filepath: str) -> bool:
+    return filepath.lower().endswith(".rpm")
+
+
+def _open_system_hub_page(page: str):
+    launcher = shutil.which("kyth-welcome-launch") or "/usr/bin/kyth-welcome-launch"
+    subprocess.Popen([launcher, "--page", page])
+
+
 def _flatpak_installed(flatpak_id: str) -> bool:
     return subprocess.run(
         ["flatpak", "info", flatpak_id],
@@ -176,15 +186,28 @@ def main():
         sys.exit(0)
 
     filepath = sys.argv[1]
-    app_name, suggestion, flatpak_id = _lookup(filepath)
+    is_rpm = _is_rpm_installer(filepath)
+    if is_rpm:
+        app_name = "RPM Package"
+        suggestion = (
+            "This is an RPM package for traditional mutable Fedora/RHEL-style systems.\n\n"
+            "On KythOS, install desktop apps from App Store or Flathub. Use Distrobox "
+            "for command-line tools that need dnf. Only layer system RPMs when a KythOS "
+            "guide explicitly tells you to, because base-system changes require a reboot "
+            "and can complicate updates."
+        )
+        flatpak_id = None
+    else:
+        app_name, suggestion, flatpak_id = _lookup(filepath)
     basename = os.path.basename(filepath)
-    search_term = (app_name or os.path.splitext(basename)[0]).replace(" ", "+")
+    search_basis = os.path.splitext(basename)[0] if is_rpm else (app_name or os.path.splitext(basename)[0])
+    search_term = search_basis.replace(" ", "+")
 
     app = QApplication(sys.argv)
     app.setStyleSheet(_QSS)
 
     dlg = QDialog()
-    dlg.setWindowTitle("KythOS — Windows Application")
+    dlg.setWindowTitle("KythOS — Installer Help" if is_rpm else "KythOS — Windows Application")
     dlg.setMinimumWidth(500)
     dlg.setMaximumWidth(600)
 
@@ -220,6 +243,14 @@ def main():
     btn_row = QHBoxLayout()
     btn_row.setSpacing(8)
 
+    if is_rpm:
+        app_store_btn = QPushButton("Open App Store")
+        app_store_btn.setObjectName("primary")
+        app_store_btn.clicked.connect(
+            lambda: (_open_system_hub_page("App Store"), dlg.accept())
+        )
+        btn_row.addWidget(app_store_btn)
+
     if flatpak_id:
         if _flatpak_installed(flatpak_id):
             launch_btn = QPushButton("Launch →")
@@ -245,19 +276,20 @@ def main():
     )
     btn_row.addWidget(flathub_btn)
 
-    bottles_installed = _flatpak_installed("com.usebottles.bottles")
-    bottles_lbl = "Open with Bottles" if bottles_installed else "Try Bottles (Wine)"
-    bottles_btn = QPushButton(bottles_lbl)
-    bottles_btn.setToolTip("Run Windows apps in an isolated Wine environment")
-    bottles_btn.clicked.connect(
-        lambda: (
-            subprocess.Popen(["flatpak", "run", "com.usebottles.bottles"])
-            if bottles_installed
-            else _launch_install("com.usebottles.bottles"),
-            dlg.accept(),
+    if not is_rpm:
+        bottles_installed = _flatpak_installed("com.usebottles.bottles")
+        bottles_lbl = "Open with Bottles" if bottles_installed else "Try Bottles (Wine)"
+        bottles_btn = QPushButton(bottles_lbl)
+        bottles_btn.setToolTip("Run Windows apps in an isolated Wine environment")
+        bottles_btn.clicked.connect(
+            lambda: (
+                subprocess.Popen(["flatpak", "run", "com.usebottles.bottles"])
+                if bottles_installed
+                else _launch_install("com.usebottles.bottles"),
+                dlg.accept(),
+            )
         )
-    )
-    btn_row.addWidget(bottles_btn)
+        btn_row.addWidget(bottles_btn)
 
     btn_row.addStretch()
 

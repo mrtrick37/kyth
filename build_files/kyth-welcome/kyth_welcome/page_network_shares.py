@@ -1,0 +1,407 @@
+import os
+import re
+
+# __KYTH_GENERATED_IMPORTS__
+from .core import (  # noqa: E501
+    Worker, _apply_install_badge, _build_add_share_script, _build_remove_share_script, _is_cifs_available, _is_mounted, _load_smb_config, _restyle, _save_smb_config, _systemd_escape_mount_path,
+)
+from .qt import (  # noqa: E501
+    QCheckBox, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+)
+from .widgets import (  # noqa: E501
+    Page, _make_card,
+)
+
+# ── Page: Network Shares ──────────────────────────────────────────────────────
+class NetworkSharesPage(Page):
+    """Mount and manage Windows network shares (SMB/CIFS)."""
+
+    def __init__(self):
+        super().__init__()
+        self._worker: Worker | None = None
+        self._shares: list[dict] = _load_smb_config()
+
+        self._page_header(
+            "Network & Internet",
+            "Network Shares",
+            "Mount Windows file shares (SMB/CIFS) and access them as local folders. "
+            "Shares can auto-mount at boot so they are always available.",
+        )
+
+        # ── cifs-utils warning (shown only when missing) ───────────────────────
+        self._cifs_warn, cw_layout = _make_card("card-accent-warn")
+        cw_title = QLabel("cifs-utils not installed")
+        cw_title.setObjectName("card-title")
+        cw_layout.addWidget(cw_title)
+        cw_body = QLabel(
+            "The mount.cifs helper is missing. It will be present after the next OS update "
+            "(cifs-utils has been added to the image). You can still configure shares now; "
+            "mounting will work once the image is applied."
+        )
+        cw_body.setObjectName("card-copy")
+        cw_body.setWordWrap(True)
+        cw_layout.addWidget(cw_body)
+        self._add(self._cifs_warn)
+
+        # ── Add share form ────────────────────────────────────────────────────
+        add_card, add_layout = _make_card()
+        add_title = QLabel("Add a Network Share")
+        add_title.setObjectName("card-title")
+        add_layout.addWidget(add_title)
+        add_desc = QLabel(
+            "Enter the share details. A password prompt will appear to apply system changes."
+        )
+        add_desc.setObjectName("card-copy")
+        add_desc.setWordWrap(True)
+        add_layout.addWidget(add_desc)
+
+        form_row = QHBoxLayout()
+        form_row.setSpacing(20)
+
+        left = QVBoxLayout()
+        left.setSpacing(8)
+        right = QVBoxLayout()
+        right.setSpacing(8)
+
+        def _field_label(text: str) -> QLabel:
+            lbl = QLabel(text)
+            lbl.setObjectName("card-copy")
+            return lbl
+
+        # Left column
+        left.addWidget(_field_label("Share Name (label)"))
+        self._f_name = QLineEdit()
+        self._f_name.setPlaceholderText("e.g.  NAS-Media")
+        left.addWidget(self._f_name)
+
+        left.addWidget(_field_label("Server (hostname or IP)"))
+        self._f_server = QLineEdit()
+        self._f_server.setPlaceholderText("e.g.  192.168.1.100  or  mypc")
+        left.addWidget(self._f_server)
+
+        left.addWidget(_field_label("Share Path on Server"))
+        self._f_share = QLineEdit()
+        self._f_share.setPlaceholderText("e.g.  Media  or  Users/Alice/Documents")
+        left.addWidget(self._f_share)
+
+        left.addWidget(_field_label("Local Mount Point"))
+        self._f_mount = QLineEdit()
+        self._f_mount.setPlaceholderText("e.g.  /mnt/kyth/NAS-Media  (default: /mnt/kyth/<name>)")
+        left.addWidget(self._f_mount)
+
+        # Right column
+        right.addWidget(_field_label("Username"))
+        self._f_user = QLineEdit()
+        self._f_user.setPlaceholderText("Windows / Samba username")
+        right.addWidget(self._f_user)
+
+        right.addWidget(_field_label("Password"))
+        self._f_pass = QLineEdit()
+        self._f_pass.setEchoMode(QLineEdit.EchoMode.Password)
+        self._f_pass.setPlaceholderText("Windows / Samba password")
+        right.addWidget(self._f_pass)
+
+        right.addWidget(_field_label("Domain (optional)"))
+        self._f_domain = QLineEdit()
+        self._f_domain.setPlaceholderText("e.g.  WORKGROUP  (leave blank if unsure)")
+        right.addWidget(self._f_domain)
+
+        right.addSpacing(4)
+        self._f_auto = QCheckBox("Auto-mount on boot")
+        self._f_auto.setChecked(True)
+        right.addWidget(self._f_auto)
+
+        form_row.addLayout(left, 1)
+        form_row.addLayout(right, 1)
+        add_layout.addLayout(form_row)
+
+        add_btn_row = QHBoxLayout()
+        add_btn_row.setSpacing(12)
+        add_btn = QPushButton("Add Share")
+        add_btn.setObjectName("primary")
+        add_btn.clicked.connect(self._add_share)
+        add_btn_row.addWidget(add_btn)
+        self._mount_now_chk = QCheckBox("Mount immediately")
+        self._mount_now_chk.setChecked(True)
+        add_btn_row.addWidget(self._mount_now_chk)
+        add_btn_row.addStretch()
+        add_layout.addLayout(add_btn_row)
+        self._add(add_card)
+
+        # ── Operation progress ────────────────────────────────────────────────
+        self._op_status = QLabel()
+        self._op_status.setWordWrap(True)
+        self._op_status.hide()
+        self._add(self._op_status)
+
+        self._op_progress = QProgressBar()
+        self._op_progress.setRange(0, 0)
+        self._op_progress.hide()
+        self._add(self._op_progress)
+
+        self._op_log = QTextEdit()
+        self._op_log.setReadOnly(True)
+        self._op_log.setMinimumHeight(110)
+        self._op_log.hide()
+        self._add(self._op_log)
+
+        # ── Configured shares list ─────────────────────────────────────────────
+        self._divider()
+
+        shares_heading = QLabel("Configured Shares")
+        shares_heading.setObjectName("section-heading")
+        self._add(shares_heading)
+
+        self._shares_container = QWidget()
+        self._shares_container.setObjectName("content-area")
+        self._shares_inner = QVBoxLayout(self._shares_container)
+        self._shares_inner.setContentsMargins(0, 0, 0, 0)
+        self._shares_inner.setSpacing(12)
+        self._add(self._shares_container)
+
+        self._stretch()
+        self._update_cifs_warning()
+        self._rebuild_shares_list()
+
+    # ── Helpers ───────────────────────────────────────────────────────────────
+
+    def _update_cifs_warning(self):
+        self._cifs_warn.setVisible(not _is_cifs_available())
+
+    def _rebuild_shares_list(self):
+        while self._shares_inner.count():
+            item = self._shares_inner.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        self._shares = _load_smb_config()
+
+        if not self._shares:
+            empty = QLabel("No shares configured yet. Use the form above to add one.")
+            empty.setObjectName("status-dim")
+            self._shares_inner.addWidget(empty)
+            return
+
+        for share in self._shares:
+            self._shares_inner.addWidget(self._make_share_card(share))
+
+    def _make_share_card(self, share: dict) -> QFrame:
+        card, layout = _make_card()
+
+        # Header row
+        hdr = QHBoxLayout()
+        unc = f"//{share['server']}/{share['share_path'].lstrip('/')}"
+        name_lbl = QLabel(share["name"])
+        name_lbl.setObjectName("card-title")
+        hdr.addWidget(name_lbl)
+        hdr.addStretch()
+        mounted = _is_mounted(share["mount_point"])
+        badge = QLabel()
+        _apply_install_badge(badge, mounted, "Mounted", "Not Mounted")
+        hdr.addWidget(badge)
+        layout.addLayout(hdr)
+
+        # Info labels
+        unc_lbl = QLabel(f"{unc}  →  {share['mount_point']}")
+        unc_lbl.setObjectName("card-copy")
+        layout.addWidget(unc_lbl)
+
+        # Auto-mount toggle
+        auto_chk = QCheckBox("Auto-mount on boot")
+        auto_chk.setChecked(share.get("auto_mount", False))
+        auto_chk.toggled.connect(
+            lambda checked, s=share: self._toggle_auto_mount(s, checked)
+        )
+        layout.addWidget(auto_chk)
+
+        # Action buttons
+        btn_row = QHBoxLayout()
+        btn_row.setSpacing(10)
+        if mounted:
+            u_btn = QPushButton("Unmount")
+            u_btn.clicked.connect(lambda checked=False, s=share: self._unmount_share(s))
+            btn_row.addWidget(u_btn)
+        else:
+            m_btn = QPushButton("Mount Now")
+            m_btn.clicked.connect(lambda checked=False, s=share: self._mount_share(s))
+            btn_row.addWidget(m_btn)
+        rm_btn = QPushButton("Remove")
+        rm_btn.clicked.connect(lambda checked=False, s=share: self._remove_share(s))
+        btn_row.addWidget(rm_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        return card
+
+    # ── Form validation ───────────────────────────────────────────────────────
+
+    def _validate_form(self) -> dict | None:
+        name       = self._f_name.text().strip()
+        server     = self._f_server.text().strip()
+        share_path = self._f_share.text().strip()
+        mount_pt   = self._f_mount.text().strip()
+        username   = self._f_user.text().strip()
+        password   = self._f_pass.text()
+        domain     = self._f_domain.text().strip()
+        auto_mount = self._f_auto.isChecked()
+
+        if not name:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Share Name.")
+            return None
+        if not server:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Server address.")
+            return None
+        if not share_path:
+            QMessageBox.warning(self, "Missing Field", "Please enter the Share Path.")
+            return None
+        if not username:
+            QMessageBox.warning(self, "Missing Field", "Please enter a Username.")
+            return None
+
+        safe_name = re.sub(r"[^a-zA-Z0-9_\-]", "_", name)
+        if not mount_pt:
+            mount_pt = f"/mnt/kyth/{safe_name}"
+        mount_pt = os.path.normpath(os.path.expanduser(mount_pt))
+        # Restrict mount points to safe prefixes — the add-share script runs as
+        # root and creates the directory, so mounting over /etc or /usr would
+        # corrupt the system.
+        _SAFE_MOUNT_PREFIXES = ("/mnt/", "/media/", "/run/media/", "/home/")
+        if not any(mount_pt.startswith(p) for p in _SAFE_MOUNT_PREFIXES):
+            QMessageBox.warning(
+                self, "Invalid Mount Point",
+                "Mount point must be under /mnt/, /media/, /run/media/, or /home/.",
+            )
+            return None
+
+        existing = {s["name"] for s in self._shares}
+        if safe_name in existing:
+            QMessageBox.warning(
+                self, "Duplicate Name",
+                f'A share named "{safe_name}" already exists. Remove it first or use a different name.',
+            )
+            return None
+
+        return {
+            "name":       safe_name,
+            "server":     server,
+            "share_path": share_path.lstrip("/"),
+            "mount_point": mount_pt,
+            "username":   username,
+            "password":   password,
+            "domain":     domain,
+            "auto_mount": auto_mount,
+        }
+
+    # ── Actions ───────────────────────────────────────────────────────────────
+
+    def _add_share(self):
+        if self._worker and self._worker.isRunning():
+            return
+        share = self._validate_form()
+        if not share:
+            return
+        mount_now = self._mount_now_chk.isChecked()
+        script = _build_add_share_script(share, mount_now)
+        self._begin_op(f"Adding share {share['name']}…")
+        self._worker = Worker(["sudo", "-A", "bash", "-c", script])
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(lambda code, s=share: self._on_add_done(code, s))
+        self._worker.start()
+
+    def _on_add_done(self, code: int, share: dict):
+        self._op_progress.hide()
+        if code == 0:
+            saved = {k: v for k, v in share.items() if k != "password"}
+            self._shares.append(saved)
+            _save_smb_config(self._shares)
+            self._op_status.setText("Share added successfully.")
+            self._op_status.setObjectName("status-ok")
+            for field in (self._f_name, self._f_server, self._f_share, self._f_mount,
+                          self._f_user, self._f_pass, self._f_domain):
+                field.clear()
+        else:
+            self._op_status.setText(f"Add failed (exit {code}). Check the log below.")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _mount_share(self, share: dict):
+        if self._worker and self._worker.isRunning():
+            return
+        unit = _systemd_escape_mount_path(share["mount_point"])
+        self._run_sudo(["systemctl", "start", unit], f"Mounting {share['name']}…")
+
+    def _unmount_share(self, share: dict):
+        if self._worker and self._worker.isRunning():
+            return
+        unit = _systemd_escape_mount_path(share["mount_point"])
+        self._run_sudo(["systemctl", "stop", unit], f"Unmounting {share['name']}…")
+
+    def _toggle_auto_mount(self, share: dict, enabled: bool):
+        if self._worker and self._worker.isRunning():
+            return
+        for s in self._shares:
+            if s["name"] == share["name"]:
+                s["auto_mount"] = enabled
+        _save_smb_config(self._shares)
+        unit   = _systemd_escape_mount_path(share["mount_point"])
+        action = "enable" if enabled else "disable"
+        label  = "Enabling" if enabled else "Disabling"
+        self._run_sudo(["systemctl", action, unit], f"{label} auto-mount for {share['name']}…")
+
+    def _remove_share(self, share: dict):
+        reply = QMessageBox.question(
+            self, "Remove Share",
+            f"Remove \"{share['name']}\" and delete its systemd unit and credentials?",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        if self._worker and self._worker.isRunning():
+            return
+        script = _build_remove_share_script(share)
+        self._begin_op(f"Removing {share['name']}…")
+        self._worker = Worker(["sudo", "-A", "bash", "-c", script])
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(lambda code, s=share: self._on_remove_done(code, s))
+        self._worker.start()
+
+    def _on_remove_done(self, code: int, share: dict):
+        self._op_progress.hide()
+        if code == 0:
+            self._shares = [s for s in self._shares if s["name"] != share["name"]]
+            _save_smb_config(self._shares)
+            self._op_status.setText(f"{share['name']} removed.")
+            self._op_status.setObjectName("status-ok")
+        else:
+            self._op_status.setText(f"Remove failed (exit {code}). Check the log below.")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _run_sudo(self, cmd: list[str], status_msg: str):
+        self._begin_op(status_msg)
+        self._worker = Worker(["sudo", "-A"] + cmd)
+        self._worker.line.connect(self._op_log.append)
+        self._worker.done.connect(self._on_generic_done)
+        self._worker.start()
+
+    def _on_generic_done(self, code: int):
+        self._op_progress.hide()
+        if code == 0:
+            self._op_status.setText("Done.")
+            self._op_status.setObjectName("status-ok")
+        else:
+            self._op_status.setText(f"Operation failed (exit {code}).")
+            self._op_status.setObjectName("status-err")
+        _restyle(self._op_status)
+        self._rebuild_shares_list()
+
+    def _begin_op(self, msg: str):
+        self._op_log.clear()
+        self._op_log.show()
+        self._op_status.setText(msg)
+        self._op_status.setObjectName("status-dim")
+        _restyle(self._op_status)
+        self._op_status.show()
+        self._op_progress.show()

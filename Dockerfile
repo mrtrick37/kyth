@@ -23,26 +23,12 @@ ARG ENABLE_MESA_GIT=0
 # Layer 1: All RPM package installs (~2-3 GB).
 # Stable — only re-run when packages.sh changes or the base image is updated.
 RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/packages.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/log,target=/var/log \
+    --mount=type=bind,source=build_files/RPM-GPG-KEY-microsoft,target=/ctx/RPM-GPG-KEY-microsoft \
+    --mount=type=cache,id=kyth-var-cache,target=/var/cache \
+    --mount=type=cache,id=kyth-var-log,target=/var/log \
     --mount=type=tmpfs,dst=/tmp \
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     bash /ctx/packages.sh
-
-# Plymouth boot splash + initramfs rebuild.
-# COPY tracks content hashes of theme files so Docker only re-runs the expensive
-# dracut step when the splash actually changes — not on every daily dnf upgrade.
-# Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
-# the kernel version is fixed from the base image and the initramfs built here is
-# the one that ships. Must sit before the BUILD_DATE cache-bust layer.
-COPY build_files/plymouth/kyth.plymouth             /tmp/kyth-plymouth/kyth.plymouth
-COPY build_files/plymouth/kyth.script               /tmp/kyth-plymouth/kyth.script
-COPY build_files/branding/kyth-logo-transparent.svg /tmp/kyth-branding/kyth-logo-transparent.svg
-COPY build_files/branding/transparent-watermark.svg /tmp/kyth-branding/transparent-watermark.svg
-COPY build_files/scripts/plymouth-setup.sh          /tmp/plymouth-setup.sh
-COPY build_files/scripts/plymouth-branding-guard.sh /tmp/plymouth-branding-guard.sh
-RUN bash /tmp/plymouth-setup.sh && \
-    rm -rf /tmp/kyth-plymouth /tmp/kyth-branding /tmp/plymouth-setup.sh /tmp/plymouth-branding-guard.sh
 
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
@@ -68,6 +54,23 @@ RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/third
     : "cache-bust=${THIRDPARTY_VERSIONS_HASH}" && \
     ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
 
+# Plymouth boot splash + initramfs rebuild.
+# COPY tracks content hashes of theme files so Docker only re-runs the expensive
+# dracut step when the splash actually changes — not on every daily dnf upgrade.
+# Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
+# the kernel version is fixed from the base image and the initramfs built here is
+# the one that ships. Sits after the large GE-Proton/thirdparty download layers
+# (which it does not depend on) so splash tweaks don't re-pull them, and before
+# the BUILD_DATE cache-bust layer.
+COPY build_files/plymouth/kyth.plymouth             /tmp/kyth-plymouth/kyth.plymouth
+COPY build_files/plymouth/kyth.script               /tmp/kyth-plymouth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /tmp/kyth-branding/kyth-logo-transparent.svg
+COPY build_files/branding/transparent-watermark.svg /tmp/kyth-branding/transparent-watermark.svg
+COPY build_files/scripts/plymouth-setup.sh          /tmp/plymouth-setup.sh
+COPY build_files/scripts/plymouth-branding-guard.sh /tmp/plymouth-branding-guard.sh
+RUN bash /tmp/plymouth-setup.sh && \
+    rm -rf /tmp/kyth-plymouth /tmp/kyth-branding /tmp/plymouth-setup.sh /tmp/plymouth-branding-guard.sh
+
 # Static system configuration — sysctl, kernel modules, PipeWire, Proton env
 # vars, gamemode, MangoHud, vkBasalt, bluetooth, and kyth-* service units.
 # Stable — only re-runs when sysconfig-static.sh or config defaults change,
@@ -90,7 +93,7 @@ ARG BUILD_DATE=unset
 # Layers after this one are re-run on every daily build; layers before it are
 # cached until their scripts or the base image change.
 RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-git.sh \
-    --mount=type=cache,id=s/4a742739-a2e5-48f0-bb03-5d313848ff8e-/var/cache,target=/var/cache \
+    --mount=type=cache,id=kyth-var-cache,target=/var/cache \
     --mount=type=tmpfs,dst=/tmp \
     : "cache-bust=${BUILD_DATE}" && \
     set -euo pipefail; \
@@ -100,10 +103,27 @@ RUN --mount=type=bind,source=build_files/scripts/mesa-git.sh,target=/ctx/mesa-gi
         --exclude='gstreamer1-plugins-bad' \
         --exclude='gstreamer1-plugins-bad.i686' && \
     : "── Ensure active kernel has vmlinuz + initramfs for bootc ─────────────────" && \
-    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    : "Pick the newest modules dir that contains a real kernel. The upstream base" && \
+    : "image can ship kernel-less debris dirs (kmods prebuilt for a kernel it does" && \
+    : "not ship yet, e.g. /usr/lib/modules/<newer-kver>/ with modules but no" && \
+    : "vmlinuz), so the highest-versioned dir is not necessarily the kernel." && \
+    KVER=""; \
+    for _kdir in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V); do \
+        if [ -s "/usr/lib/modules/${_kdir}/vmlinuz" ]; then KVER="${_kdir}"; fi; \
+    done; \
+    if [ -z "${KVER}" ]; then \
+        KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)"; \
+    fi && \
     test -n "${KVER}" \
         || { echo "ERROR: no kernel found in /usr/lib/modules after upgrade; contents: $(ls /usr/lib/modules/ 2>&1)" >&2; exit 1; } && \
     echo "==> kernel: ${KVER}" && \
+    for _kdir in /usr/lib/modules/*/; do \
+        _kbase="$(basename "${_kdir}")"; \
+        if [ "${_kbase}" != "${KVER}" ] && [ ! -s "${_kdir}vmlinuz" ]; then \
+            echo "  Pruning kernel-less module dir: ${_kbase}"; \
+            rm -rf "${_kdir}"; \
+        fi; \
+    done && \
     if [ ! -s "/usr/lib/modules/${KVER}/vmlinuz" ]; then \
         _src=$(find /boot -name "vmlinuz-${KVER}" 2>/dev/null | head -1); \
         if [ -n "${_src}" ] && [ -s "${_src}" ]; then \
@@ -166,9 +186,12 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     bash /ctx/scripts/branding.sh && \
     : "── Rebuild boot splash initramfs after final branding ───────────────────" && \
     /usr/libexec/kyth-plymouth-branding-guard /ctx/branding/transparent-watermark.svg && \
-    KVER="$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V | tail -n 1)" && \
+    KVER=""; \
+    for _kdir in $(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V); do \
+        if [ -s "/usr/lib/modules/${_kdir}/vmlinuz" ]; then KVER="${_kdir}"; fi; \
+    done && \
     test -n "${KVER}" \
-        || { echo "ERROR: no kernel found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
+        || { echo "ERROR: no kernel with vmlinuz found in /usr/lib/modules for branded initramfs rebuild" >&2; exit 1; } && \
     mkdir -p /etc/plymouth /usr/share/plymouth && \
     printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \

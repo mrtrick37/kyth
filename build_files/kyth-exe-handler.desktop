@@ -1,9 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=KythOS Windows App Helper
-Comment=Suggests Linux alternatives when opening Windows installers
+Name=KythOS Installer Helper
+Comment=Suggests KythOS-native paths when opening Windows installers or RPM packages
 Exec=/usr/bin/kyth-exe-handler %f
-MimeType=application/x-ms-dos-executable;application/x-msdos-program;application/x-dosexec;application/x-msi;application/x-msdownload;application/vnd.microsoft.portable-executable;
+MimeType=application/x-ms-dos-executable;application/x-msdos-program;application/x-dosexec;application/x-msi;application/x-msdownload;application/vnd.microsoft.portable-executable;application/x-rpm;application/x-redhat-package-manager;
 NoDisplay=true
 Terminal=false
 Categories=System;

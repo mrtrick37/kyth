@@ -14,9 +14,9 @@ _build_*
 output
 _build-*/**
 
-# Crash dumps
-core
-core.*
+# Crash dumps (root only, so source files named core.py stay tracked)
+/core
+/core.*
 
 
 #Ignore vscode AI rules
