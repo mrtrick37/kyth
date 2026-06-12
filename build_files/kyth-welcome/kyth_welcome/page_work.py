@@ -63,7 +63,7 @@ def _m365_desktop_entry(name: str, url: str, comment: str) -> str | None:
         f"Comment={comment}\n"
         f"Exec={shlex.join(cmd)}\n"
         f"Icon={_m365_icon(name)}\n"
-        "Categories=Office;Network;\n"
+        "Categories=Office;\n"
         f"StartupWMClass={wm_class}\n"
     )
 
