@@ -1,5 +1,10 @@
+import configparser
+import getpass
+import glob
 import os
 import re
+import shlex
+import shutil
 import subprocess
 from datetime import datetime
 
@@ -81,6 +86,76 @@ def _collect_security_status() -> list[tuple[str, str, str]]:
         "ok", "Antivirus",
         "No Defender needed: the OS is read-only and cryptographically verified on "
         "every update, and apps are sandboxed. There is nothing to subscribe to.",
+    ))
+    return rows
+
+
+def _collect_signin_status() -> list[tuple[str, str, str]]:
+    """Windows Hello-style account and sign-in overview."""
+    rows: list[tuple[str, str, str]] = []
+    user = getpass.getuser()
+
+    try:
+        result = subprocess.run(
+            ["fprintd-list", user], capture_output=True, text=True, timeout=12,
+        )
+        detail = (result.stdout + result.stderr).strip()
+    except FileNotFoundError:
+        result = None
+        detail = "fprintd is not installed"
+    except Exception as exc:
+        result = None
+        detail = str(exc)
+    lower = detail.lower()
+    if result is not None and result.returncode == 0 and "finger" in lower:
+        rows.append(("ok", "Fingerprint", "A fingerprint is enrolled for this account."))
+    elif "no devices available" in lower or "no devices" in lower:
+        rows.append(("dim", "Fingerprint", "No supported fingerprint reader was detected."))
+    elif "no fingerprints" in lower or "not enrolled" in lower:
+        rows.append(("warn", "Fingerprint", "Reader detected, but no fingerprint is enrolled yet."))
+    else:
+        rows.append(("dim", "Fingerprint", f"Fingerprint state unavailable: {detail or 'unknown state'}."))
+
+    autolock = (_command_stdout([
+        "kreadconfig6", "--file", "kscreenlockerrc", "--group", "Daemon", "--key", "Autolock",
+    ], timeout=5) or "true").lower()
+    lock_resume = (_command_stdout([
+        "kreadconfig6", "--file", "kscreenlockerrc", "--group", "Daemon", "--key", "LockOnResume",
+    ], timeout=5) or "true").lower()
+    lock_ok = autolock not in ("false", "0") and lock_resume not in ("false", "0")
+    rows.append((
+        "ok" if lock_ok else "warn", "Screen lock",
+        "Automatic locking and lock-on-resume are enabled."
+        if lock_ok else "Automatic locking or lock-on-resume is disabled; review Screen Lock settings.",
+    ))
+
+    config = configparser.ConfigParser(interpolation=None, strict=False)
+    config.optionxform = str
+    sddm_files = ["/etc/sddm.conf", *sorted(glob.glob("/etc/sddm.conf.d/*.conf"))]
+    try:
+        config.read(sddm_files)
+        autologin_user = config.get("Autologin", "User", fallback="").strip()
+    except (configparser.Error, OSError):
+        autologin_user = ""
+    autologin = autologin_user == user
+    rows.append((
+        "warn" if autologin else "ok", "Automatic login",
+        "Enabled for this account — convenient, but anyone with the PC can enter the desktop."
+        if autologin else "Off for this account; a sign-in is required after startup.",
+    ))
+
+    wallet_enabled = (_command_stdout([
+        "kreadconfig6", "--file", "kwalletrc", "--group", "Wallet", "--key", "Enabled",
+    ], timeout=5) or "true").lower() not in ("false", "0")
+    rows.append((
+        "ok" if wallet_enabled else "warn", "Credential vault",
+        "KWallet is enabled for saved app and network credentials."
+        if wallet_enabled else "KWallet is disabled; apps may store credentials less conveniently.",
+    ))
+
+    rows.append((
+        "ok", "Passkeys",
+        "Passkeys are managed by your browser or password manager and protected by its sign-in controls.",
     ))
     return rows
 
@@ -167,6 +242,7 @@ class DiagnosticsPage(Page):
         self._add(self._report)
 
         self._add(self._make_security_card())
+        self._add(self._make_signin_card())
         self._add(self._make_storage_sense_card())
 
         self._stretch()
@@ -215,6 +291,144 @@ class DiagnosticsPage(Page):
             text_lbl.setWordWrap(True)
             row.addWidget(text_lbl, 1)
             self._security_rows.addLayout(row)
+
+    # ── Sign-in options ─────────────────────────────────────────────────────
+    def _make_signin_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Sign-in options — Windows Hello style")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Review fingerprint enrollment, screen locking, automatic login, KWallet, "
+            "and passkey readiness from one place. Password sign-in always remains available."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        self._signin_rows = QVBoxLayout()
+        self._signin_rows.setSpacing(6)
+        layout.addLayout(self._signin_rows)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        enroll_btn = QPushButton("Enroll Fingerprint")
+        enroll_btn.setObjectName("primary")
+        enroll_btn.clicked.connect(self._enroll_fingerprint)
+        btns.addWidget(enroll_btn)
+        account_btn = QPushButton("Manage User Account")
+        account_btn.clicked.connect(lambda _=False: self._open_signin_settings("kcm_users", "User Accounts"))
+        btns.addWidget(account_btn)
+        lock_btn = QPushButton("Screen Lock Settings")
+        lock_btn.clicked.connect(lambda _=False: self._open_signin_settings("kcm_screenlocker", "Screen Lock"))
+        btns.addWidget(lock_btn)
+        wallet_btn = QPushButton("Open KWallet")
+        wallet_btn.clicked.connect(self._open_wallet)
+        btns.addWidget(wallet_btn)
+        refresh_btn = QPushButton("Refresh")
+        refresh_btn.clicked.connect(self._refresh_signin_status)
+        btns.addWidget(refresh_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+        self._signin_status = QLabel("")
+        self._signin_status.setObjectName("card-copy")
+        self._signin_status.setWordWrap(True)
+        layout.addWidget(self._signin_status)
+        self._refresh_signin_status()
+        return card
+
+    def _clear_signin_rows(self):
+        while self._signin_rows.count():
+            item = self._signin_rows.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+            elif item.layout():
+                while item.layout().count():
+                    child = item.layout().takeAt(0)
+                    if child.widget():
+                        child.widget().deleteLater()
+
+    def _refresh_signin_status(self):
+        worker = getattr(self, "_signin_worker", None)
+        if worker is not None and worker.isRunning():
+            return
+        self._signin_status.setText("Checking sign-in options…")
+        self._clear_signin_rows()
+        worker = DataWorker("signin", _collect_signin_status)
+        worker.result.connect(self._on_signin_status)
+        self._signin_worker = worker
+        _release_worker_when_finished(self, "_signin_worker", worker)
+        worker.start()
+
+    def _on_signin_status(self, _key: str, rows: list):
+        glyphs = {"ok": "✓", "warn": "!", "dim": "·"}
+        styles = {"ok": "status-ok", "warn": "status-warn", "dim": "status-dim"}
+        for status, area, text in rows:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            mark = QLabel(glyphs.get(status, "·"))
+            mark.setObjectName(styles.get(status, "status-dim"))
+            mark.setFixedWidth(16)
+            row.addWidget(mark)
+            area_lbl = QLabel(area)
+            area_lbl.setObjectName("card-summary")
+            area_lbl.setMinimumWidth(120)
+            row.addWidget(area_lbl)
+            text_lbl = QLabel(text)
+            text_lbl.setObjectName("card-copy")
+            text_lbl.setWordWrap(True)
+            row.addWidget(text_lbl, 1)
+            self._signin_rows.addLayout(row)
+        self._signin_status.setText("")
+
+    def _enroll_fingerprint(self):
+        if not shutil.which("fprintd-enroll"):
+            self._signin_status.setText(
+                "Fingerprint tools are available after applying the latest KythOS update and restarting."
+            )
+            return
+        user = shlex.quote(getpass.getuser())
+        command = (
+            f"fprintd-enroll {user}; code=$?; echo; "
+            "if [ $code -eq 0 ]; then echo 'Fingerprint enrollment complete.'; "
+            "else echo 'Fingerprint enrollment did not complete.'; fi; "
+            "read -rp 'Press Enter to close…'"
+        )
+        for terminal in ("konsole", "kgx", "gnome-terminal"):
+            if not shutil.which(terminal):
+                continue
+            try:
+                if terminal == "konsole":
+                    subprocess.Popen([terminal, "-e", "bash", "-lc", command])
+                else:
+                    subprocess.Popen([terminal, "--", "bash", "-lc", command])
+                self._signin_status.setText("Follow the fingerprint prompts in the terminal window.")
+                return
+            except OSError:
+                continue
+        self._open_signin_settings("kcm_users", "User Accounts")
+
+    def _open_signin_settings(self, module: str, label: str):
+        for cmd in (["kcmshell6", module], ["systemsettings", module], ["systemsettings"]):
+            if not shutil.which(cmd[0]):
+                continue
+            try:
+                subprocess.Popen(cmd)
+                self._signin_status.setText("")
+                return
+            except OSError:
+                continue
+        self._signin_status.setText(f"Could not open {label} in this session.")
+
+    def _open_wallet(self):
+        for binary in ("kwalletmanager5", "kwalletmanager6"):
+            if shutil.which(binary):
+                try:
+                    subprocess.Popen([binary])
+                    self._signin_status.setText("")
+                    return
+                except OSError:
+                    continue
+        self._signin_status.setText("KWallet Manager is not installed; saved credentials still use the KWallet service.")
 
     # ── Storage Sense ───────────────────────────────────────────────────────
     def _make_storage_sense_card(self) -> QFrame:

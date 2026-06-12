@@ -435,6 +435,12 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
+# Make enrolled fingerprints available to the login and screen-lock PAM stack.
+# fprintd-pam provides the module; authselect activates it in Fedora's profile.
+if command -v authselect >/dev/null 2>&1 && authselect current >/dev/null 2>&1; then
+    authselect enable-feature with-fingerprint
+fi
+
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
@@ -1241,6 +1247,8 @@ install -m 0755 /ctx/kyth-widevine-install /usr/bin/kyth-widevine-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-launch
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
+install -m 0755 /ctx/kyth-nearby-share /usr/bin/kyth-nearby-share
+install -m 0755 /ctx/kyth-setup-transfer /usr/bin/kyth-setup-transfer
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
@@ -1342,6 +1350,13 @@ MIMEAPPSEOF
 
 # Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
+
+# Add Windows-style nearby sharing to Dolphin's file context menu. KDE Connect
+# handles discovery and transfer; the helper prompts when multiple paired
+# devices are reachable.
+mkdir -p /usr/share/kio/servicemenus
+install -m 0644 /ctx/kyth-nearby-share.desktop \
+    /usr/share/kio/servicemenus/kyth-nearby-share.desktop
 
 # ── Right-click "New Document" templates for Dolphin ─────────────────────────
 # Any file placed in ~/Templates appears in Dolphin's right-click → Create New

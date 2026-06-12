@@ -143,6 +143,9 @@ dnf5 install -y --skip-unavailable \
 	sddm \
 	sddm-breeze \
 	kwallet-pam \
+	fprintd \
+	fprintd-pam \
+	krdc \
 	bubblewrap \
 	skopeo \
 	plasma-workspace-x11 \

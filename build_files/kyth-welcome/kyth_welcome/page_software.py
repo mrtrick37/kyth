@@ -262,7 +262,8 @@ class SoftwarePage(Page):
         ("WinSCP", "Use Dolphin's built-in sftp:// support, or install FileZilla.", "org.filezillaproject.Filezilla"),
         # Remote & networking
         ("AnyDesk", "Install AnyDesk from Flatpak for remote desktop.", "com.anydesk.Anydesk"),
-        ("TeamViewer", "Install TeamViewer from Flatpak, or use RustDesk (open-source alternative).", "com.teamviewer.TeamViewer"),
+        ("TeamViewer / Quick Assist", "Use RustDesk for remote help with a temporary ID and password.", "com.rustdesk.RustDesk"),
+        ("Nearby Share / Quick Share", "Use LocalSend across PCs and phones, or KDE Connect for paired devices.", "org.localsend.localsend_app"),
         ("PuTTY", "Use Konsole with built-in SSH: open a terminal and type ssh user@host.", ""),
         # System tools
         ("Task Manager", "Mission Center looks and works like Windows Task Manager. Installing it here also moves Ctrl+Shift+Esc to open it. (System Monitor is the built-in alternative.)", "io.missioncenter.MissionCenter"),

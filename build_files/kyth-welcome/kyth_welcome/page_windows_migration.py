@@ -11,13 +11,13 @@ import tempfile
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, Worker, _command_stdout, _finish_worker, _human_bytes, _install_flatpak_inline, _release_worker_when_finished, _restyle, _run_command,
+    DataWorker, Worker, _command_stdout, _finish_worker, _human_bytes, _install_flatpak_inline, _is_flatpak_installed, _release_worker_when_finished, _restyle, _run_command,
 )
 from .page_feedback import (  # noqa: E501
     _probe_windows_partitions,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QComboBox, QDesktopServices, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
+    QCheckBox, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card,
@@ -622,6 +622,42 @@ class WindowsMigrationPage(Page):
         onedrive_layout.addLayout(onedrive_btns)
         self._add(onedrive_card)
 
+        # Nearby Sharing equivalents
+        nearby_card, nearby_layout = _make_card("card-accent-ok")
+        nearby_title = QLabel("Nearby Sharing → LocalSend and KDE Connect")
+        nearby_title.setObjectName("card-title")
+        nearby_layout.addWidget(nearby_title)
+        nearby_body = QLabel(
+            "Send files directly over your local network without uploading them first. "
+            "LocalSend works across Windows, macOS, Linux, Android, and iPhone; KDE Connect "
+            "adds phone notifications, clipboard sharing, and a Dolphin right-click action "
+            "named Send to Nearby Device."
+        )
+        nearby_body.setObjectName("card-copy")
+        nearby_body.setWordWrap(True)
+        nearby_layout.addWidget(nearby_body)
+        nearby_btns = QHBoxLayout()
+        nearby_btns.setSpacing(8)
+        self._localsend_btn = QPushButton()
+        self._localsend_btn.setObjectName("primary")
+        self._localsend_btn.clicked.connect(self._open_or_install_localsend)
+        nearby_btns.addWidget(self._localsend_btn)
+        send_btn = QPushButton("Send a File")
+        send_btn.setToolTip("Choose files, then select a paired KDE Connect device.")
+        send_btn.clicked.connect(self._send_nearby_files)
+        nearby_btns.addWidget(send_btn)
+        pair_btn = QPushButton("Pair a Phone or PC")
+        pair_btn.clicked.connect(self._open_kde_connect)
+        nearby_btns.addWidget(pair_btn)
+        nearby_btns.addStretch()
+        nearby_layout.addLayout(nearby_btns)
+        self._nearby_status = QLabel("")
+        self._nearby_status.setObjectName("card-copy")
+        self._nearby_status.setWordWrap(True)
+        nearby_layout.addWidget(self._nearby_status)
+        self._refresh_localsend_btn()
+        self._add(nearby_card)
+
         # Phone Link replacement
         phone_card, phone_layout = _make_card()
         phone_title = QLabel("Phone Link → KDE Connect")
@@ -901,6 +937,48 @@ class WindowsMigrationPage(Page):
             "KDE Connect isn't available in this session — install it from the App Store, "
             "or check System Settings → Connected Devices."
         )
+
+    def _refresh_localsend_btn(self):
+        installed = _is_flatpak_installed("org.localsend.localsend_app")
+        self._localsend_btn.setText("Open LocalSend" if installed else "Install LocalSend")
+
+    def _open_or_install_localsend(self):
+        app_id = "org.localsend.localsend_app"
+        if _is_flatpak_installed(app_id):
+            try:
+                subprocess.Popen(["flatpak", "run", app_id])
+                self._nearby_status.setText("LocalSend opened. Devices on the same network appear automatically.")
+            except OSError as exc:
+                self._nearby_status.setText(f"Could not open LocalSend: {exc}")
+            return
+
+        def _installed(code: int):
+            if code == 0:
+                self._localsend_btn.setEnabled(True)
+                self._refresh_localsend_btn()
+                self._nearby_status.setText("LocalSend installed — open it on both devices to start sharing.")
+
+        _install_flatpak_inline(
+            self, self._localsend_btn, app_id, "LocalSend", done_cb=_installed,
+        )
+
+    def _send_nearby_files(self):
+        paths, _ = QFileDialog.getOpenFileNames(
+            self, "Send files to a nearby device", os.path.expanduser("~")
+        )
+        if not paths:
+            return
+        helper = "/usr/bin/kyth-nearby-share"
+        if not os.path.exists(helper):
+            self._nearby_status.setText(
+                "Nearby Sharing is available after applying the latest KythOS update and restarting."
+            )
+            return
+        try:
+            subprocess.Popen([helper, *paths])
+            self._nearby_status.setText("Choose the destination device in the Nearby Sharing prompt.")
+        except OSError as exc:
+            self._nearby_status.setText(f"Could not start Nearby Sharing: {exc}")
 
     def _open_krunner(self):
         for cmd in (["krunner"], ["qdbus6", "org.kde.krunner", "/App", "display"]):
