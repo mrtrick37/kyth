@@ -17,7 +17,7 @@ try:
         QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
         QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
         QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
-        QDialogButtonBox, QGridLayout, QCompleter,
+        QDialogButtonBox, QGridLayout, QCompleter, QInputDialog,
     )
     from PySide6.QtCore import (
         Qt, QThread, Signal, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,
@@ -31,7 +31,7 @@ except ImportError:
         QPushButton, QLabel, QTextEdit, QStackedWidget, QProgressBar,
         QFrame, QScrollArea, QFileDialog, QMessageBox, QLineEdit,
         QSizePolicy, QDialog, QCheckBox, QComboBox, QRadioButton, QButtonGroup,
-        QDialogButtonBox, QGridLayout, QCompleter,
+        QDialogButtonBox, QGridLayout, QCompleter, QInputDialog,
     )
     from PyQt6.QtCore import (
         Qt, QThread, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,

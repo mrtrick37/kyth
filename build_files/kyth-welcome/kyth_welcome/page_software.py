@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _apply_install_badge, _davinci_download_dir, _davinci_flatpak_app_id, _davinci_zip_candidates, _finish_worker, _is_flatpak_installed, _restyle,
+    Worker, _apply_install_badge, _chromium_app_window_cmd, _davinci_download_dir, _davinci_flatpak_app_id, _davinci_zip_candidates, _finish_worker, _install_flatpak_inline, _is_flatpak_installed, _restyle,
 )
 from .qt import (  # noqa: E501
     QButtonGroup, QCheckBox, QComboBox, QDesktopServices, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QRadioButton, QTextEdit, QUrl, QVBoxLayout, QWidget, Qt,
@@ -53,24 +53,6 @@ def _is_socket_capable_kali_box(name: str) -> bool:
         return "kali" in image and privileged == "true" and "label=disable" in security_opts
     except Exception:
         return False
-
-
-def _chromium_app_window_cmd(url: str, wm_class: str) -> list[str] | None:
-    """Build a command that opens url as a dedicated app window, or None.
-
-    KythOS ships Brave as a Flatpak, not a native chromium-browser binary, so
-    native binaries are only found on systems where the user installed one.
-    """
-    args = [f"--app={url}", f"--class={wm_class}", f"--name={wm_class}"]
-    for binary in ("chromium-browser", "chromium", "brave-browser",
-                   "microsoft-edge", "google-chrome"):
-        if shutil.which(binary):
-            return [binary, *args]
-    for app_id in ("com.brave.Browser", "org.chromium.Chromium",
-                   "com.microsoft.Edge", "com.google.Chrome"):
-        if _is_flatpak_installed(app_id):
-            return ["flatpak", "run", app_id, *args]
-    return None
 
 
 _INSTALL_VSCODE_CMD = [
@@ -252,7 +234,7 @@ class SoftwarePage(Page):
         # Productivity
         ("Microsoft Office", "Use LibreOffice locally, or pin Microsoft 365 as a Web App.", "org.libreoffice.LibreOffice"),
         ("Word / Excel / PowerPoint", "LibreOffice Writer, Calc, and Impress are drop-in replacements. Install below.", "org.libreoffice.LibreOffice"),
-        ("Outlook", "Use Thunderbird for mail/calendar, or pin Outlook Web as a Web App.", "org.mozilla.Thunderbird"),
+        ("Outlook", "Use Betterbird for mail/calendar, or pin Outlook Web as a Web App.", "eu.betterbird.Betterbird"),
         ("Teams", "Use Teams in the browser and pin it with WebApp Manager.", "io.github.vikdevelop.WebApp"),
         ("OneDrive", "Use the OneDrive web app, KDE Online Accounts, or the Cloud Storage page for sync-style workflows.", ""),
         ("Zoom", "Install the Zoom Flatpak — full video calls, screen share, and breakout rooms.", "us.zoom.Zoom"),
@@ -283,7 +265,7 @@ class SoftwarePage(Page):
         ("TeamViewer", "Install TeamViewer from Flatpak, or use RustDesk (open-source alternative).", "com.teamviewer.TeamViewer"),
         ("PuTTY", "Use Konsole with built-in SSH: open a terminal and type ssh user@host.", ""),
         # System tools
-        ("Task Manager", "System Monitor is already installed — find it in the app menu or press Ctrl+Esc.", ""),
+        ("Task Manager", "Mission Center looks and works like Windows Task Manager. Installing it here also moves Ctrl+Shift+Esc to open it. (System Monitor is the built-in alternative.)", "io.missioncenter.MissionCenter"),
         ("VirtualBox", "Use GNOME Boxes from Flatpak — simpler VM setup for most use cases.", "org.gnome.Boxes"),
         ("CCleaner", "Not needed — KythOS is immutable and self-maintaining. Run 'ujust kyth-upgrade' to update.", ""),
         # Communication & social
@@ -745,7 +727,26 @@ class SoftwarePage(Page):
         else:
             self._familiar_install_btn.hide()
 
+    # After Mission Center installs, hand it the Task Manager shortcut:
+    # Ctrl+Shift+Esc launches it and the stock System Monitor binding clears
+    # so the two never race for the key. kglobalaccel rereads on restart.
+    _MISSION_CENTER_REBIND_CMD = (
+        "kwriteconfig6 --file kglobalshortcutsrc"
+        " --group services --group io.missioncenter.MissionCenter.desktop"
+        " --key _launch 'Ctrl+Shift+Esc'"
+        " && kwriteconfig6 --file kglobalshortcutsrc"
+        " --group org.kde.plasma-systemmonitor.desktop"
+        " --key _launch 'none,none,System Monitor'"
+        " && (systemctl --user restart plasma-kglobalaccel.service || true)"
+    )
+
     def _install_familiar_app(self, app_id: str, name: str):
+        if app_id == "io.missioncenter.MissionCenter":
+            _install_flatpak_inline(
+                self, self._familiar_install_btn, app_id, name,
+                extra_cmd=self._MISSION_CENTER_REBIND_CMD,
+            )
+            return
         self._switch_tab(4)
         self._fp_search_box.setText(app_id)
         self._fp_install(app_id, name, self._familiar_install_btn)

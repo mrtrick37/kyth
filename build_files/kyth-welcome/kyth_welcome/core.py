@@ -794,6 +794,24 @@ def _is_flatpak_installed(app_id: str) -> bool:
     return result is not None and result.returncode == 0
 
 
+def _chromium_app_window_cmd(url: str, wm_class: str) -> list[str] | None:
+    """Build a command that opens url as a dedicated app window, or None.
+
+    KythOS ships Brave as a Flatpak, not a native chromium-browser binary, so
+    native binaries are only found on systems where the user installed one.
+    """
+    args = [f"--app={url}", f"--class={wm_class}", f"--name={wm_class}"]
+    for binary in ("chromium-browser", "chromium", "brave-browser",
+                   "microsoft-edge", "google-chrome"):
+        if shutil.which(binary):
+            return [binary, *args]
+    for app_id in ("com.brave.Browser", "org.chromium.Chromium",
+                   "com.microsoft.Edge", "com.google.Chrome"):
+        if _is_flatpak_installed(app_id):
+            return ["flatpak", "run", app_id, *args]
+    return None
+
+
 def _install_flatpak_inline(owner: object, btn: QPushButton, app_id: str, name: str,
                             extra_cmd: str = "", done_cb=None) -> None:
     """Install a Flathub app on a Worker thread, driving the button state.
@@ -1236,7 +1254,16 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
     lutris_ok = _is_flatpak_installed("net.lutris.Lutris")
     controllers = _detect_controllers()
     controller_count = len(controllers.get("usb_controllers", [])) + len(controllers.get("input_nodes", []))
-    ntfs_count = len(_find_ntfs_drives())
+    windows_drives = _find_ntfs_drives()
+    ntfs_count = sum(not d.get("is_bitlocker") for d in windows_drives)
+    bitlocker_count = sum(bool(d.get("is_bitlocker")) for d in windows_drives)
+    if bitlocker_count:
+        windows_drive_summary = (
+            f"{ntfs_count} readable NTFS and {bitlocker_count} locked BitLocker "
+            "partition(s) detected; unlock and migrate them below."
+        )
+    else:
+        windows_drive_summary = f"{ntfs_count} NTFS partition(s) detected; use migration below."
 
     return [
         ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam to run your Steam library."),
@@ -1249,7 +1276,7 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
         ("ok" if _mangohud_installed() else "warn", "MangoHud", "Installed." if _mangohud_installed() else "Missing performance overlay."),
         ("ok" if controller_count else "dim", "Controllers", f"{controller_count} controller input(s) detected." if controller_count else "Connect one and press Refresh."),
         ("ok" if heroic_ok or lutris_ok else "dim", "Non-Steam launchers", "Heroic or Lutris installed." if heroic_ok or lutris_ok else "Install Heroic or Lutris for Epic, GOG, Battle.net, EA, and Ubisoft."),
-        ("warn" if ntfs_count else "ok", "Windows game drives", f"{ntfs_count} NTFS partition(s) detected; use migration below." if ntfs_count else "No NTFS game drives detected."),
+        ("warn" if windows_drives else "ok", "Windows game drives", windows_drive_summary if windows_drives else "No Windows game drives detected."),
         ("warn" if _has_staged_update() else "ok", "OS update", "Update staged; reboot before benchmarking." if _has_staged_update() else "No staged OS update."),
     ]
 
@@ -1263,14 +1290,23 @@ def _gaming_migration_checklist_items() -> list[tuple[str, str, str]]:
     ludusavi_status, _, ludusavi_summary = _ludusavi_backup_summary()
     controller_info = _detect_controllers()
     controller_count = len(controller_info.get("usb_controllers", [])) + len(controller_info.get("input_nodes", []))
-    ntfs_count = len(_find_ntfs_drives())
+    windows_drives = _find_ntfs_drives()
+    ntfs_count = sum(not d.get("is_bitlocker") for d in windows_drives)
+    bitlocker_count = sum(bool(d.get("is_bitlocker")) for d in windows_drives)
+    if bitlocker_count:
+        migration_summary = (
+            f"{ntfs_count} readable NTFS and {bitlocker_count} locked BitLocker "
+            "partition(s) detected; unlock them on Move From Windows first."
+        )
+    else:
+        migration_summary = f"{ntfs_count} NTFS partition(s) detected; copy games read-only below."
     ge_ver = _ge_proton_version()
     return [
         ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
         ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing Windows games."),
         ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
         (ludusavi_status, "Saves backed up", ludusavi_summary),
-        ("warn" if ntfs_count else "dim", "Windows library migration", f"{ntfs_count} NTFS partition(s) detected; copy games read-only below." if ntfs_count else "No Windows game drive detected."),
+        ("warn" if windows_drives else "dim", "Windows library migration", migration_summary if windows_drives else "No Windows game drive detected."),
         ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
         ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
         ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
@@ -2994,7 +3030,7 @@ def _restyle(widget: QWidget):
 # ── NTFS / Steam migration helpers ───────────────────────────────────────────
 
 def _find_ntfs_drives() -> list[dict]:
-    """Return a list of NTFS partitions visible to lsblk."""
+    """Return Windows NTFS and locked BitLocker partitions visible to lsblk."""
     try:
         r = subprocess.run(
             ["lsblk", "--json", "--output", "NAME,FSTYPE,SIZE,LABEL,MOUNTPOINT,PATH"],
@@ -3010,7 +3046,8 @@ def _find_ntfs_drives() -> list[dict]:
         for dev in devices:
             if not isinstance(dev, dict):
                 continue
-            if (dev.get("fstype") or "").lower() in ("ntfs", "ntfs3"):
+            fstype = (dev.get("fstype") or "").lower()
+            if fstype in ("ntfs", "ntfs3", "bitlocker"):
                 name = dev.get("name") or ""
                 path = dev.get("path") or (f"/dev/{name}" if name else "")
                 if not path:
@@ -3021,6 +3058,7 @@ def _find_ntfs_drives() -> list[dict]:
                     "size":  dev.get("size", "?"),
                     "label": dev.get("label") or "",
                     "mount": dev.get("mountpoint") or "",
+                    "is_bitlocker": fstype == "bitlocker",
                 })
             _walk(dev.get("children") or [])
 

@@ -1,13 +1,15 @@
+import glob
 import os
+import shlex
 import shutil
 import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _install_flatpak_inline, _is_flatpak_installed,
+    DataWorker, Worker, _chromium_app_window_cmd, _find_ntfs_drives, _install_flatpak_inline, _is_flatpak_installed, _release_worker_when_finished,
 )
 from .qt import (  # noqa: E501
-    QHBoxLayout, QLabel, QPushButton,
+    QFileDialog, QHBoxLayout, QLabel, QMessageBox, QPushButton,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card,
@@ -18,7 +20,7 @@ from .widgets import (  # noqa: E501
 _WORK_APPS = [
     ("org.libreoffice.LibreOffice", "LibreOffice",
      "Writer, Calc, and Impress — opens and saves Word, Excel, and PowerPoint files."),
-    ("org.mozilla.Thunderbird", "Thunderbird",
+    ("eu.betterbird.Betterbird", "Betterbird",
      "Desktop email, calendar, and contacts — connects to Microsoft 365, Gmail, and IMAP accounts."),
 ]
 
@@ -41,14 +43,17 @@ def _ms_fonts_installed() -> bool:
         return False
 
 
-def _m365_desktop_entry(name: str, url: str, comment: str) -> str:
+def _m365_desktop_entry(name: str, url: str, comment: str) -> str | None:
     wm_class = f"Microsoft365-{name}"
+    cmd = _chromium_app_window_cmd(url, wm_class)
+    if cmd is None:
+        return None
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
         f"Name={name} (Microsoft 365)\n"
         f"Comment={comment}\n"
-        f"Exec=chromium-browser --app={url} --class={wm_class} --name={wm_class}\n"
+        f"Exec={shlex.join(cmd)}\n"
         "Icon=internet-web-browser\n"
         "Categories=Office;Network;\n"
         f"StartupWMClass={wm_class}\n"
@@ -66,14 +71,58 @@ def _create_m365_shortcuts() -> int:
     except OSError:
         return 0
     for name, url, comment in _M365_APPS:
+        entry = _m365_desktop_entry(name, url, comment)
+        if entry is None:
+            continue
         path = os.path.join(apps_dir, f"kyth-m365-{name.lower()}.desktop")
         try:
             with open(path, "w", encoding="utf-8") as fh:
-                fh.write(_m365_desktop_entry(name, url, comment))
+                fh.write(entry)
             written += 1
         except OSError:
             pass
     return written
+
+
+# ── Outlook PST archives ──────────────────────────────────────────────────────
+
+_PST_IMPORT_DIR = os.path.expanduser("~/Documents/Outlook Import")
+
+
+def _scan_for_pst_files() -> list[str]:
+    """Look for Outlook .pst archives in the usual Windows locations."""
+    found: list[str] = []
+    roots = [d.get("mount") for d in _find_ntfs_drives() if d.get("mount")]
+    roots.append(os.path.expanduser("~"))
+    for root in roots:
+        for pattern in (
+            "Users/*/Documents/Outlook Files/*.pst",
+            "Users/*/Documents/*.pst",
+            "Users/*/AppData/Local/Microsoft/Outlook/*.pst",
+            "Documents/*.pst",
+            "Downloads/*.pst",
+        ):
+            found.extend(glob.glob(os.path.join(root, pattern)))
+    return sorted(set(found))
+
+
+def _convert_pst(path: str) -> tuple[bool, str]:
+    """Convert a .pst to mbox folders under ~/Documents/Outlook Import."""
+    name = os.path.splitext(os.path.basename(path))[0]
+    dest = os.path.join(_PST_IMPORT_DIR, name)
+    try:
+        os.makedirs(dest, exist_ok=True)
+        r = subprocess.run(
+            ["readpst", "-r", "-o", dest, path],
+            capture_output=True, text=True, timeout=3600,
+        )
+    except FileNotFoundError:
+        return False, "readpst is not installed — update KythOS to the latest image."
+    except Exception as exc:
+        return False, str(exc)
+    if r.returncode != 0:
+        return False, (r.stderr or r.stdout).strip() or "Conversion failed."
+    return True, dest
 
 
 def _m365_shortcuts_present() -> bool:
@@ -94,6 +143,7 @@ class WorkSetupPage(Page):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
         self._ms_fonts_worker: Worker | None = None
+        self._pst_worker: DataWorker | None = None
 
         self._page_header(
             "Apps",
@@ -106,6 +156,7 @@ class WorkSetupPage(Page):
         self._add(self._make_work_apps_card())
         self._add(self._make_m365_card())
         self._add(self._make_fonts_card())
+        self._add(self._make_pst_card())
         self._add(self._make_connect_card())
         self._stretch()
 
@@ -116,7 +167,7 @@ class WorkSetupPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         copy = QLabel(
-            "LibreOffice covers Word, Excel, and PowerPoint files. Thunderbird handles "
+            "LibreOffice covers Word, Excel, and PowerPoint files. Betterbird handles "
             "work email and calendars. Both install from Flathub in one click."
         )
         copy.setObjectName("card-copy")
@@ -171,15 +222,26 @@ class WorkSetupPage(Page):
             open_btn = QPushButton(f"Open {name}")
             open_btn.setToolTip(f"{tip} — opens in a dedicated window")
             open_btn.clicked.connect(
-                lambda _=False, u=url, n=name: subprocess.Popen([
-                    "chromium-browser", f"--app={u}",
-                    f"--class=Microsoft365-{n}", f"--name=Microsoft365-{n}",
-                ])
+                lambda _=False, u=url, n=name: self._open_m365_webapp(u, n)
             )
             btns.addWidget(open_btn)
         btns.addStretch()
         layout.addLayout(btns)
         return card
+
+    def _open_m365_webapp(self, url: str, name: str) -> None:
+        cmd = _chromium_app_window_cmd(url, f"Microsoft365-{name}")
+        if cmd is None:
+            QMessageBox.warning(
+                self, "No browser found",
+                "Opening web app shortcuts needs a Chromium-family browser "
+                "(Brave, Chromium, Edge, or Chrome), but none was found.",
+            )
+            return
+        try:
+            subprocess.Popen(cmd)
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not open web app", str(exc))
 
     def _on_add_m365(self):
         written = _create_m365_shortcuts()
@@ -243,10 +305,113 @@ class WorkSetupPage(Page):
             self._fonts_btn.setText("Install Microsoft Fonts")
             self._fonts_status.setText("✗ Installation failed. Check your network connection and try again.")
 
+    # ── Outlook PST archives ───────────────────────────────────────────────
+    def _make_pst_card(self):
+        card, layout = _make_card()
+        title = QLabel("4. Outlook archives — bring your old email (.pst)")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        copy = QLabel(
+            "Years of mail live in Outlook .pst archive files that nothing on Linux opens "
+            "directly. KythOS converts them to the standard mbox format: in Betterbird, "
+            "add the ImportExportTools NG add-on, then Tools → ImportExportTools NG → "
+            "Import mbox file and pick the converted folder."
+        )
+        copy.setObjectName("card-copy")
+        copy.setWordWrap(True)
+        layout.addWidget(copy)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        self._pst_scan_btn = QPushButton("Find PST Files")
+        self._pst_scan_btn.setObjectName("primary")
+        self._pst_scan_btn.setToolTip("Scans mounted Windows drives and your home folder for Outlook archives.")
+        self._pst_scan_btn.clicked.connect(self._scan_pst)
+        btns.addWidget(self._pst_scan_btn)
+        pick_btn = QPushButton("Choose PST File…")
+        pick_btn.clicked.connect(self._pick_pst)
+        btns.addWidget(pick_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+
+        self._pst_status = QLabel("")
+        self._pst_status.setObjectName("card-copy")
+        self._pst_status.setWordWrap(True)
+        self._pst_status.hide()
+        layout.addWidget(self._pst_status)
+        self._pst_found_row = QHBoxLayout()
+        self._pst_found_row.setSpacing(8)
+        layout.addLayout(self._pst_found_row)
+        return card
+
+    def _set_pst_status(self, text: str):
+        self._pst_status.setText(text)
+        self._pst_status.show()
+
+    def _scan_pst(self):
+        if self._pst_worker is not None and self._pst_worker.isRunning():
+            return
+        self._pst_scan_btn.setEnabled(False)
+        self._set_pst_status("Scanning for Outlook archives…")
+        worker = DataWorker("pst-scan", _scan_for_pst_files)
+        worker.result.connect(self._on_pst_found)
+        self._pst_worker = worker
+        _release_worker_when_finished(self, "_pst_worker", worker)
+        worker.start()
+
+    def _on_pst_found(self, _key: str, paths: list):
+        self._pst_scan_btn.setEnabled(True)
+        while self._pst_found_row.count():
+            item = self._pst_found_row.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+        if not paths:
+            self._set_pst_status(
+                "No .pst files found. If your Windows drive is not mounted yet, "
+                "scan and unlock it from the Move From Windows page first, or "
+                "use Choose PST File."
+            )
+            return
+        self._set_pst_status(f"Found {len(paths)} archive{'s' if len(paths) != 1 else ''} — click one to convert:")
+        for path in paths[:6]:
+            btn = QPushButton(os.path.basename(path))
+            btn.setToolTip(path)
+            btn.clicked.connect(lambda _=False, p=path: self._convert_pst(p))
+            self._pst_found_row.addWidget(btn)
+        self._pst_found_row.addStretch()
+
+    def _pick_pst(self):
+        path, _ = QFileDialog.getOpenFileName(
+            self, "Choose an Outlook archive", os.path.expanduser("~"),
+            "Outlook archives (*.pst *.ost);;All files (*)",
+        )
+        if path:
+            self._convert_pst(path)
+
+    def _convert_pst(self, path: str):
+        if self._pst_worker is not None and self._pst_worker.isRunning():
+            return
+        self._set_pst_status(f"Converting {os.path.basename(path)} — large archives can take a while…")
+        worker = DataWorker("pst-convert", lambda: _convert_pst(path))
+        worker.result.connect(self._on_pst_converted)
+        self._pst_worker = worker
+        _release_worker_when_finished(self, "_pst_worker", worker)
+        worker.start()
+
+    def _on_pst_converted(self, _key: str, result: tuple):
+        ok, detail = result
+        if ok:
+            self._set_pst_status(
+                f"✓ Converted to {detail}. In Betterbird: add the ImportExportTools NG "
+                "add-on, then Tools → ImportExportTools NG → Import mbox file."
+            )
+        else:
+            self._set_pst_status(f"✗ Conversion failed: {detail}")
+
     # ── Workplace connections ──────────────────────────────────────────────
     def _make_connect_card(self):
         card, layout = _make_card()
-        title = QLabel("4. Connect to your workplace")
+        title = QLabel("5. Connect to your workplace")
         title.setObjectName("card-title")
         layout.addWidget(title)
         copy = QLabel(

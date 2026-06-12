@@ -155,6 +155,7 @@ dnf5 install -y --skip-unavailable \
 	cabextract \
 	ntfs-3g \
 	ntfsprogs \
+	libpst \
 	cifs-utils \
 	rsync \
 	xorriso \

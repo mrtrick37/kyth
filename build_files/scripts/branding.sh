@@ -630,7 +630,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v6"
+version="v7"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -802,10 +802,20 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
     kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
 
-    # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
-    kwriteconfig6 --file kglobalshortcutsrc \
-        --group org.kde.plasma-systemmonitor.desktop \
-        --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+    # Ctrl+Shift+Esc opens Mission Center when installed, with KDE System
+    # Monitor as the always-available fallback.
+    if flatpak info io.missioncenter.MissionCenter >/dev/null 2>&1; then
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group services --group io.missioncenter.MissionCenter.desktop \
+            --key _launch 'Ctrl+Shift+Esc'
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group org.kde.plasma-systemmonitor.desktop \
+            --key _launch 'none,none,System Monitor'
+    else
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group org.kde.plasma-systemmonitor.desktop \
+            --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+    fi
 
     # Double-click to open files — KDE defaults to single-click; Windows users
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
@@ -826,6 +836,17 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --group org.kde.klipper.desktop \
         --key show_clipboard_history \
         'Meta+V,Ctrl+Alt+V,Show Clipboard History'
+
+    # Win+E → file manager and Win+Shift+S → region screenshot, the two
+    # heaviest pieces of Windows muscle memory. Same keys the Move From Windows
+    # page applies; its "Restore KDE Defaults" button remains the opt-out.
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group services --group org.kde.dolphin.desktop \
+        --key _launch 'Meta+E'
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.spectacle.desktop \
+        --key RectangularRegionScreenShot \
+        'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
 
     # Alt+Tab window switcher — thumbnail grid instead of KDE's default icon strip.
     # Windows users expect large previews when switching windows; the KDE default
@@ -908,6 +929,13 @@ fi
 
 if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
     /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
+fi
+
+# Recycle Bin on the desktop for existing accounts. Seeded once per polish
+# version — deleting it afterwards is respected until the next version bump.
+if [[ -d "${HOME}/Desktop" && ! -e "${HOME}/Desktop/kyth-recycle-bin.desktop" ]] \
+    && [[ -f /usr/share/kyth/kyth-recycle-bin.desktop ]]; then
+    cp /usr/share/kyth/kyth-recycle-bin.desktop "${HOME}/Desktop/kyth-recycle-bin.desktop" || true
 fi
 
 touch "${stamp}"
@@ -1066,6 +1094,78 @@ install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
 mkdir -p /etc/skel/Desktop
 install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
     /etc/skel/Desktop/kyth-welcome.desktop
+
+# Recycle Bin on the desktop — Windows users look for it there. Type=Link
+# entries open in Dolphin and need no executable/trust bit. Kept in
+# /usr/share/kyth so the user-polish pass can seed existing accounts too.
+mkdir -p /usr/share/kyth
+cat > /usr/share/kyth/kyth-recycle-bin.desktop <<'TRASHEOF'
+[Desktop Entry]
+Type=Link
+URL=trash:/
+Name=Recycle Bin
+GenericName=Trash
+Icon=user-trash
+TRASHEOF
+install -m 0644 /usr/share/kyth/kyth-recycle-bin.desktop \
+    /etc/skel/Desktop/kyth-recycle-bin.desktop
+
+# ── Storage Sense ─────────────────────────────────────────────────────────────
+# Windows-style automatic housekeeping: empty Recycle Bin items older than 30
+# days, drop unused Flatpak runtimes, vacuum the user journal. Opt-in — the
+# timer ships disabled and System Hub → Health Report has the on/off switch,
+# matching how Storage Sense is something Windows users turn on, not fight.
+cat > /usr/bin/kyth-storage-sense <<'STORAGESENSEEOF'
+#!/usr/bin/env bash
+# KythOS Storage Sense — enable/disable from System Hub → Health Report.
+set -uo pipefail
+
+days=30
+info_dir="${HOME}/.local/share/Trash/info"
+files_dir="${HOME}/.local/share/Trash/files"
+now=$(date +%s)
+
+# Trash entries record their deletion time in .trashinfo (XDG trash spec);
+# only entries older than the cutoff are removed, never the whole bin.
+if [[ -d "${info_dir}" ]]; then
+    for info in "${info_dir}"/*.trashinfo; do
+        [[ -e "${info}" ]] || continue
+        deleted=$(sed -n 's/^DeletionDate=//p' "${info}" | head -1)
+        [[ -n "${deleted}" ]] || continue
+        ts=$(date -d "${deleted}" +%s 2>/dev/null) || continue
+        if (( now - ts > days * 86400 )); then
+            name=$(basename "${info}" .trashinfo)
+            rm -rf -- "${files_dir:?}/${name}" "${info}" 2>/dev/null || true
+        fi
+    done
+fi
+
+flatpak uninstall --unused -y --noninteractive >/dev/null 2>&1 || true
+journalctl --user --vacuum-time=30d >/dev/null 2>&1 || true
+STORAGESENSEEOF
+chmod +x /usr/bin/kyth-storage-sense
+
+cat > /usr/lib/systemd/user/kyth-storage-sense.service <<'STORAGESENSESVCEOF'
+[Unit]
+Description=KythOS Storage Sense cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-storage-sense
+STORAGESENSESVCEOF
+
+cat > /usr/lib/systemd/user/kyth-storage-sense.timer <<'STORAGESENSETIMEREOF'
+[Unit]
+Description=Weekly KythOS Storage Sense cleanup
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
+STORAGESENSETIMEREOF
 
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \

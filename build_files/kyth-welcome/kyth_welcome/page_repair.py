@@ -5,7 +5,7 @@ import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _bootc_image_timestamp, _command_stdout, _detect_nvidia, _finish_worker, _has_rollback_deployment, _restyle, _set_session_inhibit, _with_idle_inhibit,
+    Worker, _bootc_image_timestamp, _command_stdout, _detect_nvidia, _finish_worker, _has_rollback_deployment, _install_flatpak_inline, _is_flatpak_installed, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
     QDesktopServices, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl,
@@ -245,6 +245,32 @@ class RepairPage(Page):
         printer_layout.addLayout(printer_btns)
         self._add(printer_card)
 
+        # File History — backups (Pika Backup wraps borg snapshots)
+        backup_card, backup_layout = _make_card()
+        backup_title = QLabel("File History — automatic backups")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+        backup_body = QLabel(
+            "Like File History on Windows: pick a backup drive (or network location), "
+            "and Pika Backup keeps scheduled snapshots of your files. Restore any "
+            "earlier version of a file from the same app. Snapshots are deduplicated, "
+            "so keeping months of history costs little space."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+        backup_btns = QHBoxLayout()
+        backup_btns.setSpacing(8)
+        pika_installed = _is_flatpak_installed("org.gnome.World.PikaBackup")
+        self._backup_btn = QPushButton("Open Pika Backup" if pika_installed else "Set Up File History")
+        self._backup_btn.setObjectName("primary")
+        self._backup_btn.setToolTip("Installs Pika Backup from Flathub, then schedule backups of your home folder to a USB drive or network share.")
+        self._backup_btn.clicked.connect(self._on_file_history)
+        backup_btns.addWidget(self._backup_btn)
+        backup_btns.addStretch()
+        backup_layout.addLayout(backup_btns)
+        self._add(backup_card)
+
         # Session snapshot
         snapshot_card, snapshot_layout = _make_card()
         snapshot_title = QLabel("Session Snapshot")
@@ -443,6 +469,22 @@ class RepairPage(Page):
         self._sleep_fix_status.setObjectName("card-copy")
         _restyle(self._sleep_fix_status)
 
+    def _on_file_history(self):
+        if _is_flatpak_installed("org.gnome.World.PikaBackup"):
+            try:
+                subprocess.Popen(["flatpak", "run", "org.gnome.World.PikaBackup"])
+            except OSError:
+                pass
+            return
+        def _launch_after_install(code: int):
+            if code == 0:
+                self._backup_btn.setText("Open Pika Backup")
+                self._backup_btn.setEnabled(True)
+        _install_flatpak_inline(
+            self, self._backup_btn, "org.gnome.World.PikaBackup", "Pika Backup",
+            done_cb=_launch_after_install,
+        )
+
     def _run_session_snapshot(self):
         if self._snapshot_worker and self._snapshot_worker.isRunning():
             return
@@ -460,6 +502,12 @@ class RepairPage(Page):
             self._snapshot_status.setText(f"Snapshot failed (exit {code}).")
 
     def _open_task_manager(self):
+        if _is_flatpak_installed("io.missioncenter.MissionCenter"):
+            try:
+                subprocess.Popen(["flatpak", "run", "io.missioncenter.MissionCenter"])
+                return
+            except OSError:
+                pass
         for cmd in (["plasma-systemmonitor"], ["ksysguard"], ["konsole", "-e", "btop"], ["konsole", "-e", "top"]):
             if shutil.which(cmd[0]):
                 subprocess.Popen(cmd)

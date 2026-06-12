@@ -5,14 +5,84 @@ from datetime import datetime
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, HardwareProbe, HardwareProbeWorker, _diagnostics_report, _finish_worker, _health_command_report, _health_recommendations, _restyle,
+    DataWorker, HardwareProbe, HardwareProbeWorker, _command_stdout, _diagnostics_report, _finish_worker, _has_rollback_deployment, _has_staged_update, _health_command_report, _health_recommendations, _release_worker_when_finished, _restyle,
 )
 from .qt import (  # noqa: E501
-    QApplication, QFileDialog, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 from .widgets import (  # noqa: E501
     HardwareCard, Page, _make_card,
 )
+
+
+# ── Security overview ─────────────────────────────────────────────────────────
+
+def _storage_sense_enabled() -> bool:
+    try:
+        r = subprocess.run(
+            ["systemctl", "--user", "is-enabled", "kyth-storage-sense.timer"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip() == "enabled"
+    except Exception:
+        return False
+
+
+def _collect_security_status() -> list[tuple[str, str, str]]:
+    """Windows Security-style overview rows: (status, area, text)."""
+    rows: list[tuple[str, str, str]] = []
+
+    try:
+        r = subprocess.run(["systemctl", "is-active", "firewalld"],
+                           capture_output=True, text=True, timeout=5)
+        fw_on = r.stdout.strip() == "active"
+    except Exception:
+        fw_on = False
+    rows.append((
+        "ok" if fw_on else "warn", "Firewall",
+        "firewalld is running — inbound connections are filtered."
+        if fw_on else "firewalld is not running — check Repair if you didn't disable it yourself.",
+    ))
+
+    enforce = (_command_stdout(["getenforce"], timeout=5) or "").strip()
+    rows.append((
+        "ok" if enforce == "Enforcing" else "warn", "Access control",
+        "SELinux is enforcing — system files and services are isolated."
+        if enforce == "Enforcing" else f"SELinux is {enforce or 'unavailable'} (expected: Enforcing).",
+    ))
+
+    sb = (_command_stdout(["mokutil", "--sb-state"], timeout=5) or "").lower()
+    if "enabled" in sb:
+        rows.append(("ok", "Secure Boot", "Firmware verifies the boot chain before KythOS starts."))
+    elif "disabled" in sb:
+        rows.append(("warn", "Secure Boot", "Disabled. Optional — enable in firmware and run 'ujust enroll-secureboot'."))
+    else:
+        rows.append(("dim", "Secure Boot", "State unknown (no EFI variables — likely a VM or legacy BIOS boot)."))
+
+    rows.append((
+        "ok", "App sandboxing",
+        "Store apps run as Flatpaks in sandboxes — permissions are reviewable in Flatseal.",
+    ))
+
+    staged = _has_staged_update()
+    rows.append((
+        "ok", "Updates",
+        "An update is downloaded and staged — it applies on the next restart."
+        if staged else "OS updates download automatically in the background and apply on restart.",
+    ))
+
+    rows.append((
+        "ok" if _has_rollback_deployment() else "dim", "Recovery",
+        "The previous OS version is kept — one-click rollback from Repair."
+        if _has_rollback_deployment() else "A rollback point appears automatically after your first update.",
+    ))
+
+    rows.append((
+        "ok", "Antivirus",
+        "No Defender needed: the OS is read-only and cryptographically verified on "
+        "every update, and apps are sandboxed. There is nothing to subscribe to.",
+    ))
+    return rows
 
 # ── Page: Diagnostics ─────────────────────────────────────────────────────────
 class DiagnosticsPage(Page):
@@ -96,8 +166,132 @@ class DiagnosticsPage(Page):
         self._report.hide()
         self._add(self._report)
 
+        self._add(self._make_security_card())
+        self._add(self._make_storage_sense_card())
+
         self._stretch()
         self.refresh()
+
+    # ── Security at a glance ────────────────────────────────────────────────
+    def _make_security_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Security at a glance")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "The Windows Security checklist, KythOS edition — what protects this "
+            "PC and whether it's active right now."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+        self._security_rows = QVBoxLayout()
+        self._security_rows.setSpacing(6)
+        layout.addLayout(self._security_rows)
+
+        worker = DataWorker("security", _collect_security_status)
+        worker.result.connect(self._on_security_status)
+        self._security_worker = worker
+        _release_worker_when_finished(self, "_security_worker", worker)
+        worker.start()
+        return card
+
+    def _on_security_status(self, _key: str, rows: list):
+        glyphs = {"ok": "✓", "warn": "!", "dim": "·"}
+        styles = {"ok": "status-ok", "warn": "status-warn", "dim": "status-dim"}
+        for status, area, text in rows:
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            mark = QLabel(glyphs.get(status, "·"))
+            mark.setObjectName(styles.get(status, "status-dim"))
+            mark.setFixedWidth(16)
+            row.addWidget(mark)
+            area_lbl = QLabel(area)
+            area_lbl.setObjectName("card-summary")
+            area_lbl.setMinimumWidth(110)
+            row.addWidget(area_lbl)
+            text_lbl = QLabel(text)
+            text_lbl.setObjectName("card-copy")
+            text_lbl.setWordWrap(True)
+            row.addWidget(text_lbl, 1)
+            self._security_rows.addLayout(row)
+
+    # ── Storage Sense ───────────────────────────────────────────────────────
+    def _make_storage_sense_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Storage Sense — automatic cleanup")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Once a week: empties Recycle Bin items older than 30 days, removes "
+            "unused Flatpak runtimes, and trims old logs. Your files are never "
+            "touched — only things already thrown away or no longer used."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        btns = QHBoxLayout()
+        btns.setSpacing(8)
+        self._storage_sense_btn = QPushButton()
+        self._storage_sense_btn.clicked.connect(self._toggle_storage_sense)
+        btns.addWidget(self._storage_sense_btn)
+        run_now_btn = QPushButton("Clean Up Now")
+        run_now_btn.setToolTip("Runs one cleanup pass immediately.")
+        run_now_btn.clicked.connect(self._run_storage_sense_now)
+        btns.addWidget(run_now_btn)
+        btns.addStretch()
+        layout.addLayout(btns)
+
+        self._storage_sense_status = QLabel("")
+        self._storage_sense_status.setObjectName("card-copy")
+        self._storage_sense_status.setWordWrap(True)
+        self._storage_sense_status.hide()
+        layout.addWidget(self._storage_sense_status)
+        self._refresh_storage_sense_btn()
+        return card
+
+    def _refresh_storage_sense_btn(self):
+        if _storage_sense_enabled():
+            self._storage_sense_btn.setText("Turn Off Storage Sense")
+            self._storage_sense_btn.setObjectName("")
+        else:
+            self._storage_sense_btn.setText("Turn On Storage Sense")
+            self._storage_sense_btn.setObjectName("primary")
+        _restyle(self._storage_sense_btn)
+
+    def _toggle_storage_sense(self):
+        action = "disable" if _storage_sense_enabled() else "enable"
+        try:
+            r = subprocess.run(
+                ["systemctl", "--user", action, "--now", "kyth-storage-sense.timer"],
+                capture_output=True, text=True, timeout=15,
+            )
+        except Exception as exc:
+            self._storage_sense_status.setText(f"✗ {exc}")
+            self._storage_sense_status.show()
+            return
+        if r.returncode == 0:
+            self._storage_sense_status.setText(
+                "✓ Storage Sense is on — cleanup runs weekly in the background."
+                if action == "enable" else "Storage Sense is off."
+            )
+        else:
+            detail = (r.stderr or r.stdout).strip()
+            self._storage_sense_status.setText(
+                f"✗ Could not {action} the cleanup timer: {detail or 'unknown error'}. "
+                "If you updated recently, restart once so the new timer is available."
+            )
+        self._storage_sense_status.show()
+        self._refresh_storage_sense_btn()
+
+    def _run_storage_sense_now(self):
+        try:
+            subprocess.Popen(["systemd-run", "--user", "--collect", "/usr/bin/kyth-storage-sense"])
+            self._storage_sense_status.setText("✓ Cleanup started in the background.")
+        except OSError as exc:
+            self._storage_sense_status.setText(f"✗ {exc}")
+        self._storage_sense_status.show()
 
     def _clear_cards(self):
         while self._cards_layout.count():

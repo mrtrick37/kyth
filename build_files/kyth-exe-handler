@@ -38,7 +38,7 @@ _APP_DB = [
     (r"word|winword",           "Microsoft Word",           "Use LibreOffice Writer — fully compatible with .docx files.",          "org.libreoffice.LibreOffice"),
     (r"excel",                  "Microsoft Excel",          "Use LibreOffice Calc — reads and writes .xlsx files.",                 "org.libreoffice.LibreOffice"),
     (r"powerpnt|powerpoint",    "Microsoft PowerPoint",     "Use LibreOffice Impress — reads and writes .pptx files.",              "org.libreoffice.LibreOffice"),
-    (r"outlook",                "Microsoft Outlook",        "Use Thunderbird for desktop email and calendar.",                      "org.mozilla.Thunderbird"),
+    (r"outlook",                "Microsoft Outlook",        "Use Betterbird for desktop email and calendar.",                       "eu.betterbird.Betterbird"),
     (r"onenote",                "Microsoft OneNote",        "Access OneNote at onenote.com, or use Obsidian for local notes.",      None),
     (r"teams",                  "Microsoft Teams",          "Use Teams in the browser, or pin it as a Web App via WebApp Manager.", "io.github.vikdevelop.WebApp"),
     (r"onedrive",               "OneDrive",                 "Access OneDrive through KDE's Online Accounts in System Settings.",    None),

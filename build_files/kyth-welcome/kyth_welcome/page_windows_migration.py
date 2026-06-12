@@ -17,11 +17,42 @@ from .page_feedback import (  # noqa: E501
     _probe_windows_partitions,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QComboBox, QDesktopServices, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
+    QCheckBox, QComboBox, QDesktopServices, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card,
 )
+
+def _unlock_bitlocker_drive(dev: str, key: str) -> tuple[bool, str]:
+    """Unlock a BitLocker partition via udisks and mount the cleartext device.
+
+    cryptsetup's bitlk backend accepts either the user password or the 48-digit
+    recovery key as the passphrase. Runs on a worker thread (polkit may prompt).
+    """
+    try:
+        r = subprocess.run(
+            ["udisksctl", "unlock", "-b", dev, "--key-file", "/dev/stdin"],
+            input=key, capture_output=True, text=True, timeout=180,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if r.returncode != 0:
+        return False, (r.stderr or r.stdout).strip() or "Unlock failed."
+    # udisksctl prints: "Unlocked /dev/sda3 as /dev/dm-3."
+    m = re.search(r"\bas (/dev/\S+?)\.?\s*$", r.stdout.strip())
+    if not m:
+        return True, "Unlocked — rescan to mount the drive."
+    try:
+        rm = subprocess.run(
+            ["udisksctl", "mount", "-b", m.group(1)],
+            capture_output=True, text=True, timeout=60,
+        )
+    except Exception as exc:
+        return False, str(exc)
+    if rm.returncode != 0:
+        return False, (rm.stderr or rm.stdout).strip() or "Mount failed."
+    return True, rm.stdout.strip()
+
 
 class WindowsLibraryWorker(QThread):
     result = Signal(list)
@@ -522,6 +553,52 @@ class WindowsMigrationPage(Page):
         shortcuts_layout.addLayout(shortcuts_btns)
         self._add(shortcuts_card)
 
+        # PowerToys equivalents built into Plasma and Dolphin
+        powertoys_card, powertoys_layout = _make_card()
+        powertoys_title = QLabel("PowerToys equivalents — already built in")
+        powertoys_title.setObjectName("card-title")
+        powertoys_layout.addWidget(powertoys_title)
+        powertoys_body = QLabel(
+            "The names are different, but the useful PowerToys workflows are here "
+            "without another background utility."
+        )
+        powertoys_body.setObjectName("card-copy")
+        powertoys_body.setWordWrap(True)
+        powertoys_layout.addWidget(powertoys_body)
+        for title, summary in (
+            ("PowerToys Run", "Press Alt+Space for KRunner: launch apps, search files, calculate, convert units, and run commands."),
+            ("FancyZones", "Press Win+T for the KDE tile editor, or drag windows while holding Shift to use your tile layout."),
+            ("Always on Top", "Right-click a title bar → More Actions → Keep Above Others; assign a custom shortcut in System Settings."),
+            ("PowerRename", "Select multiple files in Dolphin and press F2 for batch rename with find-and-replace and numbering."),
+            ("Keyboard Manager", "System Settings → Keyboard → Shortcuts remaps global shortcuts and application actions."),
+            ("Awake", "Use Power Management settings, or Game Night Mode on the Gaming page to prevent sleep while playing."),
+            ("Color Picker / Text Extractor", "Spectacle covers region capture and annotation; dedicated color-picker and OCR apps are available in the App Store."),
+        ):
+            powertoys_layout.addWidget(self._make_migration_row("ok", title, summary))
+        powertoys_btns = QHBoxLayout()
+        powertoys_btns.setSpacing(8)
+        run_btn = QPushButton("Open PowerToys Run")
+        run_btn.setObjectName("primary")
+        run_btn.clicked.connect(self._open_krunner)
+        powertoys_btns.addWidget(run_btn)
+        shortcuts_btn = QPushButton("Open Keyboard Shortcuts")
+        shortcuts_btn.clicked.connect(
+            lambda _=False: self._open_settings_module("kcm_keys", "Keyboard Shortcuts")
+        )
+        powertoys_btns.addWidget(shortcuts_btn)
+        rules_btn = QPushButton("Open Window Rules")
+        rules_btn.clicked.connect(
+            lambda _=False: self._open_settings_module("kcm_kwinrules", "Window Rules")
+        )
+        powertoys_btns.addWidget(rules_btn)
+        powertoys_btns.addStretch()
+        powertoys_layout.addLayout(powertoys_btns)
+        self._powertoys_status = QLabel("")
+        self._powertoys_status.setObjectName("card-copy")
+        self._powertoys_status.setWordWrap(True)
+        powertoys_layout.addWidget(self._powertoys_status)
+        self._add(powertoys_card)
+
         # OneDrive / cloud sync card
         onedrive_card, onedrive_layout = _make_card()
         onedrive_title = QLabel("OneDrive & Google Drive sync")
@@ -825,6 +902,28 @@ class WindowsMigrationPage(Page):
             "or check System Settings → Connected Devices."
         )
 
+    def _open_krunner(self):
+        for cmd in (["krunner"], ["qdbus6", "org.kde.krunner", "/App", "display"]):
+            if shutil.which(cmd[0]):
+                try:
+                    subprocess.Popen(cmd)
+                    self._powertoys_status.setText("")
+                    return
+                except OSError:
+                    continue
+        self._powertoys_status.setText("KRunner is not available in this session. Press Alt+Space after signing into Plasma.")
+
+    def _open_settings_module(self, module: str, label: str):
+        for cmd in (["kcmshell6", module], ["systemsettings", module], ["systemsettings"]):
+            if shutil.which(cmd[0]):
+                try:
+                    subprocess.Popen(cmd)
+                    self._powertoys_status.setText("")
+                    return
+                except OSError:
+                    continue
+        self._powertoys_status.setText(f"Could not open {label} in this session.")
+
     # ── Hardware sanity ───────────────────────────────────────────────────────
 
     def _run_hw_sanity(self):
@@ -1083,15 +1182,22 @@ class WindowsMigrationPage(Page):
         self._drive_status.setText(f"Found {len(partitions)} Windows-style partition{'s' if len(partitions) != 1 else ''}.")
         self._drive_status.setObjectName("status-ok")
         _restyle(self._drive_status)
-        clean = sum(1 for p in partitions if not p.get("is_dirty") and not p.get("is_hibernated"))
+        locked = sum(1 for p in partitions if p.get("is_bitlocker"))
+        clean = sum(1 for p in partitions if not p.get("is_dirty") and not p.get("is_hibernated") and not p.get("is_bitlocker"))
         steam = sum(len(p.get("steam_paths") or []) for p in partitions)
         profiles = sum(len(p.get("user_profiles") or []) for p in partitions)
         score = 2 + (1 if clean else 0) + (1 if steam else 0) + (1 if profiles else 0)
-        self._migration_score_lbl.setText(
+        score_text = (
             f"Switch readiness: {score}/5. Found {clean} safely readable drive(s), "
             f"{steam} Steam folder(s), and {profiles} Windows user profile(s). "
             "Back up saves with Ludusavi before copying large libraries."
         )
+        if locked:
+            score_text += (
+                f" {locked} drive(s) are BitLocker-encrypted — unlock them below "
+                "to copy files and bookmarks."
+            )
+        self._migration_score_lbl.setText(score_text)
         for part in partitions:
             self._drive_rows.addWidget(self._make_drive_row(part))
         self._populate_files_card(partitions)
@@ -1110,8 +1216,12 @@ class WindowsMigrationPage(Page):
         self._worker = worker
 
     def _make_drive_row(self, part: dict) -> QFrame:
+        if part.get("is_bitlocker"):
+            return self._make_bitlocker_row(part)
         status = "warn" if part.get("is_dirty") or part.get("is_hibernated") else "ok"
         label = part.get("label") or part.get("device") or "Windows drive"
+        if part.get("windows_root"):
+            label = f"Windows (C:) — {label}" if part.get("label") else "Windows (C:)"
         mount = part.get("mountpoint") or "not mounted"
         steam_count = len(part.get("steam_paths") or [])
         profile_count = len(part.get("user_profiles") or [])
@@ -1157,3 +1267,69 @@ class WindowsMigrationPage(Page):
         gaming_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
         layout.addWidget(gaming_btn)
         return row
+
+    def _make_bitlocker_row(self, part: dict) -> QFrame:
+        label = part.get("label") or part.get("device") or "Windows drive"
+        summary = (
+            f"{part.get('device', '')} · {part.get('size', '')} · "
+            "locked with BitLocker — unlock to copy files, bookmarks, and games"
+        )
+        row = self._make_migration_row("warn", f"{label} (BitLocker)", summary)
+        unlock_btn = QPushButton("Unlock Drive…")
+        unlock_btn.setObjectName("primary")
+        unlock_btn.setToolTip(
+            "Enter your BitLocker password or the 48-digit recovery key. "
+            "Find the recovery key at aka.ms/myrecoverykey (sign in with the "
+            "Microsoft account used on the Windows PC)."
+        )
+        unlock_btn.clicked.connect(
+            lambda _=False, d=part.get("device", ""), b=unlock_btn: self._unlock_bitlocker(d, b)
+        )
+        row.layout().addWidget(unlock_btn)
+        return row
+
+    def _unlock_bitlocker(self, dev: str, btn: QPushButton):
+        if not dev:
+            return
+        key, ok = QInputDialog.getText(
+            self, "Unlock BitLocker drive",
+            f"Enter the BitLocker password or 48-digit recovery key for {dev}.\n"
+            "Recovery key: aka.ms/myrecoverykey (Microsoft account of the Windows PC).",
+            QLineEdit.EchoMode.Password,
+        )
+        key = (key or "").strip()
+        if not ok or not key:
+            return
+        btn.setEnabled(False)
+        btn.setText("Unlocking…")
+        self._drive_status.setText(f"Unlocking {dev}…")
+        self._drive_status.setObjectName("subheading")
+        _restyle(self._drive_status)
+        worker = DataWorker("bitlocker", lambda: _unlock_bitlocker_drive(dev, key))
+        worker.result.connect(self._on_bitlocker_unlock)
+        self._bitlocker_worker = worker
+        _release_worker_when_finished(self, "_bitlocker_worker", worker)
+        worker.start()
+
+    def _on_bitlocker_unlock(self, _key: str, result: tuple):
+        ok, message = result
+        if ok:
+            # Rescan so the now-visible NTFS partition gets the full treatment
+            # (user profiles, Steam folders, bookmarks, file copy).
+            self._scan_windows_drives()
+        else:
+            self._drive_status.setText(f"BitLocker unlock failed: {message}")
+            self._drive_status.setObjectName("status-warn")
+            _restyle(self._drive_status)
+            self._clear_drive_rows()
+            self._on_windows_drives_requery()
+
+    def _on_windows_drives_requery(self):
+        """Rebuild drive rows without resetting status (after failed unlock)."""
+        worker = WindowsLibraryWorker()
+        worker.result.connect(lambda parts: [
+            self._drive_rows.addWidget(self._make_drive_row(p)) for p in parts
+        ])
+        self._requery_worker = worker
+        _release_worker_when_finished(self, "_requery_worker", worker)
+        worker.start()

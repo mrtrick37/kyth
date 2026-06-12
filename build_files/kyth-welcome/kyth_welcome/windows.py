@@ -330,12 +330,12 @@ class MainWindow(QMainWindow):
     # for what they knew the task as on Windows.
     _SEARCH_ALIASES: dict[str, list[str]] = {
         "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
-        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Battle.net"],
-        "Performance": ["Performance", "Task Manager"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
+        "Performance": ["Performance", "Task Manager", "Mission Center"],
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
         "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
-        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "KDE Connect"],
+        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "KDE Connect"],
         "Update": ["Check for updates", "Windows Update", "Updates"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
         "Diagnostics": ["Health report", "System information", "Diagnostics"],
@@ -870,7 +870,7 @@ class WizardWindow(QMainWindow):
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
             ("org.videolan.VLC",             "VLC",           "Plays virtually every video and audio format without extra codecs."),
             ("org.libreoffice.LibreOffice",  "LibreOffice",   "Open Word, Excel, and PowerPoint files — full office suite."),
-            ("org.mozilla.Thunderbird",      "Thunderbird",   "Work email, calendar, and contacts — connects to Microsoft 365, Gmail, and IMAP."),
+            ("eu.betterbird.Betterbird",     "Betterbird",    "Work email, calendar, and contacts — connects to Microsoft 365, Gmail, and IMAP."),
             ("com.github.mtkennerly.ludusavi","Ludusavi",      "Back up and restore game saves before migration or modding."),
             ("org.freedesktop.Piper",         "Piper",         "Configure supported gaming mice for DPI, buttons, and LEDs."),
             ("com.moonlight_stream.Moonlight","Moonlight",     "Stream games from another PC or NVIDIA Shield on your network."),
@@ -1143,7 +1143,9 @@ class WizardWindow(QMainWindow):
         ps_layout.setContentsMargins(56, 20, 56, 0)
         ps_layout.setSpacing(10)
 
-        windows_drives = [] if _IS_LIVE else _find_ntfs_drives()
+        windows_drives = [] if _IS_LIVE else [
+            d for d in _find_ntfs_drives() if not d.get("is_bitlocker")
+        ]
         if windows_drives:
             ps_layout.addWidget(self._make_windows_game_drive_card(windows_drives))
 
@@ -1287,10 +1289,10 @@ class WizardWindow(QMainWindow):
 
     _PROFILE_DEFAULT_APPS = {
         "gaming": {"com.valvesoftware.Steam", "com.discordapp.Discord"},
-        "work": {"org.libreoffice.LibreOffice", "org.mozilla.Thunderbird"},
+        "work": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
         "both": {
             "com.valvesoftware.Steam", "com.discordapp.Discord",
-            "org.libreoffice.LibreOffice", "org.mozilla.Thunderbird",
+            "org.libreoffice.LibreOffice", "eu.betterbird.Betterbird",
         },
     }
 
