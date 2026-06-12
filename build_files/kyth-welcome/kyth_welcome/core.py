@@ -2946,6 +2946,33 @@ def _mark_wizard_done():
         pass
 
 
+# ── Usage profile (gaming / work / both) ──────────────────────────────────────
+# Chosen on the first-run wizard's welcome step; drives which app defaults the
+# wizard pre-selects and whether work-oriented setup is surfaced afterwards.
+_PROFILE_PATH = os.path.expanduser("~/.local/share/kyth/profile")
+_VALID_PROFILES = ("gaming", "work", "both")
+
+
+def _load_profile() -> str:
+    try:
+        with open(_PROFILE_PATH, encoding="utf-8") as fh:
+            value = fh.read().strip().lower()
+        return value if value in _VALID_PROFILES else "both"
+    except OSError:
+        return "both"
+
+
+def _save_profile(profile: str) -> None:
+    if profile not in _VALID_PROFILES:
+        return
+    try:
+        os.makedirs(os.path.dirname(_PROFILE_PATH), exist_ok=True)
+        with open(_PROFILE_PATH, "w", encoding="utf-8") as fh:
+            fh.write(profile + "\n")
+    except OSError:
+        pass
+
+
 def _wait_for_display_setup(timeout: float = 8.0, interval: float = 0.25):
     autostart = os.path.expanduser("~/.config/autostart/kyth-set-resolution.desktop")
     deadline = time.monotonic() + timeout
