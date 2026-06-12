@@ -606,8 +606,8 @@ class SoftwarePage(Page):
         return card
 
     def _open_m365_webapp(self, url: str, name: str) -> None:
-        cmd = _chromium_app_window_cmd(url, f"Microsoft365-{name}")
-        if cmd is None:
+        launch = _chromium_app_window_cmd(url)
+        if launch is None:
             QMessageBox.warning(
                 self, "No browser found",
                 "Opening web app shortcuts needs a Chromium-family browser "
@@ -616,7 +616,7 @@ class SoftwarePage(Page):
             )
             return
         try:
-            subprocess.Popen(cmd)
+            subprocess.Popen(launch[0])
         except OSError as exc:
             QMessageBox.warning(self, "Could not open web app", str(exc))
 

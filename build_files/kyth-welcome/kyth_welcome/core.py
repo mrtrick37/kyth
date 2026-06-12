@@ -10,6 +10,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from datetime import datetime
+from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
 # __KYTH_GENERATED_IMPORTS__
@@ -794,21 +795,48 @@ def _is_flatpak_installed(app_id: str) -> bool:
     return result is not None and result.returncode == 0
 
 
-def _chromium_app_window_cmd(url: str, wm_class: str) -> list[str] | None:
-    """Build a command that opens url as a dedicated app window, or None.
+# Window-class prefix each Chromium-family browser bakes into the app id of
+# its --app windows (e.g. brave-teams.microsoft.com__-Default).
+_CHROMIUM_APP_ID_PREFIX = {
+    "chromium-browser": "chromium",
+    "chromium": "chromium",
+    "org.chromium.Chromium": "chromium",
+    "brave-browser": "brave",
+    "com.brave.Browser": "brave",
+    "microsoft-edge": "msedge",
+    "com.microsoft.Edge": "msedge",
+    "google-chrome": "chrome",
+    "com.google.Chrome": "chrome",
+}
+
+
+def _chromium_app_window_id(browser: str, url: str) -> str:
+    """Wayland app id / X11 WM_CLASS a Chromium-family browser gives a window
+    opened with --app=url: <prefix>-<host>_<path with / as _>-<profile>.
+    --class/--name are ignored on Wayland, so StartupWMClass must carry this
+    generated id for the task bar to match the window to its .desktop file."""
+    parts = urlsplit(url)
+    name = f"{parts.hostname or ''}_{parts.path or '/'}".replace("/", "_")
+    return f"{_CHROMIUM_APP_ID_PREFIX[browser]}-{name}-Default"
+
+
+def _chromium_app_window_cmd(url: str) -> tuple[list[str], str] | None:
+    """Build a command that opens url as a dedicated app window, plus the
+    window class the browser will assign to it, or None.
 
     KythOS ships Brave as a Flatpak, not a native chromium-browser binary, so
     native binaries are only found on systems where the user installed one.
     """
-    args = [f"--app={url}", f"--class={wm_class}", f"--name={wm_class}"]
+    args = [f"--app={url}"]
     for binary in ("chromium-browser", "chromium", "brave-browser",
                    "microsoft-edge", "google-chrome"):
         if shutil.which(binary):
-            return [binary, *args]
+            return [binary, *args], _chromium_app_window_id(binary, url)
     for app_id in ("com.brave.Browser", "org.chromium.Chromium",
                    "com.microsoft.Edge", "com.google.Chrome"):
         if _is_flatpak_installed(app_id):
-            return ["flatpak", "run", app_id, *args]
+            return (["flatpak", "run", app_id, *args],
+                    _chromium_app_window_id(app_id, url))
     return None
 
 

@@ -52,10 +52,10 @@ def _m365_icon(name: str) -> str:
 
 
 def _m365_desktop_entry(name: str, url: str, comment: str) -> str | None:
-    wm_class = f"Microsoft365-{name}"
-    cmd = _chromium_app_window_cmd(url, wm_class)
-    if cmd is None:
+    launch = _chromium_app_window_cmd(url)
+    if launch is None:
         return None
+    cmd, wm_class = launch
     return (
         "[Desktop Entry]\n"
         "Type=Application\n"
@@ -271,8 +271,8 @@ class WorkSetupPage(Page):
         return card
 
     def _open_m365_webapp(self, url: str, name: str) -> None:
-        cmd = _chromium_app_window_cmd(url, f"Microsoft365-{name}")
-        if cmd is None:
+        launch = _chromium_app_window_cmd(url)
+        if launch is None:
             QMessageBox.warning(
                 self, "No browser found",
                 "Opening web app shortcuts needs a Chromium-family browser "
@@ -280,7 +280,7 @@ class WorkSetupPage(Page):
             )
             return
         try:
-            subprocess.Popen(cmd)
+            subprocess.Popen(launch[0])
         except OSError as exc:
             QMessageBox.warning(self, "Could not open web app", str(exc))
 
@@ -553,11 +553,9 @@ class WorkSetupPage(Page):
         if self._focus_office.isChecked():
             launches.append(["flatpak", "run", "org.libreoffice.LibreOffice"])
         if self._focus_outlook.isChecked():
-            cmd = _chromium_app_window_cmd(
-                "https://outlook.office.com/mail/", "Microsoft365-Outlook"
-            )
-            if cmd is not None:
-                launches.append(cmd)
+            launch = _chromium_app_window_cmd("https://outlook.office.com/mail/")
+            if launch is not None:
+                launches.append(launch[0])
         for cmd in launches:
             try:
                 subprocess.Popen(cmd)
