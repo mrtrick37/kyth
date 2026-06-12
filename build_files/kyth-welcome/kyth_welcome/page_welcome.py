@@ -4,10 +4,10 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _release_worker_when_finished, _steam_libraries_on_ntfs,
+    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _load_profile, _release_worker_when_finished, _save_profile, _steam_libraries_on_ntfs,
 )
 from .qt import (  # noqa: E501
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt, Signal,
 )
 from .widgets import (  # noqa: E501
     Page, StatTile, _make_card, _theme_icon,
@@ -42,9 +42,12 @@ def _first_week_days() -> int | None:
 
 # ── Page: Welcome (Control Panel-style home) ──────────────────────────────────
 class WelcomePage(Page):
+    profile_changed = Signal(str)
+
     def __init__(self, navigate=None):
         super().__init__()
         self._navigate = navigate or (lambda _: None)
+        self._profile = _load_profile()
 
         self._page_header(
             "System Hub",
@@ -124,6 +127,11 @@ class WelcomePage(Page):
         if days is not None and _FIRST_WEEK_MIN_DAYS <= days <= _FIRST_WEEK_MAX_DAYS:
             self._add(self._make_first_week_card(days))
 
+        # ── Usage focus ───────────────────────────────────────────────────────
+        # Same choice the first-boot wizard offers, so existing installs can
+        # re-purpose a machine (e.g. a work PC that never games) after the fact.
+        self._add(self._make_focus_card())
+
         # ── Category grid, like the Control Panel category view ──────────────
         categories: list[tuple[tuple[str, ...], str, str, list[tuple[str, str]]]] = [
             (
@@ -176,16 +184,16 @@ class WelcomePage(Page):
             ],
         ))
 
-        grid = QGridLayout()
-        grid.setSpacing(12)
-        for i, (icon_names, glyph, title, tasks) in enumerate(categories):
-            grid.addWidget(
-                self._make_category_card(icon_names, glyph, title, tasks),
-                i // 2, i % 2,
-            )
-        grid.setColumnStretch(0, 1)
-        grid.setColumnStretch(1, 1)
-        self._add_layout(grid)
+        self._category_grid = QGridLayout()
+        self._category_grid.setSpacing(12)
+        self._category_cards: list[tuple[QFrame, bool]] = []
+        for icon_names, glyph, title, tasks in categories:
+            card = self._make_category_card(icon_names, glyph, title, tasks)
+            self._category_cards.append((card, title == "Games"))
+        self._relayout_categories(self._profile)
+        self._category_grid.setColumnStretch(0, 1)
+        self._category_grid.setColumnStretch(1, 1)
+        self._add_layout(self._category_grid)
 
         note = QLabel("Reopen this window anytime from the application menu.")
         note.setObjectName("status-dim")
@@ -292,6 +300,62 @@ class WelcomePage(Page):
         except OSError:
             pass
         card.hide()
+
+    # ── Usage focus ───────────────────────────────────────────────────────────
+
+    def _make_focus_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("This PC's focus")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+        body = QLabel(
+            "Pick what you use this PC for, and the hub puts those sections front "
+            "and center. Nothing is uninstalled — switch back anytime."
+        )
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        self._focus_buttons: dict[str, QPushButton] = {}
+        row = QHBoxLayout()
+        row.setSpacing(10)
+        for key, label, tip in (
+            ("gaming", "🎮  Gaming", "Show the gaming sections — launchers, performance, controllers."),
+            ("work", "💼  Work", "Hide the gaming sections; keep apps, VPN, and updates up front."),
+            ("both", "🖥  Both", "Show everything — gaming plus the work essentials."),
+        ):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+            btn.setMinimumHeight(38)
+            btn.clicked.connect(lambda _=False, k=key: self._on_focus_chosen(k))
+            self._focus_buttons[key] = btn
+            row.addWidget(btn)
+        row.addStretch()
+        layout.addLayout(row)
+        self._focus_buttons[self._profile].setChecked(True)
+        return card
+
+    def _on_focus_chosen(self, profile: str):
+        self._profile = profile
+        for key, btn in self._focus_buttons.items():
+            btn.setChecked(key == profile)
+        _save_profile(profile)
+        self._relayout_categories(profile)
+        self.profile_changed.emit(profile)
+
+    def _relayout_categories(self, profile: str):
+        """Re-pack the category grid so hiding the Games card leaves no hole."""
+        show_games = profile != "work"
+        visible: list[QFrame] = []
+        for card, is_games in self._category_cards:
+            self._category_grid.removeWidget(card)
+            wanted = show_games or not is_games
+            card.setVisible(wanted)
+            if wanted:
+                visible.append(card)
+        for i, card in enumerate(visible):
+            self._category_grid.addWidget(card, i // 2, i % 2)
 
     def _make_recommended_card(self, staged: bool, rollback: bool, windows_found: bool = False) -> QFrame:
         if _IS_LIVE:

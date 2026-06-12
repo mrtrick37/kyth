@@ -269,12 +269,16 @@ class MainWindow(QMainWindow):
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
+        self._nav_button_by_key: dict[str, NavButton] = {}
+        self._nav_section_labels: dict[str, QLabel] = {}
         self._page_crumbs: list[tuple[str | None, str]] = []
         global_idx = 0
         for section_title, items in nav_groups:
             sidebar_layout.addSpacing(4)
             if section_title is not None:
-                sidebar_layout.addWidget(_nav_section_label(section_title))
+                section_lbl = _nav_section_label(section_title)
+                self._nav_section_labels[section_title] = section_lbl
+                sidebar_layout.addWidget(section_lbl)
             for icon_names, glyph, label, key, factory in items:
                 page_specs.append((key, factory))
                 self._page_crumbs.append((section_title, label))
@@ -282,6 +286,7 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(self._make_nav_handler(global_idx))
                 sidebar_layout.addWidget(btn)
                 self._nav_buttons.append(btn)
+                self._nav_button_by_key[key] = btn
                 global_idx += 1
             sidebar_layout.addSpacing(2)
 
@@ -308,6 +313,12 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
 
+        # The home page's focus card re-uses the wizard's gaming/work/both
+        # choice; reflect changes in the sidebar immediately.
+        welcome_page = self._pages[self._page_index_by_key["Welcome"]]
+        welcome_page.profile_changed.connect(self._apply_profile_visibility)
+        self._apply_profile_visibility(_load_profile())
+
         self._history: list[int] = []
         self._history_pos: int = -1
         self._setup_search()
@@ -318,7 +329,7 @@ class MainWindow(QMainWindow):
     # Windows-familiar phrasings mapped to page keys, so converts can search
     # for what they knew the task as on Windows.
     _SEARCH_ALIASES: dict[str, list[str]] = {
-        "Welcome": ["Home", "Control Panel"],
+        "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
         "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Battle.net"],
         "Performance": ["Performance", "Task Manager"],
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
@@ -369,6 +380,23 @@ class MainWindow(QMainWindow):
                 self._navigate_to(key)
                 self._search_box.clear()
                 return
+
+    # ── Usage focus ────────────────────────────────────────────────────────────
+
+    _GAMING_PAGE_KEYS = ("Gaming", "Performance", "Compatibility", "Controllers")
+
+    def _apply_profile_visibility(self, profile: str):
+        """Tailor the sidebar to the gaming/work/both focus.
+
+        Hidden pages stay in the stack and reachable through search — the
+        focus only de-emphasizes, it never removes.
+        """
+        gaming_visible = profile != "work"
+        work_visible = profile != "gaming"
+        self._nav_section_labels["Gaming"].setVisible(gaming_visible)
+        for key in self._GAMING_PAGE_KEYS:
+            self._nav_button_by_key[key].setVisible(gaming_visible)
+        self._nav_button_by_key["Work Setup"].setVisible(work_visible)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
