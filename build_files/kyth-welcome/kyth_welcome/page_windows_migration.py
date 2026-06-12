@@ -373,6 +373,112 @@ def _write_bookmarks_html(sources: list[dict], dest: str) -> int:
     return total
 
 
+_DYNAMIC_LOCK_CONFIG = os.path.expanduser("~/.config/kyth-dynamic-lock.json")
+
+
+def _load_dynamic_lock_config() -> dict:
+    try:
+        with open(_DYNAMIC_LOCK_CONFIG, "r", encoding="utf-8") as fh:
+            config = json.load(fh)
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return config if isinstance(config, dict) else {}
+
+
+def _save_dynamic_lock_config(config: dict) -> None:
+    directory = os.path.dirname(_DYNAMIC_LOCK_CONFIG)
+    os.makedirs(directory, exist_ok=True)
+    temp_path = f"{_DYNAMIC_LOCK_CONFIG}.tmp"
+    with open(temp_path, "w", encoding="utf-8") as fh:
+        json.dump(config, fh, indent=2)
+        fh.write("\n")
+    os.chmod(temp_path, 0o600)
+    os.replace(temp_path, _DYNAMIC_LOCK_CONFIG)
+
+
+def _kdeconnect_devices() -> list[dict]:
+    if shutil.which("kdeconnect-cli") is None:
+        return []
+    _run_command(["kdeconnect-cli", "--refresh"], timeout=8)
+    all_result = _run_command(
+        ["kdeconnect-cli", "--list-devices", "--id-name-only"], timeout=12,
+    )
+    available_result = _run_command(
+        ["kdeconnect-cli", "--list-available", "--id-only"], timeout=12,
+    )
+    if all_result is None or all_result.returncode != 0:
+        return []
+    available = set()
+    if available_result is not None and available_result.returncode == 0:
+        available = {
+            line.strip() for line in available_result.stdout.splitlines() if line.strip()
+        }
+    devices = []
+    for row in all_result.stdout.splitlines():
+        parts = row.strip().split(maxsplit=1)
+        if not parts:
+            continue
+        device_id = parts[0]
+        devices.append({
+            "id": device_id,
+            "name": parts[1] if len(parts) > 1 else device_id,
+            "reachable": device_id in available,
+        })
+    return sorted(devices, key=lambda item: item["name"].lower())
+
+
+def _run_kdeconnect_action(device_id: str, action: str) -> tuple[bool, str]:
+    result = _run_command(
+        ["kdeconnect-cli", "--device", device_id, action], timeout=20,
+    )
+    if result is None:
+        return False, "KDE Connect did not respond."
+    detail = (result.stdout or result.stderr).strip()
+    return result.returncode == 0, detail
+
+
+def _mount_kdeconnect_device(device_id: str) -> tuple[bool, str]:
+    mounted, detail = _run_kdeconnect_action(device_id, "--mount")
+    if not mounted:
+        return False, detail
+    result = _run_command(
+        ["kdeconnect-cli", "--device", device_id, "--get-mount-point"], timeout=12,
+    )
+    if result is None or result.returncode != 0 or not result.stdout.strip():
+        return False, "The device connected, but its file location was not reported."
+    return True, result.stdout.strip()
+
+
+def _send_kdeconnect_sms(
+    device_id: str, destination: str, message: str,
+) -> tuple[bool, str]:
+    result = _run_command([
+        "kdeconnect-cli", "--device", device_id,
+        "--send-sms", message, "--destination", destination,
+    ], timeout=30)
+    if result is None:
+        return False, "KDE Connect did not respond."
+    detail = (result.stdout or result.stderr).strip()
+    return result.returncode == 0, detail
+
+
+def _configure_dynamic_lock_service(enabled: bool) -> tuple[bool, str]:
+    helper = "/usr/bin/kyth-dynamic-lock"
+    unit = "/usr/lib/systemd/user/kyth-dynamic-lock.service"
+    if not os.path.exists(helper) or not os.path.exists(unit):
+        return False, "Dynamic Lock will be available after the next KythOS update and restart."
+    _run_command(["systemctl", "--user", "daemon-reload"], timeout=20)
+    action = "enable" if enabled else "disable"
+    result = _run_command(
+        ["systemctl", "--user", action, "--now", "kyth-dynamic-lock.service"],
+        timeout=30,
+    )
+    if result is None or result.returncode != 0:
+        detail = "" if result is None else (result.stderr or result.stdout).strip()
+        return False, detail or "Could not update the Dynamic Lock service."
+    return True, "Dynamic Lock is on." if enabled else "Dynamic Lock is off."
+
+
 # ── Page: Move From Windows ──────────────────────────────────────────────────
 class WindowsMigrationPage(Page):
     def __init__(self, navigate=None):
@@ -389,6 +495,9 @@ class WindowsMigrationPage(Page):
         self._bm_sources: list[dict] = []
         self._bm_dest = ""
         self._hw_worker: DataWorker | None = None
+        self._phone_worker: DataWorker | None = None
+        self._phone_action_worker: DataWorker | None = None
+        self._dynamic_lock_worker: DataWorker | None = None
 
         self._page_header(
             "Apps",
@@ -659,30 +768,87 @@ class WindowsMigrationPage(Page):
         self._add(nearby_card)
 
         # Phone Link replacement
-        phone_card, phone_layout = _make_card()
-        phone_title = QLabel("Phone Link → KDE Connect")
+        phone_card, phone_layout = _make_card("card-accent-ok")
+        phone_title = QLabel("Phone Link → Connected Devices")
         phone_title.setObjectName("card-title")
         phone_layout.addWidget(phone_title)
         phone_body = QLabel(
             "On Windows you had Phone Link; KythOS has KDE Connect built in. Pair your phone "
             "over Wi-Fi to see and answer notifications on the desktop, send files both ways, "
-            "share the clipboard, control media, and ring a lost phone. Install the app on "
-            "your phone, open KDE Connect here, and tap Pair — both devices must be on the "
-            "same network."
+            "share the clipboard, control media, ring a lost phone, and optionally lock this PC "
+            "when your trusted device leaves. Both devices must be on the same network."
         )
         phone_body.setObjectName("card-copy")
         phone_body.setWordWrap(True)
         phone_layout.addWidget(phone_body)
+
+        device_row = QHBoxLayout()
+        device_row.setSpacing(8)
+        device_row.addWidget(QLabel("Paired device:"))
+        self._phone_device = QComboBox()
+        self._phone_device.setMinimumWidth(260)
+        self._phone_device.currentIndexChanged.connect(self._update_phone_controls)
+        device_row.addWidget(self._phone_device)
+        refresh_phone_btn = QPushButton("Refresh")
+        refresh_phone_btn.clicked.connect(self._refresh_phone_devices)
+        device_row.addWidget(refresh_phone_btn)
+        open_phone_btn = QPushButton("Pair / Manage Devices")
+        open_phone_btn.clicked.connect(self._open_kde_connect)
+        device_row.addWidget(open_phone_btn)
+        device_row.addStretch()
+        phone_layout.addLayout(device_row)
+
+        phone_actions = QHBoxLayout()
+        phone_actions.setSpacing(8)
+        self._phone_action_buttons = []
+        for label, action, tip in (
+            ("Ping", "--ping", "Show a test notification on the selected device."),
+            ("Ring Device", "--ring", "Ring the selected device so you can find it."),
+            ("Send Clipboard", "--send-clipboard", "Send the current desktop clipboard to the selected device."),
+            ("Send Text", "--send-sms", "Send an SMS through a paired Android phone."),
+            ("Browse Files", "--mount", "Mount the selected device and open its shared files in Dolphin."),
+        ):
+            btn = QPushButton(label)
+            btn.setToolTip(tip)
+            btn.clicked.connect(
+                lambda _=False, selected_action=action: self._run_phone_action(selected_action)
+            )
+            phone_actions.addWidget(btn)
+            self._phone_action_buttons.append(btn)
+        phone_actions.addStretch()
+        phone_layout.addLayout(phone_actions)
+
+        dynamic_lock_row = QHBoxLayout()
+        dynamic_lock_row.setSpacing(8)
+        self._dynamic_lock_check = QCheckBox("Dynamic Lock: lock this PC when the device leaves")
+        dynamic_lock_row.addWidget(self._dynamic_lock_check)
+        dynamic_lock_row.addWidget(QLabel("Wait:"))
+        self._dynamic_lock_grace = QComboBox()
+        for label, seconds in (("30 seconds", 30), ("1 minute", 60), ("2 minutes", 120)):
+            self._dynamic_lock_grace.addItem(label, seconds)
+        dynamic_lock_row.addWidget(self._dynamic_lock_grace)
+        save_lock_btn = QPushButton("Save Trusted Device")
+        save_lock_btn.clicked.connect(self._save_dynamic_lock)
+        dynamic_lock_row.addWidget(save_lock_btn)
+        dynamic_lock_row.addStretch()
+        phone_layout.addLayout(dynamic_lock_row)
+
+        lock_config = _load_dynamic_lock_config()
+        self._dynamic_lock_check.setChecked(lock_config.get("enabled") is True)
+        try:
+            grace = int(lock_config.get("grace_seconds") or 60)
+        except (TypeError, ValueError):
+            grace = 60
+        for idx in range(self._dynamic_lock_grace.count()):
+            if self._dynamic_lock_grace.itemData(idx) == grace:
+                self._dynamic_lock_grace.setCurrentIndex(idx)
+                break
         self._phone_status = QLabel("")
         self._phone_status.setObjectName("card-copy")
         self._phone_status.setWordWrap(True)
         phone_layout.addWidget(self._phone_status)
         phone_btns = QHBoxLayout()
         phone_btns.setSpacing(8)
-        phone_open_btn = QPushButton("Open KDE Connect")
-        phone_open_btn.setObjectName("primary")
-        phone_open_btn.clicked.connect(self._open_kde_connect)
-        phone_btns.addWidget(phone_open_btn)
         phone_android_btn = QPushButton("Android App")
         phone_android_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(
             QUrl("https://play.google.com/store/apps/details?id=org.kde.kdeconnect_tp")))
@@ -694,6 +860,7 @@ class WindowsMigrationPage(Page):
         phone_btns.addStretch()
         phone_layout.addLayout(phone_btns)
         self._add(phone_card)
+        QTimer.singleShot(0, self._refresh_phone_devices)
 
         score_card, score_layout = _make_card("card-accent-ok")
         score_title = QLabel("Switch Readiness")
@@ -937,6 +1104,176 @@ class WindowsMigrationPage(Page):
             "KDE Connect isn't available in this session — install it from the App Store, "
             "or check System Settings → Connected Devices."
         )
+
+    def _selected_phone_device(self) -> dict | None:
+        data = self._phone_device.currentData()
+        return data if isinstance(data, dict) else None
+
+    def _refresh_phone_devices(self):
+        if self._phone_worker is not None and self._phone_worker.isRunning():
+            return
+        self._phone_status.setObjectName("card-copy")
+        _restyle(self._phone_status)
+        self._phone_status.setText("Looking for paired devices…")
+        worker = DataWorker("kdeconnect-devices", _kdeconnect_devices)
+        worker.result.connect(self._on_phone_devices)
+        worker.failed.connect(
+            lambda _key, message: self._phone_status.setText(
+                f"Could not query KDE Connect: {message}"
+            )
+        )
+        self._phone_worker = worker
+        _release_worker_when_finished(self, "_phone_worker", worker)
+        worker.start()
+
+    def _on_phone_devices(self, _key: str, devices: list[dict]):
+        config = _load_dynamic_lock_config()
+        configured_id = str(config.get("device_id") or "")
+        if configured_id and not any(item["id"] == configured_id for item in devices):
+            devices.append({
+                "id": configured_id,
+                "name": str(config.get("device_name") or "Trusted device"),
+                "reachable": False,
+            })
+
+        self._phone_device.blockSignals(True)
+        self._phone_device.clear()
+        selected_index = 0
+        for idx, device in enumerate(devices):
+            state = "Connected" if device["reachable"] else "Offline"
+            self._phone_device.addItem(f"{device['name']} — {state}", device)
+            if device["id"] == configured_id:
+                selected_index = idx
+        if devices:
+            self._phone_device.setCurrentIndex(selected_index)
+        else:
+            self._phone_device.addItem("No paired devices found", None)
+        self._phone_device.blockSignals(False)
+        self._update_phone_controls()
+
+        connected = sum(1 for item in devices if item["reachable"])
+        if connected:
+            self._phone_status.setText(
+                f"{connected} connected device{'s' if connected != 1 else ''}. "
+                "Notifications and clipboard sharing are managed by KDE Connect."
+            )
+        elif devices:
+            self._phone_status.setText(
+                "Paired device found, but it is offline. Wake it and put both devices on the same network."
+            )
+        else:
+            self._phone_status.setText(
+                "No paired devices yet. Install KDE Connect on your phone, then choose Pair / Manage Devices."
+            )
+
+    def _update_phone_controls(self, _index: int = -1):
+        device = self._selected_phone_device()
+        reachable = bool(device and device.get("reachable"))
+        for btn in self._phone_action_buttons:
+            btn.setEnabled(reachable)
+
+    def _run_phone_action(self, action: str):
+        if self._phone_action_worker is not None and self._phone_action_worker.isRunning():
+            return
+        device = self._selected_phone_device()
+        if not device or not device.get("reachable"):
+            self._phone_status.setText("Choose a connected device first.")
+            return
+        labels = {
+            "--ping": "Sending ping",
+            "--ring": "Ringing device",
+            "--send-clipboard": "Sending clipboard",
+            "--send-sms": "Sending text message",
+            "--mount": "Connecting device files",
+        }
+        destination = ""
+        message = ""
+        if action == "--send-sms":
+            destination, accepted = QInputDialog.getText(
+                self, "Send Text Message", "Phone number:"
+            )
+            if not accepted or not destination.strip():
+                return
+            message, accepted = QInputDialog.getMultiLineText(
+                self, "Send Text Message", "Message:"
+            )
+            if not accepted or not message.strip():
+                return
+        self._phone_status.setObjectName("card-copy")
+        _restyle(self._phone_status)
+        self._phone_status.setText(f"{labels.get(action, 'Contacting device')}…")
+        if action == "--mount":
+            fn = lambda: _mount_kdeconnect_device(device["id"])
+        elif action == "--send-sms":
+            fn = lambda: _send_kdeconnect_sms(
+                device["id"], destination.strip(), message.strip()
+            )
+        else:
+            fn = lambda: _run_kdeconnect_action(device["id"], action)
+        worker = DataWorker(f"phone-action:{action}", fn)
+        worker.result.connect(self._on_phone_action)
+        worker.failed.connect(
+            lambda _key, message: self._phone_status.setText(f"Device action failed: {message}")
+        )
+        self._phone_action_worker = worker
+        _release_worker_when_finished(self, "_phone_action_worker", worker)
+        worker.start()
+
+    def _on_phone_action(self, key: str, result: tuple[bool, str]):
+        ok, detail = result
+        action = key.partition(":")[2]
+        if ok and action == "--mount":
+            QDesktopServices.openUrl(QUrl.fromLocalFile(detail))
+            self._phone_status.setText("Device files opened in the file manager.")
+        elif ok:
+            messages = {
+                "--ping": "Ping sent.",
+                "--ring": "The device should be ringing now.",
+                "--send-clipboard": "Clipboard sent to the device.",
+                "--send-sms": "Text message sent through the paired phone.",
+            }
+            self._phone_status.setText(messages.get(action, detail or "Done."))
+        else:
+            self._phone_status.setText(detail or "The device action failed.")
+
+    def _save_dynamic_lock(self):
+        if self._dynamic_lock_worker is not None and self._dynamic_lock_worker.isRunning():
+            return
+        enabled = self._dynamic_lock_check.isChecked()
+        device = self._selected_phone_device()
+        if enabled and not device:
+            self._phone_status.setText("Pair and select a trusted device before enabling Dynamic Lock.")
+            return
+        config = {
+            "enabled": enabled,
+            "device_id": device["id"] if device else "",
+            "device_name": device["name"] if device else "",
+            "grace_seconds": int(self._dynamic_lock_grace.currentData() or 60),
+        }
+        try:
+            _save_dynamic_lock_config(config)
+        except OSError as exc:
+            self._phone_status.setText(f"Could not save Dynamic Lock: {exc}")
+            return
+        self._phone_status.setText("Saving Dynamic Lock settings…")
+        worker = DataWorker(
+            "dynamic-lock", lambda: _configure_dynamic_lock_service(enabled)
+        )
+        worker.result.connect(self._on_dynamic_lock_saved)
+        worker.failed.connect(
+            lambda _key, message: self._phone_status.setText(
+                f"Could not update Dynamic Lock: {message}"
+            )
+        )
+        self._dynamic_lock_worker = worker
+        _release_worker_when_finished(self, "_dynamic_lock_worker", worker)
+        worker.start()
+
+    def _on_dynamic_lock_saved(self, _key: str, result: tuple[bool, str]):
+        ok, detail = result
+        self._phone_status.setText(detail)
+        self._phone_status.setObjectName("status-ok" if ok else "status-warn")
+        _restyle(self._phone_status)
 
     def _refresh_localsend_btn(self):
         installed = _is_flatpak_installed("org.localsend.localsend_app")

@@ -36,6 +36,7 @@ CONFIG_PATHS = (
     ".config/konsolerc",
     ".config/kwalletrc",
     ".config/kyth-cloud-sync.json",
+    ".config/kyth-dynamic-lock.json",
     ".config/kyth-smb-shares.json",
     ".config/MangoHud",
     ".config/vkBasalt",
@@ -255,6 +256,21 @@ def _restore_defaults(defaults: dict[str, str]) -> int:
     return restored
 
 
+def _restore_dynamic_lock(home: Path) -> bool:
+    config_path = home / ".config/kyth-dynamic-lock.json"
+    try:
+        config = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return False
+    if not isinstance(config, dict) or config.get("enabled") is not True:
+        return False
+    result = _run(
+        ["systemctl", "--user", "enable", "--now", "kyth-dynamic-lock.service"],
+        timeout=30,
+    )
+    return result is not None and result.returncode == 0
+
+
 def _restore_flatpaks(apps: list[dict[str, str]]) -> tuple[int, int]:
     if not apps or shutil.which("flatpak") is None:
         return 0, len(apps)
@@ -301,6 +317,7 @@ def restore_setup(archive_name: str) -> None:
         manifest = _load_manifest(payload)
         restored_paths = _restore_files(payload, home, manifest.get("copied_paths") or [])
         restored_defaults = _restore_defaults(manifest.get("default_apps") or {})
+        dynamic_lock_restored = _restore_dynamic_lock(home)
         apps_ok, apps_failed = _restore_flatpaks(manifest.get("flatpaks") or [])
 
     _run(["kbuildsycoca6", "--noincremental"], timeout=30)
@@ -314,6 +331,8 @@ def restore_setup(archive_name: str) -> None:
     if manifest.get("cloud_remotes"):
         names = ", ".join(item.get("name", "unknown") for item in manifest["cloud_remotes"])
         print(f"Reconnect cloud account(s) in Cloud Storage: {names}", flush=True)
+    if dynamic_lock_restored:
+        print("Trusted-device Dynamic Lock restored.", flush=True)
     print("Re-enter network-share passwords from Network Shares, then sign out and back in.", flush=True)
 
 

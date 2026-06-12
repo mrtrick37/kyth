@@ -1249,12 +1249,14 @@ install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-lau
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
 install -m 0755 /ctx/kyth-nearby-share /usr/bin/kyth-nearby-share
 install -m 0755 /ctx/kyth-setup-transfer /usr/bin/kyth-setup-transfer
+install -m 0755 /ctx/kyth-dynamic-lock /usr/bin/kyth-dynamic-lock
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
 mkdir -p /usr/lib/systemd/user /usr/lib/systemd/user/default.target.wants
+install -m 0644 /ctx/kyth-dynamic-lock.service /usr/lib/systemd/user/kyth-dynamic-lock.service
 cat > /usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
 [Unit]
 Description=Apply quiet VS Code and Brave wallet defaults
