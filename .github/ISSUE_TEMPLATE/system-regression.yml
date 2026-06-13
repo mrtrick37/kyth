@@ -97,4 +97,3 @@ body:
           required: true
         - label: I removed passwords, tokens, serial numbers, and other private data.
           required: true
-
