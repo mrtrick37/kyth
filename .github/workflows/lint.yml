@@ -3,9 +3,6 @@ name: Lint
 permissions:
   contents: read
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 on:
   push:
     branches:
@@ -33,7 +30,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          persist-credentials: false
           # Full history so the push/PR base commit exists locally — with the
           # default shallow clone, git diff fails with "bad object" and the
           # changed-file detection silently skips every shellcheck run.
