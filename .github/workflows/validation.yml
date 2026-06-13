@@ -1,0 +1,147 @@
+name: Validation
+
+on:
+  pull_request:
+    branches:
+      - main
+      - testing
+  push:
+    branches:
+      - main
+      - testing
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ACTIONLINT_VERSION: 1.7.7
+  HADOLINT_VERSION: 2.14.0
+
+jobs:
+  validation:
+    name: validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+      - name: Install pinned validators
+        run: |
+          set -euo pipefail
+          bin_dir="${RUNNER_TEMP}/bin"
+          download_dir="${RUNNER_TEMP}/validator-downloads"
+          mkdir -p "${bin_dir}" "${download_dir}"
+
+          actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          actionlint_base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+          curl --fail --location --silent --show-error \
+            --output "${download_dir}/${actionlint_archive}" \
+            "${actionlint_base}/${actionlint_archive}"
+          curl --fail --location --silent --show-error \
+            --output "${download_dir}/actionlint_checksums.txt" \
+            "${actionlint_base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+          (
+            cd "${download_dir}"
+            grep " ${actionlint_archive}$" actionlint_checksums.txt | sha256sum --check --strict -
+            tar -xzf "${actionlint_archive}" actionlint
+          )
+          install -m 0755 "${download_dir}/actionlint" "${bin_dir}/actionlint"
+
+          hadolint_binary="hadolint-linux-x86_64"
+          hadolint_base="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
+          curl --fail --location --silent --show-error \
+            --output "${download_dir}/${hadolint_binary}" \
+            "${hadolint_base}/${hadolint_binary}"
+          curl --fail --location --silent --show-error \
+            --output "${download_dir}/${hadolint_binary}.sha256" \
+            "${hadolint_base}/${hadolint_binary}.sha256"
+          (
+            cd "${download_dir}"
+            sha256sum --check --strict "${hadolint_binary}.sha256"
+          )
+          install -m 0755 "${download_dir}/${hadolint_binary}" "${bin_dir}/hadolint"
+          echo "${bin_dir}" >> "${GITHUB_PATH}"
+
+      - name: Validate GitHub Actions workflows
+        run: actionlint -color -shellcheck=""
+
+      - name: Validate container build files
+        run: |
+          hadolint --failure-threshold error \
+            Dockerfile \
+            build_base/Dockerfile \
+            build_base/Containerfile.docker-overlay \
+            installer/Containerfile
+
+      - name: Validate shell scripts
+        run: |
+          set -euo pipefail
+          shell_files=()
+          while IFS= read -r -d '' file; do
+            mime_type="$(file --brief --mime-type "${file}")"
+            if [[ "${mime_type}" == "text/x-shellscript" ]]; then
+              shell_files+=("${file}")
+            fi
+          done < <(git ls-files -z)
+
+          if (( ${#shell_files[@]} == 0 )); then
+            echo "No shell scripts found"
+            exit 1
+          fi
+
+          printf 'Checking %d shell scripts\n' "${#shell_files[@]}"
+          shellcheck --severity=error "${shell_files[@]}"
+          for file in "${shell_files[@]}"; do
+            bash -n "${file}"
+          done
+
+      - name: Validate Python syntax
+        run: |
+          python3 - <<'PY'
+          import ast
+          import subprocess
+          from pathlib import Path
+
+          files = subprocess.check_output(
+              ["git", "ls-files", "*.py"], text=True
+          ).splitlines()
+          for name in files:
+              path = Path(name)
+              ast.parse(path.read_text(encoding="utf-8"), filename=name)
+          print(f"Checked {len(files)} Python files")
+          PY
+
+      - name: Validate structured configuration
+        run: |
+          set -euo pipefail
+          while IFS= read -r -d '' file; do
+            jq empty "${file}"
+          done < <(git ls-files -z '*.json')
+
+          python3 - <<'PY'
+          import subprocess
+          import tomllib
+          from pathlib import Path
+
+          files = subprocess.check_output(
+              ["git", "ls-files", "*.toml"], text=True
+          ).splitlines()
+          for name in files:
+              with Path(name).open("rb") as stream:
+                  tomllib.load(stream)
+          print(f"Checked {len(files)} TOML files")
+          PY
+
+      - name: Validate systemd units
+        run: systemd-analyze verify build_files/*.service build_files/*.timer
+
+      - name: Validate Just recipes
+        run: |
+          set -euo pipefail
+          just --list >/dev/null
+          while IFS= read -r -d '' file; do
+            just --justfile "${file}" --list >/dev/null
+          done < <(git ls-files -z '*.just')
