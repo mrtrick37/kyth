@@ -47,6 +47,19 @@ jobs:
         with:
           ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
 
+      # The SBOM step needs ~2x the uncompressed image size on disk: one copy
+      # in the Docker store plus the docker-save tarball syft exports before
+      # scanning. Stock runners don't have that much free space.
+      - name: Maximize build space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: false
+          docker-images: false
+          swap-storage: true
+
       - name: Prepare metadata variables
         id: meta
         run: |
