@@ -4,29 +4,13 @@
     "config:best-practices",
   ],
 
-  // Rebase only when there are actual conflicts; vulnerability PRs always rebase.
-  "rebaseWhen": "conflicted",
-
-  // Security updates remain visible for CI and maintainer review. KythOS is an
-  // OS image, so even urgent dependency changes can create boot regressions.
-  "vulnerabilityAlerts": {
-    "enabled": true,
-    "rebaseWhen": "behind-base-branch",
-    "automerge": false,
-    "labels": ["security"],
-  },
+  "rebaseWhen": "never",
 
   "packageRules": [
     {
       "automerge": true,
       "matchUpdateTypes": ["pin", "pinDigest"]
     },
-    {
-      "automerge": false,
-      "matchFileNames": [".github/workflows/**.yaml", ".github/workflows/**.yml"],
-    },
-    // Don't auto-update the base OS container digest inside workflow files —
-    // those are intentionally locked to specific Fedora 44 tags.
     {
       "enabled": false,
       "matchUpdateTypes": ["digest", "pinDigest", "pin"],

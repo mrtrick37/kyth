@@ -9,10 +9,6 @@
 [Gaming Docs](docs/gaming-validation-matrix.md) |
 [Report A Bug](https://github.com/mrtrick37/kyth/issues)
 
-[![Build](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
-[![CVE Scan](https://github.com/mrtrick37/kyth/actions/workflows/cve-scan.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/cve-scan.yml)
-[![Scorecard](https://api.securityscorecardcards.dev/projects/github.com/mrtrick37/kyth/badge)](https://securityscorecards.dev/viewer/?uri=github.com/mrtrick37/kyth)
-
 <img src="build_files/wallpaper/kyth-wallpaper.svg" alt="KythOS wallpaper" width="100%">
 
 </div>

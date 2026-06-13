@@ -1,5 +1,0 @@
-# Default owner for everything
-* @mrtrick37
-
-# Workflow files require extra scrutiny — any change here affects the supply chain
-.github/workflows/ @mrtrick37

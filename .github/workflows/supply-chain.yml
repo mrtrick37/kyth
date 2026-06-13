@@ -5,11 +5,13 @@ on:
   workflow_run:
     workflows: ["Build container image"]
     types: [completed]
+    # testing included so push-built :testing images are signed/SBOM'd
+    # immediately instead of waiting for the next scheduled main build.
     branches: [main, testing]
   workflow_dispatch:
     inputs:
       source_tag:
-        description: Image tag to process
+        description: 'Image tag to process'
         required: false
         default: all
         type: choice
@@ -24,29 +26,32 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  prepare:
-    name: Prepare metadata (${{ matrix.source_tag }})
+  metadata:
+    name: Metadata (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
     if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    concurrency:
+      group: supply-chain-${{ matrix.source_tag }}
+      cancel-in-progress: false
     strategy:
       fail-fast: false
       matrix:
         source_tag: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_tag == 'all' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', inputs.source_tag))) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
-      contents: read
-      packages: read
-    concurrency:
-      group: supply-chain-prepare-${{ matrix.source_tag }}
-      cancel-in-progress: false
+      contents: write
+      packages: write
+      id-token: write
+      attestations: write
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
-          persist-credentials: false
 
+      # The SBOM step needs ~2x the uncompressed image size on disk: one copy
+      # in the Docker store plus the docker-save tarball syft exports before
+      # scanning. Stock runners don't have that much free space.
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
@@ -59,15 +64,21 @@ jobs:
 
       - name: Prepare metadata variables
         id: meta
-        env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          IMAGE="ghcr.io/${{ github.repository_owner }}/${{ github.event.repository.name }}"
+          TAG="${{ matrix.source_tag }}"
           DATE_SHORT="$(date -u +%Y%m%d)"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=${SOURCE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE,,}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "date_short=${DATE_SHORT}" >> "$GITHUB_OUTPUT"
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -75,20 +86,28 @@ jobs:
       - name: Install ORAS
         uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
 
+      - name: Enable containerd snapshotter
+        run: |
+          sudo systemctl stop docker docker.socket 2>/dev/null || true
+          echo '{"features":{"containerd-snapshotter":true}}' | sudo tee /etc/docker/daemon.json
+          sudo systemctl start docker
+          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+
       - name: Resolve current and previous image digests
         id: image
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          DATE_SHORT: ${{ steps.meta.outputs.date_short }}
         run: |
+          IMAGE="${{ steps.meta.outputs.image }}"
+          TAG="${{ steps.meta.outputs.tag }}"
           CURRENT_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ .Manifest.Digest }}')"
           CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null || true)"
 
-          if [[ -z "${CURRENT_VERSION}" || "${CURRENT_VERSION}" == "<no value>" || \
-                ! "${CURRENT_VERSION}" =~ ^${TAG}\. ]]; then
-            CURRENT_VERSION="${TAG}.${DATE_SHORT}"
+          if [[ -z "${CURRENT_VERSION}" || "${CURRENT_VERSION}" == "<no value>" ]]; then
+            CURRENT_VERSION="${TAG}.${{ steps.meta.outputs.date_short }}"
           fi
+
+          echo "current_digest=${CURRENT_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
 
           TAG_PREFIX="${CURRENT_VERSION%.*}"
           PREVIOUS_TAG="$(oras repo tags "${IMAGE}" \
@@ -96,27 +115,34 @@ jobs:
             | grep -vx "${CURRENT_VERSION}" \
             | sort \
             | tail -n1 || true)"
-          PREVIOUS_DIGEST=""
+
           if [[ -n "${PREVIOUS_TAG}" ]]; then
             PREVIOUS_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${PREVIOUS_TAG}" --format '{{ .Manifest.Digest }}' 2>/dev/null || true)"
+            echo "previous_tag=${PREVIOUS_TAG}" >> "$GITHUB_OUTPUT"
+            echo "previous_digest=${PREVIOUS_DIGEST}" >> "$GITHUB_OUTPUT"
+          else
+            echo "previous_tag=" >> "$GITHUB_OUTPUT"
+            echo "previous_digest=" >> "$GITHUB_OUTPUT"
           fi
 
-          echo "current_digest=${CURRENT_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "previous_digest=${PREVIOUS_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "Current: ${IMAGE}:${TAG} ${CURRENT_DIGEST} (${CURRENT_VERSION})"
+          echo "Previous: ${PREVIOUS_TAG:-none}"
 
       - name: Capture RPM manifest
-        id: rpm_manifest
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.image.outputs.current_version }}
         run: |
-          OUT_FILE="rpm-manifest-${TAG}-${VERSION}.txt"
+          IMAGE="${{ steps.meta.outputs.image }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          OUT_FILE="rpm-manifest-${TAG}-${{ steps.image.outputs.current_version }}.txt"
           docker run --rm "${IMAGE}:${TAG}" \
             bash -lc "rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\\n' | sort" \
             > "${OUT_FILE}"
-          echo "path=${OUT_FILE}" >> "$GITHUB_OUTPUT"
+          echo "RPM_MANIFEST=${OUT_FILE}" >> "$GITHUB_ENV"
+
+      - name: Upload RPM manifest artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: rpm-manifest-${{ matrix.source_tag }}-${{ github.run_id }}
+          path: ${{ env.RPM_MANIFEST }}
 
       - name: Setup Syft
         id: setup_syft
@@ -130,225 +156,107 @@ jobs:
           echo "${SYFT_SHA256}  ${RUNNER_TEMP}/${ARCHIVE}" | sha256sum --check
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" syft
           chmod +x "${RUNNER_TEMP}/syft"
-          echo "cmd=${RUNNER_TEMP}/syft" >> "$GITHUB_OUTPUT"
+          echo "cmd=${RUNNER_TEMP}/syft" >> "${GITHUB_OUTPUT}"
 
       - name: Generate image SBOM
-        id: sbom
-        timeout-minutes: 30
+        id: generate_sbom
         env:
           SYFT_CMD: ${{ steps.setup_syft.outputs.cmd }}
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.image.outputs.current_version }}
-          DIGEST: ${{ steps.image.outputs.current_digest }}
         run: |
-          SBOM="kyth-${TAG}-${VERSION}.syft.json"
-          "${SYFT_CMD}" "registry:${IMAGE}:${TAG}" \
-            --source-name "${IMAGE}@${DIGEST}" \
+          IMAGE="${{ steps.meta.outputs.image }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          SBOM="kyth-${TAG}-${{ steps.image.outputs.current_version }}.syft.json"
+          docker image inspect "${IMAGE}:${TAG}" >/dev/null
+          "${SYFT_CMD}" "docker:${IMAGE}:${TAG}" \
+            --source-name "${IMAGE}@${{ steps.image.outputs.current_digest }}" \
             -o "syft-json=${SBOM}"
           echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+          du -h "${SBOM}"
 
-      - name: Generate SBOM-powered changelog
-        id: changelog
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          CURRENT_TAG: ${{ steps.image.outputs.current_version }}
-          CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
-          PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
-          CURRENT_SHA: ${{ steps.meta.outputs.sha }}
-          SOURCE_TAG: ${{ matrix.source_tag }}
-        run: |
-          NOTES="image-changelog-${CURRENT_TAG}.md"
-          BRANCH=main
-          if [[ "${SOURCE_TAG}" == "testing" ]]; then
-            BRANCH=testing
-          fi
-          python3 .github/scripts/kyth_changelog.py \
-            --image "${IMAGE}" \
-            --branch "${BRANCH}" \
-            --current-tag "${CURRENT_TAG}" \
-            --current-digest "${CURRENT_DIGEST}" \
-            --previous-digest "${PREVIOUS_DIGEST}" \
-            --current-sha "${CURRENT_SHA}" \
-            --output "${NOTES}"
-          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
-
-      - name: Package publish inputs
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          SOURCE_SHA: ${{ steps.meta.outputs.sha }}
-          CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
-          CURRENT_VERSION: ${{ steps.image.outputs.current_version }}
-          PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
-          RPM_MANIFEST: ${{ steps.rpm_manifest.outputs.path }}
-          SBOM: ${{ steps.sbom.outputs.path }}
-          NOTES: ${{ steps.changelog.outputs.path }}
-        run: |
-          mkdir -p output/supply-chain
-          cp "${RPM_MANIFEST}" "${SBOM}" "${NOTES}" output/supply-chain/
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          metadata = {
-              "image": os.environ["IMAGE"],
-              "tag": os.environ["TAG"],
-              "source_sha": os.environ["SOURCE_SHA"],
-              "current_digest": os.environ["CURRENT_DIGEST"],
-              "current_version": os.environ["CURRENT_VERSION"],
-              "previous_digest": os.environ["PREVIOUS_DIGEST"],
-              "rpm_manifest": Path(os.environ["RPM_MANIFEST"]).name,
-              "sbom": Path(os.environ["SBOM"]).name,
-              "notes": Path(os.environ["NOTES"]).name,
-          }
-          Path("output/supply-chain/metadata.json").write_text(
-              json.dumps(metadata, indent=2) + "\n"
-          )
-          PY
-
-      - name: Upload prepared metadata
+      - name: Upload SBOM workflow artifact
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: supply-chain-input-${{ matrix.source_tag }}-${{ github.run_id }}
-          path: output/supply-chain/*
-          if-no-files-found: error
-          retention-days: 7
-
-  publish:
-    name: Publish metadata (${{ matrix.source_tag }})
-    needs: prepare
-    runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    environment: ${{ matrix.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_tag == 'all' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', inputs.source_tag))) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
-    permissions:
-      actions: read
-      contents: write
-      packages: write
-      id-token: write
-      attestations: write
-    concurrency:
-      group: supply-chain-publish-${{ matrix.source_tag }}
-      cancel-in-progress: false
-
-    steps:
-      - name: Download prepared metadata
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
-        with:
-          name: supply-chain-input-${{ matrix.source_tag }}-${{ github.run_id }}
-          path: output/supply-chain
-
-      - name: Validate publish inputs
-        id: meta
-        run: |
-          METADATA=output/supply-chain/metadata.json
-          jq -e . "${METADATA}" >/dev/null
-          IMAGE="$(jq -r .image "${METADATA}")"
-          TAG="$(jq -r .tag "${METADATA}")"
-          SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
-          DIGEST="$(jq -r .current_digest "${METADATA}")"
-          VERSION="$(jq -r .current_version "${METADATA}")"
-          SBOM="$(jq -r .sbom "${METADATA}")"
-          NOTES="$(jq -r .notes "${METADATA}")"
-
-          [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
-          [[ "${TAG}" == "latest" || "${TAG}" == "testing" ]]
-          [[ "${TAG}" == "${{ matrix.source_tag }}" ]]
-          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          [[ "${VERSION}" =~ ^[a-z0-9._-]+$ ]]
-          [[ "${SBOM}" == "$(basename "${SBOM}")" && -s "output/supply-chain/${SBOM}" ]]
-          [[ "${NOTES}" == "$(basename "${NOTES}")" && -s "output/supply-chain/${NOTES}" ]]
-
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "sbom=${SBOM}" >> "$GITHUB_OUTPUT"
-          echo "notes=${NOTES}" >> "$GITHUB_OUTPUT"
-
-      - name: Install ORAS
-        uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
+          name: image-sbom-${{ matrix.source_tag }}-${{ github.run_id }}
+          path: ${{ steps.generate_sbom.outputs.path }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
         with:
-          cosign-release: v2.6.1
-
-      - name: Log in to GHCR
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: echo "${GH_TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          cosign-release: 'v2.6.1'
 
       - name: Sign container image
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          DIGEST: ${{ steps.meta.outputs.digest }}
-          VERSION: ${{ steps.meta.outputs.version }}
         run: |
-          cosign sign -y "${IMAGE}@${DIGEST}"
+          IMAGE="${{ steps.meta.outputs.image }}"
+          TAG="${{ steps.meta.outputs.tag }}"
+          CURRENT_VERSION="${{ steps.image.outputs.current_version }}"
+
+          cosign sign -y "${IMAGE}@${{ steps.image.outputs.current_digest }}"
           cosign sign -y "${IMAGE}:${TAG}"
-          cosign sign -y "${IMAGE}:${VERSION}"
-          if [[ "${TAG}" == "latest" && "${VERSION}" =~ ^latest\.([0-9]{8})$ ]]; then
+          cosign sign -y "${IMAGE}:${CURRENT_VERSION}"
+
+          if [[ "${TAG}" == "latest" && "${CURRENT_VERSION}" =~ ^latest\.([0-9]{8})$ ]]; then
             cosign sign -y "${IMAGE}:${BASH_REMATCH[1]}"
           fi
 
-      - name: Attach and sign SBOM
+      - name: Attach SBOM to image
         id: attach_sbom
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          DIGEST: ${{ steps.meta.outputs.digest }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          SBOM: output/supply-chain/${{ steps.meta.outputs.sbom }}
         run: |
+          IMAGE="${{ steps.meta.outputs.image }}"
+          echo "${{ secrets.GITHUB_TOKEN }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+          SBOM="${{ steps.generate_sbom.outputs.path }}"
           oras attach \
             --artifact-type application/vnd.syft+json \
             --annotation "org.opencontainers.image.title=$(basename "${SBOM}")" \
-            --annotation "org.opencontainers.image.description=Syft SBOM for Kyth image ${VERSION}" \
-            "${IMAGE}@${DIGEST}" \
+            --annotation "org.opencontainers.image.description=Syft SBOM for Kyth image ${{ steps.image.outputs.current_version }}" \
+            "${IMAGE}@${{ steps.image.outputs.current_digest }}" \
             "${SBOM}"
-          SBOM_DIGEST="$(oras discover --format json "${IMAGE}@${DIGEST}" \
+          SBOM_DIGEST="$(oras discover --format json "${IMAGE}@${{ steps.image.outputs.current_digest }}" \
             | jq -r '.referrers[] | select(.artifactType == "application/vnd.syft+json") | .digest' \
             | tail -n1)"
-          [[ "${SBOM_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          test -n "${SBOM_DIGEST}"
           echo "digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
-          cosign sign -y "${IMAGE}@${SBOM_DIGEST}"
+
+      - name: Sign SBOM OCI artifact
+        run: |
+          IMAGE="${{ steps.meta.outputs.image }}"
+          cosign sign -y "${IMAGE}@${{ steps.attach_sbom.outputs.digest }}"
 
       - name: Attest image build provenance
         uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
         with:
           subject-name: ${{ steps.meta.outputs.image }}
-          subject-digest: ${{ steps.meta.outputs.digest }}
+          subject-digest: ${{ steps.image.outputs.current_digest }}
           push-to-registry: true
+
+      - name: Generate SBOM-powered changelog
+        id: image_changelog
+        run: |
+          NOTES="image-changelog-${{ steps.image.outputs.current_version }}.md"
+          python3 .github/scripts/kyth_changelog.py \
+            --image "${{ steps.meta.outputs.image }}" \
+            --branch "${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}" \
+            --current-tag "${{ steps.image.outputs.current_version }}" \
+            --current-digest "${{ steps.image.outputs.current_digest }}" \
+            --previous-digest "${{ steps.image.outputs.previous_digest }}" \
+            --current-sha "${{ steps.meta.outputs.sha }}" \
+            --output "${NOTES}"
+          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
 
       - name: Publish image changelog release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          VERSION: ${{ steps.meta.outputs.version }}
-          SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
-          NOTES: output/supply-chain/${{ steps.meta.outputs.notes }}
-          SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
-          RELEASE_TAG="image-${VERSION//./-}"
-          TITLE="Kyth Image - ${VERSION}"
+          VERSION="${{ steps.image.outputs.current_version }}"
+          TAG="image-${VERSION//./-}"
+          TITLE="Kyth Image — ${VERSION}"
+          NOTES="${{ steps.image_changelog.outputs.path }}"
           PRERELEASE=""
-          if [[ "${SOURCE_TAG}" != "latest" ]]; then
+          if [[ "${{ matrix.source_tag }}" != "latest" ]]; then
             PRERELEASE="--prerelease"
           fi
 
-          if gh release view "${RELEASE_TAG}" &>/dev/null; then
-            gh release edit "${RELEASE_TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
+          if gh release view "${TAG}" &>/dev/null; then
+            gh release edit "${TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
           else
-            gh release create "${RELEASE_TAG}" \
-              --target "${SOURCE_SHA}" \
-              --title "${TITLE}" \
-              --notes-file "${NOTES}" \
-              ${PRERELEASE}
+            gh release create "${TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
           fi

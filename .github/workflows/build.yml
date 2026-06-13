@@ -18,12 +18,10 @@ env:
   IMAGE_LOGO_URL: "https://avatars.githubusercontent.com/u/120078124?s=200&v=4"  # Put your own image here for a fancy profile on https://artifacthub.io/!
   IMAGE_NAME: "${{ github.event.repository.name }}"  # output image name, usually same as repo name
   IMAGE_REGISTRY: "ghcr.io/${{ github.repository_owner }}"  # do not edit
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   build_push:
     name: Build and push (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 120
     # fail-fast is false below, so a cachy failure never blocks the fedora leg
     # or the live ISO dispatch. Let it mark the run red — continue-on-error here
     # would hide scheduled cachy build breakage indefinitely.
@@ -69,7 +67,6 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ matrix.branch }}
-          persist-credentials: false
 
       - name: Capture checked-out commit
         id: checkout_sha
@@ -197,11 +194,6 @@ jobs:
             TAG_ARGS+=(--tag "${IMAGE_FULL}:${tag}")
           done
 
-          LABEL_ARGS=()
-          while IFS= read -r label; do
-            [[ -n "${label}" ]] && LABEL_ARGS+=(--label "${label}")
-          done <<< "${{ steps.metadata.outputs.labels }}"
-
           # MOK_KEY is optional — builds without it, or with a stale key, skip
           # vmlinuz signing gracefully for the regular container image.
           # To enable Secure Boot: add MOK_KEY as a repository secret containing
@@ -226,7 +218,6 @@ jobs:
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
             --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
             "${TAG_ARGS[@]}" \
-            "${LABEL_ARGS[@]}" \
             --output "type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true" \
             .
         env:
