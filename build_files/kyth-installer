@@ -168,7 +168,8 @@ def _read_lines(path: Path) -> list[str]:
 
 def _write_lines(path: Path, lines: list[str], mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text("\n".join(lines) + "\n")
+    # passwd uses the literal "x" placeholder; shadow records contain hashes.
+    path.write_text("\n".join(lines) + "\n")  # lgtm[py/clear-text-storage-sensitive-data]
     os.chmod(path, mode)
 
 
@@ -521,7 +522,7 @@ def _install_images(kernel: str) -> tuple[str, str]:
 
 _state: dict = {
     "disk": "", "hostname": "kyth", "timezone": "UTC",
-    "username": "", "password": "", "kernel": "fedora",
+    "username": "", "password_hash": "", "kernel": "fedora",
 }
 
 _events: list[dict] = []
@@ -549,6 +550,21 @@ def _get_rx_bytes() -> int:
         return total
     except Exception:
         return 0
+
+
+def _hash_password(password: str) -> str:
+    result = subprocess.run(
+        ["openssl", "passwd", "-6", "-stdin"],
+        input=password,
+        text=True,
+        capture_output=True,
+        check=True,
+        timeout=15,
+    )
+    password_hash = result.stdout.strip()
+    if not password_hash.startswith("$6$"):
+        raise RuntimeError("Password hashing returned an invalid SHA-512 crypt value")
+    return password_hash
 
 
 def _parse_size_bytes(size_str: str) -> int:
@@ -735,8 +751,8 @@ def _run_install() -> None:
                 ensure_system_accounts(deploy_root, log)
 
                 username = _state.get("username", "").strip()
-                password = _state.get("password", "")
-                if username and password:
+                password_hash = _state.get("password_hash", "")
+                if username and password_hash:
                     log(f"Creating user: {username}")
                     try:
                         subprocess.run(
@@ -748,13 +764,6 @@ def _run_install() -> None:
                             check=True,
                         )
 
-                        hash_r = subprocess.run(
-                            ["openssl", "passwd", "-6", "-stdin"],
-                            input=password, text=True,
-                            capture_output=True, check=True, timeout=15,
-                        )
-                        pw_hash = hash_r.stdout.strip()
-
                         shadow_path = f"{etc}/shadow"
                         cat_r = subprocess.run(
                             _as_root(["cat", shadow_path]),
@@ -765,7 +774,7 @@ def _run_install() -> None:
                         for line in cat_r.stdout.splitlines(keepends=True):
                             if line.startswith(f"{username}:"):
                                 fields = line.split(":")
-                                fields[1] = pw_hash
+                                fields[1] = password_hash
                                 new_lines.append(":".join(fields))
                                 hash_written = True
                             else:
@@ -839,6 +848,8 @@ def _run_install() -> None:
         except Exception:
             pass
         _push({"type": "error", "message": str(exc)})
+    finally:
+        _state["password_hash"] = ""
 
 
 # ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -957,6 +968,17 @@ class Handler(BaseHTTPRequestHandler):
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
+            password = body.pop("password", "")
+            if not password:
+                self.send_error(400, "Password is required")
+                return
+            try:
+                password_hash = _hash_password(password)
+            except (OSError, subprocess.SubprocessError, RuntimeError):
+                self.send_error(500, "Could not securely hash password")
+                return
+            finally:
+                del password
             src_ref, _ = _install_images(kernel)
             network_error = _network_preflight(src_ref)
             if network_error:
@@ -967,7 +989,7 @@ class Handler(BaseHTTPRequestHandler):
                 "hostname": hostname,
                 "timezone": timezone,
                 "username": username,
-                "password": body.get("password", ""),
+                "password_hash": password_hash,
                 "kernel":   kernel,
             })
             with _events_lock:
@@ -1591,6 +1613,9 @@ function startInstall() {
           .catch(() => showError('Install request failed (status ' + r.status + ')')));
     }
     goto('install');
+    S.password = '';
+    document.getElementById('inp-password').value = '';
+    document.getElementById('inp-password2').value = '';
     _startTime = Date.now();
     _elapsedTimer = setInterval(() => {
       const s = Math.floor((Date.now() - _startTime) / 1000);
