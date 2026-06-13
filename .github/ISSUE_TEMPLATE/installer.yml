@@ -1,0 +1,102 @@
+name: Installer problem
+description: Report a live ISO, disk detection, installation, or first-boot failure.
+title: "[Installer]: "
+labels:
+  - bug
+  - "component: installer"
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing KythOS. Please remove passwords, tokens, serial numbers, and other private information from logs.
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Release channel
+      options:
+        - Stable (`latest`)
+        - Testing (`testing`)
+        - Locally built image
+    validations:
+      required: true
+
+  - type: input
+    id: image
+    attributes:
+      label: ISO or image version
+      description: Include the release date, image tag, or digest when available.
+      placeholder: "Example: iso-testing, downloaded 2026-06-12"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Failure stage
+      options:
+        - Creating or booting the USB
+        - Live desktop startup
+        - Installer launch
+        - Disk selection or partitioning
+        - Downloading or writing the OS image
+        - User, timezone, or hostname setup
+        - First reboot or first login
+        - Secure Boot enrollment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Include the exact message and the last successful step.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Booted the ISO using...
+        2. Selected...
+        3. The installer...
+    validations:
+      required: true
+
+  - type: textarea
+    id: storage
+    attributes:
+      label: Storage layout
+      description: Describe the target drive, dual-boot setup, encryption, and installation mode. Do not include serial numbers.
+      placeholder: "Example: 1 TB NVMe, Windows on a separate drive, erase-disk install"
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Relevant hardware
+      description: CPU, GPU, motherboard or laptop model, RAM, and boot mode.
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: Paste a short redacted excerpt or drag files here. Include `/tmp/kyth-installer.log` when available.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues for this failure.
+          required: true
+        - label: I removed passwords, tokens, serial numbers, and other private data.
+          required: true
+
