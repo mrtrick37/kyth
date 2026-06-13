@@ -1,0 +1,61 @@
+name: Feature proposal
+description: Propose a focused improvement to KythOS.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: Describe the user need or recurring friction rather than only the proposed implementation.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain what KythOS should do and where the change belongs.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audience
+    attributes:
+      label: Primary audience
+      options:
+        - New KythOS users
+        - Gamers
+        - Creators
+        - Developers or tinkerers
+        - Hardware-specific users
+        - All users
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What can users do today, and why is that insufficient?
+
+  - type: textarea
+    id: risks
+    attributes:
+      label: Risks and maintenance cost
+      description: Consider image size, security, updates, hardware variance, licensing, and long-term ownership.
+
+  - type: textarea
+    id: references
+    attributes:
+      label: References or examples
+      description: Link upstream projects, documentation, screenshots, or similar implementations.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues and Discussions for this proposal.
+          required: true
