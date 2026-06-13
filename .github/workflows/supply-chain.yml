@@ -20,6 +20,8 @@ on:
           - latest
           - testing
 
+permissions: read-all
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -144,9 +146,17 @@ jobs:
 
       - name: Setup Syft
         id: setup_syft
-        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0
-        with:
-          syft-version: v1.39.0
+        env:
+          SYFT_VERSION: 1.39.0
+          SYFT_SHA256: bb8f1ba8201d1ce0d99ab4f5243142629c1afba4da97a7c4ca2df97327f97190
+        run: |
+          ARCHIVE="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          URL="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${ARCHIVE}"
+          curl --fail --location --silent --show-error --output "${RUNNER_TEMP}/${ARCHIVE}" "${URL}"
+          echo "${SYFT_SHA256}  ${RUNNER_TEMP}/${ARCHIVE}" | sha256sum --check
+          tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" syft
+          chmod +x "${RUNNER_TEMP}/syft"
+          echo "cmd=${RUNNER_TEMP}/syft" >> "${GITHUB_OUTPUT}"
 
       - name: Generate image SBOM
         id: generate_sbom

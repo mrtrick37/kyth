@@ -1,0 +1,67 @@
+name: Hardware compatibility report
+description: Report working hardware, missing support, or hardware-specific behavior.
+title: "[Hardware]: "
+labels:
+  - "component: hardware"
+body:
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works correctly
+        - Works with limitations
+        - Does not work
+        - Regression from an earlier image
+    validations:
+      required: true
+
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Release channel
+      options:
+        - Stable (`latest`)
+        - Testing (`testing`)
+        - CachyOS stable (`latest-cachy`)
+        - CachyOS testing (`testing-cachy`)
+    validations:
+      required: true
+
+  - type: input
+    id: image
+    attributes:
+      label: Image version or digest
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware details
+      description: Include manufacturer and model, CPU, GPU, network, audio, storage, and relevant peripherals. Do not include serial numbers.
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Observed behavior
+      description: Explain what works, what does not, and any workaround required.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostic output
+      description: Paste relevant redacted `kyth-device-info`, `lspci -nnk`, `lsusb`, or journal output.
+      render: shell
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I removed serial numbers, MAC addresses, hostnames, and other private data.
+          required: true

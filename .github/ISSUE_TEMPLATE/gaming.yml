@@ -1,0 +1,94 @@
+name: Gaming compatibility report
+description: Report game, launcher, controller, performance, or anti-cheat results.
+title: "[Gaming]: "
+labels:
+  - "component: gaming"
+body:
+  - type: input
+    id: title
+    attributes:
+      label: Game or application
+      placeholder: "Game name and Steam App ID, if applicable"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works correctly
+        - Works with limitations
+        - Does not launch
+        - Crashes or hangs
+        - Multiplayer or anti-cheat blocked
+        - Performance regression
+    validations:
+      required: true
+
+  - type: input
+    id: image
+    attributes:
+      label: KythOS image and kernel
+      placeholder: "Example: testing, Fedora kernel 6.x"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: launcher
+    attributes:
+      label: Launcher
+      options:
+        - Steam
+        - Heroic
+        - Lutris
+        - Bottles
+        - Native executable
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: runner
+    attributes:
+      label: Compatibility runner
+      description: Proton, GE-Proton, Wine, or native version.
+      placeholder: "Example: GE-Proton 10-8"
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Relevant hardware and display setup
+      description: GPU, driver, CPU, resolution, refresh rate, HDR/VRR, and controller when relevant.
+    validations:
+      required: true
+
+  - type: textarea
+    id: behavior
+    attributes:
+      label: Behavior and reproduction steps
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs and launch options
+      description: Include short redacted Proton, launcher, MangoHud, or journal output and any custom launch options.
+      render: shell
+
+  - type: input
+    id: references
+    attributes:
+      label: Compatibility references
+      description: ProtonDB report, anti-cheat status, or upstream issue URL.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I tested without unrelated mods or custom tweaks, or listed them above.
+          required: true
+        - label: I removed account names, tokens, and other private data.
+          required: true

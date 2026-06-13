@@ -43,6 +43,29 @@ Direct downloads:
 
 You will need at least 8 GB RAM for the live session, a USB drive, and an internet connection during install.
 
+### Verify A Download
+
+Each release includes a SHA-256 checksum, a keyless Cosign signature bundle,
+and GitHub build provenance. Download the ISO and its matching sidecar files,
+then replace `kyth-live-CHANNEL.iso` below with the downloaded filename:
+
+```bash
+sha256sum -c kyth-live-CHANNEL.iso-CHECKSUM
+
+cosign verify-blob \
+  --bundle kyth-live-CHANNEL.iso.bundle \
+  --certificate-identity-regexp '^https://github\.com/mrtrick37/kyth/\.github/workflows/build-live-iso\.yml@refs/heads/(main|testing)$' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+  kyth-live-CHANNEL.iso
+
+gh attestation verify kyth-live-CHANNEL.iso \
+  --repo mrtrick37/kyth \
+  --signer-workflow mrtrick37/kyth/.github/workflows/build-live-iso.yml
+```
+
+The channel URLs move forward over time. For archival or reproducible use,
+choose the timestamped immutable release linked from the channel release page.
+
 ## Why Gamers Should Care
 
 KythOS is not trying to pretend every game works on Linux. It is trying to make the games that can work feel easier to set up, easier to tune, and easier to recover from when launchers, drivers, shaders, mods, or anti-cheat updates decide to be difficult.

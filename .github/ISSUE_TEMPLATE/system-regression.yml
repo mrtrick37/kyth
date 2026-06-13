@@ -1,0 +1,99 @@
+name: Boot, update, or desktop regression
+description: Report a system failure or behavior that previously worked.
+title: "[Regression]: "
+labels:
+  - bug
+  - "component: system"
+body:
+  - type: dropdown
+    id: channel
+    attributes:
+      label: Release channel
+      options:
+        - Stable (`latest`)
+        - Testing (`testing`)
+        - CachyOS stable (`latest-cachy`)
+        - CachyOS testing (`testing-cachy`)
+    validations:
+      required: true
+
+  - type: input
+    id: current
+    attributes:
+      label: Current image
+      description: Copy the image tag or digest from System Hub when possible.
+      placeholder: "ghcr.io/mrtrick37/kyth:testing@sha256:..."
+    validations:
+      required: true
+
+  - type: input
+    id: previous
+    attributes:
+      label: Last known working image
+      description: Include the previous deployment digest or approximate date when known.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options:
+        - Boot or login
+        - Update or rollback
+        - Desktop or display
+        - Network or Bluetooth
+        - Audio
+        - Graphics or GPU driver
+        - System Hub or helper tool
+        - Suspend, resume, or shutdown
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What changed?
+      description: Explain what worked before, what happens now, and the expected behavior.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+    validations:
+      required: true
+
+  - type: textarea
+    id: hardware
+    attributes:
+      label: Hardware
+      description: CPU, GPU, motherboard or laptop model, RAM, and relevant peripherals.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: Paste relevant redacted output from System Hub diagnostics, `kyth-smoke-check`, or `journalctl`.
+      render: shell
+
+  - type: checkboxes
+    id: rollback
+    attributes:
+      label: Rollback result
+      options:
+        - label: The previous deployment works correctly.
+        - label: The previous deployment has the same problem.
+        - label: I could not test the previous deployment.
+
+  - type: checkboxes
+    id: confirmations
+    attributes:
+      label: Confirmation
+      options:
+        - label: I searched existing issues for this regression.
+          required: true
+        - label: I removed passwords, tokens, serial numbers, and other private data.
+          required: true
