@@ -10,6 +10,8 @@ on:
       - '**/README.md'
   workflow_dispatch:
 
+permissions: read-all
+
 env:
   IMAGE_DESC: "Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
   IMAGE_KEYWORDS: "bootc,ublue,universal-blue"
