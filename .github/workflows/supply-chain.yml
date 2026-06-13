@@ -49,9 +49,8 @@ jobs:
         with:
           ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
 
-      # The SBOM step needs ~2x the uncompressed image size on disk: one copy
-      # in the Docker store plus the docker-save tarball syft exports before
-      # scanning. Stock runners don't have that much free space.
+      # The RPM manifest step docker-pulls the full image (~5 GB compressed).
+      # Free space so the runner doesn't run out mid-pull.
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
         with:
@@ -160,14 +159,17 @@ jobs:
 
       - name: Generate image SBOM
         id: generate_sbom
+        timeout-minutes: 30
         env:
           SYFT_CMD: ${{ steps.setup_syft.outputs.cmd }}
         run: |
           IMAGE="${{ steps.meta.outputs.image }}"
           TAG="${{ steps.meta.outputs.tag }}"
           SBOM="kyth-${TAG}-${{ steps.image.outputs.current_version }}.syft.json"
-          docker image inspect "${IMAGE}:${TAG}" >/dev/null
-          "${SYFT_CMD}" "docker:${IMAGE}:${TAG}" \
+          # Use registry: source so Syft streams layers from GHCR directly
+          # instead of docker-saving the full image — avoids OOM on a ~10 GB OS image.
+          # Credentials are read from ~/.docker/config.json set by the earlier docker login.
+          "${SYFT_CMD}" "registry:${IMAGE}:${TAG}" \
             --source-name "${IMAGE}@${{ steps.image.outputs.current_digest }}" \
             -o "syft-json=${SBOM}"
           echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
