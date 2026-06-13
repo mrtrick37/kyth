@@ -657,7 +657,9 @@ setup-kali-box tools="headless":
                 _fixed_priv=$((_fixed_priv+1))
             fi
         done
-        [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+        if [[ "${_fixed_priv}" -gt 0 ]]; then
+            echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+        fi
 
         # zenmap requires root for raw-socket scans and cannot re-elevate via polkit
         # inside the container.  Route every exported zenmap launcher unconditionally
@@ -767,7 +769,9 @@ export-kali-apps:
             _fixed_priv=$((_fixed_priv+1))
         fi
     done
-    [[ "${_fixed_priv}" -gt 0 ]] && echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+    if [[ "${_fixed_priv}" -gt 0 ]]; then
+        echo "  Replaced pkexec/kdesu with sudo -E on ${_fixed_priv} entries."
+    fi
 
     # zenmap requires root for raw-socket scans and cannot re-elevate via polkit
     # inside the container.  Route every exported zenmap launcher unconditionally
@@ -1446,7 +1450,9 @@ install-ms-fonts:
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
     if [[ "${ok}" -gt 0 ]]; then
         echo "  ✓ Installed fonts from ${ok} package(s). Restart LibreOffice to apply."
-        [[ "${failed}" -gt 0 ]] && echo "  ⚠ ${failed} package(s) skipped."
+        if [[ "${failed}" -gt 0 ]]; then
+            echo "  ⚠ ${failed} package(s) skipped."
+        fi
     else
         echo "  ✗ No fonts installed. Check your network connection and try again." >&2
         exit 1
