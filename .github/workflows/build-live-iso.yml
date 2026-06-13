@@ -22,6 +22,7 @@ jobs:
   build-iso:
     name: Build ISO (${{ matrix.source_tag }})
     runs-on: ubuntu-24.04
+    environment: ${{ matrix.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
     concurrency:
       group: build-live-iso-${{ matrix.source_tag }}
       cancel-in-progress: true
