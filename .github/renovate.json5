@@ -4,13 +4,24 @@
     "config:best-practices",
   ],
 
-  "rebaseWhen": "never",
+  // Rebase only when there are actual conflicts; vulnerability PRs always rebase.
+  "rebaseWhen": "conflicted",
+
+  // Security update PRs: rebase immediately and automerge so they don't wait.
+  "vulnerabilityAlerts": {
+    "enabled": true,
+    "rebaseWhen": "behind-base-branch",
+    "automerge": true,
+    "labels": ["security"],
+  },
 
   "packageRules": [
     {
       "automerge": true,
       "matchUpdateTypes": ["pin", "pinDigest"]
     },
+    // Don't auto-update the base OS container digest inside workflow files —
+    // those are intentionally locked to specific Fedora 44 tags.
     {
       "enabled": false,
       "matchUpdateTypes": ["digest", "pinDigest", "pin"],

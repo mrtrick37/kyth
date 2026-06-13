@@ -120,6 +120,9 @@ jobs:
         run: mkdir -p output/live-iso
 
       - name: Build ISO with Titanoboa
+        # Third-party community action — no versioned releases exist; pinned to
+        # a specific commit SHA. Runs with elevated privileges (SYS_ADMIN,
+        # label=disable) inside the podman build above. Review before updating.
         uses: Zeglius/titanoboa@7737f4748458252ac827dca14b3d6dd09298472a
         with:
           image-ref: localhost/payload:latest

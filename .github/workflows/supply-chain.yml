@@ -101,7 +101,11 @@ jobs:
           CURRENT_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ .Manifest.Digest }}')"
           CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null || true)"
 
-          if [[ -z "${CURRENT_VERSION}" || "${CURRENT_VERSION}" == "<no value>" ]]; then
+          # Fall back if the label is absent, literally "<no value>", or if it
+          # resolved to a base-image value (e.g. "44" from Fedora Kinoite) rather
+          # than our expected format of "${TAG}.YYYYMMDD".
+          if [[ -z "${CURRENT_VERSION}" || "${CURRENT_VERSION}" == "<no value>" || \
+                ! "${CURRENT_VERSION}" =~ ^${TAG}\. ]]; then
             CURRENT_VERSION="${TAG}.${{ steps.meta.outputs.date_short }}"
           fi
 
