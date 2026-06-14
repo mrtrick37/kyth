@@ -214,7 +214,7 @@ jobs:
         run: |
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
           FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${{ matrix.branch }}-${{ matrix.kernel_flavor }}"
-          RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${{ steps.prep.outputs.default_tag }}"
+          RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${{ steps.prep.outputs.default_tag }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           LABEL_ARGS=()
           while IFS= read -r label; do
@@ -264,7 +264,10 @@ jobs:
           REVISION="$(docker buildx imagetools inspect "${RAW_IMAGE_REF}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
           test "${REVISION}" = "${{ steps.checkout_sha.outputs.sha }}"
           echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
-          echo "raw_ref=${RAW_IMAGE_REF}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          # legacy-rechunk derives its OCI output directory from this value and
+          # cannot safely handle digest-qualified references containing @sha256.
+          # The run-unique tag prevents another build from moving this input.
+          echo "raw_ref=${RAW_IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

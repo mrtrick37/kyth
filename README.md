@@ -265,11 +265,14 @@ just lint && just format
 
 ---
 
-## Active Installs
+## Privacy
 
-![KythOS reported user count](docs/metrics/kythos-users.svg)
+KythOS enables Fedora's DNF CountMe mechanism. Once per weekly counting window,
+installed systems add an anonymous age bucket to Fedora repository metadata
+requests. It does not create accounts or send per-machine identifiers.
 
-Estimated via DNF CountMe — aggregate repository metadata requests only. No accounts, no per-machine IDs.
+Fedora's public aggregate does not distinguish KythOS from other Fedora-based
+systems, so KythOS does not claim an install count from this data.
 
 ---
 
