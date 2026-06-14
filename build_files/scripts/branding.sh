@@ -309,6 +309,108 @@ Theme=Papirus-Dark
 LookAndFeelPackage=org.kde.breezedark.desktop
 KDEEOF
 
+# Keep server-side titlebars on the familiar minimize, maximize, close trio.
+# IAX is KWin's button code sequence for underscore, box, and X.
+cat > /etc/skel/.config/kwinrc <<'KWINDECORATIONEOF'
+[org.kde.kdecoration2]
+ButtonsOnLeft=
+ButtonsOnRight=IAX
+library=org.kde.breeze
+theme=Breeze
+KWINDECORATIONEOF
+
+# Breeze GTK normally renders minimize/maximize as down/up chevrons. Replace
+# both the GTK 3/4 symbolic assets and Chromium compatibility PNGs so
+# client-side titlebars use the same underscore, box, and X as KWin.
+window_control_src=/ctx/branding/window-controls
+window_control_css=/tmp/kyth-window-controls.css
+
+render_window_control() {
+    local source=$1
+    local output=$2
+    local size=$3
+    local background=$4
+    local foreground=$5
+    cat > "${window_control_css}" <<EOF
+.background { fill: ${background}; }
+.glyph { fill: ${foreground}; }
+EOF
+    rsvg-convert -w "${size}" -h "${size}" --stylesheet "${window_control_css}" \
+        "${source}" -o "${output}"
+}
+
+for gtk_theme in Breeze Breeze-Dark; do
+    gtk_assets="/usr/share/themes/${gtk_theme}/assets"
+    [[ -d "${gtk_assets}" ]] || continue
+
+    for state in symbolic hover-symbolic active-symbolic; do
+        install -m 0644 "${window_control_src}/minimize.svg" \
+            "${gtk_assets}/breeze-minimize-${state}.svg"
+        install -m 0644 "${window_control_src}/maximize.svg" \
+            "${gtk_assets}/breeze-maximize-${state}.svg"
+        install -m 0644 "${window_control_src}/maximize.svg" \
+            "${gtk_assets}/breeze-maximized-${state}.svg"
+    done
+    install -m 0644 "${window_control_src}/close.svg" \
+        "${gtk_assets}/breeze-close-symbolic.svg"
+    sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
+        > "${gtk_assets}/breeze-close-hover-symbolic.svg"
+    sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
+        > "${gtk_assets}/breeze-close-active-symbolic.svg"
+
+    if [[ "${gtk_theme}" == Breeze-Dark ]]; then
+        normal_fg='rgba(252,252,252,0.91)'
+        backdrop_fg='rgba(161,169,177,0.40)'
+        hover_bg='#fcfcfc'
+        hover_fg='#232629'
+    else
+        normal_fg='rgba(35,38,41,0.91)'
+        backdrop_fg='rgba(112,125,138,0.72)'
+        hover_bg='#232629'
+        hover_fg='#fcfcfc'
+    fi
+
+    for scale in 1 2; do
+        if (( scale == 1 )); then
+            size=18
+            suffix=''
+        else
+            size=36
+            suffix='@2'
+        fi
+
+        for control in minimize maximize; do
+            source="${window_control_src}/${control}.svg"
+            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}${suffix}.png" \
+                "${size}" none "${normal_fg}"
+            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-hover${suffix}.png" \
+                "${size}" "${hover_bg}" "${hover_fg}"
+            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-active${suffix}.png" \
+                "${size}" "${hover_bg}" "${hover_fg}"
+            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-backdrop${suffix}.png" \
+                "${size}" none "${backdrop_fg}"
+        done
+
+        for state in '' '-hover' '-active' '-backdrop'; do
+            case "${state}" in
+                -hover) close_fg='#ff667c' ;;
+                -active) close_fg='#da4453' ;;
+                -backdrop) close_fg="${backdrop_fg}" ;;
+                *) close_fg="${normal_fg}" ;;
+            esac
+            render_window_control "${window_control_src}/close.svg" \
+                "${gtk_assets}/titlebutton-close${state}${suffix}.png" \
+                "${size}" none "${close_fg}"
+        done
+
+        for state in '' '-hover' '-active' '-backdrop'; do
+            cp "${gtk_assets}/titlebutton-maximize${state}${suffix}.png" \
+                "${gtk_assets}/titlebutton-maximize-maximized${state}${suffix}.png"
+        done
+    done
+done
+rm -f "${window_control_css}"
+
 cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
 name=kyth-dark
@@ -435,6 +537,12 @@ type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SDDMEOF
 
+# Make enrolled fingerprints available to the login and screen-lock PAM stack.
+# fprintd-pam provides the module; authselect activates it in Fedora's profile.
+if command -v authselect >/dev/null 2>&1 && authselect current >/dev/null 2>&1; then
+    authselect enable-feature with-fingerprint
+fi
+
 # ── KythOS icons ───────────────────────────────────────────────────────────────
 # KDE Plasma 6 Kickoff looks up icons in this order:
 #   start-here-kde-plasma → start-here-kde → start-here
@@ -521,6 +629,19 @@ if [[ -f /etc/default/grub ]]; then
 else
     printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
 fi
+
+# Microsoft 365 web-app shortcut icons (referenced by the .desktop entries the
+# kyth-welcome Work Setup page writes; without them Kickoff shows a generic globe).
+for app in outlook word excel powerpoint onenote teams; do
+    cp "/ctx/branding/m365/kyth-m365-${app}.svg" \
+        /usr/share/icons/hicolor/scalable/apps/
+    for sz in 16 22 24 32 48 64 128 256; do
+        dir="/usr/share/icons/hicolor/${sz}x${sz}/apps"
+        mkdir -p "${dir}"
+        rsvg-convert -w "${sz}" -h "${sz}" "/ctx/branding/m365/kyth-m365-${app}.svg" \
+            -o "${dir}/kyth-m365-${app}.png"
+    done
+done
 
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
@@ -630,7 +751,7 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v6"
+version="v9"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -802,10 +923,20 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
     kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
 
-    # Ctrl+Shift+Esc → System Monitor (Task Manager equivalent)
-    kwriteconfig6 --file kglobalshortcutsrc \
-        --group org.kde.plasma-systemmonitor.desktop \
-        --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+    # Ctrl+Shift+Esc opens Mission Center when installed, with KDE System
+    # Monitor as the always-available fallback.
+    if flatpak info io.missioncenter.MissionCenter >/dev/null 2>&1; then
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group services --group io.missioncenter.MissionCenter.desktop \
+            --key _launch 'Ctrl+Shift+Esc'
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group org.kde.plasma-systemmonitor.desktop \
+            --key _launch 'none,none,System Monitor'
+    else
+        kwriteconfig6 --file kglobalshortcutsrc \
+            --group org.kde.plasma-systemmonitor.desktop \
+            --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
+    fi
 
     # Double-click to open files — KDE defaults to single-click; Windows users
     # expect double-click everywhere (Dolphin, desktop, file dialogs).
@@ -827,14 +958,34 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key show_clipboard_history \
         'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 
-    # Alt+Tab window switcher — thumbnail grid instead of KDE's default icon strip.
-    # Windows users expect large previews when switching windows; the KDE default
-    # "Breeze" switcher shows small icons only and is disorienting for switchers.
-    # "thumbnails" renders a grid of live window previews (closest to Windows Alt+Tab).
+    # Win+E → file manager and Win+Shift+S → region screenshot, the two
+    # heaviest pieces of Windows muscle memory. Same keys the Move From Windows
+    # page applies; its "Restore KDE Defaults" button remains the opt-out.
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group services --group org.kde.dolphin.desktop \
+        --key _launch 'Meta+E'
+    kwriteconfig6 --file kglobalshortcutsrc \
+        --group org.kde.spectacle.desktop \
+        --key RectangularRegionScreenShot \
+        'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
+
+    # Alt+Tab window switcher — Thumbnail Grid, the Windows 11-style switcher.
+    # KWin ships it built in and made it the default in Plasma 6.4, but configs
+    # carried over from earlier installs (or kyth's previous "thumbnails" strip
+    # override) can still select an older layout — pin the grid explicitly.
     # TabBoxAlternative* sets the same layout for the reverse direction (Alt+Shift+Tab).
-    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnail_grid
     kwriteconfig6 --file kwinrc --group TabBox --key ShowDesktop --type bool false
-    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnails
+    kwriteconfig6 --file kwinrc --group TabBoxAlternative --key LayoutName thumbnail_grid
+
+    # Keep upgraded users on the same underscore, box, and X titlebar controls.
+    kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnLeft ""
+    kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight IAX
+    kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key library org.kde.breeze
+    kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key theme Breeze
+    if command -v qdbus6 >/dev/null 2>&1; then
+        qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    fi
 
     # Desktop right-click menu — surface "Configure Desktop" prominently so
     # "right-click desktop → change wallpaper" works like Windows users expect.
@@ -908,6 +1059,13 @@ fi
 
 if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
     /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
+fi
+
+# Recycle Bin on the desktop for existing accounts. Seeded once per polish
+# version — deleting it afterwards is respected until the next version bump.
+if [[ -d "${HOME}/Desktop" && ! -e "${HOME}/Desktop/kyth-recycle-bin.desktop" ]] \
+    && [[ -f /usr/share/kyth/kyth-recycle-bin.desktop ]]; then
+    cp /usr/share/kyth/kyth-recycle-bin.desktop "${HOME}/Desktop/kyth-recycle-bin.desktop" || true
 fi
 
 touch "${stamp}"
@@ -1067,6 +1225,78 @@ mkdir -p /etc/skel/Desktop
 install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
     /etc/skel/Desktop/kyth-welcome.desktop
 
+# Recycle Bin on the desktop — Windows users look for it there. Type=Link
+# entries open in Dolphin and need no executable/trust bit. Kept in
+# /usr/share/kyth so the user-polish pass can seed existing accounts too.
+mkdir -p /usr/share/kyth
+cat > /usr/share/kyth/kyth-recycle-bin.desktop <<'TRASHEOF'
+[Desktop Entry]
+Type=Link
+URL=trash:/
+Name=Recycle Bin
+GenericName=Trash
+Icon=user-trash
+TRASHEOF
+install -m 0644 /usr/share/kyth/kyth-recycle-bin.desktop \
+    /etc/skel/Desktop/kyth-recycle-bin.desktop
+
+# ── Storage Sense ─────────────────────────────────────────────────────────────
+# Windows-style automatic housekeeping: empty Recycle Bin items older than 30
+# days, drop unused Flatpak runtimes, vacuum the user journal. Opt-in — the
+# timer ships disabled and System Hub → Health Report has the on/off switch,
+# matching how Storage Sense is something Windows users turn on, not fight.
+cat > /usr/bin/kyth-storage-sense <<'STORAGESENSEEOF'
+#!/usr/bin/env bash
+# KythOS Storage Sense — enable/disable from System Hub → Health Report.
+set -uo pipefail
+
+days=30
+info_dir="${HOME}/.local/share/Trash/info"
+files_dir="${HOME}/.local/share/Trash/files"
+now=$(date +%s)
+
+# Trash entries record their deletion time in .trashinfo (XDG trash spec);
+# only entries older than the cutoff are removed, never the whole bin.
+if [[ -d "${info_dir}" ]]; then
+    for info in "${info_dir}"/*.trashinfo; do
+        [[ -e "${info}" ]] || continue
+        deleted=$(sed -n 's/^DeletionDate=//p' "${info}" | head -1)
+        [[ -n "${deleted}" ]] || continue
+        ts=$(date -d "${deleted}" +%s 2>/dev/null) || continue
+        if (( now - ts > days * 86400 )); then
+            name=$(basename "${info}" .trashinfo)
+            rm -rf -- "${files_dir:?}/${name}" "${info}" 2>/dev/null || true
+        fi
+    done
+fi
+
+flatpak uninstall --unused -y --noninteractive >/dev/null 2>&1 || true
+journalctl --user --vacuum-time=30d >/dev/null 2>&1 || true
+STORAGESENSEEOF
+chmod +x /usr/bin/kyth-storage-sense
+
+cat > /usr/lib/systemd/user/kyth-storage-sense.service <<'STORAGESENSESVCEOF'
+[Unit]
+Description=KythOS Storage Sense cleanup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/kyth-storage-sense
+STORAGESENSESVCEOF
+
+cat > /usr/lib/systemd/user/kyth-storage-sense.timer <<'STORAGESENSETIMEREOF'
+[Unit]
+Description=Weekly KythOS Storage Sense cleanup
+
+[Timer]
+OnCalendar=weekly
+Persistent=true
+RandomizedDelaySec=1h
+
+[Install]
+WantedBy=timers.target
+STORAGESENSETIMEREOF
+
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
     /usr/share/applications/kyth-update-notifier.desktop
@@ -1126,6 +1356,7 @@ install -m 0755 /ctx/kyth-performance-mode /usr/bin/kyth-performance-mode
 install -m 0755 /ctx/kyth-scx /usr/bin/kyth-scx
 install -m 0755 /ctx/kyth-nvme-tuning /usr/bin/kyth-nvme-tuning
 install -m 0755 /ctx/zink-run /usr/bin/zink-run
+install -m 0755 /ctx/low-latency-run /usr/bin/low-latency-run
 install -m 0755 /ctx/kyth-kerver /usr/bin/kyth-kerver
 install -m 0755 /ctx/kyth-device-info /usr/bin/kyth-device-info
 install -m 0755 /ctx/kyth-smoke-check /usr/bin/kyth-smoke-check
@@ -1140,12 +1371,16 @@ install -m 0755 /ctx/kyth-widevine-install /usr/bin/kyth-widevine-install
 install -m 0755 /ctx/kyth-duperemove /usr/bin/kyth-duperemove
 install -m 0755 /ctx/kyth-distrobox-root-launch /usr/bin/kyth-distrobox-root-launch
 install -m 0755 /ctx/kyth-local-bin-migrate /usr/bin/kyth-local-bin-migrate
+install -m 0755 /ctx/kyth-nearby-share /usr/bin/kyth-nearby-share
+install -m 0755 /ctx/kyth-setup-transfer /usr/bin/kyth-setup-transfer
+install -m 0755 /ctx/kyth-dynamic-lock /usr/bin/kyth-dynamic-lock
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
 install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
 mkdir -p /usr/lib/systemd/user /usr/lib/systemd/user/default.target.wants
+install -m 0644 /ctx/kyth-dynamic-lock.service /usr/lib/systemd/user/kyth-dynamic-lock.service
 cat > /usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
 [Unit]
 Description=Apply quiet VS Code and Brave wallet defaults
@@ -1241,6 +1476,13 @@ MIMEAPPSEOF
 
 # Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
+
+# Add Windows-style nearby sharing to Dolphin's file context menu. KDE Connect
+# handles discovery and transfer; the helper prompts when multiple paired
+# devices are reachable.
+mkdir -p /usr/share/kio/servicemenus
+install -m 0644 /ctx/kyth-nearby-share.desktop \
+    /usr/share/kio/servicemenus/kyth-nearby-share.desktop
 
 # ── Right-click "New Document" templates for Dolphin ─────────────────────────
 # Any file placed in ~/Templates appears in Dolphin's right-click → Create New

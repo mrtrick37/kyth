@@ -233,6 +233,12 @@ NoiseStrength=0
 [Plugins]
 blurEnabled=true
 
+[org.kde.kdecoration2]
+ButtonsOnLeft=
+ButtonsOnRight=IAX
+library=org.kde.breeze
+theme=Breeze
+
 [Wayland]
 VrrPolicy=1
 KWINRCEOF

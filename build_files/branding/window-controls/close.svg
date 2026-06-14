@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <circle class="background" cx="18" cy="18" r="15" fill="none"/>
+  <path class="glyph" d="M9.3 10.7 10.7 9.3 18 16.6l7.3-7.3 1.4 1.4-7.3 7.3 7.3 7.3-1.4 1.4-7.3-7.3-7.3 7.3-1.4-1.4 7.3-7.3z"
+        fill="#ffffff"/>
+</svg>

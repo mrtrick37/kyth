@@ -1,13 +1,13 @@
 name: Build Live ISO
-run-name: "Build Live ISO — ${{ inputs.source_tag }}"
+run-name: "Build Live ISO - ${{ inputs.source_tag }}"
 
 on:
   workflow_dispatch:
     inputs:
       source_tag:
-        description: 'Source image tag to build ISO from'
+        description: Source image tag to build ISO from
         required: false
-        default: 'latest'
+        default: latest
         type: choice
         options:
           - latest
@@ -15,37 +15,42 @@ on:
 
 permissions: read-all
 
+concurrency:
+  group: build-live-iso-${{ inputs.source_tag }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  build-iso:
-    name: Build ISO (${{ matrix.source_tag }})
+  build:
+    name: Build ISO (${{ inputs.source_tag }})
     runs-on: ubuntu-24.04
-    environment: ${{ matrix.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
-    concurrency:
-      group: build-live-iso-${{ matrix.source_tag }}
-      cancel-in-progress: true
-    strategy:
-      fail-fast: false
-      matrix:
-        source_tag: ${{ fromJSON(format('["{0}"]', inputs.source_tag)) }}
+    timeout-minutes: 180
     permissions:
-      contents: write
+      contents: read
       packages: read
-      id-token: write
-      attestations: write
+    outputs:
+      artifact_name: ${{ steps.release.outputs.artifact_name }}
+      source_sha: ${{ steps.release.outputs.source_sha }}
+      release_id: ${{ steps.release.outputs.release_id }}
+      iso_basename: ${{ steps.release.outputs.iso_basename }}
+      channel_basename: ${{ steps.release.outputs.channel_basename }}
+      immutable_tag: ${{ steps.release.outputs.immutable_tag }}
+      source_image: ${{ steps.source_image.outputs.name }}
+      source_digest: ${{ steps.source_image.outputs.digest }}
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
+          ref: ${{ inputs.source_tag == 'testing' && 'testing' || 'main' }}
+          persist-credentials: false
 
       - name: Prepare immutable release identity
         id: release
         env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           SOURCE_SHA="$(git rev-parse HEAD)"
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
@@ -54,12 +59,14 @@ jobs:
           ISO_BASENAME="kyth-live-${SOURCE_TAG}-${RELEASE_ID}.iso"
           CHANNEL_BASENAME="kyth-live-${SOURCE_TAG}.iso"
           IMMUTABLE_TAG="iso-${SOURCE_TAG}-${RELEASE_ID}"
+          ARTIFACT_NAME="kyth-live-iso-${SOURCE_TAG}-${RELEASE_ID}"
 
           echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
           echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
           echo "iso_basename=${ISO_BASENAME}" >> "$GITHUB_OUTPUT"
           echo "channel_basename=${CHANNEL_BASENAME}" >> "$GITHUB_OUTPUT"
           echo "immutable_tag=${IMMUTABLE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -80,15 +87,10 @@ jobs:
           sudo mount -o compress-force=zstd:2 /mnt/podman-storage.img /var/lib/containers/storage
           sudo systemctl start podman.service
 
-      - name: Authenticate podman to GHCR
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" \
-            | sudo podman login ghcr.io -u "${{ github.actor }}" --password-stdin
-
       - name: Resolve source image digest
         id: source_image
         env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${SOURCE_TAG}"
           DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}")"
@@ -99,18 +101,13 @@ jobs:
 
       - name: Build live payload container
         env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           SOURCE_IMAGE_PINNED: ${{ steps.source_image.outputs.pinned }}
         run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          BASE_IMAGE="${SOURCE_IMAGE_PINNED}"
-
-          # Titanoboa consumes this prepared live rootfs using the same
-          # container-native LiveCD contract as Bazzite.
           sudo podman build \
             --cap-add SYS_ADMIN \
             --security-opt label=disable \
-            --build-arg "BASE_IMAGE=${BASE_IMAGE}" \
+            --build-arg "BASE_IMAGE=${SOURCE_IMAGE_PINNED}" \
             --build-arg "SOURCE_TAG=${SOURCE_TAG}" \
             --tag localhost/payload:latest \
             -f installer/Containerfile \
@@ -120,23 +117,21 @@ jobs:
         run: mkdir -p output/live-iso
 
       - name: Build ISO with Titanoboa
+        # This third-party action is pinned, but still runs only in the
+        # credential-free build job because it performs privileged operations.
         uses: Zeglius/titanoboa@7737f4748458252ac827dca14b3d6dd09298472a
         with:
           image-ref: localhost/payload:latest
-          iso-dest: ${{ runner.temp }}/kyth-live-${{ matrix.source_tag }}.iso
+          iso-dest: ${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso
 
-      - name: Move ISO into workspace
-        run: |
-          mv "${{ runner.temp }}/kyth-live-${{ matrix.source_tag }}.iso" \
-            "output/live-iso/${{ steps.release.outputs.iso_basename }}"
-
-      - name: Verify ISO artifact
+      - name: Move and verify ISO
         run: |
           ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
+          mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
           test -s "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
 
-      - name: Generate ISO checksum
+      - name: Generate ISO checksums
         run: |
           ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
           CHANNEL_CHECKSUM="output/live-iso/${{ steps.release.outputs.channel_basename }}-CHECKSUM"
@@ -145,14 +140,47 @@ jobs:
           printf '%s  %s\n' "${SHA256}" "${{ steps.release.outputs.channel_basename }}" \
             > "${CHANNEL_CHECKSUM}"
 
+      - name: Upload unsigned ISO artifact
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: ${{ steps.release.outputs.artifact_name }}
+          path: output/live-iso/*
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish ISO (${{ inputs.source_tag }})
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    environment: ${{ inputs.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
+    permissions:
+      actions: read
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Download built ISO
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: ${{ needs.build.outputs.artifact_name }}
+          path: output/live-iso
+
+      - name: Verify transferred artifact
+        run: |
+          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
+          test -s "${ISO}"
+          (cd output/live-iso && sha256sum --check --strict "${{ needs.build.outputs.iso_basename }}-CHECKSUM")
+
       - name: Install Cosign
         uses: sigstore/cosign-installer@faadad0cce49287aee09b3a48701e75088a2c6ad # v4.0.0
         with:
-          cosign-release: 'v2.6.1'
+          cosign-release: v2.6.1
 
       - name: Sign ISO
         run: |
-          ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
+          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
           cosign sign-blob -y "${ISO}" \
             --output-signature "${ISO}.sig" \
             --bundle "${ISO}.bundle"
@@ -161,25 +189,26 @@ jobs:
         id: attest_iso
         uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
         with:
-          subject-path: output/live-iso/${{ steps.release.outputs.iso_basename }}
+          subject-path: output/live-iso/${{ needs.build.outputs.iso_basename }}
 
-      - name: Generate ISO metadata
+      - name: Generate signed release metadata
         env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
-          ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
-          CHANNEL_BASENAME: ${{ steps.release.outputs.channel_basename }}
-          IMMUTABLE_TAG: ${{ steps.release.outputs.immutable_tag }}
-          SOURCE_SHA: ${{ steps.release.outputs.source_sha }}
-          SOURCE_IMAGE: ${{ steps.source_image.outputs.name }}
-          SOURCE_DIGEST: ${{ steps.source_image.outputs.digest }}
+          ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
+          CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
+          IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
+          SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
         run: |
           ISO="output/live-iso/${ISO_BASENAME}"
           SHA256="$(sha256sum "${ISO}" | awk '{print $1}')"
           BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
           export SHA256 BUILD_DATE
           python3 - <<'PY'
-          import json, os
+          import json
+          import os
           from pathlib import Path
 
           tag = os.environ["SOURCE_TAG"]
@@ -192,7 +221,7 @@ jobs:
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
               "checksum": iso.name + "-CHECKSUM",
-              "attestation_url": os.environ.get("ATTESTATION_URL", ""),
+              "attestation_url": os.environ["ATTESTATION_URL"],
               "source_image": os.environ["SOURCE_IMAGE"],
               "source_image_digest": os.environ["SOURCE_DIGEST"],
               "pinned_source_image": os.environ["SOURCE_IMAGE"] + "@" + os.environ["SOURCE_DIGEST"],
@@ -201,7 +230,7 @@ jobs:
               "build_date": os.environ["BUILD_DATE"],
               "release_tag": os.environ["IMMUTABLE_TAG"],
               "download_url": f"{base_url}/{iso.name}",
-              "workflow_run": f"https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}",
+              "workflow_run": f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['GITHUB_RUN_ID']}",
           }
           Path(str(iso) + ".json").write_text(json.dumps(metadata, indent=2) + "\n")
 
@@ -222,23 +251,15 @@ jobs:
           cp "${ISO}.sig" "output/live-iso/${CHANNEL_BASENAME}.sig"
           cp "${ISO}.bundle" "output/live-iso/${CHANNEL_BASENAME}.bundle"
 
-      - name: Upload ISO artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: kyth-live-iso-${{ matrix.source_tag }}-${{ steps.release.outputs.release_id }}
-          path: output/live-iso/*
-          if-no-files-found: error
-
       - name: Upload ISO to Cloudflare R2
         env:
-          AWS_ACCESS_KEY_ID:     ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-          R2_ACCOUNT_ID:         ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
         run: |
-          ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
-          CHANNEL="output/live-iso/${{ steps.release.outputs.channel_basename }}"
+          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
+          CHANNEL="output/live-iso/${{ needs.build.outputs.channel_basename }}"
 
-          # Immutable objects are never overwritten and remain independently verifiable.
           for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
@@ -246,7 +267,6 @@ jobs:
               --no-progress
           done
 
-          # Stable channel aliases preserve existing download URLs.
           aws s3 cp "${ISO}" "s3://kyth-releases/$(basename "${CHANNEL}")" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
           for suffix in -CHECKSUM .sig .bundle .json; do
@@ -256,43 +276,48 @@ jobs:
               --no-progress
           done
 
-      - name: Publish release notes to GitHub Releases
+      - name: Publish GitHub releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          CHANNEL_TAG: ${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}
+          IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
+          RELEASE_ID: ${{ needs.build.outputs.release_id }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
+          ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
+          ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
+          CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
         run: |
-          SOURCE_TAG="${{ matrix.source_tag }}"
-          CHANNEL_TAG="${{ matrix.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}"
-          IMMUTABLE_TAG="${{ steps.release.outputs.immutable_tag }}"
-          SOURCE_SHA="${{ steps.release.outputs.source_sha }}"
-          SOURCE_DIGEST="${{ steps.source_image.outputs.digest }}"
-          ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
-          CHANNEL="output/live-iso/${{ steps.release.outputs.channel_basename }}"
+          ISO="output/live-iso/${ISO_BASENAME}"
+          CHANNEL="output/live-iso/${CHANNEL_BASENAME}"
           PUBLIC_BASE="https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev"
-          IMMUTABLE_ISO_URL="${PUBLIC_BASE}/$(basename "${ISO}")"
-          CHANNEL_ISO_URL="${PUBLIC_BASE}/$(basename "${CHANNEL}")"
+          IMMUTABLE_ISO_URL="${PUBLIC_BASE}/${ISO_BASENAME}"
+          CHANNEL_ISO_URL="${PUBLIC_BASE}/${CHANNEL_BASENAME}"
           IMMUTABLE_RELEASE_URL="https://github.com/${GITHUB_REPOSITORY}/releases/tag/${IMMUTABLE_TAG}"
 
-          if [ "${SOURCE_TAG}" = "testing" ]; then
-            CHANNEL_TITLE="Kyth Live ISO — Testing"
-            IMMUTABLE_TITLE="Kyth Live ISO — Testing — ${{ steps.release.outputs.release_id }}"
+          if [[ "${SOURCE_TAG}" == "testing" ]]; then
+            CHANNEL_TITLE="Kyth Live ISO - Testing"
+            IMMUTABLE_TITLE="Kyth Live ISO - Testing - ${RELEASE_ID}"
             PRERELEASE="--prerelease"
             LATEST=""
           else
-            CHANNEL_TITLE="Kyth Live ISO — Stable"
-            IMMUTABLE_TITLE="Kyth Live ISO — Stable — ${{ steps.release.outputs.release_id }}"
+            CHANNEL_TITLE="Kyth Live ISO - Stable"
+            IMMUTABLE_TITLE="Kyth Live ISO - Stable - ${RELEASE_ID}"
             PRERELEASE=""
             LATEST="--latest"
           fi
 
           IMMUTABLE_NOTES="$(mktemp)"
           cat > "${IMMUTABLE_NOTES}" <<EOF
-          Permanent KythOS ISO build from \`${SOURCE_TAG}\`.
+          Permanent KythOS ISO build from **${SOURCE_TAG}**.
 
           **[Download immutable ISO](${IMMUTABLE_ISO_URL})** | [Checksum](${IMMUTABLE_ISO_URL}-CHECKSUM)
 
-          - Source commit: \`${SOURCE_SHA}\`
-          - Source image digest: \`${SOURCE_DIGEST}\`
+          - Source commit: **${SOURCE_SHA}**
+          - Source image digest: **${SOURCE_DIGEST}**
           - Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
+          - Build provenance: ${ATTESTATION_URL}
 
           The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release.
           EOF
@@ -307,14 +332,15 @@ jobs:
 
           CHANNEL_NOTES="$(mktemp)"
           cat > "${CHANNEL_NOTES}" <<EOF
-          This is the moving \`${SOURCE_TAG}\` channel pointer.
+          This is the moving **${SOURCE_TAG}** channel pointer.
 
           **[Download current ISO](${CHANNEL_ISO_URL})** | [Checksum](${CHANNEL_ISO_URL}-CHECKSUM)
 
-          Current immutable release: [\`${IMMUTABLE_TAG}\`](${IMMUTABLE_RELEASE_URL})
+          Current immutable release: [${IMMUTABLE_TAG}](${IMMUTABLE_RELEASE_URL})
 
-          - Source commit: \`${SOURCE_SHA}\`
-          - Source image digest: \`${SOURCE_DIGEST}\`
+          - Source commit: **${SOURCE_SHA}**
+          - Source image digest: **${SOURCE_DIGEST}**
+          - Build provenance: ${ATTESTATION_URL}
           EOF
 
           if gh release view "${CHANNEL_TAG}" >/dev/null 2>&1; then

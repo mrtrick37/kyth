@@ -65,3 +65,4 @@ body:
       options:
         - label: I removed serial numbers, MAC addresses, hostnames, and other private data.
           required: true
+

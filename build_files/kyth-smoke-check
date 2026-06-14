@@ -207,6 +207,18 @@ check_file_contains() {
     fi
 }
 
+check_file_not_contains() {
+    local path="$1"
+    local pattern="$2"
+    local label="$3"
+    local detail="${4:-$pattern}"
+    if [[ -r "$path" ]] && ! grep -Fq -- "$pattern" "$path"; then
+        pass "$label" "$detail"
+    else
+        fail "$label" "$path contains an unwanted entry"
+    fi
+}
+
 check_rpm_absent() {
     local package="$1"
     local label="$2"
@@ -406,6 +418,11 @@ check_file_contains /etc/skel/.config/kwalletrc "Default Wallet=kdewallet" "KWal
 check_file_contains /etc/skel/.config/kwalletrc "Leave Open=true" "KWallet session persistence" "wallet stays open after apps start using it"
 check_file /usr/bin/kyth-user-polish "User comfort polish"
 check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "User launcher badge quieting" "new-app badges disabled after updates"
+check_file_contains /etc/xdg/kwinrc "ButtonsOnRight=IAX" "Window control layout" "titlebars use minimize, maximize, close"
+check_file_contains /usr/bin/kyth-user-polish "org.kde.kdecoration2" "Window control migration" "existing users receive the standard titlebar controls"
+check_file_contains /usr/share/themes/Breeze-Dark/assets/breeze-minimize-symbolic.svg 'd="M7 24h22v2H7z"' "GTK minimize icon" "client-side titlebars use an underscore"
+check_file_contains /usr/share/themes/Breeze-Dark/assets/breeze-maximize-symbolic.svg 'M8 8h20v20H8z' "GTK maximize icon" "client-side titlebars use an outlined box"
+check_file_contains /usr/share/themes/Breeze-Dark/assets/breeze-close-symbolic.svg '9.3 10.7 10.7 9.3' "GTK close icon" "client-side titlebars use an X"
 check_file_contains /usr/bin/kyth-user-polish "_powered=false" "Bluetooth login repair" "stale Plasma disabled state is cleared after updates"
 check_file_contains /usr/bin/kyth-user-polish "kwalletrc" "Existing-user KWallet polish" "upgraded users receive login-unlock wallet defaults"
 check_file_contains /usr/bin/kyth-user-polish "--password-store=basic" "Brave wallet prompt prevention" "Brave launchers avoid waking KDE Wallet"
@@ -422,6 +439,11 @@ check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup 
 check_file /etc/skel/Games "Games folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 check_file /usr/bin/kyth-exe-handler "Installer helper"
+check_file /usr/bin/kyth-dynamic-lock "Dynamic Lock helper"
+check_file /usr/share/icons/hicolor/scalable/apps/kyth-m365-outlook.svg "Microsoft 365 shortcut icons"
+check_file /usr/share/icons/hicolor/128x128/apps/kyth-m365-teams.png "Microsoft 365 shortcut icon PNGs"
+check_file /usr/share/kwin-wayland/tabbox/thumbnail_grid/metadata.json "Thumbnail Grid Alt+Tab switcher (kyth-user-polish pins LayoutName=thumbnail_grid)"
+check_file_contains /usr/lib/systemd/user/kyth-dynamic-lock.service "ExecStart=/usr/bin/kyth-dynamic-lock" "Dynamic Lock user service" "trusted KDE Connect devices can lock the session when they leave"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/windows.py '"Discover Apps", "App Store"' "App Store navigation" "store is surfaced as a first-class System Hub page"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_software.py "Trending on Kyth" "App Store trending shelf" "store front page highlights curated apps"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_windows_migration.py "Use App Store for trending Flatpaks, starter packs, AppImages, and installed apps." "Software tools navigation" "software workflows are consolidated under the App Store page"
@@ -437,6 +459,8 @@ check_file_contains /etc/xdg/menus/applications-merged/kyth-libreoffice.menu "or
 check_file_contains /etc/xdg/menus/applications-merged/kyth-web-apps.menu "X-KythWebApp" "Web app menu grouping" "browser-installed PWAs stay out of Lost and Found"
 check_file /usr/bin/kyth-web-app-categorize "Web app launcher categorizer"
 check_file /etc/systemd/user/kyth-web-app-categorize.path "Automatic web app categorization"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_work.py '"Categories=Office;\n"' "Microsoft 365 menu grouping" "Microsoft 365 shortcuts live under Office"
+check_file_not_contains /usr/lib/kyth-welcome/kyth_welcome/page_work.py 'Categories=Office;Network;' "Microsoft 365 Internet exclusion" "Microsoft 365 shortcuts stay out of Internet"
 if is_live_session; then
     if systemctl is-enabled --quiet rpm-ostree-countme.timer 2>/dev/null; then
         warn "CountMe timer" "enabled in live session"

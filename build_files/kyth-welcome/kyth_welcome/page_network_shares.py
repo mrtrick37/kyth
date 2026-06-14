@@ -20,6 +20,7 @@ class NetworkSharesPage(Page):
         super().__init__()
         self._worker: Worker | None = None
         self._shares: list[dict] = _load_smb_config()
+        self._reconnect_name: str | None = None
 
         self._page_header(
             "Network & Internet",
@@ -117,10 +118,10 @@ class NetworkSharesPage(Page):
 
         add_btn_row = QHBoxLayout()
         add_btn_row.setSpacing(12)
-        add_btn = QPushButton("Add Share")
-        add_btn.setObjectName("primary")
-        add_btn.clicked.connect(self._add_share)
-        add_btn_row.addWidget(add_btn)
+        self._add_share_btn = QPushButton("Add Share")
+        self._add_share_btn.setObjectName("primary")
+        self._add_share_btn.clicked.connect(self._add_share)
+        add_btn_row.addWidget(self._add_share_btn)
         self._mount_now_chk = QCheckBox("Mount immediately")
         self._mount_now_chk.setChecked(True)
         add_btn_row.addWidget(self._mount_now_chk)
@@ -196,8 +197,12 @@ class NetworkSharesPage(Page):
         hdr.addWidget(name_lbl)
         hdr.addStretch()
         mounted = _is_mounted(share["mount_point"])
+        unit_name = _systemd_escape_mount_path(share["mount_point"])
+        unit_exists = os.path.exists(f"/etc/systemd/system/{unit_name}")
         badge = QLabel()
-        _apply_install_badge(badge, mounted, "Mounted", "Not Mounted")
+        _apply_install_badge(
+            badge, mounted, "Mounted", "Not Mounted" if unit_exists else "Reconnect Needed"
+        )
         hdr.addWidget(badge)
         layout.addLayout(hdr)
 
@@ -209,6 +214,9 @@ class NetworkSharesPage(Page):
         # Auto-mount toggle
         auto_chk = QCheckBox("Auto-mount on boot")
         auto_chk.setChecked(share.get("auto_mount", False))
+        auto_chk.setEnabled(unit_exists)
+        if not unit_exists:
+            auto_chk.setToolTip("Reconnect this share to recreate its mount and credentials.")
         auto_chk.toggled.connect(
             lambda checked, s=share: self._toggle_auto_mount(s, checked)
         )
@@ -217,7 +225,13 @@ class NetworkSharesPage(Page):
         # Action buttons
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
-        if mounted:
+        if not unit_exists:
+            reconnect_btn = QPushButton("Reconnect")
+            reconnect_btn.setObjectName("primary")
+            reconnect_btn.setToolTip("Re-enter the password and recreate this share on this PC.")
+            reconnect_btn.clicked.connect(lambda checked=False, s=share: self._prepare_reconnect(s))
+            btn_row.addWidget(reconnect_btn)
+        elif mounted:
             u_btn = QPushButton("Unmount")
             u_btn.clicked.connect(lambda checked=False, s=share: self._unmount_share(s))
             btn_row.addWidget(u_btn)
@@ -232,6 +246,26 @@ class NetworkSharesPage(Page):
         layout.addLayout(btn_row)
 
         return card
+
+    def _prepare_reconnect(self, share: dict):
+        self._reconnect_name = share["name"]
+        self._f_name.setText(share["name"])
+        self._f_server.setText(share["server"])
+        self._f_share.setText(share["share_path"])
+        self._f_mount.setText(share["mount_point"])
+        self._f_user.setText(share.get("username", ""))
+        self._f_pass.clear()
+        self._f_domain.setText(share.get("domain", ""))
+        self._f_auto.setChecked(share.get("auto_mount", False))
+        self._mount_now_chk.setChecked(True)
+        self._add_share_btn.setText("Reconnect Share")
+        self._op_status.setText(
+            f"Enter the password for {share['name']}, then choose Reconnect Share."
+        )
+        self._op_status.setObjectName("status-warn")
+        self._op_status.show()
+        _restyle(self._op_status)
+        self._f_pass.setFocus()
 
     # ── Form validation ───────────────────────────────────────────────────────
 
@@ -274,7 +308,7 @@ class NetworkSharesPage(Page):
             return None
 
         existing = {s["name"] for s in self._shares}
-        if safe_name in existing:
+        if safe_name in existing and safe_name != self._reconnect_name:
             QMessageBox.warning(
                 self, "Duplicate Name",
                 f'A share named "{safe_name}" already exists. Remove it first or use a different name.',
@@ -312,10 +346,16 @@ class NetworkSharesPage(Page):
         self._op_progress.hide()
         if code == 0:
             saved = {k: v for k, v in share.items() if k != "password"}
+            self._shares = [s for s in self._shares if s["name"] != self._reconnect_name]
             self._shares.append(saved)
             _save_smb_config(self._shares)
-            self._op_status.setText("Share added successfully.")
+            self._op_status.setText(
+                "Share reconnected successfully."
+                if self._reconnect_name else "Share added successfully."
+            )
             self._op_status.setObjectName("status-ok")
+            self._reconnect_name = None
+            self._add_share_btn.setText("Add Share")
             for field in (self._f_name, self._f_server, self._f_share, self._f_mount,
                           self._f_user, self._f_pass, self._f_domain):
                 field.clear()
