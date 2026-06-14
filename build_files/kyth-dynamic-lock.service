@@ -1,0 +1,14 @@
+[Unit]
+Description=Lock KythOS when a trusted KDE Connect device leaves
+After=graphical-session.target
+PartOf=graphical-session.target
+ConditionPathExists=%h/.config/kyth-dynamic-lock.json
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/kyth-dynamic-lock
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

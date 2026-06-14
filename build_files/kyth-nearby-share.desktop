@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Service
+MimeType=all/allfiles;
+Actions=kythNearbyShare;
+X-KDE-Priority=TopLevel
+
+[Desktop Action kythNearbyShare]
+Name=Send to Nearby Device
+Icon=kdeconnect
+Exec=/usr/bin/kyth-nearby-share %F

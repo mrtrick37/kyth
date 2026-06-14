@@ -5,8 +5,15 @@ Registered as the default MIME handler for common Windows executable,
 installer, and RPM package MIME types so that double-clicking a download in
 Dolphin shows a curated suggestion dialog instead of silently failing or
 teaching the wrong mutable-Fedora mental model.
+
+Ticking "Always open Windows installers in Bottles" in the dialog persists
+auto_bottles in ~/.config/kyth/exe-handler.conf; from then on .exe/.msi files
+are handed straight to Bottles with no dialog (the dialog still appears if
+Bottles is not installed). Pass --dialog to force the dialog back open and
+untick the box, or edit/delete the config file.
 """
 
+import configparser
 import os
 import re
 import shlex
@@ -19,7 +26,7 @@ os.environ.setdefault("QTWEBENGINE_DISABLE_SANDBOX", "1")
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtGui import QDesktopServices
 from PyQt6.QtWidgets import (
-    QApplication, QDialog, QFrame, QHBoxLayout, QLabel,
+    QApplication, QCheckBox, QDialog, QFrame, QHBoxLayout, QLabel,
     QPushButton, QVBoxLayout,
 )
 
@@ -31,7 +38,7 @@ _APP_DB = [
     (r"word|winword",           "Microsoft Word",           "Use LibreOffice Writer — fully compatible with .docx files.",          "org.libreoffice.LibreOffice"),
     (r"excel",                  "Microsoft Excel",          "Use LibreOffice Calc — reads and writes .xlsx files.",                 "org.libreoffice.LibreOffice"),
     (r"powerpnt|powerpoint",    "Microsoft PowerPoint",     "Use LibreOffice Impress — reads and writes .pptx files.",              "org.libreoffice.LibreOffice"),
-    (r"outlook",                "Microsoft Outlook",        "Use Thunderbird for desktop email and calendar.",                      "org.mozilla.Thunderbird"),
+    (r"outlook",                "Microsoft Outlook",        "Use Betterbird for desktop email and calendar.",                       "eu.betterbird.Betterbird"),
     (r"onenote",                "Microsoft OneNote",        "Access OneNote at onenote.com, or use Obsidian for local notes.",      None),
     (r"teams",                  "Microsoft Teams",          "Use Teams in the browser, or pin it as a Web App via WebApp Manager.", "io.github.vikdevelop.WebApp"),
     (r"onedrive",               "OneDrive",                 "Access OneDrive through KDE's Online Accounts in System Settings.",    None),
@@ -115,6 +122,8 @@ QPushButton#primary {
     background: #0e639c; color: #ffffff; border-color: #1177bb;
 }
 QPushButton#primary:hover { background: #1177bb; }
+QCheckBox { color: #aaaaaa; spacing: 8px; }
+QCheckBox:hover { color: #cccccc; }
 """
 
 
@@ -145,6 +154,36 @@ def _lookup(filepath: str):
 
 def _is_rpm_installer(filepath: str) -> bool:
     return filepath.lower().endswith(".rpm")
+
+
+_BOTTLES_ID = "com.usebottles.bottles"
+_CONF_PATH = os.path.join(
+    os.environ.get("XDG_CONFIG_HOME", os.path.expanduser("~/.config")),
+    "kyth", "exe-handler.conf",
+)
+
+
+def _load_auto_bottles() -> bool:
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(_CONF_PATH)
+        return parser.getboolean("exe-handler", "auto_bottles", fallback=False)
+    except (configparser.Error, ValueError):
+        return False
+
+
+def _save_auto_bottles(enabled: bool) -> None:
+    parser = configparser.ConfigParser()
+    try:
+        parser.read(_CONF_PATH)
+    except configparser.Error:
+        parser = configparser.ConfigParser()
+    if not parser.has_section("exe-handler"):
+        parser.add_section("exe-handler")
+    parser.set("exe-handler", "auto_bottles", "true" if enabled else "false")
+    os.makedirs(os.path.dirname(_CONF_PATH), exist_ok=True)
+    with open(_CONF_PATH, "w", encoding="utf-8") as fh:
+        parser.write(fh)
 
 
 def _open_system_hub_page(page: str):
@@ -182,11 +221,25 @@ def _launch_install(flatpak_id: str):
 
 
 def main():
-    if len(sys.argv) < 2:
+    force_dialog = "--dialog" in sys.argv[1:]
+    args = [a for a in sys.argv[1:] if a != "--dialog"]
+    if not args:
         sys.exit(0)
 
-    filepath = sys.argv[1]
+    filepath = args[0]
     is_rpm = _is_rpm_installer(filepath)
+
+    # Power-user opt-in: hand Windows installers straight to Bottles with no
+    # dialog. Falls back to the dialog when Bottles is missing (first boot
+    # before the default flatpaks land, or it was uninstalled).
+    if (
+        not is_rpm
+        and not force_dialog
+        and _load_auto_bottles()
+        and _flatpak_installed(_BOTTLES_ID)
+    ):
+        subprocess.Popen(["flatpak", "run", _BOTTLES_ID, filepath])
+        return
     if is_rpm:
         app_name = "RPM Package"
         suggestion = (
@@ -277,15 +330,15 @@ def main():
     btn_row.addWidget(flathub_btn)
 
     if not is_rpm:
-        bottles_installed = _flatpak_installed("com.usebottles.bottles")
+        bottles_installed = _flatpak_installed(_BOTTLES_ID)
         bottles_lbl = "Open with Bottles" if bottles_installed else "Try Bottles (Wine)"
         bottles_btn = QPushButton(bottles_lbl)
         bottles_btn.setToolTip("Run Windows apps in an isolated Wine environment")
         bottles_btn.clicked.connect(
             lambda: (
-                subprocess.Popen(["flatpak", "run", "com.usebottles.bottles"])
+                subprocess.Popen(["flatpak", "run", _BOTTLES_ID, filepath])
                 if bottles_installed
-                else _launch_install("com.usebottles.bottles"),
+                else _launch_install(_BOTTLES_ID),
                 dlg.accept(),
             )
         )
@@ -296,6 +349,19 @@ def main():
     cancel_btn = QPushButton("Cancel")
     cancel_btn.clicked.connect(dlg.reject)
     btn_row.addWidget(cancel_btn)
+
+    if not is_rpm:
+        auto_chk = QCheckBox("Always open Windows installers in Bottles")
+        auto_chk.setChecked(_load_auto_bottles())
+        auto_chk.setToolTip(
+            "Skip this dialog and hand .exe/.msi files straight to Bottles.\n"
+            f"Saved to {_CONF_PATH}.\n"
+            "To see this dialog again, run: kyth-exe-handler --dialog <file>"
+        )
+        # Persist on close no matter how the dialog is dismissed — the
+        # checkbox is a setting, not a one-shot confirmation.
+        dlg.finished.connect(lambda _: _save_auto_bottles(auto_chk.isChecked()))
+        root.addWidget(auto_chk)
 
     root.addLayout(btn_row)
 

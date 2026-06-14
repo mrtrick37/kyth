@@ -48,6 +48,31 @@ class GamingPage(Page):
 
         self._add(self._make_gaming_ready_panel())
 
+        # ── Xbox Game Bar parity ─────────────────────────────────────────────
+        game_bar_card, game_bar_layout = _make_card("card-accent-ok")
+        game_bar_title = QLabel("Xbox Game Bar → GPU Screen Recorder")
+        game_bar_title.setObjectName("card-title")
+        game_bar_layout.addWidget(game_bar_title)
+        game_bar_body = QLabel(
+            "Record gameplay, keep an instant-replay buffer, capture screenshots, and "
+            "use AMD, Intel, or NVIDIA hardware encoding with very little performance "
+            "impact. The fullscreen overlay opens with Left Alt+Z after it is enabled "
+            "inside GPU Screen Recorder."
+        )
+        game_bar_body.setObjectName("card-copy")
+        game_bar_body.setWordWrap(True)
+        game_bar_layout.addWidget(game_bar_body)
+        game_bar_btns = QHBoxLayout()
+        game_bar_btns.setSpacing(8)
+        self._game_bar_btn = QPushButton()
+        self._game_bar_btn.setObjectName("primary")
+        self._game_bar_btn.clicked.connect(self._open_or_install_game_bar)
+        game_bar_btns.addWidget(self._game_bar_btn)
+        game_bar_btns.addStretch()
+        game_bar_layout.addLayout(game_bar_btns)
+        self._refresh_game_bar_btn()
+        self._add(game_bar_card)
+
         # ── Windows Game Library ──────────────────────────────────────────────
         self._win_lib_card, self._win_lib_layout = _make_card("card-accent-ok")
         self._win_lib_card.hide()
@@ -2261,11 +2286,36 @@ class GamingPage(Page):
         _restyle(self._gp_op_status)
         self._refresh_status()
 
+    def _refresh_game_bar_btn(self):
+        installed = _is_flatpak_installed("com.dec05eba.gpu_screen_recorder")
+        self._game_bar_btn.setText(
+            "Open GPU Screen Recorder" if installed else "Install Game Bar Alternative"
+        )
+
+    def _open_or_install_game_bar(self):
+        app_id = "com.dec05eba.gpu_screen_recorder"
+        if _is_flatpak_installed(app_id):
+            try:
+                subprocess.Popen(["flatpak", "run", app_id])
+            except OSError as exc:
+                QMessageBox.warning(self, "Could not open GPU Screen Recorder", str(exc))
+            return
+
+        def _installed(code: int):
+            if code == 0:
+                self._game_bar_btn.setEnabled(True)
+                self._refresh_game_bar_btn()
+
+        _install_flatpak_inline(
+            self, self._game_bar_btn, app_id, "GPU Screen Recorder",
+            done_cb=_installed,
+        )
+
     # ── Steam migration ────────────────────────────────────────────────────────
 
     def _refresh_ntfs_drives(self):
         self._drive_combo.clear()
-        drives = _find_ntfs_drives()
+        drives = [d for d in _find_ntfs_drives() if not d.get("is_bitlocker")]
         if not drives:
             self._drive_combo.addItem("No NTFS partitions found")
             return

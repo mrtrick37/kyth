@@ -3,7 +3,7 @@ import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _IS_LIVE, _cancel_worker, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _finish_worker, _ge_proton_version, _has_rollback_deployment, _is_flatpak_installed, _mark_wizard_done, _restyle,
+    Worker, _IS_LIVE, _cancel_worker, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _finish_worker, _ge_proton_version, _has_rollback_deployment, _is_flatpak_installed, _load_profile, _mark_wizard_done, _restyle, _save_profile,
 )
 from .page_branches import (  # noqa: E501
     BranchesPage,
@@ -58,6 +58,9 @@ from .page_welcome import (  # noqa: E501
 )
 from .page_windows_migration import (  # noqa: E501
     WindowsMigrationPage,
+)
+from .page_work import (  # noqa: E501
+    WorkSetupPage,
 )
 from .qt import (  # noqa: E501
     QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
@@ -241,6 +244,7 @@ class MainWindow(QMainWindow):
             ]),
             ("Apps", [
                 (("plasmadiscover", "applications-all"), "⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
+                (("x-office-document", "applications-office"), "▤", "Work Setup", "Work Setup", lambda: WorkSetupPage(navigate=self._navigate_to)),
                 (("document-import", "drive-harddisk"), "⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
@@ -265,12 +269,16 @@ class MainWindow(QMainWindow):
         nav_groups.append(("Advanced", advanced_items))
 
         self._nav_buttons: list[NavButton] = []
+        self._nav_button_by_key: dict[str, NavButton] = {}
+        self._nav_section_labels: dict[str, QLabel] = {}
         self._page_crumbs: list[tuple[str | None, str]] = []
         global_idx = 0
         for section_title, items in nav_groups:
             sidebar_layout.addSpacing(4)
             if section_title is not None:
-                sidebar_layout.addWidget(_nav_section_label(section_title))
+                section_lbl = _nav_section_label(section_title)
+                self._nav_section_labels[section_title] = section_lbl
+                sidebar_layout.addWidget(section_lbl)
             for icon_names, glyph, label, key, factory in items:
                 page_specs.append((key, factory))
                 self._page_crumbs.append((section_title, label))
@@ -278,6 +286,7 @@ class MainWindow(QMainWindow):
                 btn.clicked.connect(self._make_nav_handler(global_idx))
                 sidebar_layout.addWidget(btn)
                 self._nav_buttons.append(btn)
+                self._nav_button_by_key[key] = btn
                 global_idx += 1
             sidebar_layout.addSpacing(2)
 
@@ -304,6 +313,12 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
 
+        # The home page's focus card re-uses the wizard's gaming/work/both
+        # choice; reflect changes in the sidebar immediately.
+        welcome_page = self._pages[self._page_index_by_key["Welcome"]]
+        welcome_page.profile_changed.connect(self._apply_profile_visibility)
+        self._apply_profile_visibility(_load_profile())
+
         self._history: list[int] = []
         self._history_pos: int = -1
         self._setup_search()
@@ -314,17 +329,18 @@ class MainWindow(QMainWindow):
     # Windows-familiar phrasings mapped to page keys, so converts can search
     # for what they knew the task as on Windows.
     _SEARCH_ALIASES: dict[str, list[str]] = {
-        "Welcome": ["Home", "Control Panel"],
-        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Battle.net"],
-        "Performance": ["Performance", "Task Manager"],
+        "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
+        "Performance": ["Performance", "Task Manager", "Mission Center"],
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
         "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
-        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "KDE Connect"],
+        "Work Setup": ["Work setup", "Microsoft 365", "Office", "Outlook", "PST import", "Focus Assist", "Focus Sessions", "Do Not Disturb", "Pomodoro"],
+        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "Windows fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Windows Subsystem for Linux", "Ubuntu", "Distrobox"],
         "Update": ["Check for updates", "Windows Update", "Updates"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
-        "Diagnostics": ["Health report", "System information", "Diagnostics"],
-        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell"],
+        "Diagnostics": ["Health report", "System information", "Diagnostics", "Windows Hello", "Sign-in options", "Fingerprint", "Passkeys", "Windows Security"],
+        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup"],
         "VPN": ["VPN", "VPN settings"],
         "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
         "Cloud Storage": ["Cloud storage", "OneDrive", "Google Drive", "Dropbox"],
@@ -365,6 +381,23 @@ class MainWindow(QMainWindow):
                 self._navigate_to(key)
                 self._search_box.clear()
                 return
+
+    # ── Usage focus ────────────────────────────────────────────────────────────
+
+    _GAMING_PAGE_KEYS = ("Gaming", "Performance", "Compatibility", "Controllers")
+
+    def _apply_profile_visibility(self, profile: str):
+        """Tailor the sidebar to the gaming/work/both focus.
+
+        Hidden pages stay in the stack and reachable through search — the
+        focus only de-emphasizes, it never removes.
+        """
+        gaming_visible = profile != "work"
+        work_visible = profile != "gaming"
+        self._nav_section_labels["Gaming"].setVisible(gaming_visible)
+        for key in self._GAMING_PAGE_KEYS:
+            self._nav_button_by_key[key].setVisible(gaming_visible)
+        self._nav_button_by_key["Work Setup"].setVisible(work_visible)
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -511,6 +544,8 @@ class WizardWindow(QMainWindow):
         self._stack.setObjectName("content-area")
         root_layout.addWidget(self._stack, 1)
 
+        self._profile = _load_profile()
+        self._handoff_win: QMainWindow | None = None
         self._update_page = UpdatePage()
         self._hw_page = HardwarePage(wizard_mode=True)
         self._hw_page.action_requested.connect(self._on_hw_action_requested)
@@ -673,6 +708,33 @@ class WizardWindow(QMainWindow):
         desc.setWordWrap(True)
         hero_layout.addWidget(desc)
 
+        # ── Usage profile ──────────────────────────────────────────────────
+        # Drives which apps the Pick Apps step pre-selects and whether the
+        # finish step offers the Work Setup handoff.
+        hero_layout.addSpacing(10)
+        profile_lbl = QLabel("What will you use this PC for?")
+        profile_lbl.setObjectName("card-title")
+        hero_layout.addWidget(profile_lbl)
+
+        self._profile_buttons: dict[str, QPushButton] = {}
+        profile_row = QHBoxLayout()
+        profile_row.setSpacing(10)
+        for key, label, tip in (
+            ("gaming", "🎮  Gaming", "Game-ready defaults — Steam, Discord, launchers."),
+            ("work", "💼  Work", "Office apps, email, Microsoft 365, VPN, and printing."),
+            ("both", "🖥  Both", "Gaming defaults plus the work essentials."),
+        ):
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setToolTip(tip)
+            btn.setMinimumHeight(38)
+            btn.clicked.connect(lambda _=False, k=key: self._on_profile_chosen(k))
+            self._profile_buttons[key] = btn
+            profile_row.addWidget(btn)
+        profile_row.addStretch()
+        hero_layout.addLayout(profile_row)
+        self._profile_buttons[self._profile].setChecked(True)
+
         preflight_card = self._make_switch_preflight_card()
         if preflight_card is not None:
             hero_layout.addWidget(preflight_card)
@@ -809,6 +871,7 @@ class WizardWindow(QMainWindow):
             ("com.obsproject.Studio",        "OBS Studio",    "Record and stream your gameplay."),
             ("org.videolan.VLC",             "VLC",           "Plays virtually every video and audio format without extra codecs."),
             ("org.libreoffice.LibreOffice",  "LibreOffice",   "Open Word, Excel, and PowerPoint files — full office suite."),
+            ("eu.betterbird.Betterbird",     "Betterbird",    "Work email, calendar, and contacts — connects to Microsoft 365, Gmail, and IMAP."),
             ("com.github.mtkennerly.ludusavi","Ludusavi",      "Back up and restore game saves before migration or modding."),
             ("org.freedesktop.Piper",         "Piper",         "Configure supported gaming mice for DPI, buttons, and LEDs."),
             ("com.moonlight_stream.Moonlight","Moonlight",     "Stream games from another PC or NVIDIA Shield on your network."),
@@ -1081,7 +1144,9 @@ class WizardWindow(QMainWindow):
         ps_layout.setContentsMargins(56, 20, 56, 0)
         ps_layout.setSpacing(10)
 
-        windows_drives = [] if _IS_LIVE else _find_ntfs_drives()
+        windows_drives = [] if _IS_LIVE else [
+            d for d in _find_ntfs_drives() if not d.get("is_bitlocker")
+        ]
         if windows_drives:
             ps_layout.addWidget(self._make_windows_game_drive_card(windows_drives))
 
@@ -1206,6 +1271,13 @@ class WizardWindow(QMainWindow):
         steam_btn.setObjectName("primary")
         steam_btn.clicked.connect(lambda: subprocess.Popen(["flatpak", "run", "com.valvesoftware.Steam"]))
         btn_row.addWidget(steam_btn)
+        self._finish_work_btn = QPushButton("Open Work Setup")
+        self._finish_work_btn.setToolTip(
+            "Office apps, Microsoft 365 shortcuts, document fonts, VPN, shares, and printing."
+        )
+        self._finish_work_btn.clicked.connect(lambda: self._open_hub_at("Work Setup"))
+        self._finish_work_btn.setVisible(self._profile in ("work", "both"))
+        btn_row.addWidget(self._finish_work_btn)
         hub_btn = QPushButton("Open System Hub")
         hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
         btn_row.addWidget(hub_btn)
@@ -1213,6 +1285,40 @@ class WizardWindow(QMainWindow):
         layout.addLayout(btn_row)
         layout.addStretch()
         return page
+
+    # ── Usage profile ──────────────────────────────────────────────────────────
+
+    _PROFILE_DEFAULT_APPS = {
+        "gaming": {"com.valvesoftware.Steam", "com.discordapp.Discord"},
+        "work": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
+        "both": {
+            "com.valvesoftware.Steam", "com.discordapp.Discord",
+            "org.libreoffice.LibreOffice", "eu.betterbird.Betterbird",
+        },
+    }
+
+    def _on_profile_chosen(self, profile: str):
+        self._profile = profile
+        for key, btn in self._profile_buttons.items():
+            btn.setChecked(key == profile)
+        _save_profile(profile)
+        # Re-seed the Pick Apps defaults to match the chosen profile. Only
+        # enabled boxes are touched — already-installed apps stay locked.
+        wanted = self._PROFILE_DEFAULT_APPS.get(profile, set())
+        for check, app_id, _name in self._wizard_extra_checks:
+            if check.isEnabled():
+                check.setChecked(app_id in wanted)
+        self._update_nav()
+
+    def _open_hub_at(self, page_key: str):
+        """Hand off from the wizard to the System Hub opened at a page."""
+        _mark_wizard_done()
+        main_win = MainWindow()
+        main_win.setWindowIcon(QIcon.fromTheme("kyth"))
+        main_win.showMaximized()
+        main_win._navigate_to(page_key)
+        self._handoff_win = main_win
+        self.close()
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
@@ -1247,6 +1353,8 @@ class WizardWindow(QMainWindow):
         self._back_btn.setEnabled(not operation_busy)
         self._skip_btn.setEnabled(not operation_busy)
         self._next_btn.setEnabled(not operation_busy)
+        if hasattr(self, "_finish_work_btn"):
+            self._finish_work_btn.setVisible(self._profile in ("work", "both"))
 
         if idx == total - 1:
             self._next_btn.setText("Close")
@@ -1256,12 +1364,7 @@ class WizardWindow(QMainWindow):
             self._next_btn.setText("Next  →")
 
     def _on_hw_action_requested(self, page_key: str):
-        _mark_wizard_done()
-        main_win = MainWindow()
-        main_win.setWindowIcon(QIcon.fromTheme("kyth"))
-        main_win.showMaximized()
-        main_win._navigate_to(page_key)
-        self.close()
+        self._open_hub_at(page_key)
 
     def _go_back(self):
         if self._current > 0:

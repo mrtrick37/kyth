@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36">
+  <circle class="background" cx="18" cy="18" r="15" fill="none"/>
+  <path class="glyph" fill="#ffffff" fill-rule="evenodd"
+        d="M8 8h20v20H8zm2 2v16h16V10z"/>
+</svg>

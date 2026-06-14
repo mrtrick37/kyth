@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _apply_install_badge, _davinci_download_dir, _davinci_flatpak_app_id, _davinci_zip_candidates, _finish_worker, _is_flatpak_installed, _restyle,
+    Worker, _apply_install_badge, _chromium_app_window_cmd, _davinci_download_dir, _davinci_flatpak_app_id, _davinci_zip_candidates, _finish_worker, _install_flatpak_inline, _is_flatpak_installed, _restyle,
 )
 from .qt import (  # noqa: E501
     QButtonGroup, QCheckBox, QComboBox, QDesktopServices, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QRadioButton, QTextEdit, QUrl, QVBoxLayout, QWidget, Qt,
@@ -234,7 +234,7 @@ class SoftwarePage(Page):
         # Productivity
         ("Microsoft Office", "Use LibreOffice locally, or pin Microsoft 365 as a Web App.", "org.libreoffice.LibreOffice"),
         ("Word / Excel / PowerPoint", "LibreOffice Writer, Calc, and Impress are drop-in replacements. Install below.", "org.libreoffice.LibreOffice"),
-        ("Outlook", "Use Thunderbird for mail/calendar, or pin Outlook Web as a Web App.", "org.mozilla.Thunderbird"),
+        ("Outlook", "Use Betterbird for mail/calendar, or pin Outlook Web as a Web App.", "eu.betterbird.Betterbird"),
         ("Teams", "Use Teams in the browser and pin it with WebApp Manager.", "io.github.vikdevelop.WebApp"),
         ("OneDrive", "Use the OneDrive web app, KDE Online Accounts, or the Cloud Storage page for sync-style workflows.", ""),
         ("Zoom", "Install the Zoom Flatpak — full video calls, screen share, and breakout rooms.", "us.zoom.Zoom"),
@@ -262,10 +262,11 @@ class SoftwarePage(Page):
         ("WinSCP", "Use Dolphin's built-in sftp:// support, or install FileZilla.", "org.filezillaproject.Filezilla"),
         # Remote & networking
         ("AnyDesk", "Install AnyDesk from Flatpak for remote desktop.", "com.anydesk.Anydesk"),
-        ("TeamViewer", "Install TeamViewer from Flatpak, or use RustDesk (open-source alternative).", "com.teamviewer.TeamViewer"),
+        ("TeamViewer / Quick Assist", "Use RustDesk for remote help with a temporary ID and password.", "com.rustdesk.RustDesk"),
+        ("Nearby Share / Quick Share", "Use LocalSend across PCs and phones, or KDE Connect for paired devices.", "org.localsend.localsend_app"),
         ("PuTTY", "Use Konsole with built-in SSH: open a terminal and type ssh user@host.", ""),
         # System tools
-        ("Task Manager", "System Monitor is already installed — find it in the app menu or press Ctrl+Esc.", ""),
+        ("Task Manager", "Mission Center looks and works like Windows Task Manager. Installing it here also moves Ctrl+Shift+Esc to open it. (System Monitor is the built-in alternative.)", "io.missioncenter.MissionCenter"),
         ("VirtualBox", "Use GNOME Boxes from Flatpak — simpler VM setup for most use cases.", "org.gnome.Boxes"),
         ("CCleaner", "Not needed — KythOS is immutable and self-maintaining. Run 'ujust kyth-upgrade' to update.", ""),
         # Communication & social
@@ -588,10 +589,7 @@ class SoftwarePage(Page):
             btn = QPushButton(name)
             btn.setToolTip(f"{tip} — opens in a dedicated Chromium window")
             btn.clicked.connect(
-                lambda _=False, u=url, n=name: subprocess.Popen([
-                    "chromium-browser", f"--app={u}",
-                    f"--class=Microsoft365-{n}", f"--name=Microsoft365-{n}",
-                ])
+                lambda _=False, u=url, n=name: self._open_m365_webapp(u, n)
             )
             btns.addWidget(btn)
         btns.addStretch()
@@ -606,6 +604,21 @@ class SoftwarePage(Page):
         note.setStyleSheet("color: #858585; font-size: 11px;")
         layout.addWidget(note)
         return card
+
+    def _open_m365_webapp(self, url: str, name: str) -> None:
+        launch = _chromium_app_window_cmd(url)
+        if launch is None:
+            QMessageBox.warning(
+                self, "No browser found",
+                "Opening web app shortcuts needs a Chromium-family browser "
+                "(Brave, Chromium, Edge, or Chrome), but none was found.\n\n"
+                "Install one from the Flatpak tab and try again.",
+            )
+            return
+        try:
+            subprocess.Popen(launch[0])
+        except OSError as exc:
+            QMessageBox.warning(self, "Could not open web app", str(exc))
 
     def _make_install_hierarchy_card(self) -> QFrame:
         card, layout = _make_card()
@@ -715,7 +728,26 @@ class SoftwarePage(Page):
         else:
             self._familiar_install_btn.hide()
 
+    # After Mission Center installs, hand it the Task Manager shortcut:
+    # Ctrl+Shift+Esc launches it and the stock System Monitor binding clears
+    # so the two never race for the key. kglobalaccel rereads on restart.
+    _MISSION_CENTER_REBIND_CMD = (
+        "kwriteconfig6 --file kglobalshortcutsrc"
+        " --group services --group io.missioncenter.MissionCenter.desktop"
+        " --key _launch 'Ctrl+Shift+Esc'"
+        " && kwriteconfig6 --file kglobalshortcutsrc"
+        " --group org.kde.plasma-systemmonitor.desktop"
+        " --key _launch 'none,none,System Monitor'"
+        " && (systemctl --user restart plasma-kglobalaccel.service || true)"
+    )
+
     def _install_familiar_app(self, app_id: str, name: str):
+        if app_id == "io.missioncenter.MissionCenter":
+            _install_flatpak_inline(
+                self, self._familiar_install_btn, app_id, name,
+                extra_cmd=self._MISSION_CENTER_REBIND_CMD,
+            )
+            return
         self._switch_tab(4)
         self._fp_search_box.setText(app_id)
         self._fp_install(app_id, name, self._familiar_install_btn)

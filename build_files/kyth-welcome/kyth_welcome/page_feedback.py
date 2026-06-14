@@ -30,18 +30,42 @@ def _probe_windows_partitions() -> list[dict]:
         return []
 
     ntfs_devs: list[dict] = []
+    locked_devs: list[dict] = []
 
     def _walk(nodes: list) -> None:
         for node in nodes or []:
             if not isinstance(node, dict):
                 continue
-            if (node.get("fstype") or "").lower() == "ntfs":
+            fstype = (node.get("fstype") or "").lower()
+            if fstype == "ntfs":
                 ntfs_devs.append(node)
+            elif fstype == "bitlocker" and not node.get("children"):
+                # Locked BitLocker partition. Once unlocked, the cleartext NTFS
+                # mapper device shows up as a child and is collected above —
+                # Windows 11 enables Device Encryption by default, so most
+                # modern Windows drives arrive in this state.
+                locked_devs.append(node)
             _walk(node.get("children") or [])
 
     _walk(data.get("blockdevices", []))
 
     results: list[dict] = []
+    for dev in locked_devs:
+        name = dev.get("name") or ""
+        path = dev.get("path") or (f"/dev/{name}" if name else "")
+        if not path:
+            continue
+        results.append({
+            "device":        path,
+            "label":         dev.get("label") or "",
+            "size":          dev.get("size") or "",
+            "mountpoint":    "",
+            "is_bitlocker":  True,
+            "is_dirty":      False,
+            "is_hibernated": False,
+            "steam_paths":   [],
+            "user_profiles": [],
+        })
     for dev in ntfs_devs:
         name = dev.get("name") or ""
         path = dev.get("path") or (f"/dev/{name}" if name else "")
@@ -73,7 +97,9 @@ def _probe_windows_partitions() -> list[dict]:
 
         steam_paths: list[str] = []
         user_profiles: list[dict] = []
+        windows_root = False
         if mountpoint:
+            windows_root = os.path.isdir(os.path.join(mountpoint, "Windows"))
             hiberfil = os.path.join(mountpoint, "hiberfil.sys")
             if os.path.exists(hiberfil):
                 is_hibernated = True
@@ -112,6 +138,7 @@ def _probe_windows_partitions() -> list[dict]:
             "mountpoint":   mountpoint,
             "is_dirty":     is_dirty,
             "is_hibernated": is_hibernated,
+            "windows_root": windows_root,
             "steam_paths":  steam_paths,
             "user_profiles": user_profiles,
         })

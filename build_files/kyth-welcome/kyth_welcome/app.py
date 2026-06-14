@@ -1,4 +1,5 @@
 import sys
+import traceback
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
@@ -25,6 +26,12 @@ def main():
 
     _wait_for_display_setup()
     _prefer_xwayland_if_wayland_plugin_missing()
+
+    # PyQt6 calls qFatal() (abort + core dump) on any uncaught Python exception
+    # in a slot unless an excepthook is installed. Log and keep the app alive.
+    def _log_uncaught(exc_type, exc_value, exc_tb):
+        traceback.print_exception(exc_type, exc_value, exc_tb, file=sys.stderr)
+    sys.excepthook = _log_uncaught
 
     app = QApplication(sys.argv)
     app.setApplicationName("kyth-welcome")

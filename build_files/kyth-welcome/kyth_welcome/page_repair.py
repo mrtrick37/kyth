@@ -5,10 +5,10 @@ import subprocess
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    Worker, _bootc_image_timestamp, _command_stdout, _detect_nvidia, _finish_worker, _has_rollback_deployment, _restyle, _set_session_inhibit, _with_idle_inhibit,
+    Worker, _bootc_image_timestamp, _command_stdout, _detect_nvidia, _finish_worker, _has_rollback_deployment, _install_flatpak_inline, _is_flatpak_installed, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
-    QDesktopServices, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl,
+    QDesktopServices, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card, _set_log_panel,
@@ -20,6 +20,9 @@ class RepairPage(Page):
         super().__init__()
         self._worker = None
         self._snapshot_worker = None
+        self._assist_worker = None
+        self._setup_worker = None
+        self._setup_operation = ""
         self._navigate = navigate or (lambda _key: None)
 
         self._page_header(
@@ -212,6 +215,42 @@ class RepairPage(Page):
         quick_layout.addLayout(quick_btns)
         self._add(quick)
 
+        # Quick Assist replacement
+        assist_card, assist_layout = _make_card("card-accent-ok")
+        assist_title = QLabel("Quick Assist — get or give remote help")
+        assist_title.setObjectName("card-title")
+        assist_layout.addWidget(assist_title)
+        assist_body = QLabel(
+            "RustDesk lets a trusted person view or control this PC using a temporary ID "
+            "and one-time password. KRDC connects outward to another PC over RDP or VNC. "
+            "Stay at the computer, read every permission prompt, and end the session when done."
+        )
+        assist_body.setObjectName("card-copy")
+        assist_body.setWordWrap(True)
+        assist_layout.addWidget(assist_body)
+        assist_btns = QHBoxLayout()
+        assist_btns.setSpacing(8)
+        self._rustdesk_btn = QPushButton()
+        self._rustdesk_btn.setObjectName("primary")
+        self._rustdesk_btn.clicked.connect(self._open_or_install_rustdesk)
+        assist_btns.addWidget(self._rustdesk_btn)
+        help_btn = QPushButton("Help Another PC")
+        help_btn.setToolTip("Open KRDC to connect to an RDP or VNC address.")
+        help_btn.clicked.connect(self._open_krdc)
+        assist_btns.addWidget(help_btn)
+        snapshot_btn = QPushButton("Create Support Snapshot")
+        snapshot_btn.setToolTip("Save system details that can be reviewed before granting remote access.")
+        snapshot_btn.clicked.connect(self._create_assist_snapshot)
+        assist_btns.addWidget(snapshot_btn)
+        assist_btns.addStretch()
+        assist_layout.addLayout(assist_btns)
+        self._assist_status = QLabel("")
+        self._assist_status.setObjectName("card-copy")
+        self._assist_status.setWordWrap(True)
+        assist_layout.addWidget(self._assist_status)
+        self._refresh_rustdesk_btn()
+        self._add(assist_card)
+
         # Printer setup card
         printer_card, printer_layout = _make_card()
         printer_title = QLabel("Printer Setup")
@@ -244,6 +283,64 @@ class RepairPage(Page):
         printer_btns.addStretch()
         printer_layout.addLayout(printer_btns)
         self._add(printer_card)
+
+        # File History — backups (Pika Backup wraps borg snapshots)
+        backup_card, backup_layout = _make_card()
+        backup_title = QLabel("File History — automatic backups")
+        backup_title.setObjectName("card-title")
+        backup_layout.addWidget(backup_title)
+        backup_body = QLabel(
+            "Like File History on Windows: pick a backup drive (or network location), "
+            "and Pika Backup keeps scheduled snapshots of your files. Restore any "
+            "earlier version of a file from the same app. Snapshots are deduplicated, "
+            "so keeping months of history costs little space."
+        )
+        backup_body.setObjectName("card-copy")
+        backup_body.setWordWrap(True)
+        backup_layout.addWidget(backup_body)
+        backup_btns = QHBoxLayout()
+        backup_btns.setSpacing(8)
+        pika_installed = _is_flatpak_installed("org.gnome.World.PikaBackup")
+        self._backup_btn = QPushButton("Open Pika Backup" if pika_installed else "Set Up File History")
+        self._backup_btn.setObjectName("primary")
+        self._backup_btn.setToolTip("Installs Pika Backup from Flathub, then schedule backups of your home folder to a USB drive or network share.")
+        self._backup_btn.clicked.connect(self._on_file_history)
+        backup_btns.addWidget(self._backup_btn)
+        backup_btns.addStretch()
+        backup_layout.addLayout(backup_btns)
+        self._add(backup_card)
+
+        # Restore My PC Setup
+        setup_card, setup_layout = _make_card("card-accent-ok")
+        setup_title = QLabel("Restore My PC Setup")
+        setup_title.setObjectName("card-title")
+        setup_layout.addWidget(setup_title)
+        setup_body = QLabel(
+            "Move your KythOS setup to a reinstall or another PC: installed Flatpaks, "
+            "default apps, keyboard shortcuts, desktop preferences, KythOS profile, "
+            "network-share definitions, cloud sync folders, and gaming-tool settings. "
+            "Passwords, browser sessions, SMB credentials, KWallet data, and cloud OAuth "
+            "tokens are deliberately excluded."
+        )
+        setup_body.setObjectName("card-copy")
+        setup_body.setWordWrap(True)
+        setup_layout.addWidget(setup_body)
+        setup_btns = QHBoxLayout()
+        setup_btns.setSpacing(8)
+        self._setup_export_btn = QPushButton("Export My Setup")
+        self._setup_export_btn.setObjectName("primary")
+        self._setup_export_btn.clicked.connect(self._export_setup)
+        setup_btns.addWidget(self._setup_export_btn)
+        self._setup_restore_btn = QPushButton("Restore From Archive…")
+        self._setup_restore_btn.clicked.connect(self._restore_setup)
+        setup_btns.addWidget(self._setup_restore_btn)
+        setup_btns.addStretch()
+        setup_layout.addLayout(setup_btns)
+        self._setup_status = QLabel("Keep the archive with your normal personal-file backup.")
+        self._setup_status.setObjectName("card-copy")
+        self._setup_status.setWordWrap(True)
+        setup_layout.addWidget(self._setup_status)
+        self._add(setup_card)
 
         # Session snapshot
         snapshot_card, snapshot_layout = _make_card()
@@ -443,6 +540,161 @@ class RepairPage(Page):
         self._sleep_fix_status.setObjectName("card-copy")
         _restyle(self._sleep_fix_status)
 
+    def _on_file_history(self):
+        if _is_flatpak_installed("org.gnome.World.PikaBackup"):
+            try:
+                subprocess.Popen(["flatpak", "run", "org.gnome.World.PikaBackup"])
+            except OSError:
+                pass
+            return
+        def _launch_after_install(code: int):
+            if code == 0:
+                self._backup_btn.setText("Open Pika Backup")
+                self._backup_btn.setEnabled(True)
+        _install_flatpak_inline(
+            self, self._backup_btn, "org.gnome.World.PikaBackup", "Pika Backup",
+            done_cb=_launch_after_install,
+        )
+
+    def _refresh_rustdesk_btn(self):
+        installed = _is_flatpak_installed("com.rustdesk.RustDesk")
+        self._rustdesk_btn.setText("Open RustDesk — Get Help" if installed else "Install RustDesk — Get Help")
+
+    def _open_or_install_rustdesk(self):
+        app_id = "com.rustdesk.RustDesk"
+        if _is_flatpak_installed(app_id):
+            try:
+                subprocess.Popen(["flatpak", "run", app_id])
+                self._assist_status.setText(
+                    "Share only the temporary ID and one-time password with someone you trust. "
+                    "Close RustDesk when the support session is finished."
+                )
+            except OSError as exc:
+                self._assist_status.setText(f"Could not open RustDesk: {exc}")
+            return
+
+        def _installed(code: int):
+            if code == 0:
+                self._rustdesk_btn.setEnabled(True)
+                self._refresh_rustdesk_btn()
+                self._assist_status.setText("RustDesk installed. Open it when your helper is ready.")
+
+        _install_flatpak_inline(
+            self, self._rustdesk_btn, app_id, "RustDesk", done_cb=_installed,
+        )
+
+    def _open_krdc(self):
+        if shutil.which("krdc"):
+            try:
+                subprocess.Popen(["krdc"])
+                self._assist_status.setText("KRDC opened — enter an rdp:// or vnc:// address to help another PC.")
+            except OSError as exc:
+                self._assist_status.setText(f"Could not open KRDC: {exc}")
+        else:
+            self._assist_status.setText(
+                "KRDC will be available after applying the latest KythOS update and restarting."
+            )
+
+    def _create_assist_snapshot(self):
+        if self._assist_worker is not None and self._assist_worker.isRunning():
+            return
+        self._assist_status.setText("Creating a support snapshot…")
+        worker = Worker(["/usr/bin/kyth-session-snapshot"])
+        worker.line.connect(lambda line: self._assist_status.setText(line.strip() or "Snapshot created."))
+        worker.done.connect(self._on_assist_snapshot_done)
+        self._assist_worker = worker
+        worker.start()
+
+    def _on_assist_snapshot_done(self, code: int):
+        _finish_worker(self, attr="_assist_worker")
+        if code != 0:
+            self._assist_status.setText(f"Support snapshot failed (exit {code}).")
+
+    @staticmethod
+    def _setup_transfer_helper() -> str:
+        installed = "/usr/bin/kyth-setup-transfer"
+        if os.path.exists(installed):
+            return installed
+        return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "kyth-setup-transfer"))
+
+    def _set_setup_busy(self, busy: bool):
+        self._setup_export_btn.setEnabled(not busy)
+        self._setup_restore_btn.setEnabled(not busy)
+
+    def _export_setup(self):
+        if self._setup_worker is not None and self._setup_worker.isRunning():
+            return
+        destination = QFileDialog.getExistingDirectory(
+            self, "Choose where to save your KythOS setup", os.path.expanduser("~/Documents")
+        )
+        if not destination:
+            return
+        helper = self._setup_transfer_helper()
+        if not os.path.exists(helper):
+            self._setup_status.setText("Setup transfer is available after the next KythOS update and restart.")
+            return
+        self._setup_operation = "export"
+        self._set_setup_busy(True)
+        self._setup_status.setText("Collecting apps and preferences…")
+        worker = Worker([helper, "export", destination])
+        worker.line.connect(lambda line: self._setup_status.setText(line.strip() or "Exporting setup…"))
+        worker.done.connect(self._on_setup_transfer_done)
+        self._setup_worker = worker
+        worker.start()
+
+    def _restore_setup(self):
+        if self._setup_worker is not None and self._setup_worker.isRunning():
+            return
+        archive, _ = QFileDialog.getOpenFileName(
+            self, "Choose a KythOS setup archive", os.path.expanduser("~"),
+            "KythOS setup archives (kyth-setup-*.tar.gz);;Tar archives (*.tar.gz)",
+        )
+        if not archive:
+            return
+        helper = self._setup_transfer_helper()
+        if not os.path.exists(helper):
+            self._setup_status.setText("Setup transfer is available after the next KythOS update and restart.")
+            return
+        try:
+            result = subprocess.run(
+                [helper, "summary", archive], capture_output=True, text=True, timeout=15,
+            )
+        except Exception as exc:
+            QMessageBox.warning(self, "Could not inspect archive", str(exc))
+            return
+        if result.returncode != 0:
+            QMessageBox.warning(
+                self, "Invalid setup archive", (result.stderr or result.stdout).strip()
+            )
+            return
+        answer = QMessageBox.question(
+            self, "Restore this PC setup?",
+            result.stdout.strip()
+            + "\n\nExisting preferences with the same names will be replaced. Continue?",
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        self._setup_operation = "restore"
+        self._set_setup_busy(True)
+        self._setup_status.setText("Restoring preferences and applications…")
+        worker = Worker([helper, "restore", archive])
+        worker.line.connect(lambda line: self._setup_status.setText(line.strip() or "Restoring setup…"))
+        worker.done.connect(self._on_setup_transfer_done)
+        self._setup_worker = worker
+        worker.start()
+
+    def _on_setup_transfer_done(self, code: int):
+        operation = self._setup_operation
+        _finish_worker(self, attr="_setup_worker")
+        self._set_setup_busy(False)
+        if code == 0 and operation == "restore":
+            self._setup_status.setText(
+                "Setup restored. Reconnect cloud accounts, re-enter network-share passwords, "
+                "then sign out and back in to apply desktop shortcuts and preferences."
+            )
+        elif code != 0:
+            self._setup_status.setText(f"Setup {operation or 'transfer'} failed (exit {code}).")
+
     def _run_session_snapshot(self):
         if self._snapshot_worker and self._snapshot_worker.isRunning():
             return
@@ -460,6 +712,12 @@ class RepairPage(Page):
             self._snapshot_status.setText(f"Snapshot failed (exit {code}).")
 
     def _open_task_manager(self):
+        if _is_flatpak_installed("io.missioncenter.MissionCenter"):
+            try:
+                subprocess.Popen(["flatpak", "run", "io.missioncenter.MissionCenter"])
+                return
+            except OSError:
+                pass
         for cmd in (["plasma-systemmonitor"], ["ksysguard"], ["konsole", "-e", "btop"], ["konsole", "-e", "top"]):
             if shutil.which(cmd[0]):
                 subprocess.Popen(cmd)
