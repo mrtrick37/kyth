@@ -1,0 +1,117 @@
+name: Rechunk image candidate
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_tag:
+        description: Existing KythOS image tag to rechunk
+        required: true
+        default: testing
+        type: string
+      target_tag:
+        description: Candidate tag used when publishing
+        required: true
+        default: testing-rechunk
+        type: string
+      max_layers:
+        description: Maximum package-group layers in the output image
+        required: true
+        default: '64'
+        type: string
+      publish:
+        description: Publish the validated candidate to GHCR
+        required: true
+        default: false
+        type: boolean
+
+permissions: read-all
+
+jobs:
+  rechunk:
+    name: Rechunk and validate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
+        with:
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          docker-images: true
+          swap-storage: true
+
+      - name: Login to GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Pull source image into rootful Podman
+        id: source
+        env:
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          set -euo pipefail
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${SOURCE_TAG}"
+          sudo podman pull "${IMAGE}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+
+      # Rechunk rebuilds the OSTree commit and can alter ownership or labels.
+      # Keep this isolated from production until the candidate has booted in a VM.
+      - name: Rechunk image
+        id: rechunk
+        uses: ublue-os/legacy-rechunk@a925083d9af7cb04b3e2a6e8c01bfa495f38b710 # v1.0.0
+        with:
+          rechunk: ghcr.io/ublue-os/legacy-rechunk@sha256:1ee0b4ad0eee9b300cca1afd8cf78b78ce77bcc0d5aa16b07a195c6c22f1c9b4
+          ref: ${{ steps.source.outputs.image }}
+          prev-ref: ghcr.io/${{ github.repository }}:${{ inputs.target_tag }}
+          max-layers: ${{ inputs.max_layers }}
+          version: 44-<date>
+          revision: ${{ github.sha }}
+          labels: |
+            containers.bootc=1
+            org.opencontainers.image.title=KythOS
+            org.opencontainers.image.version=44
+            org.opencontainers.image.source=https://github.com/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+
+      - name: Load and validate candidate
+        id: validate
+        env:
+          OCI_REF: ${{ steps.rechunk.outputs.ref }}
+          LAYER_BUDGET: '128'
+        run: |
+          set -euo pipefail
+          IMAGE_ID="$(sudo podman pull "${OCI_REF}")"
+          LAYERS="$(sudo podman image inspect --format '{{ len .RootFS.Layers }}' "${IMAGE_ID}")"
+          BOOTC_LABEL="$(sudo podman image inspect --format '{{ index .Config.Labels "containers.bootc" }}' "${IMAGE_ID}")"
+
+          echo "Candidate layers: ${LAYERS} (hard budget: ${LAYER_BUDGET})"
+          test "${LAYERS}" -le "${LAYER_BUDGET}"
+          test "${BOOTC_LABEL}" = 1
+          sudo podman run --rm --entrypoint /usr/bin/bootc "${IMAGE_ID}" container lint
+
+          echo "image_id=${IMAGE_ID}" >> "$GITHUB_OUTPUT"
+          echo "layers=${LAYERS}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish candidate
+        if: inputs.publish
+        env:
+          IMAGE_ID: ${{ steps.validate.outputs.image_id }}
+          TARGET_TAG: ${{ inputs.target_tag }}
+        run: |
+          set -euo pipefail
+          TARGET="ghcr.io/${GITHUB_REPOSITORY,,}:${TARGET_TAG}"
+          sudo podman tag "${IMAGE_ID}" "${TARGET}"
+          sudo podman push --compression-format zstd --force-compression "${TARGET}"
+          echo "Published ${TARGET} with ${{ steps.validate.outputs.layers }} layers"
