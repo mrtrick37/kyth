@@ -10,13 +10,20 @@ on:
     inputs:
       source_tag:
         description: Image tag to process
-        required: false
-        default: all
+        required: true
+        default: testing
         type: choice
         options:
-          - all
           - latest
           - testing
+      source_digest:
+        description: Immutable image digest to process (required for manual runs)
+        required: true
+        type: string
+      source_sha:
+        description: Source commit recorded in the image (required for manual runs)
+        required: true
+        type: string
 
 permissions: read-all
 
@@ -32,8 +39,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_tag == 'all' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', inputs.source_tag))) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
+      actions: read
       contents: read
       packages: read
     concurrency:
@@ -41,10 +49,35 @@ jobs:
       cancel-in-progress: false
 
     steps:
+      - name: Download immutable build metadata
+        if: github.event_name == 'workflow_run'
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image-build-metadata-${{ matrix.source_tag }}
+          path: output/build-handoff
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          run-id: ${{ github.event.workflow_run.id }}
+
+      - name: Read immutable build metadata
+        if: github.event_name == 'workflow_run'
+        id: handoff
+        env:
+          EXPECTED_TAG: ${{ matrix.source_tag }}
+          EXPECTED_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          METADATA=output/build-handoff/image.json
+          jq -e . "${METADATA}" >/dev/null
+          test "$(jq -r .source_tag "${METADATA}")" = "${EXPECTED_TAG}"
+          test "$(jq -r .workflow_run_id "${METADATA}")" = "${EXPECTED_RUN_ID}"
+          echo "image=$(jq -r .image "${METADATA}")" >> "$GITHUB_OUTPUT"
+          echo "digest=$(jq -r .digest "${METADATA}")" >> "$GITHUB_OUTPUT"
+          echo "version=$(jq -r .version "${METADATA}")" >> "$GITHUB_OUTPUT"
+          echo "source_sha=$(jq -r .source_sha "${METADATA}")" >> "$GITHUB_OUTPUT"
+
       - name: Checkout repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ matrix.source_tag == 'testing' && 'testing' || 'main' }}
+          ref: ${{ github.event_name == 'workflow_run' && steps.handoff.outputs.source_sha || inputs.source_sha }}
           persist-credentials: false
 
       - name: Maximize build space
@@ -63,11 +96,8 @@ jobs:
           SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
-          DATE_SHORT="$(date -u +%Y%m%d)"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "tag=${SOURCE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "date_short=${DATE_SHORT}" >> "$GITHUB_OUTPUT"
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -75,20 +105,51 @@ jobs:
       - name: Install ORAS
         uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
 
-      - name: Resolve current and previous image digests
+      - name: Validate immutable image identity and resolve previous digest
         id: image
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          DATE_SHORT: ${{ steps.meta.outputs.date_short }}
+          HANDOFF_IMAGE: ${{ steps.handoff.outputs.image }}
+          HANDOFF_DIGEST: ${{ steps.handoff.outputs.digest }}
+          HANDOFF_VERSION: ${{ steps.handoff.outputs.version }}
+          HANDOFF_SHA: ${{ steps.handoff.outputs.source_sha }}
+          MANUAL_DIGEST: ${{ inputs.source_digest }}
+          MANUAL_SHA: ${{ inputs.source_sha }}
         run: |
-          CURRENT_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ .Manifest.Digest }}')"
-          CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}:${TAG}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null || true)"
-
-          if [[ -z "${CURRENT_VERSION}" || "${CURRENT_VERSION}" == "<no value>" || \
-                ! "${CURRENT_VERSION}" =~ ^${TAG}\. ]]; then
-            CURRENT_VERSION="${TAG}.${DATE_SHORT}"
+          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
+            test "${HANDOFF_IMAGE}" = "${IMAGE}"
+            CURRENT_DIGEST="${HANDOFF_DIGEST}"
+            CURRENT_VERSION="${HANDOFF_VERSION}"
+            SOURCE_SHA="${HANDOFF_SHA}"
+          else
+            CURRENT_DIGEST="${MANUAL_DIGEST}"
+            SOURCE_SHA="${MANUAL_SHA}"
+            [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+            CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
           fi
+
+          [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          ACTUAL_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
+          ACTUAL_REVISION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
+          BASE_NAME="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.name" }}')"
+          BASE_DIGEST="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.digest" }}')"
+          UPSTREAM_BASE="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.upstream-base" }}')"
+          GE_PROTON_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.ge-proton-version" }}')"
+          THIRDPARTY_HASH="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.thirdparty-versions-hash" }}')"
+          KERNEL_FLAVOR="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.kernel-flavor" }}')"
+          test "${ACTUAL_VERSION}" = "${CURRENT_VERSION}"
+          test "${ACTUAL_REVISION}" = "${SOURCE_SHA}"
+          test "${SOURCE_SHA}" = "$(git rev-parse HEAD)"
+          [[ "${CURRENT_VERSION}" =~ ^${TAG}\.[0-9]{8}$ ]]
+          test "${BASE_NAME}" = "${IMAGE}:base-${TAG}"
+          [[ "${BASE_NAME}" =~ ^ghcr\.io/[a-z0-9._/-]+:[a-z0-9._-]+$ ]]
+          [[ "${BASE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${UPSTREAM_BASE}" =~ ^ghcr\.io/ublue-os/kinoite-main:44@sha256:[0-9a-f]{64}$ ]]
+          test -n "${GE_PROTON_VERSION}"
+          [[ "${THIRDPARTY_HASH}" =~ ^[0-9a-f]{16}$ ]]
+          test "${KERNEL_FLAVOR}" = fedora
 
           TAG_PREFIX="${CURRENT_VERSION%.*}"
           PREVIOUS_TAG="$(oras repo tags "${IMAGE}" \
@@ -104,6 +165,13 @@ jobs:
           echo "current_digest=${CURRENT_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "previous_digest=${PREVIOUS_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "base_name=${BASE_NAME}" >> "$GITHUB_OUTPUT"
+          echo "base_digest=${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "upstream_base=${UPSTREAM_BASE}" >> "$GITHUB_OUTPUT"
+          echo "ge_proton_version=${GE_PROTON_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "thirdparty_hash=${THIRDPARTY_HASH}" >> "$GITHUB_OUTPUT"
+          echo "kernel_flavor=${KERNEL_FLAVOR}" >> "$GITHUB_OUTPUT"
 
       - name: Setup Syft
         id: setup_syft
@@ -130,7 +198,7 @@ jobs:
           DIGEST: ${{ steps.image.outputs.current_digest }}
         run: |
           SBOM="kyth-${TAG}-${VERSION}.syft.json"
-          "${SYFT_CMD}" "registry:${IMAGE}:${TAG}" \
+          "${SYFT_CMD}" "registry:${IMAGE}@${DIGEST}" \
             --source-name "${IMAGE}@${DIGEST}" \
             -o "syft-json=${SBOM}"
           echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
@@ -173,7 +241,7 @@ jobs:
           CURRENT_TAG: ${{ steps.image.outputs.current_version }}
           CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
-          CURRENT_SHA: ${{ steps.meta.outputs.sha }}
+          CURRENT_SHA: ${{ steps.image.outputs.source_sha }}
           SOURCE_TAG: ${{ matrix.source_tag }}
         run: |
           NOTES="image-changelog-${CURRENT_TAG}.md"
@@ -195,10 +263,16 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          SOURCE_SHA: ${{ steps.meta.outputs.sha }}
+          SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
           CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
           CURRENT_VERSION: ${{ steps.image.outputs.current_version }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
+          BASE_NAME: ${{ steps.image.outputs.base_name }}
+          BASE_DIGEST: ${{ steps.image.outputs.base_digest }}
+          UPSTREAM_BASE: ${{ steps.image.outputs.upstream_base }}
+          GE_PROTON_VERSION: ${{ steps.image.outputs.ge_proton_version }}
+          THIRDPARTY_HASH: ${{ steps.image.outputs.thirdparty_hash }}
+          KERNEL_FLAVOR: ${{ steps.image.outputs.kernel_flavor }}
           RPM_MANIFEST: ${{ steps.rpm_manifest.outputs.path }}
           SBOM: ${{ steps.sbom.outputs.path }}
           NOTES: ${{ steps.changelog.outputs.path }}
@@ -217,6 +291,13 @@ jobs:
               "current_digest": os.environ["CURRENT_DIGEST"],
               "current_version": os.environ["CURRENT_VERSION"],
               "previous_digest": os.environ["PREVIOUS_DIGEST"],
+              "materials": {
+                  "build_base": os.environ["BASE_NAME"] + "@" + os.environ["BASE_DIGEST"],
+                  "upstream_base": os.environ["UPSTREAM_BASE"],
+                  "ge_proton_version": os.environ["GE_PROTON_VERSION"],
+                  "thirdparty_versions_hash": os.environ["THIRDPARTY_HASH"],
+                  "kernel_flavor": os.environ["KERNEL_FLAVOR"],
+              },
               "rpm_manifest": Path(os.environ["RPM_MANIFEST"]).name,
               "sbom": Path(os.environ["SBOM"]).name,
               "notes": Path(os.environ["NOTES"]).name,
@@ -243,13 +324,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && (inputs.source_tag == 'all' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', inputs.source_tag))) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
+        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
       actions: read
       contents: write
       packages: write
       id-token: write
-      attestations: write
     concurrency:
       group: supply-chain-publish-${{ matrix.source_tag }}
       cancel-in-progress: false
@@ -271,6 +351,11 @@ jobs:
           SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
           DIGEST="$(jq -r .current_digest "${METADATA}")"
           VERSION="$(jq -r .current_version "${METADATA}")"
+          BUILD_BASE="$(jq -r .materials.build_base "${METADATA}")"
+          UPSTREAM_BASE="$(jq -r .materials.upstream_base "${METADATA}")"
+          GE_PROTON_VERSION="$(jq -r .materials.ge_proton_version "${METADATA}")"
+          THIRDPARTY_HASH="$(jq -r .materials.thirdparty_versions_hash "${METADATA}")"
+          KERNEL_FLAVOR="$(jq -r .materials.kernel_flavor "${METADATA}")"
           SBOM="$(jq -r .sbom "${METADATA}")"
           NOTES="$(jq -r .notes "${METADATA}")"
 
@@ -280,6 +365,11 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${VERSION}" =~ ^[a-z0-9._-]+$ ]]
+          [[ "${BUILD_BASE}" =~ ^ghcr\.io/[a-z0-9._/-]+:[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]]
+          [[ "${UPSTREAM_BASE}" =~ ^ghcr\.io/ublue-os/kinoite-main:44@sha256:[0-9a-f]{64}$ ]]
+          test -n "${GE_PROTON_VERSION}"
+          [[ "${THIRDPARTY_HASH}" =~ ^[0-9a-f]{16}$ ]]
+          test "${KERNEL_FLAVOR}" = fedora
           [[ "${SBOM}" == "$(basename "${SBOM}")" && -s "output/supply-chain/${SBOM}" ]]
           [[ "${NOTES}" == "$(basename "${NOTES}")" && -s "output/supply-chain/${NOTES}" ]]
 
@@ -307,16 +397,9 @@ jobs:
       - name: Sign container image
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
           DIGEST: ${{ steps.meta.outputs.digest }}
-          VERSION: ${{ steps.meta.outputs.version }}
         run: |
           cosign sign -y "${IMAGE}@${DIGEST}"
-          cosign sign -y "${IMAGE}:${TAG}"
-          cosign sign -y "${IMAGE}:${VERSION}"
-          if [[ "${TAG}" == "latest" && "${VERSION}" =~ ^latest\.([0-9]{8})$ ]]; then
-            cosign sign -y "${IMAGE}:${BASH_REMATCH[1]}"
-          fi
 
       - name: Attach and sign SBOM
         id: attach_sbom
@@ -339,12 +422,39 @@ jobs:
           echo "digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
           cosign sign -y "${IMAGE}@${SBOM_DIGEST}"
 
-      - name: Attest image build provenance
-        uses: actions/attest@59d89421af93a897026c735860bf21b6eb4f7b26 # v4.1.0
-        with:
-          subject-name: ${{ steps.meta.outputs.image }}
-          subject-digest: ${{ steps.meta.outputs.digest }}
-          push-to-registry: true
+      - name: Verify published signatures and build provenance
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          IMAGE: ${{ steps.meta.outputs.image }}
+          DIGEST: ${{ steps.meta.outputs.digest }}
+          SBOM_DIGEST: ${{ steps.attach_sbom.outputs.digest }}
+          SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
+        run: |
+          IDENTITY="^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/supply-chain\\.yml@refs/heads/(main|testing)$"
+          ISSUER="https://token.actions.githubusercontent.com"
+
+          cosign verify \
+            --certificate-identity-regexp "${IDENTITY}" \
+            --certificate-oidc-issuer "${ISSUER}" \
+            "${IMAGE}@${DIGEST}"
+          cosign verify \
+            --certificate-identity-regexp "${IDENTITY}" \
+            --certificate-oidc-issuer "${ISSUER}" \
+            "${IMAGE}@${SBOM_DIGEST}"
+
+          for attempt in 1 2 3 4 5; do
+            if gh attestation verify "oci://${IMAGE}@${DIGEST}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/build.yml" \
+              --source-digest "${SOURCE_SHA}" \
+              --deny-self-hosted-runners; then
+              exit 0
+            fi
+            echo "Provenance not visible yet (attempt ${attempt}/5); retrying..."
+            sleep 10
+          done
+          echo "::error::Build provenance could not be verified for ${IMAGE}@${DIGEST}"
+          exit 1
 
       - name: Publish image changelog release
         env:
