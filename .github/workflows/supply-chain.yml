@@ -105,19 +105,6 @@ jobs:
           echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
           echo "previous_digest=${PREVIOUS_DIGEST}" >> "$GITHUB_OUTPUT"
 
-      - name: Capture RPM manifest
-        id: rpm_manifest
-        env:
-          IMAGE: ${{ steps.meta.outputs.image }}
-          TAG: ${{ steps.meta.outputs.tag }}
-          VERSION: ${{ steps.image.outputs.current_version }}
-        run: |
-          OUT_FILE="rpm-manifest-${TAG}-${VERSION}.txt"
-          docker run --rm "${IMAGE}:${TAG}" \
-            bash -lc "rpm -qa --qf '%{name}-%{version}-%{release}.%{arch}\\n' | sort" \
-            > "${OUT_FILE}"
-          echo "path=${OUT_FILE}" >> "$GITHUB_OUTPUT"
-
       - name: Setup Syft
         id: setup_syft
         env:
@@ -147,6 +134,37 @@ jobs:
             --source-name "${IMAGE}@${DIGEST}" \
             -o "syft-json=${SBOM}"
           echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+
+      - name: Capture RPM manifest
+        id: rpm_manifest
+        env:
+          TAG: ${{ steps.meta.outputs.tag }}
+          VERSION: ${{ steps.image.outputs.current_version }}
+          SBOM_PATH: ${{ steps.sbom.outputs.path }}
+        run: |
+          OUT_FILE="rpm-manifest-${TAG}-${VERSION}.txt"
+          python3 - "${SBOM_PATH}" "${OUT_FILE}" <<'PY'
+          import json, sys
+          from pathlib import Path
+          sbom = json.loads(Path(sys.argv[1]).read_text())
+          pkgs = []
+          for a in sbom.get("artifacts", []):
+              if a.get("type") != "rpm":
+                  continue
+              m = a.get("metadata") or {}
+              name = a["name"]
+              arch = m.get("architecture", "")
+              meta_ver = m.get("version", "")
+              meta_rel = m.get("release", "")
+              if meta_ver and meta_rel:
+                  pkgs.append(f"{name}-{meta_ver}-{meta_rel}.{arch}")
+              else:
+                  ver = a.get("version", "")
+                  pkgs.append(f"{name}-{ver}.{arch}" if arch else f"{name}-{ver}")
+          pkgs.sort()
+          Path(sys.argv[2]).write_text("\n".join(pkgs) + "\n")
+          PY
+          echo "path=${OUT_FILE}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM-powered changelog
         id: changelog
