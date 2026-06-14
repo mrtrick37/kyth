@@ -1,57 +1,55 @@
 <div align="center">
 
+<img src="build_files/branding/kyth-logo-transparent.svg" alt="KythOS" width="200">
+
 # KythOS
 
-### A friendly desktop OS for games, creative work, tinkering, and everyday life.
+**A Linux desktop that's actually ready when you sit down.**<br>
+Built on Fedora Kinoite · KDE Plasma 6 · Shipped as a container image · Atomic updates
 
-[Download Stable ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
-[Try Testing ISO](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
-[Gaming Docs](docs/gaming-validation-matrix.md) |
-[Report A Bug](https://github.com/mrtrick37/kyth/issues)
+<br>
+
+[Download Stable ISO](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) · [Download Testing ISO](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) · [Report a Bug](https://github.com/mrtrick37/kyth/issues) · [Discussions](https://github.com/mrtrick37/kyth/discussions)
+
+<br>
 
 [![Build](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg?branch=main)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
+[![Build ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
 [![CVE Scan](https://github.com/mrtrick37/kyth/actions/workflows/cve-scan.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/cve-scan.yml)
 [![Scorecard](https://api.securityscorecardcards.dev/projects/github.com/mrtrick37/kyth/badge)](https://securityscorecards.dev/viewer/?uri=github.com/mrtrick37/kyth)
+[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
+[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
+[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
 
-<img src="build_files/wallpaper/kyth-wallpaper.svg" alt="KythOS wallpaper" width="100%">
+<br>
+
+<img src="build_files/wallpaper/kyth-wallpaper.svg" alt="KythOS desktop" width="100%">
 
 </div>
 
-KythOS is a ready-to-install Linux desktop for people who want their games, tools, updates, and hardware setup to feel less fragile.
+---
 
-It starts from a live USB, installs with a real graphical installer, and opens into a polished KDE Plasma desktop with gaming tools, creator tools, driver helpers, update controls, and a first-run **System Hub** to help you settle in.
+KythOS is a ready-to-install Linux desktop for gaming, creating, and daily use. Boot from a USB drive, install through a real graphical installer, and open into a KDE Plasma 6 desktop that's already configured — launchers, tuning tools, hardware helpers, and a first-run **System Hub** included.
 
-## KythOS Is Officially Released
+Updates are atomic. Stage a new deployment, reboot into it, and roll back from the boot menu if something breaks. The whole OS ships as a container image. Every build is reproducible, signed, and verifiable.
 
-**Calling all testers: KythOS is ready for you.**
-
-The `main` branch is now the official KythOS release line. This is the moment to
-download the stable ISO, boot it on real hardware, install it, update it, play
-games, try your daily workflow, and tell us where the rough edges still are.
-
-Every test helps make the release better. Please report bugs, hardware results,
-installer surprises, and gaming wins or misses through the
-[KythOS issue tracker](https://github.com/mrtrick37/kyth/issues).
+---
 
 ## Download
 
-| Channel | Best for | Download |
+| Channel | Best for | Direct download |
 |---|---|---|
-| `latest` | Daily use | [Stable ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) |
-| `testing` | New features, active development, helping catch breakage | [Testing ISO release](https://github.com/mrtrick37/kyth/releases/tag/iso-testing) |
+| **Stable** `latest` | Daily use — recommended | [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso) |
+| **Testing** `testing` | New features, active dev | [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso) |
 
-Direct downloads:
+Archived releases with checksums and provenance: [Stable](https://github.com/mrtrick37/kyth/releases/tag/iso-latest) · [Testing](https://github.com/mrtrick37/kyth/releases/tag/iso-testing)
 
-- [kyth-live-latest.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-latest.iso)
-- [kyth-live-testing.iso](https://pub-9a3cc72972ea44c4ae7504ee7cda1fa6.r2.dev/kyth-live-testing.iso)
+> **Minimum requirements:** 8 GB RAM for the live session · USB drive · internet connection during install
 
-You will need at least 8 GB RAM for the live session, a USB drive, and an internet connection during install.
+<details>
+<summary>Verify your download</summary>
 
-### Verify A Download
-
-Each release includes a SHA-256 checksum, a keyless Cosign signature bundle,
-and GitHub build provenance. Download the ISO and its matching sidecar files,
-then replace `kyth-live-CHANNEL.iso` below with the downloaded filename:
+Each release ships a SHA-256 checksum, a keyless Cosign signature bundle, and GitHub build provenance. Replace `CHANNEL` with `latest` or `testing`:
 
 ```bash
 sha256sum -c kyth-live-CHANNEL.iso-CHECKSUM
@@ -67,369 +65,186 @@ gh attestation verify kyth-live-CHANNEL.iso \
   --signer-workflow mrtrick37/kyth/.github/workflows/build-live-iso.yml
 ```
 
-The channel URLs move forward over time. For archival or reproducible use,
-choose the timestamped immutable release linked from the channel release page.
+Channel URLs move forward over time. For archival or reproducible use, grab the timestamped immutable release linked from the channel release page.
 
-## Why Gamers Should Care
+</details>
 
-KythOS is not trying to pretend every game works on Linux. It is trying to make the games that can work feel easier to set up, easier to tune, and easier to recover from when launchers, drivers, shaders, mods, or anti-cheat updates decide to be difficult.
+---
 
-## What You Get On Day One
+## Gaming
 
-| Play | Tune | Mod | Stream | Recover |
-|---|---|---|---|---|
-| Steam, Lutris, Heroic, Proton tools, game helpers | MangoHud, vkBasalt, Gamescope presets, GameMode | Modding docs, save migration docs, Windows game-drive notes | OBS support, vkcapture, media codecs, low-latency audio | Staged updates, previous boot entries, repair tools, diagnostics |
+KythOS doesn't promise every game works on Linux. It makes the games that can work feel less fragile to set up, tune, and recover from.
 
-## The KythOS Experience
+| | What's included |
+|---|---|
+| **Launchers** | Steam, Lutris, Heroic Games Launcher |
+| **Proton** | ProtonUp-Qt, GE-Proton, protontricks, winetricks, umu-launcher, libFAudio |
+| **Overlay & capture** | MangoHud (pre-configured overlay), vkBasalt (sharpening on by default), obs-vkcapture |
+| **Performance** | GameMode, Gamescope presets, sched-ext, ananicy-cpp, system76-scheduler |
+| **Controllers** | steam-devices, xpadneo, xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB, input-remapper |
+| **Wine/Proton defaults** | NTSYNC, fsync/esync fallbacks, DXR, VKD3D feature level 12_2, RADV GPL, Mesa GL threading |
+| **Helper commands** | `kyth-gamescope`, `game-performance`, `kyth-scx`, `kyth-smoke-check`, `ujust post-update-check` |
 
-**Boot the USB.** Try the desktop before touching your disk.
+### What to expect
 
-**Install with a real installer.** Choose erase-disk or install-alongside, create your user, and let KythOS write the system.
+| Usually works great | Worth checking first | Often blocked |
+|---|---|---|
+| Steam + Proton, native Linux titles, single-player, many co-op games | External launchers, heavy modding, unusual codecs, anti-cheat that changes policy | Games whose publishers require Windows-only kernel anti-cheat |
 
-**Open System Hub.** First login walks you through updates, hardware checks, firmware, gaming setup, optional apps, VPN, cloud storage, repair tools, and extras.
+KythOS keeps that reality visible instead of burying it under hype. The [gaming validation matrix](docs/gaming-validation-matrix.md) and [gaming results](docs/gaming-results/) track what's been tested.
 
-**Start playing.** Install your launchers, pick your Proton runner, check your games, and use the helper tools when something needs a nudge.
+---
 
-## Built For Windows Gamers Who Are Linux-Curious
+## Beyond Gaming
 
-KythOS tries to make the first few hours less weird:
+Gaming-first doesn't mean gaming-only.
 
-- A live desktop you can test from USB.
-- A graphical installer instead of a pile of terminal steps.
-- Steam, Lutris, Heroic, ProtonUp-Qt, and protontricks in the expected workflow.
-- Game save backup and restore guidance through Ludusavi.
-- Windows game-drive migration notes.
-- ProtonDB and anti-cheat references where they belong.
-- Non-destructive "fix my game" style checks in System Hub.
-- No forced update reboot rhythm.
+- **Video & streaming:** OBS Studio with Vulkan/OpenGL capture, Kdenlive, DaVinci Resolve helper
+- **Audio:** Audacity, PipeWire tuned for low latency
+- **Graphics:** GIMP, full media codec stack including thumbnails
+- **Dev tools:** VS Code, GitHub CLI, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC
+- **Productivity:** Brave, KDE Connect, OpenDeck, rclone cloud storage mounts
+- **Security:** Optional Kali Linux toolbox container, Wireshark, Burp Suite Community
+- **VPN:** Standalone VPN Connect app with GlobalProtect SAML flow
 
-Some games will still be blocked by publisher anti-cheat choices. KythOS keeps that reality visible instead of burying it under hype.
-
-## Built For Linux Gamers Who Like Control
-
-KythOS also respects the people who already know what they want:
-
-- GE-Proton is available, with update support.
-- Gamescope presets make it easier to test frame limits, scaling, latency, VRR, MangoHud, vkBasalt, and HDR-related paths.
-- MangoHud ships with a useful default overlay.
-- vkBasalt is preconfigured for sharpening when enabled.
-- GameMode can shift performance behavior while a game runs.
-- sched-ext controls are available for scheduler experiments.
-- NTSYNC support is wired for lower-latency Wine/Proton sync paths.
-- Optional Mesa-git builds are supported for people chasing newer GPU stacks.
+---
 
 ## System Hub
 
 <div align="center">
-<img src="build_files/branding/kyth-logo-transparent.svg" alt="KythOS mark" width="150">
+<img src="build_files/branding/kyth-logo-transparent.svg" alt="KythOS mark" width="90">
 </div>
 
-System Hub is the KythOS control room. It keeps common setup and recovery work in one app so you do not have to remember where everything lives.
+**System Hub** is the KythOS control room. First login walks you through setup. After that, it's where you stage updates, check hardware, install tools, and run repairs — all in one place, no terminal required.
 
-| Area | What it helps with |
+| Tab | What it does |
 |---|---|
-| Home | First-run setup, branch selection, hardware check, firmware check, gaming setup |
-| Updates | Stage system updates and see what is waiting for reboot |
-| Hardware | GPU probe, device info, firmware and driver status |
-| Gaming | Launchers, Proton tools, MangoHud, vkBasalt, save tools, migration helpers |
-| Creator | OBS, Kdenlive, Audacity, GIMP, OpenDeck, DaVinci Resolve helper |
-| Software | Flatpak apps, Homebrew, Distrobox, common installs |
-| Network | VPN Connect, GlobalProtect SAML flow, SMB shares, rclone cloud storage |
-| Security | Optional Kali toolbox containers, Wireshark, Burp Suite Community |
-| Repair | SELinux relabel, Flatpak repair, diagnostics |
+| **Home** | First-run checklist, branch selector, hardware check, firmware check, gaming setup |
+| **Updates** | Stage system updates, view what's pending reboot |
+| **Hardware** | GPU probe, device info, firmware and driver status |
+| **Gaming** | Launchers, Proton tools, MangoHud, vkBasalt, save backup, Windows game-drive migration |
+| **Creator** | OBS, Kdenlive, Audacity, GIMP, OpenDeck, DaVinci Resolve helper |
+| **Software** | Flatpak apps, Homebrew, Distrobox, common app installs |
+| **Network** | VPN Connect, GlobalProtect SAML, SMB shares, rclone cloud storage |
+| **Security** | Kali toolbox, Wireshark, Burp Suite Community |
+| **Repair** | SELinux relabel, Flatpak repair, diagnostics |
+
+---
 
 ## Install
 
-1. Flash the ISO with Balena Etcher, Ventoy, `dd`, or another USB writer.
+1. Flash the ISO with Balena Etcher, Ventoy, or `dd`.
 2. Boot from the USB drive.
-3. Click **Install KythOS** on the desktop.
+3. Click **Install KythOS** on the live desktop.
 4. Choose **Erase disk** or **Install alongside**.
-5. Pick your disk, timezone, hostname, and user account.
-6. Start the install and wait for the OS image to download.
-7. Reboot, open System Hub, and finish setup.
+5. Set your disk, timezone, hostname, and user account.
+6. Start the install — the OS image downloads and writes automatically.
+7. Reboot, open System Hub, finish setup.
 
-## Gaming Reality Check
-
-KythOS focuses on making Linux gaming smoother, not making impossible promises.
-
-| Usually friendly | Needs checking | Often blocked |
-|---|---|---|
-| Steam games with Proton support, native Linux games, single-player titles, many co-op games | Games with external launchers, heavy modding, unusual codecs, or anti-cheat that changes policy | Games whose publishers block Wine/Proton or require Windows-only kernel anti-cheat |
-
-Useful project docs:
-
-- [Daily-driver validation](docs/daily-driver-validation.md)
-- [Stability principles](docs/stability-principles.md)
-- [Gaming validation matrix](docs/gaming-validation-matrix.md)
-- [Gaming results](docs/gaming-results/)
-- [Modding on KythOS](docs/modding-on-kythos.md)
-- [Game save migration](docs/game-save-migration.md)
-- [Developer Linux support checklist](docs/developer-linux-support-checklist.md)
-- [Why this can work better here](docs/works-better-here.md)
-
-## Creator And Daily Desktop Tools
-
-KythOS is gaming-first, but not gaming-only.
-
-- OBS Studio support with Vulkan/OpenGL capture paths.
-- Kdenlive, Audacity, GIMP, OpenDeck, and DaVinci Resolve helper workflows.
-- Full media codec stack for playback, editing, and thumbnails.
-- PipeWire tuned for low-latency audio.
-- Brave, VS Code, GitHub CLI, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC, and KDE Connect.
-- Standalone VPN Connect app with GlobalProtect SAML support.
-- Optional Kali Linux toolbox for security work without stuffing the base OS full of tools.
-
----
-
-## User Count
-
-KythOS enables DNF CountMe in the image so aggregate repository metadata requests
-can estimate active installs without account tracking or per-machine IDs.
-
-![KythOS reported user count](docs/metrics/kythos-users.svg)
-
-The graph is generated from [`docs/metrics/kythos-users.csv`](docs/metrics/kythos-users.csv).
-CountMe has just been enabled for KythOS, so the checked-in graph starts at zero
-until the first aggregate export is available.
-
----
-
-## Technical Details
-
-This is the part for builders, testers, and people who want to know exactly what is inside the image.
-
-[![Build image](https://github.com/mrtrick37/kyth/actions/workflows/build.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build.yml)
-[![Build live ISO](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml/badge.svg)](https://github.com/mrtrick37/kyth/actions/workflows/build-live-iso.yml)
-[![Container](https://img.shields.io/badge/GHCR-ghcr.io%2Fmrtrick37%2Fkyth-73daca?logo=github)](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
-[![Fedora KDE](https://img.shields.io/badge/Fedora_Kinoite-44-7dcfff?logo=fedora)](https://fedoraproject.org/atomic-desktops/kinoite/)
-[![bootc](https://img.shields.io/badge/bootc-atomic_updates-bb9af7)](https://containers.github.io/bootc/)
-
-### Current Project State
-
-The `main` branch is the official KythOS release line. The `latest` channel is
-the stable daily-use release, while `testing` remains the proving ground for
-new ISO, installer, live-session, Secure Boot, and hardware-support work before
-it is promoted.
-
-The current tree builds:
-
-- A bootc OS image published as `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing`.
-- A live ISO with a graphical KythOS desktop, installer launcher, Fedora-signed live kernel path, and Secure Boot preflight coverage.
-- An installed KDE Plasma desktop with System Hub, gaming tools, creator tools, VPN/cloud helpers, hardware checks, repair actions, and post-update diagnostics.
-- Local build recipes for base images, OS images, live ISOs, VM testing, Secure Boot validation, and bootc-image-builder disk images.
-
-The active focus is making install, update, rollback, and live-USB testing boringly repeatable: reliable boot artifacts, clearer validation checks, signed release assets, and support tools that explain system state before users have to debug it manually.
-
-### Core Stack
-
-| Layer | Detail |
-|---|---|
-| Base | Fedora 44 KDE Plasma, `ublue-os/kinoite-main:44` |
-| Kernel | Fedora kernel by default; optional CachyOS bootc image variant for advanced users |
-| Desktop | KDE Plasma 6 |
-| Display | Wayland-first desktop, with X11 live-session compatibility where needed |
-| Image model | Container-built OS image distributed through GitHub Container Registry |
-| Deployment | Installed and updated atomically with bootc |
-| Installer | Live KythOS desktop with a custom PySide6 + Chromium kiosk using `bootc install to-disk` |
-| Theme | Breeze Dark with KythOS wallpaper, icons, and custom boot branding |
-| Security | SELinux enforcing, relabel services for bootc/ostree deployments |
-| Images | `ghcr.io/mrtrick37/kyth:latest` and `ghcr.io/mrtrick37/kyth:testing` |
-
-### Updates, Rollback, And Branches
-
-Update the installed system:
+### Updates & Rollback
 
 ```bash
-sudo bootc upgrade
+sudo bootc upgrade                                    # stage a new deployment
+sudo bootc switch ghcr.io/mrtrick37/kyth:testing     # move to testing channel
+sudo bootc switch ghcr.io/mrtrick37/kyth:latest      # move back to stable
 ```
 
-Switch to testing:
-
-```bash
-sudo bootc switch ghcr.io/mrtrick37/kyth:testing
-```
-
-Switch back to stable:
-
-```bash
-sudo bootc switch ghcr.io/mrtrick37/kyth:latest
-```
-
-Updates stage a new system deployment. The previous deployment remains available from the boot menu, which makes rollback much less stressful than a traditional mutable OS update.
+The previous deployment stays available in the boot menu. Rollback is just choosing it at boot — no recovery USB, no reinstall.
 
 ### Advanced Install
 
-Install into an existing blank partition from the live ISO:
-
 ```bash
+# Install into an existing blank partition from the live ISO
 sudo kyth-partition-install /dev/nvme0n1p5
-```
 
-Pass an EFI System Partition explicitly if needed:
-
-```bash
+# With explicit EFI System Partition
 sudo kyth-partition-install /dev/nvme0n1p5 /dev/nvme0n1p1
-```
 
-Rebase from an existing Fedora atomic system:
-
-```bash
+# Rebase from any Fedora atomic system
 sudo bootc switch ghcr.io/mrtrick37/kyth:latest
 ```
 
-### Secure Boot
+<details>
+<summary>Secure Boot</summary>
 
-Secure Boot is picky because the boot happens in layers. In plain language:
+The default install uses Fedora-signed kernel artifacts with Fedora's Microsoft-signed shim. Secure Boot works without any extra steps.
 
-1. Your firmware must trust the USB bootloader.
-2. The bootloader must find GRUB.
-3. GRUB must find `vmlinuz` and `initrd.img` on the ISO.
-4. Secure Boot must trust the selected kernel signature.
+If you switch to the **CachyOS kernel variant**, enroll the KythOS Machine Owner Key (MOK) before enabling Secure Boot:
 
-The default install uses Fedora-signed kernel artifacts with Fedora's
-Microsoft-signed shim. The advanced CachyOS kernel image uses the KythOS
-Machine Owner Key (MOK); enroll it once before enabling Secure Boot for that
-custom kernel variant.
-
-#### Fresh install from the live USB
-
-Use this path for a new machine or a clean install:
-
-1. In firmware setup, keep Secure Boot enabled.
-2. Make sure firmware allows Linux shims:
-   **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**, or
-   **Restore factory Secure Boot keys**.
-3. Boot the KythOS live USB.
-4. Choose **Try KythOS**.
-5. Run the installer from the desktop.
-
-Only enroll the KythOS MOK if you later switch to the advanced CachyOS
-kernel image and want Secure Boot enabled for that custom kernel.
-
-#### Existing KythOS install
-
-If KythOS is already installed and you are using the default Fedora kernel,
-Secure Boot should work through Fedora's signed shim and kernel. If you switch
-to the CachyOS kernel image, use this order:
-
-1. Update to the latest KythOS image while Secure Boot is still disabled:
-
+1. Update and reboot with Secure Boot still disabled:
    ```bash
-   sudo bootc upgrade
-   systemctl reboot
+   sudo bootc upgrade && systemctl reboot
    ```
-
-2. Stage the KythOS key before enabling Secure Boot:
-
+2. Stage the KythOS key:
    ```bash
    ujust enroll-secureboot
    ```
-
-   If your current image does not have that recipe yet and prints
-   `Justfile does not contain recipe enroll-secureboot`, run the direct
-   enrollment command instead:
-
+3. At the blue MokManager screen: **Enroll MOK → Continue → Yes → enter your password → reboot**.
+4. Enable Secure Boot in firmware.
+5. Validate:
    ```bash
-   openssl x509 -in /usr/share/kyth/secureboot/kyth-secureboot.cer -outform DER -out /tmp/kyth-secureboot.der
-   sudo mokutil --import /tmp/kyth-secureboot.der
+   ujust secureboot-status && mokutil --sb-state
    ```
 
-   Choose a one-time password when `mokutil` asks for it. You will enter that
-   same password at the MokManager screen after reboot.
+**Common errors:**
 
-3. Reboot. At the blue MokManager screen, choose **Enroll MOK**, then
-   **Continue**, then **Yes**. Enter the one-time password you chose in the
-   previous step, then reboot.
+| Error | What it means |
+|---|---|
+| `Selected boot image did not authenticate` | Firmware missing MS UEFI CA key — restore factory Secure Boot keys |
+| `vmlinuz not found` | GRUB can't find the live kernel — use a current ISO |
+| `bad shim signature` | ISO using wrong boot artifacts — rebuild from the Fedora-kernel image |
+| Black screen after "Try KythOS" | Normal — the live entry intentionally uses basic graphics for maximum hardware compatibility |
 
-4. Enable Secure Boot in your UEFI/BIOS firmware settings.
+</details>
 
-5. Boot KythOS and validate the result:
+---
 
-   ```bash
-   ujust secureboot-status
-   mokutil --sb-state
-   ```
+## Under the Hood
 
-If you enabled Secure Boot too early and KythOS no longer boots, disable Secure
-Boot in firmware, boot KythOS again, run `ujust enroll-secureboot`, complete the
-MokManager enrollment reboot, then enable Secure Boot again.
+| Layer | Detail |
+|---|---|
+| Base | Fedora 44 · `ublue-os/kinoite-main:44` |
+| Kernel | Fedora-signed by default · optional CachyOS variant (BORE scheduler, BBRv3, NTSYNC, sched-ext) |
+| Desktop | KDE Plasma 6 · Wayland-first |
+| GPU | Mesa from xxmitsu/mesa-git COPR available for bleeding-edge RADV/RADEONSI |
+| Image model | Container image built and distributed through GitHub Container Registry |
+| Deployment | Installed and updated atomically with [bootc](https://containers.github.io/bootc/) |
+| Installer | Custom PySide6 + Chromium kiosk · `bootc install to-disk` |
+| Security | SELinux enforcing · keyless Cosign signing · SBOM attached in GHCR · GitHub provenance attestations |
 
-#### What the common errors mean
+<details>
+<summary>System tuning highlights</summary>
 
-- `Selected boot image did not authenticate`
+- zram with zstd compression, swappiness tuned for zram, THP set to `madvise`, high `vm.max_map_count`, fast OOM recovery, capped dirty pages
+- TCP BBRv3, larger socket buffers, TCP Fast Open, MTU probing, raised inotify limits
+- Storage scheduler by device type, weekly `fstrim.timer`, optional weekly `duperemove`, journald caps
+- KDE Baloo disabled by default to avoid I/O spikes after large game downloads
 
-  Firmware rejected the USB before GRUB, MokManager, or Linux started. Check
-  firmware setup for **Enable MS UEFI CA key**, **Microsoft 3rd Party UEFI CA**,
-  or **Restore factory Secure Boot keys**. Without that trust anchor, normal
-  Linux shim USB media cannot start.
+</details>
 
-- `vmlinuz not found` or `you need to load the kernel first`
+---
 
-  GRUB started, but it is looking in the wrong place for the live kernel. Use a
-  current ISO and run the Secure Boot preflight below before flashing it.
+## Build Locally
 
-- `bad shim signature`, `verification failed`, or a return to GRUB when choosing
-  **Try KythOS**
-
-  The live ISO should be using Fedora-signed boot artifacts and should not need
-  the KythOS MOK. Rebuild the ISO from the Fedora-kernel image and run the Secure
-  Boot preflight below before flashing it again.
-
-- Black screen, frozen splash, or reboot after choosing **Try KythOS**
-
-  The live entry uses basic graphics. It disables the splash screen, uses
-  software rendering, and avoids accelerated AMD, Intel, NVIDIA, and nouveau
-  kernel modesetting so the live ISO can prioritize booting and installing over
-  GPU performance.
-
-### Gaming Stack
-
-- Steam, Lutris, Heroic Games Launcher, ProtonUp-Qt, protontricks, GE-Proton, umu-launcher, winetricks, and libFAudio.
-- GameMode, Gamescope, MangoHud, vkBasalt, LatencyFleX, obs-vkcapture, scx schedulers, system76-scheduler, and ananicy-cpp.
-- Controller and peripheral support through steam-devices, game-devices rules, xpadneo/xone, OpenRazer, OpenTabletDriver, Piper, OpenRGB, and input-remapper.
-- Helper commands include `kyth-gamescope`, `game-performance`, `kyth-performance-mode`, `kyth-scx`, `kyth-nvme-tuning`, `zink-run`, `kyth-kerver`, and `kyth-device-info`.
-- `kyth-smoke-check` / `ujust smoke-check` verifies the daily-driver basics after install or update.
-- `ujust post-update-check`, `ujust controller-check`, and `ujust resume-check` cover targeted confidence checks for updates, controllers, and suspend/resume.
-- `ujust nvidia-status` explains NVIDIA driver/build/reboot state without changing the system.
-
-### System Tuning Highlights
-
-- zram with zstd compression, swappiness tuned for zram, THP set to `madvise`, high `vm.max_map_count`, fast OOM recovery, and capped dirty pages.
-- TCP BBRv3, larger socket buffers, TCP Fast Open, MTU probing, and raised inotify limits.
-- Storage scheduler by device type, weekly `fstrim.timer`, optional weekly `duperemove`, and journald caps.
-- Wine/Proton defaults for NTSYNC, fsync/esync fallbacks, DXR, VKD3D feature level 12_2, RADV GPL, Mesa GL threading, and NVIDIA NVAPI/threaded optimizations when relevant.
-- KDE Baloo disabled by default to reduce I/O churn after large game downloads.
-
-### Build Locally
-
-Requirements: `docker`, `podman`, `git`, and `just`.
+Requirements: `docker`, `podman`, `git`, `just`.
 
 ```bash
-just build-base
-just build
-just build-live-iso
-just run-live-iso-native
+just build-base           # Layer 1: CachyOS kernel + Fedora Kinoite base
+just build                # Full OS image → localhost/kyth:latest
+just build-live-iso       # Bootable ISO
+just run-live-iso-native  # Boot the ISO in QEMU with SPICE
 ```
 
-#### Local Live ISO build
-
-The live ISO uses the stock Fedora-signed kernel and Fedora EFI artifacts staged
-by `installer/build.sh`. ISO assembly is delegated to Titanoboa, matching
-Bazzite's live ISO path:
+Optional build flags:
 
 ```bash
-just build-live-iso
-just run-live-iso-native
+ENABLE_ANANICY=0 ENABLE_SCX=0 just build
 ```
 
-If Docker says permission denied after you added yourself to the `docker` group,
-open a new terminal or run:
+If Docker returns a permission error after joining the `docker` group, run `newgrp docker`. `just build-base` handles this automatically.
 
-```bash
-newgrp docker
-```
-
-Useful recipes:
+<details>
+<summary>Full recipe list</summary>
 
 ```bash
 just build-base
@@ -446,68 +261,34 @@ just clean-docker
 just lint && just format
 ```
 
-`just build` produces `localhost/kyth:latest`. Release live ISOs use the matching `ghcr.io/mrtrick37/kyth:<tag>` image as their desktop base and install source. For a true local preview, `just rebuild-live-iso-local` builds the ISO from `localhost/kyth:latest`. The live ISO lands at `output/live-iso/kyth-live-latest.iso`.
+</details>
 
-Optional build flags:
+---
 
-```bash
-ENABLE_ANANICY=0 ENABLE_SCX=0 just build
-```
+## Active Installs
 
-### Verification And Release Files
+![KythOS reported user count](docs/metrics/kythos-users.svg)
 
-Container images are signed with keyless Sigstore/Cosign, include attached Syft SBOMs in GHCR, and publish GitHub build provenance attestations.
+Estimated via DNF CountMe — aggregate repository metadata requests only. No accounts, no per-machine IDs.
 
-Live ISO releases publish the ISO, SHA256 checksum, Cosign signature, Cosign bundle, JSON metadata, and provenance.
+---
 
-### Repository Map
+## Docs
 
-```text
-Dockerfile                        Main OS image
-Justfile                          Build orchestration
+- [Daily-driver validation](docs/daily-driver-validation.md)
+- [Stability principles](docs/stability-principles.md)
+- [Gaming validation matrix](docs/gaming-validation-matrix.md)
+- [Gaming results](docs/gaming-results/)
+- [Modding on KythOS](docs/modding-on-kythos.md)
+- [Game save migration](docs/game-save-migration.md)
+- [Developer Linux support checklist](docs/developer-linux-support-checklist.md)
+- [Why this works better here](docs/works-better-here.md)
 
-build_base/                       Fedora Kinoite base plus optional kernel flavor selection
-build_files/
-  build-live-iso.sh               Local Titanoboa live ISO wrapper
-  kyth-installer                  Graphical installer
-  kyth-install.sh                 bootc disk installer
-  kyth-partition-install.sh       Existing-partition installer
-  branding/                       Logo, transparent mark, boot badge, installer CSS
-  wallpaper/                      KythOS wallpaper
-  scripts/                        Package, tuning, branding, third-party setup
-  kyth-welcome/                   KythOS System Hub
-  kyth-vpn-connect/               Standalone OpenConnect VPN app
-  kyth-vpn-status/                KDE VPN tray helper
-installer/                        Bazzite-style live payload customization
-  just/kyth.just                  ujust recipes shipped in the OS
-
-disk_config/                      Bootc Image Builder configs
-.github/workflows/                Image, ISO, lint, scorecard, supply chain
-docs/                             Gaming, migration, modding, validation docs
-```
-
-## Links
-
-- [Issues](https://github.com/mrtrick37/kyth/issues)
-- [Discussions](https://github.com/mrtrick37/kyth/discussions)
-- [Actions](https://github.com/mrtrick37/kyth/actions)
-- [Container package](https://github.com/mrtrick37/kyth/pkgs/container/kyth)
+---
 
 <div align="center">
 
-**KythOS is not affiliated with Fedora, Universal Blue, CachyOS, Valve, KDE, Microsoft, or any game publisher. It just wants your games to have a good home.**
+Not affiliated with Fedora, Universal Blue, CachyOS, Valve, KDE, or any game publisher.<br>
+**KythOS just wants your games to have a good home.**
 
 </div>
-
-<!-- AUTO-README-START -->
-## Auto Project Snapshot
-
-- Last refreshed (UTC): 2026-05-27 12:09:12 UTC
-- Current branch: testing
-- HEAD commit: 64e0032
-- Last commit title: live boot fixes
-- Last commit date: 2026-05-26T21:54:06-04:00
-- CI workflow files: 5
-- Build script files: 8
-
-<!-- AUTO-README-END -->
