@@ -256,7 +256,7 @@ jobs:
             --tag "${RAW_IMAGE_REF}" \
             "${LABEL_ARGS[@]}" \
             --metadata-file "${RUNNER_TEMP}/final-build-metadata.json" \
-            --output "type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true" \
+            --push \
             .
 
           DIGEST="$(jq -r '."containerimage.digest"' "${RUNNER_TEMP}/final-build-metadata.json")"
