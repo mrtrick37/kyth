@@ -23,5 +23,6 @@ _build-*/**
 .github/instructions/codacy.instructions.md
 
 # Local Claude/Codex agent permissions and machine-specific settings
+.claude/settings.json
 .claude/settings.local.json
 mrtrick/
