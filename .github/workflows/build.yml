@@ -46,9 +46,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-      actions: write
-      id-token: write
-      attestations: write
 
     steps:
       - name: Prepare environment
@@ -67,7 +64,6 @@ jobs:
           echo "default_tag=${TAG}${SUFFIX}" >> ${GITHUB_OUTPUT}
           DATE_SHORT="$(date -u +%Y%m%d)"
           echo "date_short=${DATE_SHORT}" >> ${GITHUB_OUTPUT}
-          echo "image_version=${TAG}${SUFFIX}.${DATE_SHORT}" >> ${GITHUB_OUTPUT}
 
       # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
@@ -78,7 +74,11 @@ jobs:
 
       - name: Capture checked-out commit
         id: checkout_sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "image_version=${{ steps.prep.outputs.default_tag }}.${{ steps.prep.outputs.date_short }}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
@@ -117,8 +117,8 @@ jobs:
           # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
           tags: |
             type=raw,value=${{ steps.prep.outputs.default_tag }}
-            type=raw,value=${{ steps.prep.outputs.image_version }}
-            type=raw,value=${{ steps.prep.outputs.date_short }},enable=${{ matrix.branch == 'main' && matrix.kernel_flavor == 'fedora' }}
+            type=raw,value=${{ steps.checkout_sha.outputs.image_version }}
+            type=raw,value=${{ steps.prep.outputs.date_short }}.${{ github.run_number }}.${{ github.run_attempt }}.${{ steps.checkout_sha.outputs.short_sha }},enable=${{ matrix.branch == 'main' && matrix.kernel_flavor == 'fedora' }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ steps.checkout_sha.outputs.sha }}/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
@@ -129,7 +129,7 @@ jobs:
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/tree/${{ steps.checkout_sha.outputs.sha }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ steps.prep.outputs.image_version }}
+            org.opencontainers.image.version=${{ steps.checkout_sha.outputs.image_version }}
             io.artifacthub.package.deprecated=false
             io.artifacthub.package.keywords=${{ env.IMAGE_KEYWORDS }}
             io.artifacthub.package.license=Apache-2.0
@@ -288,7 +288,7 @@ jobs:
           prev-ref: ${{ steps.build_final.outputs.image }}:${{ steps.prep.outputs.default_tag }}
           max-layers: '64'
           skip_compression: true
-          version: ${{ steps.prep.outputs.image_version }}
+          version: ${{ steps.checkout_sha.outputs.image_version }}
           revision: ${{ steps.checkout_sha.outputs.sha }}
           description: ${{ env.IMAGE_DESC }}
           labels: |
@@ -304,7 +304,7 @@ jobs:
       - name: Validate rechunked candidate
         env:
           SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
-          EXPECTED_VERSION: ${{ steps.prep.outputs.image_version }}
+          EXPECTED_VERSION: ${{ steps.checkout_sha.outputs.image_version }}
           EXPECTED_REVISION: ${{ steps.checkout_sha.outputs.sha }}
         run: |
           set -euo pipefail
@@ -320,6 +320,16 @@ jobs:
           test "${BOOTC_LABEL}" = 1
           sudo podman run --rm --entrypoint /usr/bin/bootc "${IMAGE_ID}" container lint
 
+      - name: Remove temporary raw image tag
+        if: always() && steps.build_final.outcome == 'success'
+        env:
+          RAW_REF: ${{ steps.build_final.outputs.raw_ref }}
+        run: |
+          skopeo delete \
+            --authfile "${DOCKER_CONFIG}/config.json" \
+            --retry-times 3 \
+            "docker://${RAW_REF}" || echo "::warning::Could not remove temporary image ${RAW_REF}"
+
       - name: Publish and validate rechunked image
         id: publish_final
         env:
@@ -327,7 +337,7 @@ jobs:
           SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
           PRIMARY_TAG: ${{ steps.prep.outputs.default_tag }}
           TAGS: ${{ steps.metadata.outputs.tags }}
-          EXPECTED_VERSION: ${{ steps.prep.outputs.image_version }}
+          EXPECTED_VERSION: ${{ steps.checkout_sha.outputs.image_version }}
           EXPECTED_REVISION: ${{ steps.checkout_sha.outputs.sha }}
         run: |
           set -euo pipefail
@@ -368,15 +378,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "layers=${LAYERS}" >> "$GITHUB_OUTPUT"
 
-      - name: Attest image build provenance
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
-        with:
-          subject-name: ${{ steps.publish_final.outputs.image }}
-          subject-digest: ${{ steps.publish_final.outputs.digest }}
-          push-to-registry: true
-
       - name: Publish immutable build metadata
-        if: matrix.kernel_flavor == 'fedora'
         env:
           IMAGE: ${{ steps.publish_final.outputs.image }}
           DIGEST: ${{ steps.publish_final.outputs.digest }}
@@ -387,6 +389,7 @@ jobs:
           BUILD_BASE: ${{ steps.build_base.outputs.pinned }}
           GE_PROTON_VERSION: ${{ steps.ge_proton.outputs.version }}
           THIRDPARTY_VERSIONS_HASH: ${{ steps.thirdparty_versions.outputs.hash }}
+          KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
           mkdir -p output/build-metadata
           python3 - <<'PY'
@@ -407,7 +410,7 @@ jobs:
                   "build_base": os.environ["BUILD_BASE"],
                   "ge_proton_version": os.environ["GE_PROTON_VERSION"],
                   "thirdparty_versions_hash": os.environ["THIRDPARTY_VERSIONS_HASH"],
-                  "kernel_flavor": "fedora",
+                  "kernel_flavor": os.environ["KERNEL_FLAVOR"],
               },
           }
           Path("output/build-metadata/image.json").write_text(
@@ -416,13 +419,73 @@ jobs:
           PY
 
       - name: Upload immutable build metadata
-        if: matrix.kernel_flavor == 'fedora'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: image-build-metadata-${{ steps.prep.outputs.default_tag }}
           path: output/build-metadata/image.json
           if-no-files-found: error
           retention-days: 7
+
+  finalize:
+    name: Attest and dispatch (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
+    needs: build_push
+    if: always() && needs.build_push.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
+        kernel_flavor: [fedora, cachy]
+    permissions:
+      actions: write
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Prepare artifact identity
+        id: prep
+        run: |
+          TAG="${{ matrix.branch == 'main' && 'latest' || matrix.branch }}"
+          case "${{ matrix.kernel_flavor }}" in
+            fedora) SUFFIX="" ;;
+            cachy) SUFFIX="-cachy" ;;
+          esac
+          echo "tag=${TAG}${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Download immutable build metadata
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: image-build-metadata-${{ steps.prep.outputs.tag }}
+          path: output/build-metadata
+
+      - name: Read publication identity
+        id: image
+        env:
+          EXPECTED_FLAVOR: ${{ matrix.kernel_flavor }}
+        run: |
+          METADATA=output/build-metadata/image.json
+          jq -e . "${METADATA}" >/dev/null
+          IMAGE="$(jq -r .image "${METADATA}")"
+          DIGEST="$(jq -r .digest "${METADATA}")"
+          SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
+          KERNEL_FLAVOR="$(jq -r .materials.kernel_flavor "${METADATA}")"
+          [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${KERNEL_FLAVOR}" = "${EXPECTED_FLAVOR}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.image }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
 
       - name: Trigger live ISO build
         # Only the fedora-kernel image is used for the live ISO.
@@ -432,10 +495,10 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          SOURCE_TAG="${DEFAULT_TAG}"
+          SOURCE_TAG="${{ steps.prep.outputs.tag }}"
           echo "==> Dispatching live ISO build for ${SOURCE_TAG} on ${{ matrix.branch }}"
           gh workflow run build-live-iso.yml \
             --ref "${{ matrix.branch }}" \
             --field "source_tag=${SOURCE_TAG}" \
-            --field "source_digest=${{ steps.publish_final.outputs.digest }}" \
-            --field "source_sha=${{ steps.checkout_sha.outputs.sha }}"
+            --field "source_digest=${{ steps.image.outputs.digest }}" \
+            --field "source_sha=${{ steps.image.outputs.source_sha }}"
