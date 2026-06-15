@@ -332,21 +332,6 @@ jobs:
             org.kyth.build.kernel-flavor=${{ matrix.kernel_flavor }}
             org.kyth.build.cachyos-kernel-version=${{ steps.cachyos_kernel.outputs.version || 'unused' }}
 
-      - name: Normalize rechunked image ownership
-        env:
-          SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
-        run: |
-          set -euo pipefail
-          SOURCE_PATH="${SOURCE_REF#oci:}"
-          case "${SOURCE_REF}" in
-            "oci:${GITHUB_WORKSPACE}/"*) ;;
-            *)
-              echo "::error::Unexpected rechunk output path: ${SOURCE_REF}"
-              exit 1
-              ;;
-          esac
-          sudo chown -R "$(id -u):$(id -g)" "${SOURCE_PATH}"
-
       - name: Validate rechunked candidate
         env:
           SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
@@ -365,6 +350,22 @@ jobs:
           test "${REVISION}" = "${EXPECTED_REVISION}"
           test "${BOOTC_LABEL}" = 1
           sudo podman run --rm --entrypoint /usr/bin/bootc "${IMAGE_ID}" container lint
+
+      - name: Normalize rechunked image ownership
+        env:
+          SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
+        run: |
+          set -euo pipefail
+          SOURCE_PATH="${SOURCE_REF#oci:}"
+          case "${SOURCE_REF}" in
+            "oci:${GITHUB_WORKSPACE}/"*) ;;
+            *)
+              echo "::error::Unexpected rechunk output path: ${SOURCE_REF}"
+              exit 1
+              ;;
+          esac
+          sudo chown -R "$(id -u):$(id -g)" "${SOURCE_PATH}"
+          test -r "${SOURCE_PATH}/index.json"
 
       - name: Remove temporary raw image tag
         if: always() && steps.build_final.outcome == 'success'
