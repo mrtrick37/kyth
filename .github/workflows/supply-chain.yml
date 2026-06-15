@@ -158,7 +158,7 @@ jobs:
           CONTAINER="$(sudo podman create "${IMAGE}@${DIGEST}" /usr/bin/true)"
           echo "container=${CONTAINER}" >> "$GITHUB_OUTPUT"
           ROOTFS="$(sudo podman mount "${CONTAINER}")"
-          test -d "${ROOTFS}/usr/lib/sysimage/rpm"
+          sudo test -f "${ROOTFS}/usr/share/rpm/rpmdb.sqlite"
           echo "rootfs=${ROOTFS}" >> "$GITHUB_OUTPUT"
 
       - name: Generate image SBOM
