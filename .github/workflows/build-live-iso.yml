@@ -21,7 +21,8 @@ on:
         required: false
         type: string
 
-permissions: read-all
+permissions:
+  contents: read
 
 concurrency:
   group: build-live-iso-${{ inputs.source_tag }}
@@ -144,19 +145,24 @@ jobs:
 
       - name: Move and verify ISO
         run: |
-          ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
+          ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
           mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
           test -s "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
+        env:
+          STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
 
       - name: Generate ISO checksums
         run: |
-          ISO="output/live-iso/${{ steps.release.outputs.iso_basename }}"
-          CHANNEL_CHECKSUM="output/live-iso/${{ steps.release.outputs.channel_basename }}-CHECKSUM"
+          ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
+          CHANNEL_CHECKSUM="output/live-iso/${STEPS_RELEASE_OUTPUTS_CHANNEL_BASENAME}-CHECKSUM"
           (cd "$(dirname "${ISO}")" && sha256sum "$(basename "${ISO}")" > "$(basename "${ISO}")-CHECKSUM")
           SHA256="$(sha256sum "${ISO}" | awk '{print $1}')"
-          printf '%s  %s\n' "${SHA256}" "${{ steps.release.outputs.channel_basename }}" \
+          printf '%s  %s\n' "${SHA256}" "${STEPS_RELEASE_OUTPUTS_CHANNEL_BASENAME}" \
             > "${CHANNEL_CHECKSUM}"
+        env:
+          STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
+          STEPS_RELEASE_OUTPUTS_CHANNEL_BASENAME: ${{ steps.release.outputs.channel_basename }}
 
       - name: Upload unsigned ISO artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -187,9 +193,11 @@ jobs:
 
       - name: Verify transferred artifact
         run: |
-          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
+          ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
           test -s "${ISO}"
-          (cd output/live-iso && sha256sum --check --strict "${{ needs.build.outputs.iso_basename }}-CHECKSUM")
+          (cd output/live-iso && sha256sum --check --strict "${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}-CHECKSUM")
+        env:
+          NEEDS_BUILD_OUTPUTS_ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
@@ -198,10 +206,12 @@ jobs:
 
       - name: Sign ISO
         run: |
-          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
+          ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
           cosign sign-blob -y "${ISO}" \
             --output-signature "${ISO}.sig" \
             --bundle "${ISO}.bundle"
+        env:
+          NEEDS_BUILD_OUTPUTS_ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
 
       - name: Attest ISO build provenance
         id: attest_iso
@@ -274,9 +284,11 @@ jobs:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          NEEDS_BUILD_OUTPUTS_ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
+          NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
         run: |
-          ISO="output/live-iso/${{ needs.build.outputs.iso_basename }}"
-          CHANNEL="output/live-iso/${{ needs.build.outputs.channel_basename }}"
+          ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
+          CHANNEL="output/live-iso/${NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME}"
 
           for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
             aws s3 cp "${artifact}" \

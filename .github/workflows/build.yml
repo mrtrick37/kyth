@@ -10,7 +10,8 @@ on:
       - '**/README.md'
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: read
 
 env:
   IMAGE_DESC: "Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
@@ -50,20 +51,27 @@ jobs:
     steps:
       - name: Prepare environment
         id: prep
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
+          [[ "${MATRIX_BRANCH}" == main || "${MATRIX_BRANCH}" == testing ]]
+          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "${GITHUB_ENV}"
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
           # main → :latest, everything else → :<branch-name>
-          TAG="${{ matrix.branch == 'main' && 'latest' || matrix.branch }}"
-          case "${{ matrix.kernel_flavor }}" in
+          TAG="${MATRIX_BRANCH}"
+          if [[ "${TAG}" == main ]]; then
+            TAG=latest
+          fi
+          case "${MATRIX_KERNEL_FLAVOR}" in
             fedora) SUFFIX="" ;;
             cachy)  SUFFIX="-cachy" ;;
           esac
-          echo "DEFAULT_TAG=${TAG}" >> ${GITHUB_ENV}
-          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> ${GITHUB_ENV}
-          echo "default_tag=${TAG}${SUFFIX}" >> ${GITHUB_OUTPUT}
+          echo "DEFAULT_TAG=${TAG}" >> "${GITHUB_ENV}"
+          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> "${GITHUB_ENV}"
+          echo "default_tag=${TAG}${SUFFIX}" >> "${GITHUB_OUTPUT}"
           DATE_SHORT="$(date -u +%Y%m%d)"
-          echo "date_short=${DATE_SHORT}" >> ${GITHUB_OUTPUT}
+          echo "date_short=${DATE_SHORT}" >> "${GITHUB_OUTPUT}"
 
       # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
@@ -78,7 +86,10 @@ jobs:
           SHA="$(git rev-parse HEAD)"
           echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
           echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
-          echo "image_version=${{ steps.prep.outputs.default_tag }}.${{ steps.prep.outputs.date_short }}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "image_version=${STEPS_PREP_OUTPUTS_DEFAULT_TAG}.${STEPS_PREP_OUTPUTS_DATE_SHORT}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >> "$GITHUB_OUTPUT"
+        env:
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_PREP_OUTPUTS_DATE_SHORT: ${{ steps.prep.outputs.date_short }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -188,14 +199,14 @@ jobs:
       - name: Build base image
         id: build_base
         run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${{ matrix.branch }}-${{ matrix.kernel_flavor }}"
-          BASE_IMAGE_REF="${IMAGE_FULL}:base-${{ steps.prep.outputs.default_tag }}"
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
+          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}"
 
           docker buildx build \
-            --build-arg BASE_IMAGE="${{ steps.upstream_base.outputs.pinned }}" \
-            --build-arg KYTH_KERNEL_FLAVOR="${{ matrix.kernel_flavor }}" \
-            --build-arg CACHYOS_KERNEL_VER="${{ steps.cachyos_kernel.outputs.version || 'unused' }}" \
+            --build-arg BASE_IMAGE="${STEPS_UPSTREAM_BASE_OUTPUTS_PINNED}" \
+            --build-arg KYTH_KERNEL_FLAVOR="${MATRIX_KERNEL_FLAVOR}" \
+            --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VERSION}" \
             --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
             --cache-to "type=registry,ref=${BASE_CACHE_REF},mode=max" \
             --tag "${BASE_IMAGE_REF}" \
@@ -208,26 +219,32 @@ jobs:
           echo "image=${BASE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
           echo "digest=${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
           echo "pinned=${BASE_IMAGE_REF}@${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+          CACHYOS_KERNEL_VERSION: ${{ steps.cachyos_kernel.outputs.version || 'unused' }}
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_UPSTREAM_BASE_OUTPUTS_PINNED: ${{ steps.upstream_base.outputs.pinned }}
 
       - name: Build final image
         id: build_final
         run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${{ matrix.branch }}-${{ matrix.kernel_flavor }}"
-          RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${{ steps.prep.outputs.default_tag }}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
+          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
+          RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           LABEL_ARGS=()
           while IFS= read -r label; do
             [[ -n "${label}" ]] && LABEL_ARGS+=(--label "${label}")
-          done <<< "${{ steps.metadata.outputs.labels }}"
+          done <<< "${STEPS_METADATA_OUTPUTS_LABELS}"
           LABEL_ARGS+=(
-            --label "org.opencontainers.image.base.name=${{ steps.build_base.outputs.image }}"
-            --label "org.opencontainers.image.base.digest=${{ steps.build_base.outputs.digest }}"
-            --label "org.kyth.build.upstream-base=${{ steps.upstream_base.outputs.pinned }}"
-            --label "org.kyth.build.ge-proton-version=${{ steps.ge_proton.outputs.version }}"
-            --label "org.kyth.build.thirdparty-versions-hash=${{ steps.thirdparty_versions.outputs.hash }}"
-            --label "org.kyth.build.kernel-flavor=${{ matrix.kernel_flavor }}"
-            --label "org.kyth.build.cachyos-kernel-version=${{ steps.cachyos_kernel.outputs.version || 'unused' }}"
+            --label "org.opencontainers.image.base.name=${STEPS_BUILD_BASE_OUTPUTS_IMAGE}"
+            --label "org.opencontainers.image.base.digest=${STEPS_BUILD_BASE_OUTPUTS_DIGEST}"
+            --label "org.kyth.build.upstream-base=${STEPS_UPSTREAM_BASE_OUTPUTS_PINNED}"
+            --label "org.kyth.build.ge-proton-version=${STEPS_GE_PROTON_OUTPUTS_VERSION}"
+            --label "org.kyth.build.thirdparty-versions-hash=${STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH}"
+            --label "org.kyth.build.kernel-flavor=${MATRIX_KERNEL_FLAVOR}"
+            --label "org.kyth.build.cachyos-kernel-version=${CACHYOS_KERNEL_VERSION}"
           )
 
           # MOK_KEY is optional — builds without it, or with a stale key, skip
@@ -246,9 +263,9 @@ jobs:
           docker buildx build \
             --secret id=github_token,env=GITHUB_TOKEN \
             "${MOK_SECRET_ARG[@]}" \
-            --build-arg BASE_IMAGE="${{ steps.build_base.outputs.pinned }}" \
-            --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
-            --build-arg THIRDPARTY_VERSIONS_HASH="${{ steps.thirdparty_versions.outputs.hash }}" \
+            --build-arg BASE_IMAGE="${STEPS_BUILD_BASE_OUTPUTS_PINNED}" \
+            --build-arg GE_PROTON_VER="${STEPS_GE_PROTON_OUTPUTS_VERSION}" \
+            --build-arg THIRDPARTY_VERSIONS_HASH="${STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH}" \
             --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
             --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
@@ -262,7 +279,7 @@ jobs:
           DIGEST="$(jq -r '."containerimage.digest"' "${RUNNER_TEMP}/final-build-metadata.json")"
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           REVISION="$(docker buildx imagetools inspect "${RAW_IMAGE_REF}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
-          test "${REVISION}" = "${{ steps.checkout_sha.outputs.sha }}"
+          test "${REVISION}" = "${STEPS_CHECKOUT_SHA_OUTPUTS_SHA}"
           echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
           # legacy-rechunk derives its OCI output directory from this value and
           # cannot safely handle digest-qualified references containing @sha256.
@@ -271,7 +288,21 @@ jobs:
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MOK_KEY: ${{ secrets.MOK_KEY }}
+          # Repository-only secret on trusted push/schedule builds; an environment
+          # would add release approval gates to every image build.
+          MOK_KEY: ${{ secrets.MOK_KEY }} # zizmor: ignore[secrets-outside-env]
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+          CACHYOS_KERNEL_VERSION: ${{ steps.cachyos_kernel.outputs.version || 'unused' }}
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_METADATA_OUTPUTS_LABELS: ${{ steps.metadata.outputs.labels }}
+          STEPS_BUILD_BASE_OUTPUTS_IMAGE: ${{ steps.build_base.outputs.image }}
+          STEPS_BUILD_BASE_OUTPUTS_DIGEST: ${{ steps.build_base.outputs.digest }}
+          STEPS_UPSTREAM_BASE_OUTPUTS_PINNED: ${{ steps.upstream_base.outputs.pinned }}
+          STEPS_GE_PROTON_OUTPUTS_VERSION: ${{ steps.ge_proton.outputs.version }}
+          STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH: ${{ steps.thirdparty_versions.outputs.hash }}
+          STEPS_BUILD_BASE_OUTPUTS_PINNED: ${{ steps.build_base.outputs.pinned }}
+          STEPS_CHECKOUT_SHA_OUTPUTS_SHA: ${{ steps.checkout_sha.outputs.sha }}
 
       - name: Login rootful Podman to GHCR
         env:
@@ -447,9 +478,15 @@ jobs:
     steps:
       - name: Prepare artifact identity
         id: prep
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
-          TAG="${{ matrix.branch == 'main' && 'latest' || matrix.branch }}"
-          case "${{ matrix.kernel_flavor }}" in
+          TAG="${MATRIX_BRANCH}"
+          if [[ "${TAG}" == main ]]; then
+            TAG=latest
+          fi
+          case "${MATRIX_KERNEL_FLAVOR}" in
             fedora) SUFFIX="" ;;
             cachy) SUFFIX="-cachy" ;;
           esac
@@ -487,18 +524,27 @@ jobs:
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
-      - name: Trigger live ISO build
+      - name: Trigger downstream publication workflows
         # Only the fedora-kernel image is used for the live ISO.
         # Dispatch directly so the ISO workflow runs from the correct branch,
         # not from main (which is what workflow_run would use).
         if: matrix.kernel_flavor == 'fedora'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STEPS_PREP_OUTPUTS_TAG: ${{ steps.prep.outputs.tag }}
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          STEPS_IMAGE_OUTPUTS_DIGEST: ${{ steps.image.outputs.digest }}
+          STEPS_IMAGE_OUTPUTS_SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
-          SOURCE_TAG="${{ steps.prep.outputs.tag }}"
-          echo "==> Dispatching live ISO build for ${SOURCE_TAG} on ${{ matrix.branch }}"
-          gh workflow run build-live-iso.yml \
-            --ref "${{ matrix.branch }}" \
+          SOURCE_TAG="${STEPS_PREP_OUTPUTS_TAG}"
+          echo "==> Dispatching metadata and live ISO builds for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
+          gh workflow run supply-chain.yml \
+            --ref "${MATRIX_BRANCH}" \
             --field "source_tag=${SOURCE_TAG}" \
-            --field "source_digest=${{ steps.image.outputs.digest }}" \
-            --field "source_sha=${{ steps.image.outputs.source_sha }}"
+            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
+            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"
+          gh workflow run build-live-iso.yml \
+            --ref "${MATRIX_BRANCH}" \
+            --field "source_tag=${SOURCE_TAG}" \
+            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
+            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"

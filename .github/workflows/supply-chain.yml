@@ -2,10 +2,6 @@
 name: Supply Chain Metadata
 
 on:
-  workflow_run:
-    workflows: ["Build container image"]
-    types: [completed]
-    branches: [main, testing]
   workflow_dispatch:
     inputs:
       source_tag:
@@ -25,62 +21,37 @@ on:
         required: true
         type: string
 
-permissions: read-all
+permissions:
+  contents: read
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
   prepare:
-    name: Prepare metadata (${{ matrix.source_tag }})
+    name: Prepare metadata (${{ inputs.source_tag }})
     runs-on: ubuntu-24.04
     timeout-minutes: 90
-    # The Fedora image publishes this handoff independently of the optional
-    # CachyOS matrix leg. A failed CachyOS build must not block Fedora metadata.
-    # If Fedora itself failed, the artifact download below fails visibly.
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' || github.event.workflow_run.conclusion == 'failure'
-    strategy:
-      fail-fast: false
-      matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
     permissions:
-      actions: read
       contents: read
       packages: read
     concurrency:
-      group: supply-chain-prepare-${{ matrix.source_tag }}
+      group: supply-chain-prepare-${{ inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
-      - name: Download immutable build metadata
-        if: github.event_name == 'workflow_run'
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: image-build-metadata-${{ matrix.source_tag }}
-          path: output/build-handoff
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ github.event.workflow_run.id }}
-
-      - name: Read immutable build metadata
-        if: github.event_name == 'workflow_run'
-        id: handoff
+      - name: Validate dispatch inputs
         env:
-          EXPECTED_TAG: ${{ matrix.source_tag }}
-          EXPECTED_RUN_ID: ${{ github.event.workflow_run.id }}
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          METADATA=output/build-handoff/image.json
-          jq -e . "${METADATA}" >/dev/null
-          test "$(jq -r .source_tag "${METADATA}")" = "${EXPECTED_TAG}"
-          test "$(jq -r .workflow_run_id "${METADATA}")" = "${EXPECTED_RUN_ID}"
-          echo "image=$(jq -r .image "${METADATA}")" >> "$GITHUB_OUTPUT"
-          echo "digest=$(jq -r .digest "${METADATA}")" >> "$GITHUB_OUTPUT"
-          echo "version=$(jq -r .version "${METADATA}")" >> "$GITHUB_OUTPUT"
-          echo "source_sha=$(jq -r .source_sha "${METADATA}")" >> "$GITHUB_OUTPUT"
+          [[ "${SOURCE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Checkout repository
         uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
-          ref: ${{ github.event_name == 'workflow_run' && steps.handoff.outputs.source_sha || inputs.source_sha }}
+          ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
       - name: Maximize build space
@@ -96,7 +67,7 @@ jobs:
       - name: Prepare metadata variables
         id: meta
         env:
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
@@ -115,28 +86,13 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          HANDOFF_IMAGE: ${{ steps.handoff.outputs.image }}
-          HANDOFF_DIGEST: ${{ steps.handoff.outputs.digest }}
-          HANDOFF_VERSION: ${{ steps.handoff.outputs.version }}
-          HANDOFF_SHA: ${{ steps.handoff.outputs.source_sha }}
-          MANUAL_DIGEST: ${{ inputs.source_digest }}
-          MANUAL_SHA: ${{ inputs.source_sha }}
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
-          if [[ "${GITHUB_EVENT_NAME}" == "workflow_run" ]]; then
-            test "${HANDOFF_IMAGE}" = "${IMAGE}"
-            CURRENT_DIGEST="${HANDOFF_DIGEST}"
-            CURRENT_VERSION="${HANDOFF_VERSION}"
-            SOURCE_SHA="${HANDOFF_SHA}"
-          else
-            CURRENT_DIGEST="${MANUAL_DIGEST}"
-            SOURCE_SHA="${MANUAL_SHA}"
-            [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-            CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
-          fi
-
+          CURRENT_DIGEST="${SOURCE_DIGEST}"
           [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          ACTUAL_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
+          CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
           ACTUAL_REVISION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
           BASE_NAME="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.name" }}')"
           BASE_DIGEST="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.digest" }}')"
@@ -144,7 +100,6 @@ jobs:
           GE_PROTON_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.ge-proton-version" }}')"
           THIRDPARTY_HASH="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.thirdparty-versions-hash" }}')"
           KERNEL_FLAVOR="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.kernel-flavor" }}')"
-          test "${ACTUAL_VERSION}" = "${CURRENT_VERSION}"
           test "${ACTUAL_REVISION}" = "${SOURCE_SHA}"
           test "${SOURCE_SHA}" = "$(git rev-parse HEAD)"
           [[ "${CURRENT_VERSION}" =~ ^${TAG}\.[0-9]{8}\.[0-9]+\.[0-9]+\.[0-9a-f]{8}$ ]]
@@ -246,7 +201,7 @@ jobs:
           CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
           CURRENT_SHA: ${{ steps.image.outputs.source_sha }}
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           NOTES="image-changelog-${CURRENT_TAG}.md"
           BRANCH=main
@@ -314,35 +269,31 @@ jobs:
       - name: Upload prepared metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supply-chain-input-${{ matrix.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain/*
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    name: Publish metadata (${{ matrix.source_tag }})
+    name: Publish metadata (${{ inputs.source_tag }})
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    environment: ${{ matrix.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        source_tag: ${{ github.event_name == 'workflow_dispatch' && fromJSON(format('["{0}"]', inputs.source_tag)) || (github.event.workflow_run.event == 'schedule' && fromJSON('["latest","testing"]') || fromJSON(format('["{0}"]', github.event.workflow_run.head_branch == 'testing' && 'testing' || 'latest'))) }}
+    environment: ${{ inputs.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
     permissions:
       actions: read
       contents: write
       packages: write
       id-token: write
     concurrency:
-      group: supply-chain-publish-${{ matrix.source_tag }}
+      group: supply-chain-publish-${{ inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
       - name: Download prepared metadata
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: supply-chain-input-${{ matrix.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain
 
       - name: Validate publish inputs
@@ -365,7 +316,7 @@ jobs:
 
           [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
           [[ "${TAG}" == "latest" || "${TAG}" == "testing" ]]
-          [[ "${TAG}" == "${{ matrix.source_tag }}" ]]
+          [[ "${TAG}" == "${MATRIX_SOURCE_TAG}" ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${VERSION}" =~ ^[a-z0-9._-]+$ ]]
@@ -384,6 +335,8 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "sbom=${SBOM}" >> "$GITHUB_OUTPUT"
           echo "notes=${NOTES}" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_SOURCE_TAG: ${{ inputs.source_tag }}
 
       - name: Install ORAS
         uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
@@ -467,7 +420,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
           NOTES: output/supply-chain/${{ steps.meta.outputs.notes }}
-          SOURCE_TAG: ${{ matrix.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
           RELEASE_TAG="image-${VERSION//./-}"
           TITLE="Kyth Image - ${VERSION}"

@@ -14,11 +14,17 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: validation-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
   ACTIONLINT_VERSION: 1.7.7
   HADOLINT_VERSION: 2.14.0
   JUST_VERSION: 1.52.0
+  ZIZMOR_VERSION: 1.25.2
+  ZIZMOR_SHA256: aa1facd105f0d83fe5c55b1adcd9d7417de5d83aa27471f91dc0b66cf3803577
 
 jobs:
   validation:
@@ -82,10 +88,21 @@ jobs:
             tar -xzf "${just_archive}" just
           )
           install -m 0755 "${download_dir}/just" "${bin_dir}/just"
+
+          zizmor_archive="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+          zizmor_url="https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${zizmor_archive}"
+          curl --fail --location --silent --show-error \
+            --output "${download_dir}/${zizmor_archive}" \
+            "${zizmor_url}"
+          echo "${ZIZMOR_SHA256}  ${download_dir}/${zizmor_archive}" | sha256sum --check --strict
+          tar -xzf "${download_dir}/${zizmor_archive}" -C "${download_dir}" zizmor
+          install -m 0755 "${download_dir}/zizmor" "${bin_dir}/zizmor"
           echo "${bin_dir}" >> "${GITHUB_PATH}"
 
       - name: Validate GitHub Actions workflows
-        run: actionlint -color -shellcheck=""
+        run: |
+          actionlint -color -shellcheck=""
+          zizmor --persona auditor --min-severity medium --no-online-audits .github/workflows
 
       - name: Validate container build files
         run: |

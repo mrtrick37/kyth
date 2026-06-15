@@ -14,7 +14,12 @@ on:
   schedule:
     - cron: '0 9 * * 1'  # Weekly Monday — catches new CVEs against unchanged code
 
-permissions: read-all
+permissions:
+  contents: read
+
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name != 'schedule' }}
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -40,9 +45,6 @@ jobs:
         with:
           languages: python
           queries: security-extended
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@8aad20d150bbac5944a9f9d289da16a4b0d87c1e # v4.36.2
