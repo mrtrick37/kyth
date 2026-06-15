@@ -55,21 +55,23 @@ RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/third
     ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
 
 # Plymouth boot splash + initramfs rebuild.
-# Bind mounts track the source content for cache invalidation without creating
-# six temporary COPY layers in the published image. The setup script copies the
-# mounted assets into their final locations before the mounts disappear.
+# COPY (not bind-mount) is intentional: COPY includes file content hashes in the
+# cache key, so the expensive dracut rebuild only reruns when the splash assets
+# actually change — not on every daily dnf upgrade. Bind mounts do NOT contribute
+# to the BuildKit cache key and would silently ship a stale cached splash.
 # Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
 # the kernel version is fixed from the base image and the initramfs built here is
 # the one that ships. Sits after the large GE-Proton/thirdparty download layers
 # (which it does not depend on) so splash tweaks don't re-pull them, and before
 # the BUILD_DATE cache-bust layer.
-RUN --mount=type=bind,source=build_files/plymouth/kyth.plymouth,target=/tmp/kyth-plymouth/kyth.plymouth \
-    --mount=type=bind,source=build_files/plymouth/kyth.script,target=/tmp/kyth-plymouth/kyth.script \
-    --mount=type=bind,source=build_files/branding/kyth-logo-transparent.svg,target=/tmp/kyth-branding/kyth-logo-transparent.svg \
-    --mount=type=bind,source=build_files/branding/transparent-watermark.svg,target=/tmp/kyth-branding/transparent-watermark.svg \
-    --mount=type=bind,source=build_files/scripts/plymouth-setup.sh,target=/tmp/plymouth-setup.sh \
-    --mount=type=bind,source=build_files/scripts/plymouth-branding-guard.sh,target=/tmp/plymouth-branding-guard.sh \
-    bash /tmp/plymouth-setup.sh
+COPY build_files/plymouth/kyth.plymouth             /tmp/kyth-plymouth/kyth.plymouth
+COPY build_files/plymouth/kyth.script               /tmp/kyth-plymouth/kyth.script
+COPY build_files/branding/kyth-logo-transparent.svg /tmp/kyth-branding/kyth-logo-transparent.svg
+COPY build_files/branding/transparent-watermark.svg /tmp/kyth-branding/transparent-watermark.svg
+COPY build_files/scripts/plymouth-setup.sh          /tmp/plymouth-setup.sh
+COPY build_files/scripts/plymouth-branding-guard.sh /tmp/plymouth-branding-guard.sh
+RUN bash /tmp/plymouth-setup.sh && \
+    rm -rf /tmp/kyth-plymouth /tmp/kyth-branding /tmp/plymouth-setup.sh /tmp/plymouth-branding-guard.sh
 
 # Static system configuration — sysctl, kernel modules, PipeWire, Proton env
 # vars, gamemode, MangoHud, vkBasalt, bluetooth, and kyth-* service units.
@@ -230,6 +232,10 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs Plymouth defaults do not draw immediately" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^DeviceTimeout=8$' \
             || { echo "ERROR: branded initramfs Plymouth defaults are missing DeviceTimeout=8" >&2; exit 1; } && \
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^UseFirmwareBackground=false$' \
+            || { echo "ERROR: branded initramfs Plymouth defaults do not suppress BGRT firmware background" >&2; exit 1; } && \
+        grep -Eq 'usr/(lib64|lib)/plymouth/script\.so' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain plymouth/script.so — kyth script theme will silently fail and fall back to BGRT firmware logo" >&2; exit 1; } && \
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${_initrd_listing}" >&2; then \
             echo "ERROR: Plymouth fallback theme leaked into branded initramfs" >&2; \
             exit 1; \

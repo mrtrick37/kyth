@@ -107,6 +107,10 @@ for image in "${images[@]}"; do
 	grep -q '^Theme=kyth$' "${defaults}"
 	grep -q '^ShowDelay=0$' "${defaults}"
 	grep -q '^DeviceTimeout=8$' "${defaults}"
+	grep -q '^UseFirmwareBackground=false$' "${defaults}" \
+		|| { echo "ERROR: repaired initramfs Plymouth defaults do not suppress BGRT firmware background" >&2; exit 1; }
+	grep -Eq 'usr/(lib64|lib)/plymouth/script\.so' "${listing}" \
+		|| { echo "ERROR: repaired initramfs does not contain plymouth/script.so — kyth theme will silently fail and fall back to BGRT firmware logo" >&2; exit 1; }
 	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
 		echo "ERROR: Plymouth fallback theme leaked into repaired initramfs" >&2
 		exit 1
