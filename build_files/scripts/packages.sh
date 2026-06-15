@@ -19,8 +19,8 @@ echo '%_install_langs en_US' >>/etc/rpm/macros
 # (the kernel version is fixed from the base image by design).
 # CountMe adds an anonymous weekly age bucket to one repository metadata request.
 # This lets Fedora-style mirror logs estimate active systems without user
-# accounts, hardware IDs, or per-machine identifiers. KythOS publishes the
-# aggregate trend in the README when exported CountMe data is available.
+# accounts, hardware IDs, or per-machine identifiers. Fedora's aggregate is
+# repository-scoped and cannot be used as a KythOS-specific install count.
 cat >>/etc/dnf/dnf.conf <<'DNFCONFEOF'
 max_parallel_downloads=10
 excludepkgs=kernel,kernel-core*,kernel-modules*,kernel-modules-core*,kernel-modules-extra*,kernel-devel*,kernel-debug*

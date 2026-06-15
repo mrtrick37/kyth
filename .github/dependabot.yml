@@ -12,13 +12,3 @@ updates:
       actions:
         patterns: ["*"]
     labels: ["ci", "dependencies"]
-
-  - package-ecosystem: docker
-    directory: /build_base
-    schedule:
-      interval: weekly
-      day: monday
-      time: "09:00"
-      timezone: America/Chicago
-    target-branch: testing
-    labels: ["build", "dependencies"]

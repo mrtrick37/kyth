@@ -10,7 +10,8 @@ on:
       - '**/README.md'
   workflow_dispatch:
 
-permissions: read-all
+permissions:
+  contents: read
 
 env:
   IMAGE_DESC: "Kyth — atomic gaming and dev workstation built on Fedora Kinoite"
@@ -46,37 +47,52 @@ jobs:
     permissions:
       contents: read
       packages: write
-      actions: write
 
     steps:
       - name: Prepare environment
         id: prep
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> ${GITHUB_ENV}
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> ${GITHUB_ENV}
+          [[ "${MATRIX_BRANCH}" == main || "${MATRIX_BRANCH}" == testing ]]
+          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "${GITHUB_ENV}"
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
           # main → :latest, everything else → :<branch-name>
-          TAG="${{ matrix.branch == 'main' && 'latest' || matrix.branch }}"
-          case "${{ matrix.kernel_flavor }}" in
+          TAG="${MATRIX_BRANCH}"
+          if [[ "${TAG}" == main ]]; then
+            TAG=latest
+          fi
+          case "${MATRIX_KERNEL_FLAVOR}" in
             fedora) SUFFIX="" ;;
             cachy)  SUFFIX="-cachy" ;;
           esac
-          echo "DEFAULT_TAG=${TAG}" >> ${GITHUB_ENV}
-          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> ${GITHUB_ENV}
-          echo "default_tag=${TAG}${SUFFIX}" >> ${GITHUB_OUTPUT}
+          echo "DEFAULT_TAG=${TAG}" >> "${GITHUB_ENV}"
+          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> "${GITHUB_ENV}"
+          echo "default_tag=${TAG}${SUFFIX}" >> "${GITHUB_OUTPUT}"
+          DATE_SHORT="$(date -u +%Y%m%d)"
+          echo "date_short=${DATE_SHORT}" >> "${GITHUB_OUTPUT}"
 
       # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
           ref: ${{ matrix.branch }}
           persist-credentials: false
 
       - name: Capture checked-out commit
         id: checkout_sha
-        run: echo "sha=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
+        run: |
+          SHA="$(git rev-parse HEAD)"
+          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "image_version=${STEPS_PREP_OUTPUTS_DEFAULT_TAG}.${STEPS_PREP_OUTPUTS_DATE_SHORT}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >> "$GITHUB_OUTPUT"
+        env:
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_PREP_OUTPUTS_DATE_SHORT: ${{ steps.prep.outputs.date_short }}
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
 
       - name: Maximize build space
         uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
@@ -105,15 +121,15 @@ jobs:
       # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
       # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
       - name: Image Metadata
-        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6.1.0
         id: metadata
         with:
           # This generates all the tags for your image, you can add custom tags here too!
           # Default tags are "$DEFAULT_TAG" and "$DEFAULT_TAG.$date".
           tags: |
             type=raw,value=${{ steps.prep.outputs.default_tag }}
-            type=raw,value=${{ steps.prep.outputs.default_tag }}.{{date 'YYYYMMDD'}}
-            type=raw,value={{date 'YYYYMMDD'}},enable=${{ matrix.branch == 'main' && matrix.kernel_flavor == 'fedora' }}
+            type=raw,value=${{ steps.checkout_sha.outputs.image_version }}
+            type=raw,value=${{ steps.prep.outputs.date_short }}.${{ github.run_number }}.${{ github.run_attempt }}.${{ steps.checkout_sha.outputs.short_sha }},enable=${{ matrix.branch == 'main' && matrix.kernel_flavor == 'fedora' }}
           labels: |
             io.artifacthub.package.readme-url=https://raw.githubusercontent.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/${{ steps.checkout_sha.outputs.sha }}/README.md
             org.opencontainers.image.created=${{ steps.date.outputs.date }}
@@ -124,7 +140,7 @@ jobs:
             org.opencontainers.image.title=${{ env.IMAGE_NAME }}
             org.opencontainers.image.url=https://github.com/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}/tree/${{ steps.checkout_sha.outputs.sha }}
             org.opencontainers.image.vendor=${{ github.repository_owner }}
-            org.opencontainers.image.version=${{ steps.prep.outputs.default_tag }}.{{date 'YYYYMMDD'}}
+            org.opencontainers.image.version=${{ steps.checkout_sha.outputs.image_version }}
             io.artifacthub.package.deprecated=false
             io.artifacthub.package.keywords=${{ env.IMAGE_KEYWORDS }}
             io.artifacthub.package.license=Apache-2.0
@@ -136,7 +152,7 @@ jobs:
           sep-annotations: "\n"
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -170,37 +186,66 @@ jobs:
           echo "hash=${HASH}" >> $GITHUB_OUTPUT
           echo "Resolved thirdparty hash: ${HASH}"
 
-      - name: Build base image
+      - name: Resolve upstream base image digest
+        id: upstream_base
         run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${{ matrix.branch }}-${{ matrix.kernel_flavor }}"
-          BASE_IMAGE_REF="${IMAGE_FULL}:base-${{ steps.prep.outputs.default_tag }}"
+          IMAGE="ghcr.io/ublue-os/kinoite-main:44"
+          DIGEST="$(docker buildx imagetools inspect "${IMAGE}" --format '{{ .Manifest.Digest }}')"
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+
+      - name: Build base image
+        id: build_base
+        run: |
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
+          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
+          BASE_IMAGE_REF="${IMAGE_FULL}:base-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}"
 
           docker buildx build \
-            --build-arg BASE_IMAGE=ghcr.io/ublue-os/kinoite-main:44 \
-            --build-arg KYTH_KERNEL_FLAVOR="${{ matrix.kernel_flavor }}" \
-            --build-arg CACHYOS_KERNEL_VER="${{ steps.cachyos_kernel.outputs.version || 'unused' }}" \
+            --build-arg BASE_IMAGE="${STEPS_UPSTREAM_BASE_OUTPUTS_PINNED}" \
+            --build-arg KYTH_KERNEL_FLAVOR="${MATRIX_KERNEL_FLAVOR}" \
+            --build-arg CACHYOS_KERNEL_VER="${CACHYOS_KERNEL_VERSION}" \
             --cache-from "type=registry,ref=${BASE_CACHE_REF}" \
             --cache-to "type=registry,ref=${BASE_CACHE_REF},mode=max" \
             --tag "${BASE_IMAGE_REF}" \
+            --metadata-file "${RUNNER_TEMP}/base-build-metadata.json" \
             --push \
             build_base/
 
-      - name: Build final image
-        run: |
-          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${{ env.IMAGE_NAME }}"
-          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${{ matrix.branch }}-${{ matrix.kernel_flavor }}"
-          BASE_IMAGE_REF="${IMAGE_FULL}:base-${{ steps.prep.outputs.default_tag }}"
+          BASE_DIGEST="$(jq -r '."containerimage.digest"' "${RUNNER_TEMP}/base-build-metadata.json")"
+          [[ "${BASE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          echo "image=${BASE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "digest=${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "pinned=${BASE_IMAGE_REF}@${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+          CACHYOS_KERNEL_VERSION: ${{ steps.cachyos_kernel.outputs.version || 'unused' }}
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_UPSTREAM_BASE_OUTPUTS_PINNED: ${{ steps.upstream_base.outputs.pinned }}
 
-          TAG_ARGS=()
-          for tag in ${{ steps.metadata.outputs.tags }}; do
-            TAG_ARGS+=(--tag "${IMAGE_FULL}:${tag}")
-          done
+      - name: Build final image
+        id: build_final
+        run: |
+          IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
+          FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
+          RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 
           LABEL_ARGS=()
           while IFS= read -r label; do
             [[ -n "${label}" ]] && LABEL_ARGS+=(--label "${label}")
-          done <<< "${{ steps.metadata.outputs.labels }}"
+          done <<< "${STEPS_METADATA_OUTPUTS_LABELS}"
+          LABEL_ARGS+=(
+            --label "org.opencontainers.image.base.name=${STEPS_BUILD_BASE_OUTPUTS_IMAGE}"
+            --label "org.opencontainers.image.base.digest=${STEPS_BUILD_BASE_OUTPUTS_DIGEST}"
+            --label "org.kyth.build.upstream-base=${STEPS_UPSTREAM_BASE_OUTPUTS_PINNED}"
+            --label "org.kyth.build.ge-proton-version=${STEPS_GE_PROTON_OUTPUTS_VERSION}"
+            --label "org.kyth.build.thirdparty-versions-hash=${STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH}"
+            --label "org.kyth.build.kernel-flavor=${MATRIX_KERNEL_FLAVOR}"
+            --label "org.kyth.build.cachyos-kernel-version=${CACHYOS_KERNEL_VERSION}"
+          )
 
           # MOK_KEY is optional — builds without it, or with a stale key, skip
           # vmlinuz signing gracefully for the regular container image.
@@ -209,7 +254,7 @@ jobs:
           MOK_SECRET_ARG=()
           SECUREBOOT_SIGNING_REQUESTED=0
           if [[ -n "${MOK_KEY:-}" ]]; then
-            MOK_SECRET_ARG=(--secret id=mok_key,env=MOK_KEY)
+            MOK_SECRET_ARG=(--secret "id=mok_key,env=MOK_KEY")
             # Strict mode: with a key configured, a mismatched/unreadable key
             # must fail the build instead of silently shipping unsigned vmlinuz.
             SECUREBOOT_SIGNING_REQUESTED=1
@@ -218,31 +263,306 @@ jobs:
           docker buildx build \
             --secret id=github_token,env=GITHUB_TOKEN \
             "${MOK_SECRET_ARG[@]}" \
-            --build-arg BASE_IMAGE="${BASE_IMAGE_REF}" \
-            --build-arg GE_PROTON_VER="${{ steps.ge_proton.outputs.version }}" \
-            --build-arg THIRDPARTY_VERSIONS_HASH="${{ steps.thirdparty_versions.outputs.hash }}" \
+            --build-arg BASE_IMAGE="${STEPS_BUILD_BASE_OUTPUTS_PINNED}" \
+            --build-arg GE_PROTON_VER="${STEPS_GE_PROTON_OUTPUTS_VERSION}" \
+            --build-arg THIRDPARTY_VERSIONS_HASH="${STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH}" \
             --build-arg BUILD_DATE="$(date +%Y-%m-%d)" \
             --build-arg SECUREBOOT_SIGNING_REQUESTED="${SECUREBOOT_SIGNING_REQUESTED}" \
             --cache-from "type=registry,ref=${FINAL_CACHE_REF}" \
             --cache-to "type=registry,ref=${FINAL_CACHE_REF},mode=max" \
-            "${TAG_ARGS[@]}" \
+            --tag "${RAW_IMAGE_REF}" \
             "${LABEL_ARGS[@]}" \
-            --output "type=image,push=true,compression=zstd,force-compression=true,oci-mediatypes=true" \
+            --metadata-file "${RUNNER_TEMP}/final-build-metadata.json" \
+            --push \
             .
+
+          DIGEST="$(jq -r '."containerimage.digest"' "${RUNNER_TEMP}/final-build-metadata.json")"
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          REVISION="$(docker buildx imagetools inspect "${RAW_IMAGE_REF}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
+          test "${REVISION}" = "${STEPS_CHECKOUT_SHA_OUTPUTS_SHA}"
+          echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
+          # legacy-rechunk derives its OCI output directory from this value and
+          # cannot safely handle digest-qualified references containing @sha256.
+          # The run-unique tag prevents another build from moving this input.
+          echo "raw_ref=${RAW_IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          MOK_KEY: ${{ secrets.MOK_KEY }}
+          # Repository-only secret on trusted push/schedule builds; an environment
+          # would add release approval gates to every image build.
+          MOK_KEY: ${{ secrets.MOK_KEY }} # zizmor: ignore[secrets-outside-env]
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+          CACHYOS_KERNEL_VERSION: ${{ steps.cachyos_kernel.outputs.version || 'unused' }}
+          STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
+          STEPS_METADATA_OUTPUTS_LABELS: ${{ steps.metadata.outputs.labels }}
+          STEPS_BUILD_BASE_OUTPUTS_IMAGE: ${{ steps.build_base.outputs.image }}
+          STEPS_BUILD_BASE_OUTPUTS_DIGEST: ${{ steps.build_base.outputs.digest }}
+          STEPS_UPSTREAM_BASE_OUTPUTS_PINNED: ${{ steps.upstream_base.outputs.pinned }}
+          STEPS_GE_PROTON_OUTPUTS_VERSION: ${{ steps.ge_proton.outputs.version }}
+          STEPS_THIRDPARTY_VERSIONS_OUTPUTS_HASH: ${{ steps.thirdparty_versions.outputs.hash }}
+          STEPS_BUILD_BASE_OUTPUTS_PINNED: ${{ steps.build_base.outputs.pinned }}
+          STEPS_CHECKOUT_SHA_OUTPUTS_SHA: ${{ steps.checkout_sha.outputs.sha }}
 
-      - name: Trigger live ISO build
+      - name: Login rootful Podman to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Rechunk final image
+        id: rechunk
+        uses: ublue-os/legacy-rechunk@a925083d9af7cb04b3e2a6e8c01bfa495f38b710 # v1.0.0
+        with:
+          rechunk: ghcr.io/ublue-os/legacy-rechunk@sha256:1ee0b4ad0eee9b300cca1afd8cf78b78ce77bcc0d5aa16b07a195c6c22f1c9b4
+          ref: ${{ steps.build_final.outputs.raw_ref }}
+          prev-ref: ${{ steps.build_final.outputs.image }}:${{ steps.prep.outputs.default_tag }}
+          max-layers: '64'
+          skip_compression: true
+          version: ${{ steps.checkout_sha.outputs.image_version }}
+          revision: ${{ steps.checkout_sha.outputs.sha }}
+          description: ${{ env.IMAGE_DESC }}
+          labels: |
+            ${{ steps.metadata.outputs.labels }}
+            org.opencontainers.image.base.name=${{ steps.build_base.outputs.image }}
+            org.opencontainers.image.base.digest=${{ steps.build_base.outputs.digest }}
+            org.kyth.build.upstream-base=${{ steps.upstream_base.outputs.pinned }}
+            org.kyth.build.ge-proton-version=${{ steps.ge_proton.outputs.version }}
+            org.kyth.build.thirdparty-versions-hash=${{ steps.thirdparty_versions.outputs.hash }}
+            org.kyth.build.kernel-flavor=${{ matrix.kernel_flavor }}
+            org.kyth.build.cachyos-kernel-version=${{ steps.cachyos_kernel.outputs.version || 'unused' }}
+
+      - name: Validate rechunked candidate
+        env:
+          SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
+          EXPECTED_VERSION: ${{ steps.checkout_sha.outputs.image_version }}
+          EXPECTED_REVISION: ${{ steps.checkout_sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          IMAGE_ID="$(sudo podman pull "${SOURCE_REF}")"
+          LAYERS="$(sudo podman image inspect --format '{{ len .RootFS.Layers }}' "${IMAGE_ID}")"
+          VERSION="$(sudo podman image inspect --format '{{ index .Config.Labels "org.opencontainers.image.version" }}' "${IMAGE_ID}")"
+          REVISION="$(sudo podman image inspect --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}' "${IMAGE_ID}")"
+          BOOTC_LABEL="$(sudo podman image inspect --format '{{ index .Config.Labels "containers.bootc" }}' "${IMAGE_ID}")"
+          echo "Candidate image: ${LAYERS} layers"
+          test "${LAYERS}" -le 128
+          test "${VERSION}" = "${EXPECTED_VERSION}"
+          test "${REVISION}" = "${EXPECTED_REVISION}"
+          test "${BOOTC_LABEL}" = 1
+          sudo podman run --rm --entrypoint /usr/bin/bootc "${IMAGE_ID}" container lint
+
+      - name: Remove temporary raw image tag
+        if: always() && steps.build_final.outcome == 'success'
+        env:
+          RAW_REF: ${{ steps.build_final.outputs.raw_ref }}
+        run: |
+          skopeo delete \
+            --authfile "${DOCKER_CONFIG}/config.json" \
+            --retry-times 3 \
+            "docker://${RAW_REF}" || echo "::warning::Could not remove temporary image ${RAW_REF}"
+
+      - name: Publish and validate rechunked image
+        id: publish_final
+        env:
+          IMAGE_FULL: ${{ steps.build_final.outputs.image }}
+          SOURCE_REF: ${{ steps.rechunk.outputs.ref }}
+          PRIMARY_TAG: ${{ steps.prep.outputs.default_tag }}
+          TAGS: ${{ steps.metadata.outputs.tags }}
+          EXPECTED_VERSION: ${{ steps.checkout_sha.outputs.image_version }}
+          EXPECTED_REVISION: ${{ steps.checkout_sha.outputs.sha }}
+        run: |
+          set -euo pipefail
+          PRIMARY_REF="${IMAGE_FULL}:${PRIMARY_TAG}"
+          SKOPEO_COMPRESSION_ARGS=(
+            --dest-compress-format zstd
+            --dest-compress-level 3
+          )
+          SKOPEO_COPY_HELP="$(skopeo copy --help)"
+          if [[ "${SKOPEO_COPY_HELP}" == *"--dest-force-compress-format"* ]]; then
+            SKOPEO_COMPRESSION_ARGS+=(--dest-force-compress-format)
+          else
+            echo "::notice::Skopeo does not support --dest-force-compress-format; using compatible compression options"
+          fi
+          DIGEST_FILE="${RUNNER_TEMP}/rechunked-digest"
+          install -m 0600 /dev/null "${DIGEST_FILE}"
+          sudo skopeo copy \
+            --dest-authfile "${DOCKER_CONFIG}/config.json" \
+            "${SKOPEO_COMPRESSION_ARGS[@]}" \
+            --digestfile "${DIGEST_FILE}" \
+            --retry-times 3 \
+            "${SOURCE_REF}" \
+            "docker://${PRIMARY_REF}"
+
+          DIGEST="$(cat "${DIGEST_FILE}")"
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          for tag in ${TAGS}; do
+            if [[ "${tag}" != "${PRIMARY_TAG}" ]]; then
+              docker buildx imagetools create \
+                --prefer-index=false \
+                --tag "${IMAGE_FULL}:${tag}" \
+                "${IMAGE_FULL}@${DIGEST}"
+            fi
+          done
+
+          LAYERS="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ len .Image.RootFS.DiffIDs }}')"
+          VERSION="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
+          REVISION="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
+          BOOTC_LABEL="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "containers.bootc" }}')"
+          echo "Rechunked image: ${LAYERS} layers"
+          test "${LAYERS}" -le 128
+          test "${VERSION}" = "${EXPECTED_VERSION}"
+          test "${REVISION}" = "${EXPECTED_REVISION}"
+          test "${BOOTC_LABEL}" = 1
+
+          echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "layers=${LAYERS}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish immutable build metadata
+        env:
+          IMAGE: ${{ steps.publish_final.outputs.image }}
+          DIGEST: ${{ steps.publish_final.outputs.digest }}
+          VERSION: ${{ steps.publish_final.outputs.version }}
+          SOURCE_SHA: ${{ steps.checkout_sha.outputs.sha }}
+          SOURCE_TAG: ${{ steps.prep.outputs.default_tag }}
+          UPSTREAM_BASE: ${{ steps.upstream_base.outputs.pinned }}
+          BUILD_BASE: ${{ steps.build_base.outputs.pinned }}
+          GE_PROTON_VERSION: ${{ steps.ge_proton.outputs.version }}
+          THIRDPARTY_VERSIONS_HASH: ${{ steps.thirdparty_versions.outputs.hash }}
+          KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+        run: |
+          mkdir -p output/build-metadata
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          metadata = {
+              "image": os.environ["IMAGE"],
+              "digest": os.environ["DIGEST"],
+              "version": os.environ["VERSION"],
+              "source_sha": os.environ["SOURCE_SHA"],
+              "source_tag": os.environ["SOURCE_TAG"],
+              "workflow_run_id": os.environ["GITHUB_RUN_ID"],
+              "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
+              "materials": {
+                  "upstream_base": os.environ["UPSTREAM_BASE"],
+                  "build_base": os.environ["BUILD_BASE"],
+                  "ge_proton_version": os.environ["GE_PROTON_VERSION"],
+                  "thirdparty_versions_hash": os.environ["THIRDPARTY_VERSIONS_HASH"],
+                  "kernel_flavor": os.environ["KERNEL_FLAVOR"],
+              },
+          }
+          Path("output/build-metadata/image.json").write_text(
+              json.dumps(metadata, indent=2) + "\n"
+          )
+          PY
+
+      - name: Upload immutable build metadata
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: image-build-metadata-${{ steps.prep.outputs.default_tag }}
+          path: output/build-metadata/image.json
+          if-no-files-found: error
+          retention-days: 7
+
+  finalize:
+    name: Attest and dispatch (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
+    needs: build_push
+    if: always() && needs.build_push.result != 'cancelled'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
+        kernel_flavor: [fedora, cachy]
+    permissions:
+      actions: write
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+
+    steps:
+      - name: Prepare artifact identity
+        id: prep
+        env:
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+        run: |
+          TAG="${MATRIX_BRANCH}"
+          if [[ "${TAG}" == main ]]; then
+            TAG=latest
+          fi
+          case "${MATRIX_KERNEL_FLAVOR}" in
+            fedora) SUFFIX="" ;;
+            cachy) SUFFIX="-cachy" ;;
+          esac
+          echo "tag=${TAG}${SUFFIX}" >> "$GITHUB_OUTPUT"
+
+      - name: Download immutable build metadata
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: image-build-metadata-${{ steps.prep.outputs.tag }}
+          path: output/build-metadata
+
+      - name: Read publication identity
+        id: image
+        env:
+          EXPECTED_FLAVOR: ${{ matrix.kernel_flavor }}
+        run: |
+          METADATA=output/build-metadata/image.json
+          jq -e . "${METADATA}" >/dev/null
+          IMAGE="$(jq -r .image "${METADATA}")"
+          DIGEST="$(jq -r .digest "${METADATA}")"
+          SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
+          KERNEL_FLAVOR="$(jq -r .materials.kernel_flavor "${METADATA}")"
+          [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
+          [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          test "${KERNEL_FLAVOR}" = "${EXPECTED_FLAVOR}"
+          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
+          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Attest image build provenance
+        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        with:
+          subject-name: ${{ steps.image.outputs.image }}
+          subject-digest: ${{ steps.image.outputs.digest }}
+          push-to-registry: true
+
+      - name: Trigger downstream publication workflows
         # Only the fedora-kernel image is used for the live ISO.
         # Dispatch directly so the ISO workflow runs from the correct branch,
         # not from main (which is what workflow_run would use).
         if: matrix.kernel_flavor == 'fedora'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          STEPS_PREP_OUTPUTS_TAG: ${{ steps.prep.outputs.tag }}
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          STEPS_IMAGE_OUTPUTS_DIGEST: ${{ steps.image.outputs.digest }}
+          STEPS_IMAGE_OUTPUTS_SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
         run: |
-          SOURCE_TAG="${DEFAULT_TAG}"
-          echo "==> Dispatching live ISO build for ${SOURCE_TAG} on ${{ matrix.branch }}"
+          SOURCE_TAG="${STEPS_PREP_OUTPUTS_TAG}"
+          echo "==> Dispatching metadata and live ISO builds for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
+          gh workflow run supply-chain.yml \
+            --ref "${MATRIX_BRANCH}" \
+            --field "source_tag=${SOURCE_TAG}" \
+            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
+            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"
           gh workflow run build-live-iso.yml \
-            --ref "${{ matrix.branch }}" \
-            --field "source_tag=${SOURCE_TAG}"
+            --ref "${MATRIX_BRANCH}" \
+            --field "source_tag=${SOURCE_TAG}" \
+            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
+            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"

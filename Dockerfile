@@ -55,8 +55,10 @@ RUN --mount=type=bind,source=build_files/scripts/thirdparty.sh,target=/ctx/third
     ENABLE_SCX=${ENABLE_SCX} bash /ctx/thirdparty.sh
 
 # Plymouth boot splash + initramfs rebuild.
-# COPY tracks content hashes of theme files so Docker only re-runs the expensive
-# dracut step when the splash actually changes — not on every daily dnf upgrade.
+# COPY (not bind-mount) is intentional: COPY includes file content hashes in the
+# cache key, so the expensive dracut rebuild only reruns when the splash assets
+# actually change — not on every daily dnf upgrade. Bind mounts do NOT contribute
+# to the BuildKit cache key and would silently ship a stale cached splash.
 # Kernel packages are excluded from dnf upgrade (see packages.sh excludepkgs), so
 # the kernel version is fixed from the base image and the initramfs built here is
 # the one that ships. Sits after the large GE-Proton/thirdparty download layers
@@ -230,6 +232,10 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
             || { echo "ERROR: branded initramfs Plymouth defaults do not draw immediately" >&2; exit 1; } && \
         lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^DeviceTimeout=8$' \
             || { echo "ERROR: branded initramfs Plymouth defaults are missing DeviceTimeout=8" >&2; exit 1; } && \
+        lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" | grep -q '^UseFirmwareBackground=false$' \
+            || { echo "ERROR: branded initramfs Plymouth defaults do not suppress BGRT firmware background" >&2; exit 1; } && \
+        grep -Eq 'usr/(lib64|lib)/plymouth/script\.so' "${_initrd_listing}" \
+            || { echo "ERROR: branded initramfs does not contain plymouth/script.so — kyth script theme will silently fail and fall back to BGRT firmware logo" >&2; exit 1; } && \
         if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${_initrd_listing}" >&2; then \
             echo "ERROR: Plymouth fallback theme leaked into branded initramfs" >&2; \
             exit 1; \

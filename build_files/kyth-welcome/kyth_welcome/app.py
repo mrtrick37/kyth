@@ -1,5 +1,29 @@
+import atexit
+import os
 import sys
 import traceback
+from pathlib import Path
+
+_LOCK_FILE = Path.home() / ".cache" / "kyth" / "kyth-welcome.lock"
+
+
+def _acquire_lock() -> bool:
+    _LOCK_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        if _LOCK_FILE.exists():
+            pid_text = _LOCK_FILE.read_text().strip()
+            if pid_text.isdigit():
+                pid = int(pid_text)
+                try:
+                    os.kill(pid, 0)
+                    return False  # already running
+                except (ProcessLookupError, PermissionError):
+                    pass  # stale lock
+        _LOCK_FILE.write_text(str(os.getpid()))
+        atexit.register(_LOCK_FILE.unlink, missing_ok=True)
+        return True
+    except OSError:
+        return True  # can't lock → allow launch
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
@@ -17,6 +41,9 @@ from .windows import (  # noqa: E501
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 def main():
+    if not _acquire_lock():
+        sys.exit(0)
+
     # Parse --page PAGEKEY before QApplication (which may strip unrecognised args)
     start_page = None
     raw_args = sys.argv[1:]
