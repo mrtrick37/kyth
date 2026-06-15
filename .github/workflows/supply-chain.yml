@@ -81,6 +81,22 @@ jobs:
         with:
           version: 1.3.1
 
+      - name: Wait for image to be available in registry
+        env:
+          IMAGE: ${{ steps.meta.outputs.image }}
+          SOURCE_DIGEST: ${{ inputs.source_digest }}
+        run: |
+          for attempt in $(seq 1 10); do
+            if docker buildx imagetools inspect "${IMAGE}@${SOURCE_DIGEST}" >/dev/null 2>&1; then
+              echo "Image available (attempt ${attempt}/10)"
+              exit 0
+            fi
+            echo "Image not yet available (attempt ${attempt}/10); retrying in 30s..."
+            sleep 30
+          done
+          echo "::error::Image ${IMAGE}@${SOURCE_DIGEST} was not available after 5 minutes"
+          exit 1
+
       - name: Validate immutable image identity and resolve previous digest
         id: image
         env:
