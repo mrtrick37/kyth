@@ -102,15 +102,16 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           EXPECTED_DIGEST: ${{ inputs.source_digest }}
         run: |
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}:${SOURCE_TAG}"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          TAGGED_IMAGE="${IMAGE}:${SOURCE_TAG}"
           if [[ -n "${EXPECTED_DIGEST}" ]]; then
             [[ "${EXPECTED_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
             DIGEST="${EXPECTED_DIGEST}"
             # Confirm the immutable manifest exists and belongs to this repository.
-            sudo skopeo inspect "docker://${IMAGE%@*}@${DIGEST}" >/dev/null
+            sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" >/dev/null
           else
             echo "::warning::No source_digest supplied; resolving the moving ${SOURCE_TAG} tag for this manual build."
-            DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${IMAGE}")"
+            DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${TAGGED_IMAGE}")"
           fi
           REVISION="$(sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" | jq -r '.Labels["org.opencontainers.image.revision"] // empty')"
           test "${REVISION}" = "$(git rev-parse HEAD)"
