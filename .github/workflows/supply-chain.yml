@@ -146,7 +146,7 @@ jobs:
           chmod +x "${RUNNER_TEMP}/syft"
           echo "cmd=${RUNNER_TEMP}/syft" >> "$GITHUB_OUTPUT"
 
-      - name: Mount image root filesystem
+      - name: Prepare image RPM database
         id: image_rootfs
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -156,10 +156,15 @@ jobs:
           printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           sudo podman pull "${IMAGE}@${DIGEST}"
           CONTAINER="$(sudo podman create "${IMAGE}@${DIGEST}" /usr/bin/true)"
-          echo "container=${CONTAINER}" >> "$GITHUB_OUTPUT"
+          trap 'sudo podman rm --force "${CONTAINER}" >/dev/null' EXIT
           ROOTFS="$(sudo podman mount "${CONTAINER}")"
           sudo test -f "${ROOTFS}/usr/share/rpm/rpmdb.sqlite"
-          echo "rootfs=${ROOTFS}" >> "$GITHUB_OUTPUT"
+          SCAN_ROOT="${RUNNER_TEMP}/syft-root"
+          mkdir -p "${SCAN_ROOT}/usr/share" "${SCAN_ROOT}/usr/lib"
+          sudo cp -a "${ROOTFS}/usr/share/rpm" "${SCAN_ROOT}/usr/share/rpm"
+          sudo cp "${ROOTFS}/usr/lib/os-release" "${SCAN_ROOT}/usr/lib/os-release"
+          sudo chown -R "${USER}:${USER}" "${SCAN_ROOT}"
+          echo "rootfs=${SCAN_ROOT}" >> "$GITHUB_OUTPUT"
 
       - name: Generate image SBOM
         id: sbom
@@ -171,6 +176,8 @@ jobs:
           VERSION: ${{ steps.image.outputs.current_version }}
           DIGEST: ${{ steps.image.outputs.current_digest }}
           ROOTFS: ${{ steps.image_rootfs.outputs.rootfs }}
+          SYFT_CHECK_FOR_APP_UPDATE: "false"
+          XDG_CACHE_HOME: ${{ runner.temp }}/syft-cache
         run: |
           SBOM="kyth-${TAG}-${VERSION}.syft.json"
           sudo "${SYFT_CMD}" "dir:${ROOTFS}" \
@@ -212,12 +219,6 @@ jobs:
           Path(sys.argv[2]).write_text("\n".join(pkgs) + "\n")
           PY
           echo "path=${OUT_FILE}" >> "$GITHUB_OUTPUT"
-
-      - name: Remove mounted image root filesystem
-        if: always() && steps.image_rootfs.outputs.container != ''
-        env:
-          CONTAINER: ${{ steps.image_rootfs.outputs.container }}
-        run: sudo podman rm --force "${CONTAINER}"
 
       - name: Generate SBOM-powered changelog
         id: changelog
