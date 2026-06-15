@@ -373,11 +373,19 @@ jobs:
         run: |
           set -euo pipefail
           PRIMARY_REF="${IMAGE_FULL}:${PRIMARY_TAG}"
+          SKOPEO_COMPRESSION_ARGS=(
+            --dest-compress-format zstd
+            --dest-compress-level 3
+          )
+          SKOPEO_COPY_HELP="$(skopeo copy --help)"
+          if [[ "${SKOPEO_COPY_HELP}" == *"--dest-force-compress-format"* ]]; then
+            SKOPEO_COMPRESSION_ARGS+=(--dest-force-compress-format)
+          else
+            echo "::notice::Skopeo does not support --dest-force-compress-format; using compatible compression options"
+          fi
           skopeo copy \
             --dest-authfile "${DOCKER_CONFIG}/config.json" \
-            --dest-compress-format zstd \
-            --dest-compress-level 3 \
-            --dest-force-compress-format \
+            "${SKOPEO_COMPRESSION_ARGS[@]}" \
             --digestfile "${RUNNER_TEMP}/rechunked-digest" \
             --retry-times 3 \
             "${SOURCE_REF}" \
