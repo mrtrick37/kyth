@@ -155,10 +155,10 @@ jobs:
         run: |
           printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           sudo podman pull "${IMAGE}@${DIGEST}"
-          CONTAINER="$(sudo podman create "${IMAGE}@${DIGEST}")"
+          CONTAINER="$(sudo podman create "${IMAGE}@${DIGEST}" /usr/bin/true)"
+          echo "container=${CONTAINER}" >> "$GITHUB_OUTPUT"
           ROOTFS="$(sudo podman mount "${CONTAINER}")"
           test -d "${ROOTFS}/usr/lib/sysimage/rpm"
-          echo "container=${CONTAINER}" >> "$GITHUB_OUTPUT"
           echo "rootfs=${ROOTFS}" >> "$GITHUB_OUTPUT"
 
       - name: Generate image SBOM
