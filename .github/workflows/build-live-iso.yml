@@ -147,7 +147,10 @@ jobs:
         run: |
           ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
           mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
+          sudo chown "$(id -u):$(id -g)" "${ISO}"
           test -s "${ISO}"
+          test -r "${ISO}"
+          test -w "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
         env:
           STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}

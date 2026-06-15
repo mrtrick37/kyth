@@ -70,4 +70,7 @@ sudo podman run --rm -i \
 	-v "${WORK}:/output" \
 	quay.io/fedora/fedora:44 /src/build_iso.sh
 mv "${WORK}/KYTHOS-44-LIVE.iso" "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
+sudo chown "$(id -u):$(id -g)" "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
+test -r "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
+test -w "${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
 echo "==> KythOS live ISO ready: ${OUTPUT_DIR}/kyth-live-${SOURCE_TAG}.iso"
