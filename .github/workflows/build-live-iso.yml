@@ -313,6 +313,7 @@ jobs:
       - name: Publish GitHub releases
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           SOURCE_TAG: ${{ inputs.source_tag }}
           CHANNEL_TAG: ${{ inputs.source_tag == 'testing' && 'iso-testing' || 'iso-latest' }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}

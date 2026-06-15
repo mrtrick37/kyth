@@ -443,6 +443,7 @@ jobs:
       - name: Publish image changelog release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
           VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
           NOTES: output/supply-chain/${{ steps.meta.outputs.notes }}
