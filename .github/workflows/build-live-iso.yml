@@ -357,18 +357,8 @@ jobs:
           The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release.
           EOF
 
-          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${IMMUTABLE_TAG}" \
-            --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "${TAG_SHA}" ]]; then
-            test "${TAG_SHA}" = "${SOURCE_SHA}"
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f "ref=refs/tags/${IMMUTABLE_TAG}" \
-              -f "sha=${SOURCE_SHA}" >/dev/null
-          fi
-
           gh release create "${IMMUTABLE_TAG}" \
-            --verify-tag \
+            --target "${SOURCE_SHA}" \
             --title "${IMMUTABLE_TITLE}" \
             --notes-file "${IMMUTABLE_NOTES}" \
             ${PRERELEASE}
@@ -394,11 +384,8 @@ jobs:
               --notes-file "${CHANNEL_NOTES}" \
               ${PRERELEASE} ${LATEST}
           else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f "ref=refs/tags/${CHANNEL_TAG}" \
-              -f "sha=${SOURCE_SHA}" >/dev/null
             gh release create "${CHANNEL_TAG}" \
-              --verify-tag \
+              --target "${SOURCE_SHA}" \
               --title "${CHANNEL_TITLE}" \
               --notes-file "${CHANNEL_NOTES}" \
               ${PRERELEASE} ${LATEST}

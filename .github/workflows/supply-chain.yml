@@ -457,21 +457,11 @@ jobs:
             PRERELEASE="--prerelease"
           fi
 
-          TAG_SHA="$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/${RELEASE_TAG}" \
-            --jq '.object.sha' 2>/dev/null || true)"
-          if [[ -n "${TAG_SHA}" ]]; then
-            test "${TAG_SHA}" = "${SOURCE_SHA}"
-          else
-            gh api --method POST "repos/${GITHUB_REPOSITORY}/git/refs" \
-              -f "ref=refs/tags/${RELEASE_TAG}" \
-              -f "sha=${SOURCE_SHA}" >/dev/null
-          fi
-
           if gh release view "${RELEASE_TAG}" &>/dev/null; then
             gh release edit "${RELEASE_TAG}" --title "${TITLE}" --notes-file "${NOTES}" ${PRERELEASE}
           else
             gh release create "${RELEASE_TAG}" \
-              --verify-tag \
+              --target "${SOURCE_SHA}" \
               --title "${TITLE}" \
               --notes-file "${NOTES}" \
               ${PRERELEASE}
