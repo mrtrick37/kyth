@@ -203,7 +203,9 @@ jobs:
           version: 1.3.1
 
       - name: Login to GHCR
-        run: echo "${{ github.token }}" | oras login ghcr.io -u "${{ github.actor }}" --password-stdin
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GH_TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
 
       - name: Setup Grype
         id: setup_grype
