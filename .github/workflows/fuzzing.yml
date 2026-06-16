@@ -1,5 +1,5 @@
 # yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
-name: ClusterFuzzLite
+name: Fuzzing
 
 on:
   pull_request:
@@ -20,39 +20,27 @@ concurrency:
   group: fuzzing-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   python-fuzzing:
-    name: Python fuzzing (${{ matrix.sanitizer }})
+    name: Python fuzzing
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
-    permissions:
-      contents: read
-
-    strategy:
-      fail-fast: false
-      matrix:
-        sanitizer:
-          - address
-          - undefined
+    timeout-minutes: 15
 
     steps:
-      - name: Build fuzzers
-        id: build
-        uses: google/clusterfuzzlite/actions/build_fuzzers@82652fb49e77bc29c35da1167bb286e93c6bcc05 # v1
-        with:
-          language: python
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          sanitizer: ${{ matrix.sanitizer }}
+      - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
 
-      - name: Run fuzzers
-        id: run
-        uses: google/clusterfuzzlite/actions/run_fuzzers@82652fb49e77bc29c35da1167bb286e93c6bcc05 # v1
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 120
-          mode: code-change
-          sanitizer: ${{ matrix.sanitizer }}
-          parallel-fuzzing: true
+          python-version: '3.12'
+
+      - name: Install atheris
+        run: pip install atheris
+
+      - name: Smoke test
+        env:
+          KYTH_FUZZ_SMOKE: "1"
+        run: python fuzz/kyth_welcome_fuzzer.py
+
+      - name: Fuzz (60 s)
+        run: python fuzz/kyth_welcome_fuzzer.py -max_total_time=60 -print_final_stats=1
