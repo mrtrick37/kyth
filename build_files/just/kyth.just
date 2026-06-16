@@ -149,7 +149,7 @@ switch-channel channel="stable":
 # rollback support by switching the whole bootc image instead of layering kernels.
 # Usage:
 #   ujust switch-kernel fedora
-#   ujust switch-kernel cachy
+# ujust switch-kernel cachy
 [group('KythOS')]
 switch-kernel flavor="fedora":
     #!/usr/bin/env bash
@@ -278,7 +278,7 @@ game-hdr +args:
 # Usage:
 #   ujust game-scope quality -- %command%
 #   ujust game-scope hdr --fps 120 -- %command%
-#   ujust game-scope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%
+# ujust game-scope sharp --fsr --nested 1920x1080 --output 2560x1440 -- %command%
 [group('KythOS')]
 game-scope preset="quality" *args:
     #!/usr/bin/env bash
@@ -516,9 +516,9 @@ setup-kali-box tools="headless":
     _rootful_exists=0
     _sudo podman inspect kali >/dev/null 2>&1 && _rootful_exists=1 || true
     if [[ "${_rootful_exists}" -eq 1 ]]; then
-        _kali_image=$(_sudo podman inspect kali --format '{{"{{"}}.ImageName{{"}}"}}' 2>/dev/null || true)
-        _kali_privileged=$(_sudo podman inspect kali --format '{{"{{"}}.HostConfig.Privileged{{"}}"}}' 2>/dev/null || true)
-        _kali_security_opts=$(_sudo podman inspect kali --format '{{"{{"}}range .HostConfig.SecurityOpt{{"}}"}}{{"{{"}}.{{"}}"}} {{"{{"}}end{{"}}"}}' 2>/dev/null || true)
+        _kali_image=$(_sudo podman inspect kali --format '{{ "{{" }}.ImageName{{ "}}" }}' 2>/dev/null || true)
+        _kali_privileged=$(_sudo podman inspect kali --format '{{ "{{" }}.HostConfig.Privileged{{ "}}" }}' 2>/dev/null || true)
+        _kali_security_opts=$(_sudo podman inspect kali --format '{{ "{{" }}range .HostConfig.SecurityOpt{{ "}}" }}{{ "{{" }}.{{ "}}" }} {{ "{{" }}end{{ "}}" }}' 2>/dev/null || true)
         if [[ "${_kali_image}" == *kali* ]] \
             && [[ "${_kali_privileged}" == "true" ]] \
             && [[ "${_kali_security_opts}" == *label=disable* ]]; then
@@ -1299,7 +1299,7 @@ enroll-secureboot:
 #   Phase 2: Compiles the kernel module via akmods (requires a final reboot).
 #
 # Usage:
-#   ujust install-nvidia-driver          # run once, reboot when prompted, repeat
+# ujust install-nvidia-driver          # run once, reboot when prompted, repeat
 [group('KythOS')]
 install-nvidia-driver:
     #!/usr/bin/env bash
