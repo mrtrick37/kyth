@@ -187,8 +187,186 @@ jobs:
       contents: write
       id-token: write
       attestations: write
+      packages: read
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install ORAS
+        uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
+        with:
+          version: 1.3.1
+
+      - name: Login to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "${GH_TOKEN}" | oras login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Setup Grype
+        id: setup_grype
+        env:
+          GRYPE_VERSION: 0.88.0
+        run: |
+          ARCHIVE="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
+          BASE="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
+          curl --fail --location --silent --show-error \
+            --output "${RUNNER_TEMP}/${ARCHIVE}" "${BASE}/${ARCHIVE}"
+          curl --fail --location --silent --show-error \
+            --output "${RUNNER_TEMP}/grype_checksums.txt" \
+            "${BASE}/grype_${GRYPE_VERSION}_checksums.txt"
+          (cd "${RUNNER_TEMP}" && grep " ${ARCHIVE}$" grype_checksums.txt | sha256sum --check --strict -)
+          tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" grype
+          chmod +x "${RUNNER_TEMP}/grype"
+          echo "cmd=${RUNNER_TEMP}/grype" >> "$GITHUB_OUTPUT"
+
+      - name: Pull source image SBOM
+        id: current_sbom
+        env:
+          SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
+          SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
+        run: |
+          SBOM_DIGEST="$(oras discover --format json "${SOURCE_IMAGE}@${SOURCE_DIGEST}" \
+            | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
+            2>/dev/null || true)"
+          if [[ -z "${SBOM_DIGEST}" ]]; then
+            echo "::warning::No SBOM attached to source image; CVE section will be skipped"
+            exit 0
+          fi
+          mkdir -p "${RUNNER_TEMP}/current-sbom"
+          oras pull "${SOURCE_IMAGE}@${SBOM_DIGEST}" -o "${RUNNER_TEMP}/current-sbom/"
+          SBOM="$(find "${RUNNER_TEMP}/current-sbom" -name '*.json' -type f | head -1)"
+          [[ -n "${SBOM}" ]] && echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+
+      - name: Scan source image with Grype
+        id: grype_current
+        if: steps.current_sbom.outputs.path != ''
+        env:
+          GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
+          SBOM_PATH: ${{ steps.current_sbom.outputs.path }}
+        run: |
+          OUT="${RUNNER_TEMP}/grype-current.json"
+          "${GRYPE_CMD}" "sbom:${SBOM_PATH}" -o json --file "${OUT}" || \
+            echo "::warning::Grype scan failed; security section will be limited"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+
+      - name: Pull previous ISO source image SBOM
+        id: previous_sbom
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
+        run: |
+          PREV_DIGEST=""
+          PREV_TAG="$(gh release list --limit 30 --json tagName \
+            -q ".[] | .tagName | select(startswith(\"iso-${SOURCE_TAG}-\"))" \
+            | grep -v "^${IMMUTABLE_TAG}$" | head -1 || true)"
+          if [[ -n "${PREV_TAG}" ]]; then
+            RELEASE_BODY="$(gh release view "${PREV_TAG}" --json body -q '.body' 2>/dev/null || true)"
+            PREV_DIGEST="$(python3 -c "
+          import re, sys
+          body = sys.stdin.read()
+          m = re.search(r'Source image digest: \*\*([^*]+)\*\*', body)
+          print(m.group(1) if m else '', end='')
+          " <<< "${RELEASE_BODY}" || true)"
+          fi
+          if [[ -z "${PREV_DIGEST}" || ! "${PREV_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "No previous source digest found; CVE diff will be skipped"
+            exit 0
+          fi
+          PREV_SBOM_DIGEST="$(oras discover --format json "${SOURCE_IMAGE}@${PREV_DIGEST}" \
+            | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
+            2>/dev/null || true)"
+          if [[ -z "${PREV_SBOM_DIGEST}" ]]; then
+            echo "No previous SBOM found; CVE diff will be skipped"
+            exit 0
+          fi
+          mkdir -p "${RUNNER_TEMP}/prev-sbom"
+          oras pull "${SOURCE_IMAGE}@${PREV_SBOM_DIGEST}" -o "${RUNNER_TEMP}/prev-sbom/"
+          PREV_SBOM="$(find "${RUNNER_TEMP}/prev-sbom" -name '*.json' -type f | head -1)"
+          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >> "$GITHUB_OUTPUT"
+
+      - name: Scan previous source image with Grype
+        id: grype_previous
+        if: steps.previous_sbom.outputs.path != ''
+        env:
+          GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
+          PREV_SBOM: ${{ steps.previous_sbom.outputs.path }}
+        run: |
+          OUT="${RUNNER_TEMP}/grype-previous.json"
+          "${GRYPE_CMD}" "sbom:${PREV_SBOM}" -o json --file "${OUT}" || \
+            echo "::warning::Grype scan of previous SBOM failed"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate ISO release changelog
+        id: iso_changelog
+        env:
+          GH_REPO: ${{ github.repository }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+          SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
+          SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
+          GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
+          GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
+        run: |
+          NOTES="$(mktemp --suffix=.md)"
+          IMAGE_VERSION="$(skopeo inspect --no-creds \
+            "docker://${SOURCE_IMAGE}@${SOURCE_DIGEST}" 2>/dev/null \
+            | jq -r '.Labels["org.opencontainers.image.version"] // empty' || true)"
+          export IMAGE_VERSION NOTES
+          python3 - <<'PY'
+          import json, os, sys
+          from pathlib import Path
+          sys.path.insert(0, '.github/scripts')
+          from kyth_changelog import security_section
+
+          repo = os.environ.get("GH_REPO", "")
+          tag = os.environ.get("SOURCE_TAG", "")
+          source_sha = os.environ.get("SOURCE_SHA", "")
+          source_image = os.environ.get("SOURCE_IMAGE", "")
+          source_digest = os.environ.get("SOURCE_DIGEST", "")
+          image_version = os.environ.get("IMAGE_VERSION", "")
+          grype_current = os.environ.get("GRYPE_CURRENT") or None
+          grype_previous = os.environ.get("GRYPE_PREVIOUS") or None
+          notes_path = os.environ["NOTES"]
+
+          lines = [
+              "### What this ISO installs",
+              "",
+              f"Bootable installer for KythOS from the **{tag}** channel. "
+              "Boot from USB and click **Install KythOS** to set up your system.",
+              "",
+              f"- Source image: `{source_image}@{source_digest}`",
+              f"- Source commit: `{source_sha}`",
+              "",
+          ]
+
+          sec = security_section(grype_current, grype_previous)
+          if sec:
+              lines.append(sec.rstrip())
+              lines.append("")
+
+          if image_version:
+              release_tag = "image-" + image_version.replace(".", "-")
+              image_url = f"https://github.com/{repo}/releases/tag/{release_tag}"
+              lines += [f"Full package changelog: [{release_tag}]({image_url})", ""]
+          else:
+              lines += [
+                  f"Full package changelog: [image releases]"
+                  f"(https://github.com/{repo}/releases?q=image-{tag})",
+                  "",
+              ]
+
+          Path(notes_path).write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+          PY
+          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
+
       - name: Download built ISO
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -323,6 +501,7 @@ jobs:
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
           ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
+          ISO_CHANGELOG: ${{ steps.iso_changelog.outputs.path }}
         run: |
           ISO="output/live-iso/${ISO_BASENAME}"
           CHANNEL="output/live-iso/${CHANNEL_BASENAME}"
@@ -344,18 +523,20 @@ jobs:
           fi
 
           IMMUTABLE_NOTES="$(mktemp)"
-          cat > "${IMMUTABLE_NOTES}" <<EOF
-          Permanent KythOS ISO build from **${SOURCE_TAG}**.
-
-          **[Download immutable ISO](${IMMUTABLE_ISO_URL})** | [Checksum](${IMMUTABLE_ISO_URL}-CHECKSUM)
-
-          - Source commit: **${SOURCE_SHA}**
-          - Source image digest: **${SOURCE_DIGEST}**
-          - Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          - Build provenance: ${ATTESTATION_URL}
-
-          The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release.
-          EOF
+          {
+            echo "Permanent KythOS ISO build from **${SOURCE_TAG}**."
+            echo ""
+            cat "${ISO_CHANGELOG:-/dev/null}" 2>/dev/null || true
+            echo "---"
+            echo "**[Download immutable ISO](${IMMUTABLE_ISO_URL})** | [Checksum](${IMMUTABLE_ISO_URL}-CHECKSUM)"
+            echo ""
+            echo "- Source commit: **${SOURCE_SHA}**"
+            echo "- Source image digest: **${SOURCE_DIGEST}**"
+            echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Build provenance: ${ATTESTATION_URL}"
+            echo ""
+            echo "The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release."
+          } > "${IMMUTABLE_NOTES}"
 
           gh release create "${IMMUTABLE_TAG}" \
             --target "${SOURCE_SHA}" \
@@ -366,17 +547,19 @@ jobs:
             "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"
 
           CHANNEL_NOTES="$(mktemp)"
-          cat > "${CHANNEL_NOTES}" <<EOF
-          This is the moving **${SOURCE_TAG}** channel pointer.
-
-          **[Download current ISO](${CHANNEL_ISO_URL})** | [Checksum](${CHANNEL_ISO_URL}-CHECKSUM)
-
-          Current immutable release: [${IMMUTABLE_TAG}](${IMMUTABLE_RELEASE_URL})
-
-          - Source commit: **${SOURCE_SHA}**
-          - Source image digest: **${SOURCE_DIGEST}**
-          - Build provenance: ${ATTESTATION_URL}
-          EOF
+          {
+            echo "This is the moving **${SOURCE_TAG}** channel pointer."
+            echo ""
+            cat "${ISO_CHANGELOG:-/dev/null}" 2>/dev/null || true
+            echo "---"
+            echo "**[Download current ISO](${CHANNEL_ISO_URL})** | [Checksum](${CHANNEL_ISO_URL}-CHECKSUM)"
+            echo ""
+            echo "Current immutable release: [${IMMUTABLE_TAG}](${IMMUTABLE_RELEASE_URL})"
+            echo ""
+            echo "- Source commit: **${SOURCE_SHA}**"
+            echo "- Source image digest: **${SOURCE_DIGEST}**"
+            echo "- Build provenance: ${ATTESTATION_URL}"
+          } > "${CHANNEL_NOTES}"
 
           if gh release view "${CHANNEL_TAG}" >/dev/null 2>&1; then
             gh release edit "${CHANNEL_TAG}" \

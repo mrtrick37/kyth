@@ -148,6 +148,50 @@ def table_for(names: list[str], previous: dict[str, str], current: dict[str, str
     return "\n".join(rows)
 
 
+def grype_cve_set(path: str | None) -> set[tuple[str, str]]:
+    """Return (cve_id, package_name) pairs from a Grype JSON report."""
+    if not path:
+        return set()
+    try:
+        data = json.loads(Path(path).read_text(encoding="utf-8"))
+        result: set[tuple[str, str]] = set()
+        for match in data.get("matches", []):
+            cve_id = match.get("vulnerability", {}).get("id", "")
+            pkg = match.get("artifact", {}).get("name", "")
+            if cve_id and pkg:
+                result.add((cve_id, pkg))
+        return result
+    except Exception as exc:
+        print(f"warning: could not parse grype output {path!r}: {exc}", file=sys.stderr)
+        return set()
+
+
+def security_section(grype_current: str | None, grype_previous: str | None) -> str:
+    current = grype_cve_set(grype_current)
+    previous = grype_cve_set(grype_previous)
+    if not current and not previous:
+        return ""
+
+    lines: list[str] = ["### Security fixes", ""]
+    if previous:
+        fixed = sorted(previous - current)
+        if fixed:
+            lines += ["| CVE | Package |", "| --- | --- |"]
+            for cve_id, pkg in fixed:
+                lines.append(
+                    f"| [{cve_id}](https://nvd.nist.gov/vuln/detail/{cve_id}) | `{pkg}` |"
+                )
+        else:
+            lines.append("No CVEs resolved compared to the previous build.")
+    else:
+        lines.append(
+            f"No previous scan to compare against — {len(current)} finding(s) currently "
+            "tracked. Future releases will show a fixed-CVE diff."
+        )
+    lines.append("")
+    return "\n".join(lines) + "\n"
+
+
 def commit_section(previous_labels: dict[str, str], current_sha: str) -> str:
     previous_sha = previous_labels.get("org.opencontainers.image.revision", "")
     if not previous_sha or not current_sha or previous_sha == current_sha:
@@ -179,10 +223,20 @@ def main() -> int:
     parser.add_argument("--current-digest", required=True)
     parser.add_argument("--previous-digest", default="")
     parser.add_argument("--current-sha", required=True)
+    parser.add_argument("--current-sbom-file", default="")
+    parser.add_argument("--grype-current", default="")
+    parser.add_argument("--grype-previous", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    current_sbom = load_sbom(args.image, args.current_digest)
+    if args.current_sbom_file:
+        try:
+            current_sbom = json.loads(Path(args.current_sbom_file).read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"warning: could not read --current-sbom-file: {exc}", file=sys.stderr)
+            current_sbom = None
+    else:
+        current_sbom = load_sbom(args.image, args.current_digest)
     previous_sbom = load_sbom(args.image, args.previous_digest)
     current_packages = rpm_packages(current_sbom)
     previous_packages = rpm_packages(previous_sbom)
@@ -245,6 +299,11 @@ def main() -> int:
         rendered += table_for(changed, previous_packages, current_packages, "~").splitlines()
         rendered += table_for(removed, previous_packages, current_packages, "-").splitlines()
         lines += rendered or ["| | No RPM package changes detected | | |"]
+        lines.append("")
+
+    sec = security_section(args.grype_current or None, args.grype_previous or None)
+    if sec:
+        lines.append(sec.rstrip())
         lines.append("")
 
     Path(args.output).write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
