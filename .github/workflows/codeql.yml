@@ -4,13 +4,9 @@ name: CodeQL
 on:
   push:
     branches: [main, testing]
-    paths:
-      - '**/*.py'
-      - '.github/workflows/codeql.yml'
   pull_request:
     branches: [main, testing]
-    paths:
-      - '**/*.py'
+  workflow_dispatch:
   schedule:
     - cron: '0 9 * * 1'  # Weekly Monday — catches new CVEs against unchanged code
 
