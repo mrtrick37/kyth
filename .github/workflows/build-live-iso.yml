@@ -405,6 +405,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_iso.outputs.bundle-path }}
           ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
@@ -430,6 +431,7 @@ jobs:
               "sha256": os.environ["SHA256"],
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
+              "provenance": iso.name + ".intoto.jsonl",
               "checksum": iso.name + "-CHECKSUM",
               "attestation_url": os.environ["ATTESTATION_URL"],
               "source_image": os.environ["SOURCE_IMAGE"],
@@ -449,6 +451,7 @@ jobs:
               "iso": channel,
               "signature": channel + ".sig",
               "bundle": channel + ".bundle",
+              "provenance": channel + ".intoto.jsonl",
               "checksum": channel + "-CHECKSUM",
               "download_url": f"{base_url}/{channel}",
               "immutable_download_url": metadata["download_url"],
@@ -460,6 +463,9 @@ jobs:
 
           cp "${ISO}.sig" "output/live-iso/${CHANNEL_BASENAME}.sig"
           cp "${ISO}.bundle" "output/live-iso/${CHANNEL_BASENAME}.bundle"
+          test -s "${ATTESTATION_BUNDLE_PATH}"
+          cp "${ATTESTATION_BUNDLE_PATH}" "${ISO}.intoto.jsonl"
+          cp "${ATTESTATION_BUNDLE_PATH}" "output/live-iso/${CHANNEL_BASENAME}.intoto.jsonl"
 
       - name: Upload ISO to Cloudflare R2
         env:
@@ -472,7 +478,7 @@ jobs:
           ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
           CHANNEL="output/live-iso/${NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME}"
 
-          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -481,7 +487,7 @@ jobs:
 
           aws s3 cp "${ISO}" "s3://kyth-releases/$(basename "${CHANNEL}")" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
-          for suffix in -CHECKSUM .sig .bundle .json; do
+          for suffix in -CHECKSUM .sig .bundle .intoto.jsonl .json; do
             aws s3 cp "${CHANNEL}${suffix}" \
               "s3://kyth-releases/$(basename "${CHANNEL}${suffix}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -535,7 +541,7 @@ jobs:
             echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Build provenance: ${ATTESTATION_URL}"
             echo ""
-            echo "The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release."
+            echo "The checksum, Cosign signature and bundle, SLSA provenance, metadata, and GitHub build provenance are attached to this release."
           } > "${IMMUTABLE_NOTES}"
 
           gh release create "${IMMUTABLE_TAG}" \
@@ -544,7 +550,7 @@ jobs:
             --notes-file "${IMMUTABLE_NOTES}" \
             ${PRERELEASE}
           gh release upload "${IMMUTABLE_TAG}" \
-            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"
+            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"
 
           CHANNEL_NOTES="$(mktemp)"
           {
@@ -574,4 +580,4 @@ jobs:
               ${PRERELEASE} ${LATEST}
           fi
           gh release upload "${CHANNEL_TAG}" --clobber \
-            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.json"
+            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.intoto.jsonl" "${CHANNEL}.json"

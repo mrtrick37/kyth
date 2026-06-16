@@ -37,7 +37,8 @@ jobs:
           python-version: '3.12'
 
       - name: Install atheris
-        run: pip install atheris
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: -r fuzz/requirements.txt
 
       - name: Smoke test
         env:
