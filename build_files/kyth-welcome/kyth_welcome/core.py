@@ -1369,12 +1369,16 @@ def _ludusavi_backup_summary() -> tuple[str, str, str]:
 
 
 def _parse_steam_acf(path: str) -> dict:
-    data: dict[str, str] = {}
     try:
         with open(path, "r", encoding="utf-8", errors="ignore") as fh:
             text = fh.read()
     except OSError:
-        return data
+        return {}
+    return _parse_steam_acf_text(text)
+
+
+def _parse_steam_acf_text(text: str) -> dict:
+    data: dict[str, str] = {}
     for key in ("appid", "name", "installdir"):
         match = re.search(rf'"{re.escape(key)}"\s+"([^"]*)"', text, re.IGNORECASE)
         if match:
@@ -2023,7 +2027,10 @@ def _format_display_mode(mode: str) -> str:
     m = re.match(r'(\d+)x(\d+)@([\d.]+)', mode)
     if not m:
         return mode
-    hz = float(m.group(3))
+    try:
+        hz = float(m.group(3))
+    except ValueError:
+        return mode
     return f"{m.group(1)}×{m.group(2)} @ {hz:.0f}Hz"
 
 
@@ -2275,7 +2282,10 @@ def _parse_kscreen_output(raw: str) -> HardwareProbe:
             for m_str in out["modes"]:
                 hz_m = re.search(r'@([\d.]+)', m_str)
                 if hz_m:
-                    max_hz = max(max_hz, float(hz_m.group(1)))
+                    try:
+                        max_hz = max(max_hz, float(hz_m.group(1)))
+                    except ValueError:
+                        continue
             if max_hz >= 100:
                 vrr_warnings.append(
                     f"{out['name']} supports up to {max_hz:.0f}Hz but VRR/FreeSync is set to Never."

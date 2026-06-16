@@ -324,7 +324,7 @@ jobs:
     timeout-minutes: 30
     environment: ${{ inputs.source_tag == 'testing' && 'testing-release' || 'stable-release' }}
     permissions:
-      actions: read
+      actions: write
       contents: write
       packages: write
       id-token: write
@@ -482,3 +482,13 @@ jobs:
               --notes-file "${NOTES}" \
               ${PRERELEASE}
           fi
+
+      - name: Trigger CVE scan
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+        run: |
+          gh workflow run cve-scan.yml \
+            --ref "${GITHUB_REF_NAME}" \
+            --field "source_tag=${SOURCE_TAG}"

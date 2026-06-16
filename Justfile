@@ -32,6 +32,11 @@ check-dockerfile check_base_image="ghcr.io/ublue-os/kinoite-main:44":
         --build-arg BASE_IMAGE={{ check_base_image }} \
         .
 
+# Run Python unit tests.
+[group('Quality')]
+test:
+    python3 -m unittest discover -s tests
+
 # Fix Just Syntax
 [group('Just')]
 fix:
@@ -326,7 +331,7 @@ build-base base_image="ghcr.io/ublue-os/kinoite-main:44" kernel_flavor="fedora":
 #   the key file, before building:
 #     export MOK_KEY_FILE=~/.config/kyth/secureboot/kyth-secureboot.key
 #     # or: export MOK_KEY=$(cat ~/path/to/kyth-mok-PRIVATE.key)
-#     just build
+# just build
 [group('Build')]
 build: build-base
     #!/usr/bin/env bash
@@ -379,7 +384,6 @@ build: build-base
         --load \
         .
 
-
 # Command: _rootful_load_image
 # Description: Ensures the target image is available to the root Docker daemon.
 #              If already running as root/sudo, exits immediately (image is already accessible).
@@ -403,7 +407,7 @@ _rootful_load_image $target_image=image_name $tag=default_tag:
 
     # Try to resolve the image tag using docker inspect
     set +e
-        resolved_tag=$(docker inspect --format '{{"{{.RepoTags}}"}}' "${target_image}:${tag}" | jq -r '.[0]')
+        resolved_tag=$(docker inspect --format '{{ "{{.RepoTags}}" }}' "${target_image}:${tag}" | jq -r '.[0]')
     return_code=$?
     set -e
 
@@ -547,7 +551,6 @@ _build-bib $target_image $tag $type $config: (_rootful_load_image target_image t
         echo "Produced ISO: ${ISO_PATH}"
     fi
 
-
 # Build a QCOW2 virtual machine image
 [group('Build Virtual Machine Image')]
 build-qcow2 $target_image=("localhost/" + image_name) $tag=default_tag: && (_build-bib target_image tag "qcow2" "disk_config/disk.toml")
@@ -596,7 +599,7 @@ run-live-iso-native-local:
 
 # Boot the live ISO in a VM (BIOS, web UI at http://localhost:PORT).
 # Uses the dedicated artifact name from build-live-iso.sh:
-#   output/live-iso/kyth-live-<tag>.iso
+# output/live-iso/kyth-live-<tag>.iso
 [group('Run Virtual Machine')]
 run-live-iso source_tag="latest":
     #!/usr/bin/bash
@@ -928,7 +931,6 @@ spawn-vm rebuild="0" type="qcow2" ram="6G":
       --network-user-mode \
       --vsock=false --pass-ssh-key=false \
       -i ./output/**/*.{{ type }}
-
 
 # Runs shell check on all Bash scripts
 lint:
