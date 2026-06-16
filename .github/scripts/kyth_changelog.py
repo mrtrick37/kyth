@@ -223,12 +223,20 @@ def main() -> int:
     parser.add_argument("--current-digest", required=True)
     parser.add_argument("--previous-digest", default="")
     parser.add_argument("--current-sha", required=True)
+    parser.add_argument("--current-sbom-file", default="")
     parser.add_argument("--grype-current", default="")
     parser.add_argument("--grype-previous", default="")
     parser.add_argument("--output", required=True)
     args = parser.parse_args()
 
-    current_sbom = load_sbom(args.image, args.current_digest)
+    if args.current_sbom_file:
+        try:
+            current_sbom = json.loads(Path(args.current_sbom_file).read_text(encoding="utf-8"))
+        except Exception as exc:
+            print(f"warning: could not read --current-sbom-file: {exc}", file=sys.stderr)
+            current_sbom = None
+    else:
+        current_sbom = load_sbom(args.image, args.current_digest)
     previous_sbom = load_sbom(args.image, args.previous_digest)
     current_packages = rpm_packages(current_sbom)
     previous_packages = rpm_packages(previous_sbom)

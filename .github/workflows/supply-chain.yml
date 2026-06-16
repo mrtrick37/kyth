@@ -306,6 +306,7 @@ jobs:
           CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
           CURRENT_SHA: ${{ steps.image.outputs.source_sha }}
+          CURRENT_SBOM: ${{ steps.sbom.outputs.path }}
           SOURCE_TAG: ${{ inputs.source_tag }}
           GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
           GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
@@ -325,6 +326,7 @@ jobs:
             --current-digest "${CURRENT_DIGEST}" \
             --previous-digest "${PREVIOUS_DIGEST}" \
             --current-sha "${CURRENT_SHA}" \
+            --current-sbom-file "${CURRENT_SBOM}" \
             "${GRYPE_ARGS[@]}" \
             --output "${NOTES}"
           echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
