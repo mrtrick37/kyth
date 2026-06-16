@@ -189,6 +189,52 @@ jobs:
       attestations: write
 
     steps:
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          ref: ${{ needs.build.outputs.source_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Generate ISO release changelog
+        id: iso_changelog
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
+        run: |
+          NOTES="$(mktemp --suffix=.md)"
+          # Find the previous immutable ISO release for this channel to compute a commit range.
+          PREV_SHA=""
+          PREV_TAG="$(gh release list --limit 30 --json tagName \
+            -q ".[] | .tagName | select(startswith(\"iso-${SOURCE_TAG}-\"))" \
+            2>/dev/null | head -1 || true)"
+          if [[ -n "${PREV_TAG}" ]]; then
+            PREV_SHA="$(gh release view "${PREV_TAG}" --json targetCommitish \
+              -q .targetCommitish 2>/dev/null || true)"
+          fi
+
+          {
+            if [[ -n "${PREV_SHA}" && "${PREV_SHA}" != "${SOURCE_SHA}" ]] \
+                && git cat-file -e "${PREV_SHA}" 2>/dev/null; then
+              printf '### What changed\n\n'
+              printf '| Commit | Summary |\n| --- | --- |\n'
+              git log \
+                --pretty=format:"| [\`%h\`](https://github.com/${GH_REPO}/commit/%H) | %s |" \
+                "${PREV_SHA}..${SOURCE_SHA}" 2>/dev/null || true
+              printf '\n\n'
+            fi
+            printf '### Security\n\n'
+            printf 'CVEs fixed in this release are listed in the '
+            printf '[image release notes](https://github.com/%s/releases?q=image-%s) ' \
+              "${GH_REPO}" "${SOURCE_TAG}"
+            printf 'and the [Security tab](https://github.com/%s/security/code-scanning).\n\n' \
+              "${GH_REPO}"
+          } > "${NOTES}"
+
+          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
+
       - name: Download built ISO
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -323,6 +369,7 @@ jobs:
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
           ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
+          ISO_CHANGELOG: ${{ steps.iso_changelog.outputs.path }}
         run: |
           ISO="output/live-iso/${ISO_BASENAME}"
           CHANNEL="output/live-iso/${CHANNEL_BASENAME}"
@@ -344,18 +391,20 @@ jobs:
           fi
 
           IMMUTABLE_NOTES="$(mktemp)"
-          cat > "${IMMUTABLE_NOTES}" <<EOF
-          Permanent KythOS ISO build from **${SOURCE_TAG}**.
-
-          **[Download immutable ISO](${IMMUTABLE_ISO_URL})** | [Checksum](${IMMUTABLE_ISO_URL}-CHECKSUM)
-
-          - Source commit: **${SOURCE_SHA}**
-          - Source image digest: **${SOURCE_DIGEST}**
-          - Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}
-          - Build provenance: ${ATTESTATION_URL}
-
-          The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release.
-          EOF
+          {
+            echo "Permanent KythOS ISO build from **${SOURCE_TAG}**."
+            echo ""
+            cat "${ISO_CHANGELOG:-/dev/null}" 2>/dev/null || true
+            echo "---"
+            echo "**[Download immutable ISO](${IMMUTABLE_ISO_URL})** | [Checksum](${IMMUTABLE_ISO_URL}-CHECKSUM)"
+            echo ""
+            echo "- Source commit: **${SOURCE_SHA}**"
+            echo "- Source image digest: **${SOURCE_DIGEST}**"
+            echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+            echo "- Build provenance: ${ATTESTATION_URL}"
+            echo ""
+            echo "The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release."
+          } > "${IMMUTABLE_NOTES}"
 
           gh release create "${IMMUTABLE_TAG}" \
             --target "${SOURCE_SHA}" \
@@ -366,17 +415,19 @@ jobs:
             "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"
 
           CHANNEL_NOTES="$(mktemp)"
-          cat > "${CHANNEL_NOTES}" <<EOF
-          This is the moving **${SOURCE_TAG}** channel pointer.
-
-          **[Download current ISO](${CHANNEL_ISO_URL})** | [Checksum](${CHANNEL_ISO_URL}-CHECKSUM)
-
-          Current immutable release: [${IMMUTABLE_TAG}](${IMMUTABLE_RELEASE_URL})
-
-          - Source commit: **${SOURCE_SHA}**
-          - Source image digest: **${SOURCE_DIGEST}**
-          - Build provenance: ${ATTESTATION_URL}
-          EOF
+          {
+            echo "This is the moving **${SOURCE_TAG}** channel pointer."
+            echo ""
+            cat "${ISO_CHANGELOG:-/dev/null}" 2>/dev/null || true
+            echo "---"
+            echo "**[Download current ISO](${CHANNEL_ISO_URL})** | [Checksum](${CHANNEL_ISO_URL}-CHECKSUM)"
+            echo ""
+            echo "Current immutable release: [${IMMUTABLE_TAG}](${IMMUTABLE_RELEASE_URL})"
+            echo ""
+            echo "- Source commit: **${SOURCE_SHA}**"
+            echo "- Source image digest: **${SOURCE_DIGEST}**"
+            echo "- Build provenance: ${ATTESTATION_URL}"
+          } > "${CHANNEL_NOTES}"
 
           if gh release view "${CHANNEL_TAG}" >/dev/null 2>&1; then
             gh release edit "${CHANNEL_TAG}" \
