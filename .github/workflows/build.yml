@@ -431,6 +431,7 @@ jobs:
           GE_PROTON_VERSION: ${{ steps.ge_proton.outputs.version }}
           THIRDPARTY_VERSIONS_HASH: ${{ steps.thirdparty_versions.outputs.hash }}
           KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
+          WORKFLOW_GITHUB_SHA: ${{ github.sha }}
         run: |
           mkdir -p output/build-metadata
           python3 - <<'PY'
@@ -443,6 +444,10 @@ jobs:
               "digest": os.environ["DIGEST"],
               "version": os.environ["VERSION"],
               "source_sha": os.environ["SOURCE_SHA"],
+              # GITHUB_SHA is the triggering commit recorded in the build provenance
+              # attestation. For schedule runs it equals the default branch HEAD and
+              # may differ from source_sha when building a non-default branch.
+              "github_sha": os.environ["WORKFLOW_GITHUB_SHA"],
               "source_tag": os.environ["SOURCE_TAG"],
               "workflow_run_id": os.environ["GITHUB_RUN_ID"],
               "workflow_run_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
@@ -518,14 +523,17 @@ jobs:
           IMAGE="$(jq -r .image "${METADATA}")"
           DIGEST="$(jq -r .digest "${METADATA}")"
           SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
+          GITHUB_SHA_META="$(jq -r '.github_sha // .source_sha' "${METADATA}")"
           KERNEL_FLAVOR="$(jq -r .materials.kernel_flavor "${METADATA}")"
           [[ "${IMAGE}" =~ ^ghcr\.io/[a-z0-9._/-]+$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${GITHUB_SHA_META}" =~ ^[0-9a-f]{40}$ ]]
           test "${KERNEL_FLAVOR}" = "${EXPECTED_FLAVOR}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "github_sha=${GITHUB_SHA_META}" >> "$GITHUB_OUTPUT"
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -553,6 +561,7 @@ jobs:
           MATRIX_BRANCH: ${{ matrix.branch }}
           STEPS_IMAGE_OUTPUTS_DIGEST: ${{ steps.image.outputs.digest }}
           STEPS_IMAGE_OUTPUTS_SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
+          STEPS_IMAGE_OUTPUTS_GITHUB_SHA: ${{ steps.image.outputs.github_sha }}
         run: |
           SOURCE_TAG="${STEPS_PREP_OUTPUTS_TAG}"
           echo "==> Dispatching metadata and live ISO builds for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
@@ -560,7 +569,8 @@ jobs:
             --ref "${MATRIX_BRANCH}" \
             --field "source_tag=${SOURCE_TAG}" \
             --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
-            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"
+            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}" \
+            --field "source_github_sha=${STEPS_IMAGE_OUTPUTS_GITHUB_SHA}"
           gh workflow run build-live-iso.yml \
             --ref "${MATRIX_BRANCH}" \
             --field "source_tag=${SOURCE_TAG}" \
