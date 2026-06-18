@@ -63,7 +63,7 @@ from .page_work import (  # noqa: E501
     WorkSetupPage,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
+    QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QKeySequence, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QShortcut, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
     _divider, _make_card, _set_log_panel, _theme_icon,
@@ -343,6 +343,10 @@ class MainWindow(QMainWindow):
         self._history: list[int] = []
         self._history_pos: int = -1
         self._setup_search()
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.activated.connect(self._focus_search)
+        self._home_shortcut = QShortcut(QKeySequence("Alt+Home"), self)
+        self._home_shortcut.activated.connect(lambda: self._navigate_to("Welcome"))
         self._switch_page(0)
 
     # ── Search ("Find a setting") ─────────────────────────────────────────────
@@ -410,6 +414,10 @@ class MainWindow(QMainWindow):
         self._search_box.setCompleter(completer)
         self._search_box.textChanged.connect(self._update_search_results)
         self._search_box.returnPressed.connect(self._on_search_return)
+
+    def _focus_search(self):
+        self._search_box.setFocus()
+        self._search_box.selectAll()
 
     def _on_search_pick(self, entry: str):
         key = self._search_key_by_entry.get(entry)
@@ -696,7 +704,10 @@ class WizardWindow(QMainWindow):
         self._back_btn.setFixedWidth(100)
         self._back_btn.clicked.connect(self._go_back)
         footer_layout.addWidget(self._back_btn)
-        footer_layout.addStretch()
+        self._step_hint = QLabel("")
+        self._step_hint.setObjectName("wizard-footer-hint")
+        self._step_hint.setWordWrap(True)
+        footer_layout.addWidget(self._step_hint, 1)
 
         self._skip_btn = QPushButton("Skip for now")
         self._skip_btn.clicked.connect(self._go_next)
@@ -1447,6 +1458,15 @@ class WizardWindow(QMainWindow):
         idx = self._current
         total = len(self._steps)
         operation_busy = self._has_running_operation()
+        hints = [
+            "Pick a focus. You can change it later from Home.",
+            "Recommended. Updates stage safely and apply after restart.",
+            "Recommended. Hardware checks catch driver, display, audio, network, and controller issues early.",
+            "Optional. Install extras now, or continue with the game-ready defaults.",
+            "Optional. Launcher and Proton tools stay available from Gaming.",
+            "System Hub stays in the app menu whenever you need it.",
+        ]
+        self._step_hint.setText(hints[idx] if idx < len(hints) else "")
 
         for i, (dot, lbl) in enumerate(self._step_label_widgets):
             if i < idx:

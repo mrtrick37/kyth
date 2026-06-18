@@ -20,7 +20,7 @@ from .qt import (  # noqa: E501
     QCheckBox, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card,
+    Page, _make_card, _make_flow_step,
 )
 
 def _unlock_bitlocker_drive(dev: str, key: str) -> tuple[bool, str]:
@@ -881,6 +881,19 @@ class WindowsMigrationPage(Page):
         intro_btns.addStretch()
         intro_layout.addLayout(intro_btns)
         self._add(intro)
+
+        flow_card, flow_layout = _make_card()
+        flow_title = QLabel("Migration path")
+        flow_title.setObjectName("card-title")
+        flow_layout.addWidget(flow_title)
+        for i, (title, copy) in enumerate((
+            ("Scan Windows drives", "Detect NTFS, BitLocker, hibernation state, user folders, Steam libraries, and safe mount points."),
+            ("Choose what to copy", "Select personal folders, bookmarks, saves, or game libraries. The Windows drive is the source, not the destination."),
+            ("Copy into KythOS", "Files land in your home folder or Steam library on a Linux-formatted disk. Windows stays untouched."),
+            ("Finish the habits", "Set up cloud sync, shortcuts, phone pairing, printer setup, and PowerToys equivalents from this page."),
+        ), 1):
+            flow_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(flow_card)
 
         checklist, checklist_layout = _make_card()
         checklist_title = QLabel("Windows switch checklist")

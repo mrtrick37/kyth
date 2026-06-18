@@ -11,7 +11,7 @@ from .qt import (  # noqa: E501
     QCheckBox, QDesktopServices, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card, _set_log_panel,
+    Page, _make_card, _make_flow_step, _set_log_panel,
 )
 
 # ── Page: Update ──────────────────────────────────────────────────────────────
@@ -124,6 +124,18 @@ class UpdatePage(Page):
         avail_layout.addLayout(avail_hero)
         self._avail_card = avail_card
         self._add(self._avail_card)
+
+        update_flow, update_flow_layout = _make_card()
+        flow_title = QLabel("Update flow")
+        flow_title.setObjectName("card-title")
+        update_flow_layout.addWidget(flow_title)
+        for i, (title, copy) in enumerate((
+            ("Check", "KythOS compares the running image with the selected update channel."),
+            ("Stage", "Downloads land as a new bootable image. Your current system keeps running."),
+            ("Restart", "The staged image becomes active on reboot; the previous image remains available for rollback."),
+        ), 1):
+            update_flow_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(update_flow)
 
         rollback_help, rollback_help_layout = _make_card("card-accent-warn")
         rollback_help_title = QLabel("Bad update? Roll back before reinstalling")

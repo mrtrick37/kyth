@@ -301,6 +301,32 @@ QLabel#task-status-err {
     border: 1px solid #5e3338;
 }
 
+QFrame#flow-step {
+    background: #242424;
+    border: 1px solid #343434;
+    border-radius: 6px;
+}
+
+QLabel#flow-step-num {
+    background: #26303a;
+    color: #99d9ff;
+    border: 1px solid #36506a;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 700;
+}
+
+QLabel#flow-step-title {
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+QLabel#flow-step-copy {
+    color: #a6a6a6;
+    line-height: 1.45;
+}
+
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
 QPushButton {
     background: #2d2d2d;
@@ -990,6 +1016,11 @@ QWidget#wizard-header {
 QWidget#wizard-footer {
     background: #1b1b1c;
     border-top: 1px solid #2e2e2e;
+}
+
+QLabel#wizard-footer-hint {
+    color: #a6a6a6;
+    font-size: 12px;
 }
 
 QLabel#step-dot-active {

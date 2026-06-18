@@ -82,6 +82,17 @@ class HardwarePage(Page):
         self._add(self._make_bt_audio_card())
         self._add(self._make_display_card())
 
+        self._summary_card, summary_layout = _make_card()
+        self._summary_title = QLabel()
+        self._summary_title.setObjectName("card-title")
+        summary_layout.addWidget(self._summary_title)
+        self._summary_body = QLabel()
+        self._summary_body.setObjectName("card-copy")
+        self._summary_body.setWordWrap(True)
+        summary_layout.addWidget(self._summary_body)
+        self._summary_card.hide()
+        self._add(self._summary_card)
+
         # Card container inside the page's scroll area
         self._card_container = QWidget()
         self._card_container.setObjectName("content-area")
@@ -341,16 +352,30 @@ class HardwarePage(Page):
         self._last_probes = probes
 
         levels = {p.status for p in probes}
+        errs = [p for p in probes if p.status == "err"]
+        warns = [p for p in probes if p.status == "warn"]
+        oks = [p for p in probes if p.status == "ok"]
         if "err" in levels:
             self._status_lbl.setText("One or more issues need attention.")
             self._status_lbl.setObjectName("status-err")
+            self._summary_card.setObjectName("card-accent-err")
+            self._summary_title.setText(f"{len(errs)} hardware issue{'s' if len(errs) != 1 else ''} found")
+            self._summary_body.setText("Start with the issue cards below; each one includes the safest next action when KythOS knows one.")
         elif "warn" in levels:
             self._status_lbl.setText("Mostly healthy — a few items worth checking.")
             self._status_lbl.setObjectName("status-warn")
+            self._summary_card.setObjectName("card-accent-warn")
+            self._summary_title.setText(f"{len(warns)} hardware warning{'s' if len(warns) != 1 else ''}")
+            self._summary_body.setText("The system is usable, but some device, display, driver, or platform checks have recommended follow-up.")
         else:
             self._status_lbl.setText("All checks passed.")
             self._status_lbl.setObjectName("status-ok")
+            self._summary_card.setObjectName("card-accent-ok")
+            self._summary_title.setText(f"All {len(oks)} hardware checks passed")
+            self._summary_body.setText("Graphics, firmware, audio, networking, storage, and platform checks look ready.")
         _restyle(self._status_lbl)
+        _restyle(self._summary_card)
+        self._summary_card.show()
 
         if self._wizard_mode:
             self._wire_wizard_action_buttons(probes)

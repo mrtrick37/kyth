@@ -16,7 +16,7 @@ from .qt import (  # noqa: E501
     QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 from .widgets import (  # noqa: E501
-    HardwareCard, Page, _make_card,
+    HardwareCard, Page, _make_card, _make_flow_step,
 )
 
 
@@ -175,6 +175,18 @@ class DiagnosticsPage(Page):
             "Health Report",
             "A quick look at how your hardware and system stack are doing.",
         )
+
+        triage_card, triage_layout = _make_card()
+        triage_title = QLabel("Health report triage")
+        triage_title.setObjectName("card-title")
+        triage_layout.addWidget(triage_title)
+        for i, (title, copy) in enumerate((
+            ("Summary first", "The banner tells you whether the system looks healthy, needs attention, or has a blocking issue."),
+            ("Cards next", "Hardware and security rows point at the specific area: graphics, display, audio, network, storage, recovery, or sign-in."),
+            ("Details last", "Technical logs stay collapsed until you need to copy, save, or attach them to an issue."),
+        ), 1):
+            triage_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(triage_card)
 
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)

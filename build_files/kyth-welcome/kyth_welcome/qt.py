@@ -22,7 +22,7 @@ try:
     from PySide6.QtCore import (
         Qt, QThread, Signal, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,
     )
-    from PySide6.QtGui import QDesktopServices, QIcon
+    from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut
     from PySide6.QtDBus import QDBusConnection, QDBusInterface
 
     QT_BINDING = "PySide6"
@@ -38,7 +38,7 @@ except ImportError:
         Qt, QThread, QTimer, QUrl, QLibraryInfo, QSize, QStringListModel,
     )
     from PyQt6.QtCore import pyqtSignal as Signal
-    from PyQt6.QtGui import QDesktopServices, QIcon
+    from PyQt6.QtGui import QDesktopServices, QIcon, QKeySequence, QShortcut
     from PyQt6.QtDBus import QDBusConnection, QDBusInterface
 
     QT_BINDING = "PyQt6"

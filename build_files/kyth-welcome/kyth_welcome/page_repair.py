@@ -11,7 +11,7 @@ from .qt import (  # noqa: E501
     QDesktopServices, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card, _set_log_panel,
+    Page, _make_card, _make_flow_step, _set_log_panel,
 )
 
 # ── Page: Repair ──────────────────────────────────────────────────────────────
@@ -46,6 +46,18 @@ class RepairPage(Page):
         info_body.setWordWrap(True)
         info_layout.addWidget(info_body)
         self._add(info)
+
+        order_card, order_layout = _make_card("card-accent-ok")
+        order_title = QLabel("Best repair order")
+        order_title.setObjectName("card-title")
+        order_layout.addWidget(order_title)
+        for i, (title, copy) in enumerate((
+            ("Quick fixes", "Refresh menus, repair Flatpaks, restart audio or Bluetooth, and collect a snapshot first."),
+            ("Roll back", "If trouble started after an update, stage the previous image before changing anything else."),
+            ("Repair install", "Use the destructive OS reset only after quick fixes and rollback do not match the problem."),
+        ), 1):
+            order_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(order_card)
 
         immutable, immutable_layout = _make_card("card-accent-ok")
         immutable_title = QLabel("Why system files are read-only")

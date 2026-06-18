@@ -34,6 +34,33 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     return card, layout
 
 
+def _make_flow_step(number: int, title: str, copy: str) -> QFrame:
+    step = QFrame()
+    step.setObjectName("flow-step")
+    layout = QHBoxLayout(step)
+    layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(12)
+
+    num = QLabel(str(number))
+    num.setObjectName("flow-step-num")
+    num.setFixedSize(22, 22)
+    num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(num, 0, Qt.AlignmentFlag.AlignTop)
+
+    text_col = QVBoxLayout()
+    text_col.setSpacing(2)
+    title_lbl = QLabel(title)
+    title_lbl.setObjectName("flow-step-title")
+    title_lbl.setWordWrap(True)
+    text_col.addWidget(title_lbl)
+    copy_lbl = QLabel(copy)
+    copy_lbl.setObjectName("flow-step-copy")
+    copy_lbl.setWordWrap(True)
+    text_col.addWidget(copy_lbl)
+    layout.addLayout(text_col, 1)
+    return step
+
+
 class AppImageDropCard(QFrame):
     _IMAGE_RE = re.compile(r"\.(png|svg|svgz|jpg|jpeg|webp|ico|xpm)$", re.I)
 
