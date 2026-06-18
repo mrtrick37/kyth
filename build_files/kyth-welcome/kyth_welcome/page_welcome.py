@@ -127,10 +127,14 @@ class WelcomePage(Page):
         if days is not None and _FIRST_WEEK_MIN_DAYS <= days <= _FIRST_WEEK_MAX_DAYS:
             self._add(self._make_first_week_card(days))
 
+        self._add(self._make_section_header("Tune the hub", "Choose what this PC is for; the rest of the hub follows that focus."))
+
         # ── Usage focus ───────────────────────────────────────────────────────
         # Same choice the first-boot wizard offers, so existing installs can
         # re-purpose a machine (e.g. a work PC that never games) after the fact.
         self._add(self._make_focus_card())
+
+        self._add(self._make_section_header("Browse by task", "Familiar Windows names like Device Manager, Xbox Game Bar, and Map network drive are mapped into KythOS tools."))
 
         # ── Category grid, like the Control Panel category view ──────────────
         categories: list[tuple[tuple[str, ...], str, str, list[tuple[str, str]]]] = [
@@ -303,6 +307,23 @@ class WelcomePage(Page):
 
     # ── Usage focus ───────────────────────────────────────────────────────────
 
+    def _make_section_header(self, title: str, subtitle: str) -> QFrame:
+        frame = QFrame()
+        frame.setObjectName("home-section")
+        layout = QVBoxLayout(frame)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(4)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("home-section-title")
+        layout.addWidget(title_lbl)
+
+        subtitle_lbl = QLabel(subtitle)
+        subtitle_lbl.setObjectName("home-section-copy")
+        subtitle_lbl.setWordWrap(True)
+        layout.addWidget(subtitle_lbl)
+        return frame
+
     def _make_focus_card(self) -> QFrame:
         card, layout = _make_card()
         title = QLabel("This PC's focus")
@@ -359,6 +380,7 @@ class WelcomePage(Page):
 
     def _make_recommended_card(self, staged: bool, rollback: bool, windows_found: bool = False) -> QFrame:
         if _IS_LIVE:
+            kicker = "Live session"
             title = "Try the desktop, then install when ready"
             copy = (
                 "Start with hardware checks so you know graphics, networking, audio, "
@@ -366,6 +388,7 @@ class WelcomePage(Page):
             )
             buttons = [("Check Hardware", "Hardware", True), ("Install KythOS", None, False)]
         elif staged:
+            kicker = "Needs attention"
             title = "Restart to finish your update"
             copy = (
                 "A new KythOS image is staged. Restart when convenient; your previous "
@@ -373,6 +396,7 @@ class WelcomePage(Page):
             )
             buttons = [("Restart Now", "reboot", True), ("View Update", "Update", False)]
         elif rollback:
+            kicker = "Recovery ready"
             title = "Your previous system is saved"
             copy = (
                 "Rollback is available if a recent change does not feel right. "
@@ -380,6 +404,7 @@ class WelcomePage(Page):
             )
             buttons = [("View Rollback", "Update", True), ("Set Up Games", "Gaming", False)]
         elif windows_found:
+            kicker = "Recommended next"
             title = "Windows drive found — bring your games and files"
             copy = (
                 "KythOS sees one or more Windows drives. Copy saves, inspect Steam "
@@ -387,29 +412,47 @@ class WelcomePage(Page):
             )
             buttons = [("Move From Windows", "Move From Windows", True), ("Set Up Games", "Gaming", False)]
         else:
+            kicker = "Recommended next"
             title = "Everything starts here"
             copy = (
-                "Pick a category below, or use the search box at the top to find "
-                "any setting — Windows names like \"Device Manager\" work too."
+                "Set up the essentials first, then use search or the task cards below "
+                "whenever you know what you want to do."
             )
             buttons = [("Set Up Games", "Gaming", True), ("Install Apps", "App Store", False)]
 
-        card, layout = _make_card("card-accent-ok")
+        card, layout = _make_card("home-recommend-card")
+        kicker_lbl = QLabel(kicker.upper())
+        kicker_lbl.setObjectName("home-kicker")
+        layout.addWidget(kicker_lbl)
+
+        row = QHBoxLayout()
+        row.setSpacing(20)
+
+        text_col = QVBoxLayout()
+        text_col.setSpacing(8)
         title_lbl = QLabel(title)
         title_lbl.setObjectName("home-next-title")
-        layout.addWidget(title_lbl)
+        title_lbl.setWordWrap(True)
+        text_col.addWidget(title_lbl)
 
         body = QLabel(copy)
         body.setObjectName("home-next-copy")
         body.setWordWrap(True)
-        layout.addWidget(body)
+        text_col.addWidget(body)
 
-        btns = QHBoxLayout()
+        meta = QLabel("Familiar Windows setting names land on the right KythOS tools here.")
+        meta.setObjectName("home-next-meta")
+        meta.setWordWrap(True)
+        text_col.addWidget(meta)
+        row.addLayout(text_col, 1)
+
+        btns = QVBoxLayout()
         btns.setSpacing(8)
         for label, key, primary in buttons:
             btn = QPushButton(label)
             if primary:
                 btn.setObjectName("primary")
+            btn.setMinimumWidth(168)
             if key == "reboot":
                 btn.clicked.connect(lambda _=False: subprocess.Popen(["systemctl", "reboot"]))
             elif key is None:
@@ -418,7 +461,8 @@ class WelcomePage(Page):
                 btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
             btns.addWidget(btn)
         btns.addStretch()
-        layout.addLayout(btns)
+        row.addLayout(btns)
+        layout.addLayout(row)
         return card
 
     def _make_category_card(

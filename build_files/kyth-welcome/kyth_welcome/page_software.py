@@ -366,6 +366,7 @@ class SoftwarePage(Page):
         self._fp_catalog_worker: Worker | None = None
         self._fp_refresh_worker: Worker | None = None
         self._fp_install_worker: Worker | None = None
+        self._fp_uninstall_worker: Worker | None = None
         self._fp_search_lines: list[str] = []
         self._fp_catalog_lines: list[str] = []
         self._fp_catalog_entries: list[dict] = []
@@ -1149,14 +1150,10 @@ class SoftwarePage(Page):
         details_btn = QPushButton("Details")
         details_btn.clicked.connect(lambda _=False, e=entry: self._show_fp_details(e))
         btn_row.addWidget(details_btn)
-        already_installed = _is_flatpak_installed(app_id)
-        install_btn = QPushButton("Installed" if already_installed else "Install")
-        install_btn.setEnabled(not already_installed)
-        if not already_installed:
-            install_btn.setObjectName("primary")
-            install_btn.clicked.connect(
-                lambda _=False, aid=app_id, n=name, b=install_btn: self._fp_install(aid, n, b)
-            )
+        open_btn = QPushButton("Open")
+        install_btn = QPushButton()
+        self._configure_fp_lifecycle_buttons(app_id, name, install_btn, open_btn)
+        btn_row.addWidget(open_btn)
         btn_row.addWidget(install_btn)
         layout.addLayout(btn_row)
         return card
@@ -1198,10 +1195,7 @@ class SoftwarePage(Page):
 
     def _open_store_shelf(self, shelf: dict):
         self._clear_fp_results()
-        self._fp_status.setText(f"{shelf['name']}: curated apps for Kyth users.")
-        self._fp_status.setObjectName("status-dim")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state(f"{shelf['name']}: curated apps for Kyth users.", "idle")
         self._fp_results_layout.addWidget(self._make_store_shelf(shelf))
         more_btn = QPushButton(f"Browse more {shelf['name']} apps")
         more_btn.clicked.connect(lambda _=False, q=shelf["query"], n=shelf["name"]: self._show_fp_category(q, n))
@@ -1216,10 +1210,7 @@ class SoftwarePage(Page):
         self._clear_fp_results()
         self._fp_search_lines = []
         self._fp_progress.show()
-        self._fp_status.setText(f"Searching Flathub for “{query}”…")
-        self._fp_status.setObjectName("status-dim")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state(f"Searching Flathub for “{query}”…", "running")
         self._fp_search_btn.setEnabled(False)
         self._fp_search_worker = Worker(
             ["flatpak", "search", "-j", query]
@@ -1275,17 +1266,13 @@ class SoftwarePage(Page):
                 msg = f"Search failed — {detail}"
             else:
                 msg = "Search failed — check that Flatpak and Flathub are available."
-            self._fp_status.setText(msg)
-            self._fp_status.setObjectName("status-dim" if code == 0 else "status-warn")
-            _restyle(self._fp_status)
+            self._set_fp_task_state(msg, "idle" if code == 0 else "warn")
             return
         shown = results[:30]
         count_msg = f"{len(results)} result{'s' if len(results) != 1 else ''} found"
         if len(results) > 30:
             count_msg += " — showing top 30"
-        self._fp_status.setText(count_msg + ".")
-        self._fp_status.setObjectName("status-dim")
-        _restyle(self._fp_status)
+        self._set_fp_task_state(count_msg + ".", "idle")
         for entry in shown:
             self._fp_results_layout.addWidget(self._make_fp_result_row(entry))
 
@@ -1313,10 +1300,7 @@ class SoftwarePage(Page):
             return
         self._fp_search_lines = []
         self._fp_progress.show()
-        self._fp_status.setText("Refreshing Flathub metadata...")
-        self._fp_status.setObjectName("status-dim")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state("Refreshing Flathub metadata...", "running")
         self._fp_refresh_btn.setEnabled(False)
         self._fp_refresh_worker = Worker(["flatpak", "update", "--appstream"])
         self._fp_refresh_worker.line.connect(self._on_fp_search_line)
@@ -1330,13 +1314,10 @@ class SoftwarePage(Page):
         self._fp_appstream_cache = None
         self._fp_catalog_entries = []
         if code == 0:
-            self._fp_status.setText("Flathub metadata refreshed.")
-            self._fp_status.setObjectName("status-ok")
+            self._set_fp_task_state("Flathub metadata refreshed.", "success")
         else:
             detail = next((line.strip() for line in self._fp_search_lines if line.strip()), "")
-            self._fp_status.setText(detail or f"Metadata refresh failed (exit {code}). Cached data can still be used.")
-            self._fp_status.setObjectName("status-warn")
-        _restyle(self._fp_status)
+            self._set_fp_task_state(detail or f"Metadata refresh failed (exit {code}). Cached data can still be used.", "warn")
 
     def _load_fp_catalog(self):
         if self._fp_catalog_worker and self._fp_catalog_worker.isRunning():
@@ -1344,10 +1325,7 @@ class SoftwarePage(Page):
         self._clear_fp_results()
         self._fp_catalog_lines = []
         self._fp_progress.show()
-        self._fp_status.setText("Loading cached Flathub catalog...")
-        self._fp_status.setObjectName("status-dim")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state("Loading cached Flathub catalog...", "running")
         self._fp_catalog_btn.setEnabled(False)
         self._fp_catalog_worker = Worker([
             "flatpak", "remote-ls", "--cached", "--app",
@@ -1379,9 +1357,7 @@ class SoftwarePage(Page):
                 entries = []
         if code != 0 or not entries:
             detail = next((line.strip() for line in self._fp_catalog_lines if line.strip()), "")
-            self._fp_status.setText(detail or "Cached Flathub catalog could not be loaded.")
-            self._fp_status.setObjectName("status-warn")
-            _restyle(self._fp_status)
+            self._set_fp_task_state(detail or "Cached Flathub catalog could not be loaded.", "warn")
             return
         self._fp_catalog_entries = entries
         self._render_fp_entries(entries, "Cached Flathub catalog")
@@ -1392,10 +1368,7 @@ class SoftwarePage(Page):
         count_msg = f"{title}: {len(entries)} app{'s' if len(entries) != 1 else ''}"
         if len(entries) > limit:
             count_msg += f" — showing first {limit}"
-        self._fp_status.setText(count_msg + ".")
-        self._fp_status.setObjectName("status-dim")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state(count_msg + ".", "idle")
         for entry in shown:
             self._fp_results_layout.addWidget(self._make_fp_result_row(entry))
 
@@ -1706,18 +1679,71 @@ class SoftwarePage(Page):
         details_btn.clicked.connect(lambda _=False, e=entry: self._show_fp_details(e))
         row_layout.addWidget(details_btn)
 
-        already_installed = _is_flatpak_installed(app_id)
-        install_btn = QPushButton("Installed" if already_installed else "Install")
-        install_btn.setEnabled(not already_installed)
-        if not already_installed:
-            install_btn.setObjectName("primary")
-            install_btn.clicked.connect(
-                lambda _=False, aid=app_id, n=name, b=install_btn: self._fp_install(aid, n, b)
-            )
+        open_btn = QPushButton("Open")
+        row_layout.addWidget(open_btn)
+
+        install_btn = QPushButton()
+        self._configure_fp_lifecycle_buttons(app_id, name, install_btn, open_btn)
         row_layout.addWidget(install_btn)
         return row
 
-    def _fp_install(self, app_id: str, name: str, btn: QPushButton):
+    def _configure_fp_lifecycle_buttons(
+        self,
+        app_id: str,
+        name: str,
+        action_btn: QPushButton,
+        open_btn: QPushButton | None = None,
+        installed: bool | None = None,
+    ) -> None:
+        installed = _is_flatpak_installed(app_id) if installed is None else installed
+        for btn in (action_btn, open_btn):
+            if btn is None:
+                continue
+            try:
+                btn.clicked.disconnect()
+            except (RuntimeError, TypeError):
+                pass
+
+        if open_btn is not None:
+            open_btn.setVisible(installed)
+            open_btn.setEnabled(installed)
+            open_btn.setObjectName("primary" if installed else "")
+            if installed:
+                open_btn.clicked.connect(lambda _=False, aid=app_id: self._open_fp_app(aid))
+            _restyle(open_btn)
+
+        if installed:
+            action_btn.setText("Uninstall")
+            action_btn.setObjectName("danger")
+            action_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name, b=action_btn, ob=open_btn: self._fp_store_uninstall(aid, n, b, ob)
+            )
+        else:
+            action_btn.setText("Install")
+            action_btn.setObjectName("primary")
+            action_btn.clicked.connect(
+                lambda _=False, aid=app_id, n=name, b=action_btn, ob=open_btn: self._fp_install(aid, n, b, ob)
+            )
+        action_btn.setEnabled(True)
+        _restyle(action_btn)
+
+    def _open_fp_app(self, app_id: str) -> None:
+        subprocess.Popen(["flatpak", "run", app_id])
+
+    def _set_fp_task_state(self, message: str, state: str) -> None:
+        styles = {
+            "idle": "task-status-idle",
+            "running": "task-status-running",
+            "success": "task-status-ok",
+            "warn": "task-status-warn",
+            "error": "task-status-err",
+        }
+        self._fp_status.setText(message)
+        self._fp_status.setObjectName(styles.get(state, "task-status-idle"))
+        self._fp_status.show()
+        _restyle(self._fp_status)
+
+    def _fp_install(self, app_id: str, name: str, btn: QPushButton, open_btn: QPushButton | None = None):
         if self._fp_install_worker and self._fp_install_worker.isRunning():
             return
         self._fp_installing = app_id
@@ -1728,10 +1754,7 @@ class SoftwarePage(Page):
         self._fp_install_log_toggle.show()
         _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, False)
         self._fp_progress.show()
-        self._fp_status.setText(f"Installing {name or app_id}…")
-        self._fp_status.setObjectName("subheading")
-        self._fp_status.show()
-        _restyle(self._fp_status)
+        self._set_fp_task_state(f"Installing {name or app_id}…", "running")
         cmd = [
             "bash", "-c",
             "flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo"
@@ -1740,7 +1763,7 @@ class SoftwarePage(Page):
         self._fp_install_worker = Worker(cmd)
         self._fp_install_worker.line.connect(self._on_fp_install_line)
         self._fp_install_worker.done.connect(
-            lambda code, aid=app_id, n=name, b=btn: self._on_fp_install_done(code, aid, n, b)
+            lambda code, aid=app_id, n=name, b=btn, ob=open_btn: self._on_fp_install_done(code, aid, n, b, ob)
         )
         self._fp_install_worker.start()
 
@@ -1748,22 +1771,61 @@ class SoftwarePage(Page):
         self._fp_install_log.append(ln)
         self._fp_install_log.ensureCursorVisible()
 
-    def _on_fp_install_done(self, code: int, app_id: str, name: str, btn: QPushButton):
+    def _on_fp_install_done(self, code: int, app_id: str, name: str, btn: QPushButton, open_btn: QPushButton | None = None):
         self._fp_progress.hide()
         _finish_worker(self, attr="_fp_install_worker")
         self._fp_installing = None
         if code == 0:
-            self._fp_status.setText(f"{name or app_id} installed.")
-            self._fp_status.setObjectName("status-ok")
+            self._set_fp_task_state(f"{name or app_id} installed.", "success")
             self._fp_install_log.append("\nDone.")
-            btn.setText("Installed")
+            self._configure_fp_lifecycle_buttons(app_id, name, btn, open_btn, installed=True)
         else:
-            self._fp_status.setText(f"Install failed (exit {code}).")
-            self._fp_status.setObjectName("status-err")
+            self._set_fp_task_state(f"Install failed (exit {code}).", "error")
             _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, True)
-            btn.setText("Install")
-            btn.setEnabled(True)
-        _restyle(self._fp_status)
+            self._configure_fp_lifecycle_buttons(app_id, name, btn, open_btn, installed=False)
+
+    def _fp_store_uninstall(self, app_id: str, name: str, btn: QPushButton, open_btn: QPushButton | None = None):
+        if (self._fp_install_worker and self._fp_install_worker.isRunning()) or \
+                (self._fp_uninstall_worker and self._fp_uninstall_worker.isRunning()):
+            return
+        reply = QMessageBox.question(
+            self,
+            f"Uninstall {name or app_id}",
+            f"Remove {name or app_id}?\n\n{app_id}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+        )
+        if reply != QMessageBox.StandardButton.Yes:
+            return
+        btn.setText("Uninstalling…")
+        btn.setEnabled(False)
+        self._fp_install_log.clear()
+        self._fp_install_log.append(f"→ flatpak uninstall -y {app_id}\n")
+        self._fp_install_log_toggle.show()
+        _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, False)
+        self._fp_progress.show()
+        self._set_fp_task_state(f"Uninstalling {name or app_id}…", "running")
+        self._fp_uninstall_worker = Worker(["flatpak", "uninstall", "-y", app_id])
+        self._fp_uninstall_worker.line.connect(self._on_fp_uninstall_line)
+        self._fp_uninstall_worker.done.connect(
+            lambda code, aid=app_id, n=name, b=btn, ob=open_btn: self._on_fp_store_uninstall_done(code, aid, n, b, ob)
+        )
+        self._fp_uninstall_worker.start()
+
+    def _on_fp_uninstall_line(self, ln: str):
+        self._fp_install_log.append(ln)
+        self._fp_install_log.ensureCursorVisible()
+
+    def _on_fp_store_uninstall_done(self, code: int, app_id: str, name: str, btn: QPushButton, open_btn: QPushButton | None = None):
+        self._fp_progress.hide()
+        _finish_worker(self, attr="_fp_uninstall_worker")
+        if code == 0:
+            self._set_fp_task_state(f"{name or app_id} uninstalled.", "success")
+            self._fp_install_log.append("\nDone.")
+            self._configure_fp_lifecycle_buttons(app_id, name, btn, open_btn, installed=False)
+        else:
+            self._set_fp_task_state(f"Uninstall failed (exit {code}).", "error")
+            _set_log_panel(self._fp_install_log_toggle, self._fp_install_log, True)
+            self._configure_fp_lifecycle_buttons(app_id, name, btn, open_btn, installed=True)
 
     # ── Tab 2: AppImages ──────────────────────────────────────────────────────
 

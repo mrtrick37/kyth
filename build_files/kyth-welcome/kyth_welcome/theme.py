@@ -107,6 +107,43 @@ QLineEdit#search-box:focus {
     border-bottom: 2px solid #4cc2ff;
 }
 
+QFrame#search-results-panel {
+    background: #1b1b1c;
+    border-bottom: 1px solid #2e2e2e;
+}
+
+QLabel#search-results-title {
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 700;
+}
+
+QLabel#search-results-hint {
+    color: #8a8a8a;
+    font-size: 11px;
+}
+
+QPushButton#search-result {
+    background: #242424;
+    color: #dcdcdc;
+    border: 1px solid #343434;
+    border-radius: 6px;
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 12px;
+    line-height: 1.35;
+}
+
+QPushButton#search-result:hover {
+    background: #2d2d2d;
+    color: #ffffff;
+    border-color: #4a4a4a;
+}
+
+QPushButton#search-result:pressed {
+    background: #202020;
+}
+
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
     background: #1b1b1c;
@@ -222,6 +259,46 @@ QLabel#status-err {
 
 QLabel#status-dim {
     color: #8a8a8a;
+}
+
+QLabel#task-status-idle,
+QLabel#task-status-running,
+QLabel#task-status-ok,
+QLabel#task-status-warn,
+QLabel#task-status-err {
+    border-radius: 5px;
+    padding: 8px 10px;
+    font-weight: 600;
+}
+
+QLabel#task-status-idle {
+    background: #242424;
+    color: #a6a6a6;
+    border: 1px solid #343434;
+}
+
+QLabel#task-status-running {
+    background: #22303a;
+    color: #99d9ff;
+    border: 1px solid #36506a;
+}
+
+QLabel#task-status-ok {
+    background: #283028;
+    color: #9fd99a;
+    border: 1px solid #3e573c;
+}
+
+QLabel#task-status-warn {
+    background: #322d20;
+    color: #d9b54a;
+    border: 1px solid #5c5126;
+}
+
+QLabel#task-status-err {
+    background: #332527;
+    color: #ff99a4;
+    border: 1px solid #5e3338;
 }
 
 /* ── Buttons ─────────────────────────────────────────────────────────────── */
@@ -369,8 +446,44 @@ QPushButton#task-link:pressed {
     color: #2f9bd8;
 }
 
+/* ── Gaming section switcher ─────────────────────────────────────────────── */
+QFrame#gaming-section-switcher {
+    background: transparent;
+    border: none;
+}
+
+QWidget#gaming-section-row {
+    background: transparent;
+}
+
+QPushButton#gaming-section,
+QPushButton#gaming-section-active {
+    border-radius: 5px;
+    padding: 7px 14px;
+    font-weight: 600;
+}
+
+QPushButton#gaming-section {
+    background: #242424;
+    color: #a6a6a6;
+    border: 1px solid #343434;
+}
+
+QPushButton#gaming-section:hover {
+    background: #2d2d2d;
+    color: #ffffff;
+    border-color: #4a4a4a;
+}
+
+QPushButton#gaming-section-active {
+    background: #26303a;
+    color: #ffffff;
+    border: 1px solid #4cc2ff;
+}
+
 /* ── Cards ───────────────────────────────────────────────────────────────── */
 QFrame#card,
+QFrame#home-recommend-card,
 QFrame#home-action-card,
 QFrame#stat-tile,
 QFrame#starter-pack,
@@ -383,6 +496,7 @@ QFrame#store-category-card {
 }
 
 QFrame#card:hover,
+QFrame#home-recommend-card:hover,
 QFrame#home-action-card:hover,
 QFrame#stat-tile:hover,
 QFrame#store-app-card:hover,
@@ -409,6 +523,37 @@ QLabel#card-action {
 QLabel#card-copy {
     color: #a6a6a6;
     line-height: 1.6;
+}
+
+QFrame#home-recommend-card {
+    background: #26303a;
+    border: 1px solid #36506a;
+    border-left: 3px solid #4cc2ff;
+    border-radius: 6px;
+}
+
+QLabel#home-kicker {
+    color: #4cc2ff;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+QFrame#home-section {
+    background: transparent;
+    border: none;
+}
+
+QLabel#home-section-title {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+QLabel#home-section-copy {
+    color: #8a8a8a;
+    font-size: 12px;
+    line-height: 1.4;
 }
 
 QFrame#card-accent-ok {
@@ -455,6 +600,11 @@ QLabel#home-next-title {
 QLabel#home-next-copy {
     color: #c5c5c5;
     line-height: 1.5;
+}
+
+QLabel#home-next-meta {
+    color: #99d9ff;
+    line-height: 1.45;
 }
 
 QPushButton#starter-pack-header {

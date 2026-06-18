@@ -191,6 +191,27 @@ class MainWindow(QMainWindow):
 
         central_layout.addWidget(topbar)
 
+        self._search_panel = QFrame()
+        self._search_panel.setObjectName("search-results-panel")
+        self._search_panel.hide()
+        self._search_panel_layout = QVBoxLayout(self._search_panel)
+        self._search_panel_layout.setContentsMargins(266, 12, 24, 14)
+        self._search_panel_layout.setSpacing(8)
+
+        self._search_results_title = QLabel("Search results")
+        self._search_results_title.setObjectName("search-results-title")
+        self._search_panel_layout.addWidget(self._search_results_title)
+
+        self._search_results_body = QVBoxLayout()
+        self._search_results_body.setSpacing(6)
+        self._search_panel_layout.addLayout(self._search_results_body)
+
+        self._search_results_hint = QLabel("")
+        self._search_results_hint.setObjectName("search-results-hint")
+        self._search_results_hint.setWordWrap(True)
+        self._search_panel_layout.addWidget(self._search_results_hint)
+        central_layout.addWidget(self._search_panel)
+
         root = QWidget()
         root.setObjectName("content-area")
         root_layout = QHBoxLayout(root)
@@ -328,6 +349,28 @@ class MainWindow(QMainWindow):
 
     # Windows-familiar phrasings mapped to page keys, so converts can search
     # for what they knew the task as on Windows.
+    _SEARCH_ITEMS: dict[str, tuple[str, str, list[str]]] = {
+        "Welcome": ("Home", "Review this PC, pick a focus, and jump into common setup tasks.", ["Control Panel", "PC focus", "Switch focus"]),
+        "Gaming": ("Gaming", "Install launchers, scan game libraries, set up capture, saves, and migration helpers.", ["Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game capture", "Instant replay", "Battle.net"]),
+        "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode"]),
+        "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat"]),
+        "Controllers": ("Controllers", "Pair, test, and troubleshoot game controllers.", ["Xbox controller", "PlayStation controller", "Game controllers"]),
+        "App Store": ("App Store", "Install trusted Flatpaks, find Windows app alternatives, and manage AppImages.", ["Add or remove programs", "Apps & features", "Install apps", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"]),
+        "Work Setup": ("Work Setup", "Set up office, mail, focus sessions, and workday conveniences.", ["Microsoft 365", "Office", "Outlook", "Focus Assist", "Pomodoro"]),
+        "Move From Windows": ("Move From Windows", "Copy files, saves, libraries, bookmarks, fonts, and familiar Windows workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
+        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["Windows Update", "Check for updates", "Restart pending"]),
+        "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth"]),
+        "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Windows Security", "Sign-in options", "Fingerprint"]),
+        "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance"]),
+        "VPN": ("VPN", "Connect to VPN profiles, including GlobalProtect-style work VPNs.", ["VPN settings", "GlobalProtect"]),
+        "Network Shares": ("Network Shares", "Map SMB/CIFS shares and configure mount behavior.", ["Map network drive", "Shared folders"]),
+        "Cloud Storage": ("Cloud Storage", "Set up cloud sync and copy workflows for common providers.", ["OneDrive", "Google Drive", "Dropbox"]),
+        "NVIDIA": ("NVIDIA Drivers", "Check NVIDIA driver state and open driver actions.", ["Graphics drivers", "GeForce"]),
+        "Kernel": ("Kernel", "Choose installed kernels and understand advanced boot options.", ["Advanced system settings"]),
+        "Channels": ("Channels", "Choose stable or testing update channels.", ["Update channel", "Insider program"]),
+        "Feedback": ("Feedback", "Send feedback or report a problem with optional system details.", ["Feedback Hub", "Send feedback"]),
+    }
+
     _SEARCH_ALIASES: dict[str, list[str]] = {
         "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
         "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
@@ -355,7 +398,8 @@ class MainWindow(QMainWindow):
         for key, aliases in self._SEARCH_ALIASES.items():
             if key not in self._page_index_by_key:
                 continue
-            for alias in aliases:
+            title, _description, extra_terms = self._SEARCH_ITEMS.get(key, (key, "", []))
+            for alias in [title, key, *aliases, *extra_terms]:
                 self._search_key_by_entry.setdefault(alias, key)
 
         entries = sorted(self._search_key_by_entry)
@@ -364,6 +408,7 @@ class MainWindow(QMainWindow):
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
         completer.activated.connect(self._on_search_pick)
         self._search_box.setCompleter(completer)
+        self._search_box.textChanged.connect(self._update_search_results)
         self._search_box.returnPressed.connect(self._on_search_return)
 
     def _on_search_pick(self, entry: str):
@@ -371,16 +416,84 @@ class MainWindow(QMainWindow):
         if key is not None:
             self._navigate_to(key)
         self._search_box.clear()
+        self._search_panel.hide()
 
     def _on_search_return(self):
-        text = self._search_box.text().strip().lower()
+        text = self._search_box.text().strip()
         if not text:
             return
-        for entry, key in sorted(self._search_key_by_entry.items()):
-            if text in entry.lower():
-                self._navigate_to(key)
-                self._search_box.clear()
-                return
+        matches = self._rank_search_results(text)
+        if matches:
+            self._navigate_to(matches[0][0])
+            self._search_box.clear()
+            self._search_panel.hide()
+
+    def _clear_search_results(self):
+        while self._search_results_body.count():
+            item = self._search_results_body.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _rank_search_results(self, text: str) -> list[tuple[str, int]]:
+        query = text.strip().lower()
+        if not query:
+            return []
+        ranked: list[tuple[str, int]] = []
+        for key, (title, description, extra_terms) in self._SEARCH_ITEMS.items():
+            if key not in self._page_index_by_key:
+                continue
+            aliases = self._SEARCH_ALIASES.get(key, [])
+            terms = [key, title, description, *aliases, *extra_terms]
+            score = 0
+            for term in terms:
+                lower = term.lower()
+                if query == lower:
+                    score = max(score, 120)
+                elif lower.startswith(query):
+                    score = max(score, 90)
+                elif query in lower:
+                    score = max(score, 60)
+            haystack = " ".join(terms).lower()
+            words = [part for part in query.split() if part]
+            if words and all(word in haystack for word in words):
+                score = max(score, 45 + len(words))
+            if score:
+                ranked.append((key, score))
+        return sorted(ranked, key=lambda item: (-item[1], self._SEARCH_ITEMS[item[0]][0]))[:5]
+
+    def _update_search_results(self, text: str):
+        self._clear_search_results()
+        query = text.strip()
+        if not query:
+            self._search_panel.hide()
+            return
+
+        matches = self._rank_search_results(query)
+        self._search_panel.show()
+        if not matches:
+            self._search_results_title.setText("No matching settings")
+            self._search_results_hint.setText(
+                "Try a Windows name like Device Manager, Xbox Game Bar, Map network drive, or Add or remove programs."
+            )
+            return
+
+        self._search_results_title.setText("Search results")
+        self._search_results_hint.setText("Matched System Hub tools.")
+        for key, _score in matches:
+            title, description, _terms = self._SEARCH_ITEMS[key]
+            section, label = self._page_crumbs[self._page_index_by_key[key]]
+            crumb = label if not section or section == label else f"{section} / {label}"
+            btn = QPushButton(f"{title}\n{description}\n{crumb}")
+            btn.setObjectName("search-result")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, k=key: self._open_search_result(k))
+            self._search_results_body.addWidget(btn)
+
+    def _open_search_result(self, key: str):
+        self._navigate_to(key)
+        self._search_box.clear()
+        self._search_panel.hide()
 
     # ── Usage focus ────────────────────────────────────────────────────────────
 

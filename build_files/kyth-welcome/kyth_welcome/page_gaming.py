@@ -28,6 +28,57 @@ from .widgets import (  # noqa: E501
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
 class GamingPage(Page):
+    _SECTION_LABELS = {
+        "all": "All",
+        "setup": "Setup",
+        "library": "Library",
+        "migration": "Migration",
+        "tuning": "Tuning",
+        "fixes": "Fixes",
+    }
+
+    def _add(self, widget: QWidget) -> QWidget:
+        added = super()._add(widget)
+        section = getattr(self, "_active_gaming_section", None)
+        if section and widget.isVisible():
+            self._gaming_section_widgets.setdefault(section, []).append(widget)
+        return added
+
+    def _add_layout(self, layout) -> None:
+        wrapper = QWidget()
+        wrapper.setObjectName("gaming-section-row")
+        wrapper.setLayout(layout)
+        self._add(wrapper)
+
+    def _make_section_switcher(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("gaming-section-switcher")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        for key, label in self._SECTION_LABELS.items():
+            btn = QPushButton(label)
+            btn.setObjectName("gaming-section-active" if key == "all" else "gaming-section")
+            btn.setCheckable(True)
+            btn.setChecked(key == "all")
+            btn.clicked.connect(lambda _=False, k=key: self._switch_gaming_section(k))
+            self._gaming_section_buttons[key] = btn
+            layout.addWidget(btn)
+        layout.addStretch()
+        return bar
+
+    def _switch_gaming_section(self, active: str) -> None:
+        self._current_gaming_section = active
+        for key, btn in self._gaming_section_buttons.items():
+            selected = key == active
+            btn.setChecked(selected)
+            btn.setObjectName("gaming-section-active" if selected else "gaming-section")
+            _restyle(btn)
+        for section, widgets in self._gaming_section_widgets.items():
+            visible = active == "all" or active == section
+            for widget in widgets:
+                widget.setVisible(visible)
+
     def __init__(self, wizard_mode: bool = False):
         super().__init__()
         self._wizard_mode = wizard_mode
@@ -38,6 +89,10 @@ class GamingPage(Page):
         self._dashboard_loaded = False
         self._protondb_worker: _ProtonDbBatchWorker | None = None
         self._last_detected_games: list[dict] = []
+        self._gaming_section_widgets: dict[str, list[QWidget]] = {}
+        self._gaming_section_buttons: dict[str, QPushButton] = {}
+        self._current_gaming_section = "all"
+        self._active_gaming_section: str | None = None
 
         self._page_header(
             "Gaming",
@@ -46,6 +101,10 @@ class GamingPage(Page):
             "Install your preferred launchers below.",
         )
 
+        if not wizard_mode:
+            self._add(self._make_section_switcher())
+
+        self._active_gaming_section = "setup"
         self._add(self._make_gaming_ready_panel())
 
         # ── Xbox Game Bar parity ─────────────────────────────────────────────
@@ -164,6 +223,7 @@ class GamingPage(Page):
         checklist_layout.addLayout(self._checklist_rows_layout)
         self._add(checklist_card)
 
+        self._active_gaming_section = "library"
         # ── Game readiness scanner ───────────────────────────────────────────
         scanner_card, scanner_layout = _make_card()
         scanner_title = QLabel("Game Readiness Scanner")
@@ -232,6 +292,7 @@ class GamingPage(Page):
         my_games_layout.addLayout(self._my_games_rows_layout)
         self._add(my_games_card)
 
+        self._active_gaming_section = "fixes"
         # ── First-failure playbook ────────────────────────────────────────────
         playbook_card, playbook_layout = _make_card()
         playbook_title = QLabel("Game will not launch")
@@ -295,6 +356,7 @@ class GamingPage(Page):
         fix_layout.addWidget(self._fix_status_lbl)
         self._add(fix_card)
 
+        self._active_gaming_section = "setup"
         # ── Gaming Tools ──────────────────────────────────────────────────────
         tools_head = QLabel("Gaming Tools")
         tools_head.setObjectName("heading")
@@ -609,6 +671,7 @@ class GamingPage(Page):
         self._tool_worker = None
         self._active_tool_refs = None
 
+        self._active_gaming_section = "tuning"
         self._divider()
 
         # ── MangoHud ──────────────────────────────────────────────────────────
@@ -931,6 +994,7 @@ class GamingPage(Page):
             )
             self._add(combo_txt)
 
+        self._active_gaming_section = "migration"
         # ── Steam Library Migration ────────────────────────────────────────────
         self._divider()
         migrate_head = QLabel("Steam Library — Migrate from Windows")
@@ -1133,7 +1197,9 @@ class GamingPage(Page):
         mods_layout.addLayout(mods_btns)
         self._add(mods_card)
 
+        self._active_gaming_section = None
         self._stretch()
+        self._switch_gaming_section("all")
         self._update_profile_builder()
         self._set_rows_loading(self._checklist_rows_layout, "Checking first-week setup items…")
         self._set_rows_loading(self._health_rows_layout, "Checking launchers, Vulkan, Proton, controllers, and game drives…")
