@@ -306,6 +306,11 @@ QFrame#action-row {
     border: none;
 }
 
+QFrame#command-result-panel {
+    background: transparent;
+    border: none;
+}
+
 QFrame#empty-state {
     background: #242424;
     border: 1px dashed #4a4a4a;

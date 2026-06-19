@@ -5,7 +5,7 @@ from .core import (  # noqa: E501
     HardwareProbe, _restyle,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QIcon, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget, Qt,
+    QApplication, QFrame, QHBoxLayout, QIcon, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QTimer, QVBoxLayout, QWidget, Qt,
 )
 
 def _theme_icon(*names: str) -> QIcon:
@@ -109,6 +109,68 @@ class EmptyState(QFrame):
             row.addWidget(button)
             row.addStretch()
             layout.addLayout(row)
+
+
+class CommandResultPanel(QFrame):
+    """Shared command feedback panel with copyable details."""
+    def __init__(self, idle_text: str = ""):
+        super().__init__()
+        self.setObjectName("command-result-panel")
+        self._details_text = ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.status = StatusBadge(idle_text, "idle")
+        layout.addWidget(self.status)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        self._details_btn = QPushButton("Show details")
+        self._details_btn.setCheckable(True)
+        self._details_btn.toggled.connect(self._toggle_details)
+        self._details_btn.hide()
+        row.addWidget(self._details_btn)
+
+        self._copy_btn = QPushButton("Copy details")
+        self._copy_btn.clicked.connect(self._copy_details)
+        self._copy_btn.hide()
+        row.addWidget(self._copy_btn)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self._details = QTextEdit()
+        self._details.setReadOnly(True)
+        self._details.setMaximumHeight(120)
+        self._details.hide()
+        layout.addWidget(self._details)
+
+    def set_result(self, state: str, text: str, details: str = "") -> None:
+        self.status.set_state(state, text)
+        self._details_text = details.strip()
+        self._details.setPlainText(self._details_text)
+        has_details = bool(self._details_text)
+        self._details_btn.setVisible(has_details)
+        self._copy_btn.setVisible(has_details)
+        if not has_details:
+            self._details.hide()
+            self._details_btn.setChecked(False)
+        self._copy_btn.setText("Copy details")
+        self.show()
+
+    def set_running(self, text: str, details: str = "") -> None:
+        self.set_result("running", text, details)
+
+    def _toggle_details(self, expanded: bool) -> None:
+        self._details_btn.setText("Hide details" if expanded else "Show details")
+        self._details.setVisible(expanded)
+
+    def _copy_details(self) -> None:
+        QApplication.clipboard().setText(self._details_text)
+        self._copy_btn.setText("Copied")
+        QTimer.singleShot(1200, lambda: self._copy_btn.setText("Copy details"))
 
 
 def _make_flow_step(number: int, title: str, copy: str) -> QFrame:

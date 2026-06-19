@@ -23,7 +23,7 @@ from .qt import (  # noqa: E501
     QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
-    ActionRow, Page, StatusBadge, _make_card, _set_log_panel,
+    ActionRow, CommandResultPanel, Page, StatusBadge, _make_card, _set_log_panel,
 )
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
@@ -83,6 +83,23 @@ class GamingPage(Page):
     def _set_status_badge(badge: StatusBadge, state: str, text: str) -> None:
         badge.set_state(state, text)
         badge.show()
+
+    @staticmethod
+    def _command_details(cmd: list[str], result=None, exc: Exception | None = None) -> str:
+        lines = ["Command:", "  " + " ".join(cmd)]
+        if exc is not None:
+            lines.extend(["", "Error:", str(exc)])
+            return "\n".join(lines)
+        if result is None:
+            return "\n".join(lines)
+        lines.extend(["", f"Exit code: {result.returncode}"])
+        stdout = result.stdout.decode("utf-8", errors="replace").strip() if result.stdout else ""
+        stderr = result.stderr.decode("utf-8", errors="replace").strip() if result.stderr else ""
+        if stdout:
+            lines.extend(["", "stdout:", stdout])
+        if stderr:
+            lines.extend(["", "stderr:", stderr])
+        return "\n".join(lines)
 
     def __init__(self, wizard_mode: bool = False):
         super().__init__()
@@ -559,6 +576,9 @@ class GamingPage(Page):
         self._discord_fix_status = discord_fix_actions.status
         self._discord_fix_status.hide()
         discord_fix_layout.addWidget(discord_fix_actions)
+        self._discord_fix_result = CommandResultPanel()
+        self._discord_fix_result.hide()
+        discord_fix_layout.addWidget(self._discord_fix_result)
 
         # OBS PipeWire setup
         obs_fix_note = QLabel("Fix OBS audio capture (apply PipeWire/Wayland Flatpak permissions)")
@@ -578,6 +598,9 @@ class GamingPage(Page):
         self._obs_fix_status = obs_fix_actions.status
         self._obs_fix_status.hide()
         discord_fix_layout.addWidget(obs_fix_actions)
+        self._obs_fix_result = CommandResultPanel()
+        self._obs_fix_result.hide()
+        discord_fix_layout.addWidget(self._obs_fix_result)
         self._add(discord_fix_card)
 
         self._add(streaming_card)
@@ -1391,7 +1414,6 @@ class GamingPage(Page):
 
     def _fix_discord_screenshare(self):
         self._discord_fix_btn.setEnabled(False)
-        self._set_status_badge(self._discord_fix_status, "running", "Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.discordapp.Discord "
@@ -1400,44 +1422,63 @@ class GamingPage(Page):
             "--talk-name=org.freedesktop.portal.Desktop "
             "--talk-name=org.kde.StatusNotifierWatcher",
         ]
+        self._discord_fix_status.hide()
+        self._discord_fix_result.set_running("Applying Discord screen share repair…", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._set_status_badge(
-                    self._discord_fix_status,
+                self._discord_fix_result.set_result(
                     "ok",
                     "Applied. Restart Discord to take effect.",
+                    self._command_details(cmd, result),
                 )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._set_status_badge(self._discord_fix_status, "err", f"Failed: {err or 'unknown error'}")
+                self._discord_fix_result.set_result(
+                    "err",
+                    f"Could not repair Discord screen share: {err or 'unknown error'}.",
+                    self._command_details(cmd, result),
+                )
         except Exception as exc:
-            self._set_status_badge(self._discord_fix_status, "err", f"Error: {exc}")
+            self._discord_fix_result.set_result(
+                "err",
+                f"Could not repair Discord screen share: {exc}.",
+                self._command_details(cmd, exc=exc),
+            )
         finally:
             self._discord_fix_btn.setEnabled(True)
 
     def _fix_obs_pipewire(self):
         self._obs_fix_btn.setEnabled(False)
-        self._set_status_badge(self._obs_fix_status, "running", "Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.obsproject.Studio "
             "--socket=wayland --socket=pulseaudio --device=dri "
             "--talk-name=org.freedesktop.portal.Desktop",
         ]
+        self._obs_fix_status.hide()
+        self._obs_fix_result.set_running("Applying OBS capture repair…", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._set_status_badge(
-                    self._obs_fix_status,
+                self._obs_fix_result.set_result(
                     "ok",
                     "Applied. Restart OBS to take effect.",
+                    self._command_details(cmd, result),
                 )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._set_status_badge(self._obs_fix_status, "err", f"Failed: {err or 'unknown error'}")
+                self._obs_fix_result.set_result(
+                    "err",
+                    f"Could not repair OBS capture: {err or 'unknown error'}.",
+                    self._command_details(cmd, result),
+                )
         except Exception as exc:
-            self._set_status_badge(self._obs_fix_status, "err", f"Error: {exc}")
+            self._obs_fix_result.set_result(
+                "err",
+                f"Could not repair OBS capture: {exc}.",
+                self._command_details(cmd, exc=exc),
+            )
         finally:
             self._obs_fix_btn.setEnabled(True)
 

@@ -41,6 +41,9 @@ from .page_nvidia import (  # noqa: E501
 from .page_performance import (  # noqa: E501
     PerformancePage,
 )
+from .page_plasma_wayland import (  # noqa: E501
+    PlasmaWaylandPage,
+)
 from .page_repair import (  # noqa: E501
     RepairPage,
 )
@@ -271,6 +274,7 @@ class MainWindow(QMainWindow):
             ("System", [
                 (("system-software-update", "update-none"), "↻", "Updates", "Update", UpdatePage),
                 (("computer", "computer-laptop"), "◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+                (("preferences-desktop-display", "video-display"), "▣", "Plasma & Wayland", "Plasma Wayland", PlasmaWaylandPage),
                 (("view-statistics", "office-chart-bar"), "◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 (("tools-wizard", "configure"), "⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
@@ -364,6 +368,7 @@ class MainWindow(QMainWindow):
         "Move From Windows": ("Move From Windows", "Copy files, saves, libraries, bookmarks, fonts, and familiar Windows workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
         "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["Windows Update", "Check for updates", "Restart pending"]),
         "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth"]),
+        "Plasma Wayland": ("Plasma & Wayland", "Check portals, PipeWire capture, display settings, shortcuts, and Plasma session repair.", ["Wayland", "Plasma", "KDE", "Screen sharing", "PipeWire", "Portal", "Display settings", "Window rules", "Shortcuts"]),
         "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Windows Security", "Sign-in options", "Fingerprint"]),
         "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance"]),
         "VPN": ("VPN", "Connect to VPN profiles, including GlobalProtect-style work VPNs.", ["VPN settings", "GlobalProtect"]),
@@ -386,6 +391,7 @@ class MainWindow(QMainWindow):
         "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "Windows fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Windows Subsystem for Linux", "Ubuntu", "Distrobox"],
         "Update": ["Check for updates", "Windows Update", "Updates"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
+        "Plasma Wayland": ["Plasma", "Wayland", "KDE", "Screen sharing", "PipeWire", "Portal", "xdg desktop portal", "Display settings", "VRR", "HDR", "Scale", "Shortcuts", "Window rules", "Restart Plasma"],
         "Diagnostics": ["Health report", "System information", "Diagnostics", "Windows Hello", "Sign-in options", "Fingerprint", "Passkeys", "Windows Security"],
         "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup"],
         "VPN": ["VPN", "VPN settings"],
