@@ -82,7 +82,8 @@ cmd_cachyos_kernel() {
 	local tmp nvr
 	tmp=$(mktemp)
 	if curl "${CURL_ARGS[@]}" -o "${tmp}" "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" 2>/dev/null; then
-		nvr=$(python3 - "${tmp}" <<'PY' 2>/dev/null || true
+		nvr=$(
+			python3 - "${tmp}" <<'PY' 2>/dev/null || true
 import datetime, json, sys
 
 try:
@@ -95,7 +96,7 @@ except Exception:
     nvr = ""
 print(nvr or datetime.date.today().isoformat())
 PY
-)
+		)
 	else
 		nvr=$(date +%Y-%m-%d)
 	fi

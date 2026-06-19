@@ -787,7 +787,6 @@ ln -sf /etc/systemd/system/display-manager.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
 	/etc/systemd/system/default.target
 
-
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
 # joycond: pairs left + right Joy-Cons into a single virtual controller.

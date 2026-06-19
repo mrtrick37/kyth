@@ -117,6 +117,15 @@ net.core.netdev_max_backlog = 16384
 # cause silent packet loss on burst-heavy UDP game protocols.
 net.ipv4.udp_rmem_min = 8192
 net.ipv4.udp_wmem_min = 8192
+
+# Network Hardening: disable source routing, disable ICMP redirect acceptance, ignore broadcast ICMP echo
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
@@ -923,7 +932,7 @@ KWALLETRCEOF
 # by a system-context process (sddm-helper runs as xdm_t; SELinux denies
 # xdm_t→default_t getattr, so pam_kwallet5 cannot read the salt file and
 # silently fails to unlock the wallet on every login).
-cat > /usr/libexec/kyth-kwallet-relabel <<'RELABELEOF'
+cat >/usr/libexec/kyth-kwallet-relabel <<'RELABELEOF'
 #!/bin/bash
 [[ -n "${PAM_USER:-}" && -d "/var/home/${PAM_USER}/.local/share/kwalletd" ]] && \
     restorecon -RF "/var/home/${PAM_USER}/.local/share/kwalletd" &>/dev/null
@@ -933,18 +942,18 @@ chmod 0755 /usr/libexec/kyth-kwallet-relabel
 
 SDDM_PAM=/etc/pam.d/sddm
 if [ -f "${SDDM_PAM}" ]; then
-    if ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
-        # Fedora SDDM package didn't include kwallet5 lines — add them with relabeler.
-        printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_exec.so /usr/libexec/kyth-kwallet-relabel\nsession  optional     pam_kwallet5.so auto_start\n' >> "${SDDM_PAM}"
-    elif ! grep -q kyth-kwallet-relabel "${SDDM_PAM}"; then
-        # kwallet5 lines already present (standard Fedora path) — insert relabeler
-        # immediately before the first pam_kwallet5 session line so restorecon
-        # corrects the label before pam_kwallet5 tries to open the salt file.
-        awk '!done && /pam_kwallet5.*auto_start/ {
+	if ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
+		# Fedora SDDM package didn't include kwallet5 lines — add them with relabeler.
+		printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_exec.so /usr/libexec/kyth-kwallet-relabel\nsession  optional     pam_kwallet5.so auto_start\n' >>"${SDDM_PAM}"
+	elif ! grep -q kyth-kwallet-relabel "${SDDM_PAM}"; then
+		# kwallet5 lines already present (standard Fedora path) — insert relabeler
+		# immediately before the first pam_kwallet5 session line so restorecon
+		# corrects the label before pam_kwallet5 tries to open the salt file.
+		awk '!done && /pam_kwallet5.*auto_start/ {
             print "session  optional  pam_exec.so /usr/libexec/kyth-kwallet-relabel"
             done=1
-        } { print }' "${SDDM_PAM}" > /tmp/kyth-sddm.tmp && mv /tmp/kyth-sddm.tmp "${SDDM_PAM}"
-    fi
+        } { print }' "${SDDM_PAM}" >/tmp/kyth-sddm.tmp && mv /tmp/kyth-sddm.tmp "${SDDM_PAM}"
+	fi
 fi
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
@@ -1053,7 +1062,6 @@ cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
   </match>
 </fontconfig>
 FONTCONFIGEOF
-
 
 # ── SELinux: relabel /var/home after each new deployment ──────────────────────
 # bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
@@ -1328,3 +1336,23 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="28bd", TAG+="uaccess"
 # Gaomon tablets
 KERNEL=="hidraw*", ATTRS{idVendor}=="201a", TAG+="uaccess"
 TABLETEOF
+
+# ── Polkit: systemd flatpak service authorization for wheel group ──────────────
+mkdir -p /usr/share/polkit-1/rules.d
+cat >/usr/share/polkit-1/rules.d/99-kyth-systemd.rules <<'POLKITEOF'
+/* Allow users in the wheel group to manage specific KythOS systemd services without password authentication */
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel")) {
+        var unit = action.lookup("unit");
+        if (unit == "kyth-default-flatpaks.service" ||
+            unit == "kyth-flathub-setup.service") {
+            var verb = action.lookup("verb");
+            if (verb == "start" || verb == "stop" || verb == "restart") {
+                return polkit.Result.YES;
+            }
+        }
+    }
+});
+POLKITEOF
+chmod 0644 /usr/share/polkit-1/rules.d/99-kyth-systemd.rules
