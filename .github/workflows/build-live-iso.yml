@@ -77,15 +77,34 @@ jobs:
           echo "immutable_tag=${IMMUTABLE_TAG}" >> "$GITHUB_OUTPUT"
           echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+      - name: Prepare live ISO build space
+        run: |
+          set -euo pipefail
+
+          show_space() {
+            echo "==> Disk space: $1"
+            df -h / /mnt /var/lib/containers 2>/dev/null || true
+          }
+
+          show_space "before cleanup"
+
+          # The live ISO job uses rootful Podman with its own compressed storage
+          # image. Reclaim large hosted-runner payloads we do not use here, but
+          # avoid broad apt removals/autoremove; those are slower and can churn
+          # runner state without improving KythOS test coverage.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+          sudo docker image prune --all --force || true
+
+          show_space "after cleanup"
+
+          available_kb="$(df --output=avail /mnt | awk 'NR == 2 {print $1}')"
+          required_kb=$((75 * 1024 * 1024))
+          if (( available_kb < required_kb )); then
+            echo "::error::Need at least 75 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
+            exit 1
+          fi
 
       - name: Mount compressed Podman storage
         run: |
