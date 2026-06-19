@@ -23,7 +23,7 @@ from .qt import (  # noqa: E501
     QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card, _set_log_panel,
+    ActionRow, Page, StatusBadge, _make_card, _set_log_panel,
 )
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
@@ -79,6 +79,11 @@ class GamingPage(Page):
             for widget in widgets:
                 widget.setVisible(visible)
 
+    @staticmethod
+    def _set_status_badge(badge: StatusBadge, state: str, text: str) -> None:
+        badge.set_state(state, text)
+        badge.show()
+
     def __init__(self, wizard_mode: bool = False):
         super().__init__()
         self._wizard_mode = wizard_mode
@@ -121,14 +126,13 @@ class GamingPage(Page):
         game_bar_body.setObjectName("card-copy")
         game_bar_body.setWordWrap(True)
         game_bar_layout.addWidget(game_bar_body)
-        game_bar_btns = QHBoxLayout()
-        game_bar_btns.setSpacing(8)
-        self._game_bar_btn = QPushButton()
-        self._game_bar_btn.setObjectName("primary")
-        self._game_bar_btn.clicked.connect(self._open_or_install_game_bar)
-        game_bar_btns.addWidget(self._game_bar_btn)
-        game_bar_btns.addStretch()
-        game_bar_layout.addLayout(game_bar_btns)
+        game_bar_actions = ActionRow("Ready to configure capture.", "idle")
+        self._game_bar_btn = game_bar_actions.add_button(
+            "", self._open_or_install_game_bar, primary=True
+        )
+        game_bar_actions.finish()
+        self._game_bar_status = game_bar_actions.status
+        game_bar_layout.addWidget(game_bar_actions)
         self._refresh_game_bar_btn()
         self._add(game_bar_card)
 
@@ -150,29 +154,21 @@ class GamingPage(Page):
         night_body.setObjectName("card-copy")
         night_body.setWordWrap(True)
         night_layout.addWidget(night_body)
-        night_btns = QHBoxLayout()
-        night_btns.setSpacing(8)
-        self._game_night_start_btn = QPushButton("Start Game Night")
-        self._game_night_start_btn.setObjectName("primary")
-        self._game_night_start_btn.clicked.connect(self._start_game_night)
-        night_btns.addWidget(self._game_night_start_btn)
-        self._game_night_stop_btn = QPushButton("End Game Night")
+        night_actions = ActionRow("Ready when you are.", "idle")
+        self._game_night_start_btn = night_actions.add_button(
+            "Start Game Night", self._start_game_night, primary=True
+        )
+        self._game_night_stop_btn = night_actions.add_button("End Game Night", self._stop_game_night)
         self._game_night_stop_btn.setEnabled(False)
-        self._game_night_stop_btn.clicked.connect(self._stop_game_night)
-        night_btns.addWidget(self._game_night_stop_btn)
         for label, cmd in (
             ("Open Steam", ["flatpak", "run", "com.valvesoftware.Steam"]),
             ("Open Discord", ["flatpak", "run", "com.discordapp.Discord"]),
             ("Open OBS", ["flatpak", "run", "com.obsproject.Studio"]),
         ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, c=cmd: subprocess.Popen(c))
-            night_btns.addWidget(btn)
-        night_btns.addStretch()
-        night_layout.addLayout(night_btns)
-        self._game_night_status = QLabel("Ready when you are.")
-        self._game_night_status.setObjectName("card-copy")
-        night_layout.addWidget(self._game_night_status)
+            night_actions.add_button(label, lambda _=False, c=cmd: subprocess.Popen(c))
+        night_actions.finish()
+        self._game_night_status = night_actions.status
+        night_layout.addWidget(night_actions)
         self._game_night_inhibit = None
         self._add(night_card)
 
@@ -338,22 +334,18 @@ class GamingPage(Page):
         fix_desc.setObjectName("card-copy")
         fix_desc.setWordWrap(True)
         fix_layout.addWidget(fix_desc)
-        fix_btns = QHBoxLayout()
-        fix_btns.setSpacing(8)
+        fix_actions = ActionRow("", "idle")
         for label, action in (
             ("Open Steam compatdata", lambda: self._open_user_path("~/.local/share/Steam/steamapps/compatdata")),
             ("Open shadercache", lambda: self._open_user_path("~/.local/share/Steam/steamapps/shadercache")),
             ("Copy reset-prefix command", self._copy_prefix_reset_hint),
             ("Copy support snapshot", self._copy_support_snapshot_command),
         ):
-            btn = QPushButton(label)
-            btn.clicked.connect(action)
-            fix_btns.addWidget(btn)
-        fix_btns.addStretch()
-        fix_layout.addLayout(fix_btns)
-        self._fix_status_lbl = QLabel("")
-        self._fix_status_lbl.setObjectName("card-copy")
-        fix_layout.addWidget(self._fix_status_lbl)
+            fix_actions.add_button(label, action)
+        fix_actions.finish()
+        self._fix_status_lbl = fix_actions.status
+        self._fix_status_lbl.hide()
+        fix_layout.addWidget(fix_actions)
         self._add(fix_card)
 
         self._active_gaming_section = "setup"
@@ -559,16 +551,14 @@ class GamingPage(Page):
         discord_fix_body.setObjectName("card-copy")
         discord_fix_body.setWordWrap(True)
         discord_fix_layout.addWidget(discord_fix_body)
-        discord_fix_btns = QHBoxLayout()
-        discord_fix_btns.setSpacing(8)
-        self._discord_fix_btn = QPushButton("Fix Discord Screen Share")
-        self._discord_fix_btn.setObjectName("primary")
-        self._discord_fix_btn.clicked.connect(self._fix_discord_screenshare)
-        discord_fix_btns.addWidget(self._discord_fix_btn)
-        self._discord_fix_status = QLabel()
-        self._discord_fix_status.setObjectName("card-copy")
-        discord_fix_btns.addWidget(self._discord_fix_status, 1)
-        discord_fix_layout.addLayout(discord_fix_btns)
+        discord_fix_actions = ActionRow("", "idle")
+        self._discord_fix_btn = discord_fix_actions.add_button(
+            "Fix Discord Screen Share", self._fix_discord_screenshare, primary=True
+        )
+        discord_fix_actions.finish()
+        self._discord_fix_status = discord_fix_actions.status
+        self._discord_fix_status.hide()
+        discord_fix_layout.addWidget(discord_fix_actions)
 
         # OBS PipeWire setup
         obs_fix_note = QLabel("Fix OBS audio capture (apply PipeWire/Wayland Flatpak permissions)")
@@ -582,15 +572,12 @@ class GamingPage(Page):
         obs_fix_body.setObjectName("card-copy")
         obs_fix_body.setWordWrap(True)
         discord_fix_layout.addWidget(obs_fix_body)
-        obs_fix_btns = QHBoxLayout()
-        obs_fix_btns.setSpacing(8)
-        self._obs_fix_btn = QPushButton("Fix OBS Audio + Display")
-        self._obs_fix_btn.clicked.connect(self._fix_obs_pipewire)
-        obs_fix_btns.addWidget(self._obs_fix_btn)
-        self._obs_fix_status = QLabel()
-        self._obs_fix_status.setObjectName("card-copy")
-        obs_fix_btns.addWidget(self._obs_fix_status, 1)
-        discord_fix_layout.addLayout(obs_fix_btns)
+        obs_fix_actions = ActionRow("", "idle")
+        self._obs_fix_btn = obs_fix_actions.add_button("Fix OBS Audio + Display", self._fix_obs_pipewire)
+        obs_fix_actions.finish()
+        self._obs_fix_status = obs_fix_actions.status
+        self._obs_fix_status.hide()
+        discord_fix_layout.addWidget(obs_fix_actions)
         self._add(discord_fix_card)
 
         self._add(streaming_card)
@@ -1234,7 +1221,11 @@ class GamingPage(Page):
             )
         self._game_night_start_btn.setEnabled(False)
         self._game_night_stop_btn.setEnabled(True)
-        self._game_night_status.setText("Game Night Mode is on for up to 4 hours. Sleep is blocked and gaming performance mode is active.")
+        self._set_status_badge(
+            self._game_night_status,
+            "ok",
+            "Game Night Mode is on for up to 4 hours. Sleep is blocked and gaming performance mode is active.",
+        )
 
     def _stop_game_night(self):
         if self._game_night_inhibit and self._game_night_inhibit.poll() is None:
@@ -1242,7 +1233,11 @@ class GamingPage(Page):
         subprocess.Popen(["kyth-performance-mode", "restore"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._game_night_start_btn.setEnabled(True)
         self._game_night_stop_btn.setEnabled(False)
-        self._game_night_status.setText("Game Night Mode ended. Normal desktop behavior restored.")
+        self._set_status_badge(
+            self._game_night_status,
+            "idle",
+            "Game Night Mode ended. Normal desktop behavior restored.",
+        )
 
     def _update_profile_builder(self):
         if not hasattr(self, "_profile_launch_value"):
@@ -1396,7 +1391,7 @@ class GamingPage(Page):
 
     def _fix_discord_screenshare(self):
         self._discord_fix_btn.setEnabled(False)
-        self._discord_fix_status.setText("Applying…")
+        self._set_status_badge(self._discord_fix_status, "running", "Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.discordapp.Discord "
@@ -1408,22 +1403,22 @@ class GamingPage(Page):
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._discord_fix_status.setText("Applied. Restart Discord to take effect.")
-                self._discord_fix_status.setObjectName("status-ok")
+                self._set_status_badge(
+                    self._discord_fix_status,
+                    "ok",
+                    "Applied. Restart Discord to take effect.",
+                )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._discord_fix_status.setText(f"Failed: {err or 'unknown error'}")
-                self._discord_fix_status.setObjectName("status-err")
+                self._set_status_badge(self._discord_fix_status, "err", f"Failed: {err or 'unknown error'}")
         except Exception as exc:
-            self._discord_fix_status.setText(f"Error: {exc}")
-            self._discord_fix_status.setObjectName("status-err")
+            self._set_status_badge(self._discord_fix_status, "err", f"Error: {exc}")
         finally:
             self._discord_fix_btn.setEnabled(True)
-            _restyle(self._discord_fix_status)
 
     def _fix_obs_pipewire(self):
         self._obs_fix_btn.setEnabled(False)
-        self._obs_fix_status.setText("Applying…")
+        self._set_status_badge(self._obs_fix_status, "running", "Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.obsproject.Studio "
@@ -1433,18 +1428,18 @@ class GamingPage(Page):
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._obs_fix_status.setText("Applied. Restart OBS to take effect.")
-                self._obs_fix_status.setObjectName("status-ok")
+                self._set_status_badge(
+                    self._obs_fix_status,
+                    "ok",
+                    "Applied. Restart OBS to take effect.",
+                )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._obs_fix_status.setText(f"Failed: {err or 'unknown error'}")
-                self._obs_fix_status.setObjectName("status-err")
+                self._set_status_badge(self._obs_fix_status, "err", f"Failed: {err or 'unknown error'}")
         except Exception as exc:
-            self._obs_fix_status.setText(f"Error: {exc}")
-            self._obs_fix_status.setObjectName("status-err")
+            self._set_status_badge(self._obs_fix_status, "err", f"Error: {exc}")
         finally:
             self._obs_fix_btn.setEnabled(True)
-            _restyle(self._obs_fix_status)
 
     def _refresh_save_status(self):
         if not hasattr(self, "_saves_status_lbl"):
@@ -1688,10 +1683,10 @@ class GamingPage(Page):
     def _open_user_path(self, path: str):
         expanded = os.path.abspath(os.path.expanduser(path))
         if not os.path.exists(expanded):
-            self._fix_status_lbl.setText(f"Folder not found yet: {expanded}")
+            self._set_status_badge(self._fix_status_lbl, "warn", f"Folder not found yet: {expanded}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(expanded))
-        self._fix_status_lbl.setText(f"Opened {expanded}")
+        self._set_status_badge(self._fix_status_lbl, "ok", f"Opened {expanded}")
 
     def _copy_prefix_reset_hint(self):
         text = (
@@ -1700,12 +1695,16 @@ class GamingPage(Page):
             "~/.local/share/Steam/steamapps/compatdata/APPID.bak-$(date +%Y%m%d-%H%M%S)"
         )
         _copy_text(text)
-        self._fix_status_lbl.setText("Copied a safe Proton prefix reset command with an APPID placeholder.")
+        self._set_status_badge(
+            self._fix_status_lbl,
+            "ok",
+            "Copied a safe Proton prefix reset command with an APPID placeholder.",
+        )
 
     def _copy_support_snapshot_command(self):
         text = "kyth-device-info | tee ~/kyth-device-info.txt"
         _copy_text(text)
-        self._fix_status_lbl.setText("Copied support snapshot command.")
+        self._set_status_badge(self._fix_status_lbl, "ok", "Copied support snapshot command.")
 
     def _install_obs_inline(self, btn: QPushButton):
         # ujust install-obs also enables obs-vkcapture; mirror that here.
@@ -2357,13 +2356,20 @@ class GamingPage(Page):
         self._game_bar_btn.setText(
             "Open GPU Screen Recorder" if installed else "Install Game Bar Alternative"
         )
+        self._set_status_badge(
+            self._game_bar_status,
+            "ok" if installed else "idle",
+            "GPU Screen Recorder is installed." if installed else "Install GPU Screen Recorder for capture and instant replay.",
+        )
 
     def _open_or_install_game_bar(self):
         app_id = "com.dec05eba.gpu_screen_recorder"
         if _is_flatpak_installed(app_id):
             try:
                 subprocess.Popen(["flatpak", "run", app_id])
+                self._set_status_badge(self._game_bar_status, "ok", "Opening GPU Screen Recorder.")
             except OSError as exc:
+                self._set_status_badge(self._game_bar_status, "err", f"Could not open GPU Screen Recorder: {exc}")
                 QMessageBox.warning(self, "Could not open GPU Screen Recorder", str(exc))
             return
 
@@ -2371,7 +2377,10 @@ class GamingPage(Page):
             if code == 0:
                 self._game_bar_btn.setEnabled(True)
                 self._refresh_game_bar_btn()
+            else:
+                self._set_status_badge(self._game_bar_status, "err", "GPU Screen Recorder installation failed.")
 
+        self._set_status_badge(self._game_bar_status, "running", "Installing GPU Screen Recorder…")
         _install_flatpak_inline(
             self, self._game_bar_btn, app_id, "GPU Screen Recorder",
             done_cb=_installed,

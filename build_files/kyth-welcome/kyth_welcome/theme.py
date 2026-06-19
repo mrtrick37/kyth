@@ -301,6 +301,28 @@ QLabel#task-status-err {
     border: 1px solid #5e3338;
 }
 
+QFrame#action-row {
+    background: transparent;
+    border: none;
+}
+
+QFrame#empty-state {
+    background: #242424;
+    border: 1px dashed #4a4a4a;
+    border-radius: 6px;
+}
+
+QLabel#empty-state-title {
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 700;
+}
+
+QLabel#empty-state-copy {
+    color: #a6a6a6;
+    line-height: 1.5;
+}
+
 QFrame#flow-step {
     background: #242424;
     border: 1px solid #343434;

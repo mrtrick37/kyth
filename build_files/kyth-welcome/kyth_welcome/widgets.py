@@ -34,6 +34,83 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     return card, layout
 
 
+class StatusBadge(QLabel):
+    """Compact shared status label for page and task feedback."""
+    _STATE_NAMES = {
+        "idle": "task-status-idle",
+        "running": "task-status-running",
+        "ok": "task-status-ok",
+        "warn": "task-status-warn",
+        "err": "task-status-err",
+    }
+
+    def __init__(self, text: str = "", state: str = "idle"):
+        super().__init__()
+        self.setWordWrap(True)
+        self.setMinimumWidth(220)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.set_state(state, text)
+
+    def set_state(self, state: str, text: str) -> None:
+        self.setText(text)
+        self.setObjectName(self._STATE_NAMES.get(state, "task-status-idle"))
+        _restyle(self)
+
+
+class ActionRow(QFrame):
+    """Shared horizontal command row with a trailing status badge."""
+    def __init__(self, status_text: str = "", status_state: str = "idle"):
+        super().__init__()
+        self.setObjectName("action-row")
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(10)
+        self.status = StatusBadge(status_text, status_state)
+
+    def add_button(self, text: str, callback=None, *, primary: bool = False) -> QPushButton:
+        button = QPushButton(text)
+        if primary:
+            button.setObjectName("primary")
+        if callback is not None:
+            button.clicked.connect(callback)
+        self._layout.addWidget(button)
+        return button
+
+    def finish(self) -> None:
+        self._layout.addStretch()
+        self._layout.addWidget(self.status, 1)
+
+
+class EmptyState(QFrame):
+    """Shared empty state panel for quiet, actionable blank states."""
+    def __init__(self, title: str, copy: str, action_text: str = "", action=None):
+        super().__init__()
+        self.setObjectName("empty-state")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(10)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("empty-state-title")
+        title_lbl.setWordWrap(True)
+        layout.addWidget(title_lbl)
+
+        copy_lbl = QLabel(copy)
+        copy_lbl.setObjectName("empty-state-copy")
+        copy_lbl.setWordWrap(True)
+        layout.addWidget(copy_lbl)
+
+        if action_text and action is not None:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 4, 0, 0)
+            button = QPushButton(action_text)
+            button.setObjectName("primary")
+            button.clicked.connect(action)
+            row.addWidget(button)
+            row.addStretch()
+            layout.addLayout(row)
+
+
 def _make_flow_step(number: int, title: str, copy: str) -> QFrame:
     step = QFrame()
     step.setObjectName("flow-step")
