@@ -20,7 +20,7 @@ from .page_windows_migration import (  # noqa: E501
     WindowsLibraryWorker,
 )
 from .qt import (  # noqa: E501
-    QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, Qt,
+    QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card, _set_log_panel,
