@@ -312,9 +312,9 @@ jobs:
 
       - name: Rechunk final image
         id: rechunk
-        uses: ublue-os/legacy-rechunk@a925083d9af7cb04b3e2a6e8c01bfa495f38b710 # v1.0.0
+        uses: mrtrick37/legacy-rechunk@f95692cb132163cddcf50d6ed024e888ec2ce81a # kyth-clean
         with:
-          rechunk: ghcr.io/ublue-os/legacy-rechunk@sha256:1ee0b4ad0eee9b300cca1afd8cf78b78ce77bcc0d5aa16b07a195c6c22f1c9b4
+          rechunk: ghcr.io/mrtrick37/legacy-rechunk@sha256:ed2e0c0749cae465284b14c61c2106d7d929d5f270b838f27a251d31fcacf800
           ref: ${{ steps.build_final.outputs.raw_ref }}
           prev-ref: ${{ steps.build_final.outputs.image }}:${{ steps.prep.outputs.default_tag }}
           max-layers: '64'
