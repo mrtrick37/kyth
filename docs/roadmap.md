@@ -10,6 +10,9 @@ desktop over feature volume.
 - Keep the live ISO boot path reliable on common AMD, Intel, and NVIDIA systems.
 - Make System Hub the primary place for setup, repair, diagnostics, and guided
   daily-driver checks.
+- Keep desktop polish coherent while developing the Plasma/Wayland
+  customization path documented in
+  [Plasma and UI Polish Direction](plasma-wayland-polish.md).
 - Preserve signed, attestable, SBOM-backed releases for images and ISOs.
 
 ## Next 3 Months
@@ -21,6 +24,8 @@ desktop over feature volume.
 - Tighten validation around shell formatting, Justfile formatting, and release
   metadata consistency.
 - Improve post-update and smoke-check diagnostics for common desktop regressions.
+- Move repeated System Hub page styling into shared QSS object names so status
+  badges, warnings, section heads, keycaps, and action rows look consistent.
 
 ## 3-6 Months
 
@@ -29,6 +34,8 @@ desktop over feature volume.
 - Improve recovery guidance for failed installs, failed rebases, and broken
   graphical sessions.
 - Continue reducing first-login prompts and fragile manual setup steps.
+- Iterate on the Windows Familiar Plasma layout preset, then add console,
+  creator, developer, laptop, and docked workflow presets.
 - Add more automated tests around privileged helper command generation.
 
 ## 6-12 Months

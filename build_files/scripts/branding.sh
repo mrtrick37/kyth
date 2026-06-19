@@ -424,7 +424,7 @@ PLASMAEOF
 # flatpak finishes installing.
 cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
-FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
+FavoriteURLs=applications:kyth-welcome.desktop,applications:kyth-app-store.desktop,applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:org.kde.konsole.desktop
 
 [General]
 highlightNewlyInstalledApps=false
@@ -743,6 +743,195 @@ mkdir -p /etc/xdg/autostart
 install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
     /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
+# ── Windows Familiar Plasma layout preset ────────────────────────────────────
+# Applies the distinctive KythOS desktop shape: bottom taskbar, KythOS launcher,
+# pinned everyday apps, system tray, clock, show-desktop target, wallpaper, and
+# a restore marker. Run with --initial for fresh users and --force when the user
+# explicitly clicks "Restore Windows Familiar Layout" in System Hub.
+cat > /usr/bin/kyth-apply-desktop-layout <<'LAYOUTEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+force=0
+initial=0
+layout_version="windows-familiar-v1"
+config_file="plasma-org.kde.plasma.desktop-appletsrc"
+
+for arg in "$@"; do
+    case "${arg}" in
+        --force)
+            force=1
+            ;;
+        --initial)
+            initial=1
+            ;;
+        -h|--help)
+            printf 'Usage: kyth-apply-desktop-layout [--initial|--force]\n'
+            exit 0
+            ;;
+    esac
+done
+
+if [[ "${force}" != "1" ]]; then
+    current=""
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        current="$(kreadconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout 2>/dev/null || true)"
+    fi
+    if [[ "${current}" == "${layout_version}" ]]; then
+        exit 0
+    fi
+fi
+
+if [[ "${force}" != "1" && "${initial}" != "1" ]]; then
+    echo "Refusing to change an existing layout without --initial or --force." >&2
+    exit 64
+fi
+
+qdbus_cmd=""
+for candidate in qdbus6 qdbus; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+        qdbus_cmd="${candidate}"
+        break
+    fi
+done
+if [[ -z "${qdbus_cmd}" ]]; then
+    echo "qdbus6/qdbus is not available; Plasma layout cannot be applied." >&2
+    exit 75
+fi
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+[[ -d "${runtime_dir}" ]] || runtime_dir="/tmp"
+script_file="$(mktemp "${runtime_dir}/kyth-layout.XXXXXX.js")"
+trap 'rm -f "${script_file}"' EXIT
+
+cat > "${script_file}" <<'JSEOF'
+var launchers = [
+    "applications:kyth-welcome.desktop",
+    "applications:kyth-app-store.desktop",
+    "applications:steam.desktop",
+    "applications:com.brave.Browser.desktop",
+    "applications:org.kde.dolphin.desktop",
+    "applications:org.kde.konsole.desktop"
+].join(",");
+
+function safeSet(object, key, value) {
+    try {
+        object[key] = value;
+    } catch (e) {
+    }
+}
+
+function writeConfig(object, groups, values) {
+    try {
+        object.currentConfigGroup = groups;
+        for (var key in values) {
+            object.writeConfig(key, values[key]);
+        }
+        object.reloadConfig();
+    } catch (e) {
+    }
+}
+
+function removeExistingPanels() {
+    var ids = [];
+    for (var i = 0; i < panelIds.length; ++i) {
+        ids.push(panelIds[i]);
+    }
+    for (var i = 0; i < ids.length; ++i) {
+        var panel = panelById(ids[i]);
+        if (panel) {
+            panel.remove();
+        }
+    }
+}
+
+function uniqueScreens() {
+    var seen = [];
+    var desktopsArray = desktops();
+    for (var i = 0; i < desktopsArray.length; ++i) {
+        var screen = desktopsArray[i].screen;
+        if (seen.indexOf(screen) === -1) {
+            seen.push(screen);
+        }
+    }
+    if (seen.length === 0) {
+        seen.push(0);
+    }
+    return seen;
+}
+
+function configureDesktops() {
+    var desktopsArray = desktops();
+    for (var i = 0; i < desktopsArray.length; ++i) {
+        var desktop = desktopsArray[i];
+        desktop.wallpaperPlugin = "org.kde.image";
+        writeConfig(desktop, ["Wallpaper", "org.kde.image", "General"], {
+            "Image": "/usr/share/wallpapers/kyth/contents/images/1920x1080.svg"
+        });
+        writeConfig(desktop, ["General"], {
+            "ToolBoxButtonState": "topcenter"
+        });
+    }
+}
+
+function addWindowsFamiliarPanel(screen) {
+    var panel = new Panel;
+    safeSet(panel, "screen", screen);
+    panel.location = "bottom";
+    panel.height = 50;
+    safeSet(panel, "alignment", "center");
+    safeSet(panel, "floating", false);
+    safeSet(panel, "floatingApplets", false);
+
+    var kickoff = panel.addWidget("org.kde.plasma.kickoff");
+    writeConfig(kickoff, ["General"], {
+        "icon": "kyth-kickoff",
+        "favoritesPortedToKAstats": true
+    });
+
+    var tasks = panel.addWidget("org.kde.plasma.icontasks");
+    writeConfig(tasks, ["General"], {
+        "launchers": launchers,
+        "showOnlyCurrentDesktop": false,
+        "showOnlyCurrentScreen": false,
+        "showOnlyCurrentActivity": false,
+        "groupingStrategy": 1,
+        "showToolTips": true,
+        "wheelEnabled": "AllTask",
+        "indicateAudioStreams": true
+    });
+
+    panel.addWidget("org.kde.plasma.marginsseparator");
+
+    var tray = panel.addWidget("org.kde.plasma.systemtray");
+    writeConfig(tray, ["General"], {
+        "extraItems": "org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.plasma.battery,org.kde.plasma.notifications"
+    });
+
+    var clock = panel.addWidget("org.kde.plasma.digitalclock");
+    writeConfig(clock, ["Appearance"], {
+        "showDate": true
+    });
+
+    panel.addWidget("org.kde.plasma.showdesktop");
+}
+
+removeExistingPanels();
+configureDesktops();
+var screens = uniqueScreens();
+for (var i = 0; i < screens.length; ++i) {
+    addWindowsFamiliarPanel(screens[i]);
+}
+JSEOF
+
+"${qdbus_cmd}" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "${script_file}")" >/dev/null
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout "${layout_version}" >/dev/null 2>&1 || true
+fi
+LAYOUTEOF
+chmod +x /usr/bin/kyth-apply-desktop-layout
+
 # ── User comfort polish ───────────────────────────────────────────────────────
 # KDE stores several "Windows users expect this" preferences per-user. Bake a
 # versioned, automatic polish pass into the image so new accounts get it from
@@ -751,12 +940,30 @@ cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v9"
+version="v11"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+force=0
+had_polish_stamp=0
 
-if [[ -f "${stamp}" ]]; then
+for arg in "$@"; do
+    case "${arg}" in
+        --force)
+            force=1
+            ;;
+        -h|--help)
+            printf 'Usage: kyth-user-polish [--force]\n'
+            exit 0
+            ;;
+    esac
+done
+
+if [[ -d "${stamp_dir}" ]] && compgen -G "${stamp_dir}/user-polish-*" >/dev/null; then
+    had_polish_stamp=1
+fi
+
+if [[ -f "${stamp}" && "${force}" != "1" ]]; then
     rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
     exit 0
 fi
@@ -923,6 +1130,43 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
     kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
 
+    # KythOS visual identity. New users receive this from /etc/skel; this
+    # keeps older or manually-created accounts aligned without repeatedly
+    # clobbering a user's custom theme. The System Hub polish button passes
+    # --force when the user explicitly asks to re-apply the KythOS look.
+    current_color=""
+    current_plasma_theme=""
+    current_favorites=""
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        current_color="$(kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null || true)"
+        current_plasma_theme="$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null || true)"
+        current_favorites="$(kreadconfig6 --file kickoffrc --group Favorites --key FavoriteURLs 2>/dev/null || true)"
+    fi
+    apply_kyth_visuals=0
+    if [[ "${force}" == "1" || ( -z "${current_color}" && -z "${current_plasma_theme}" ) ]]; then
+        apply_kyth_visuals=1
+    fi
+    if [[ "${apply_kyth_visuals}" == "1" ]]; then
+        kwriteconfig6 --file kdeglobals --group General --key ColorScheme KythDark
+        kwriteconfig6 --file kdeglobals --group General --key font 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key fixed 'Cascadia Code,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key smallestReadableFont 'Inter,8,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key toolBarFont 'Inter,9,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key menuFont 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group Icons --key Theme Papirus-Dark
+        kwriteconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage org.kde.breezedark.desktop
+        kwriteconfig6 --file plasmarc --group Theme --key name kyth-dark
+        if [[ -r /usr/share/wallpapers/kyth/contents/images/1920x1080.svg ]]; then
+            kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc \
+                --group Containments --group 1 --group Wallpaper --group org.kde.image --group General \
+                --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+        fi
+    fi
+    if [[ "${force}" == "1" || -z "${current_favorites}" ]]; then
+        kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs \
+            'applications:kyth-welcome.desktop,applications:kyth-app-store.desktop,applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:org.kde.konsole.desktop'
+    fi
+
     # Ctrl+Shift+Esc opens Mission Center when installed, with KDE System
     # Monitor as the always-available fallback.
     if flatpak info io.missioncenter.MissionCenter >/dev/null 2>&1; then
@@ -968,6 +1212,13 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --group org.kde.spectacle.desktop \
         --key RectangularRegionScreenShot \
         'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
+
+    # Screen lock: keep the KythOS default calmer than upstream Plasma's stock
+    # five-minute lock while still locking on resume.
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock --type bool true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockGracePeriod 5
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume --type bool true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 15
 
     # Alt+Tab window switcher — Thumbnail Grid, the Windows 11-style switcher.
     # KWin ships it built in and made it the default in Plasma 6.4, but configs
@@ -1045,6 +1296,14 @@ if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
     /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1 || true
 fi
 
+if command -v /usr/bin/kyth-apply-desktop-layout >/dev/null 2>&1; then
+    if [[ "${force}" == "1" ]]; then
+        /usr/bin/kyth-apply-desktop-layout --force
+    elif [[ "${had_polish_stamp}" == "0" ]]; then
+        /usr/bin/kyth-apply-desktop-layout --initial >/dev/null 2>&1 || true
+    fi
+fi
+
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 fi
@@ -1059,6 +1318,12 @@ fi
 
 if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
     /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
+fi
+
+if [[ -d "${HOME}/Desktop" && ( "${force}" == "1" || "${had_polish_stamp}" == "0" ) ]] \
+    && [[ -f /usr/share/applications/kyth-welcome.desktop ]]; then
+    cp /usr/share/applications/kyth-welcome.desktop "${HOME}/Desktop/kyth-welcome.desktop" || true
+    chmod 0755 "${HOME}/Desktop/kyth-welcome.desktop" 2>/dev/null || true
 fi
 
 # Recycle Bin on the desktop for existing accounts. Seeded once per polish
@@ -1217,6 +1482,20 @@ find /usr/lib/kyth-welcome -type f -exec chmod 0644 {} +
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
     /usr/share/applications/kyth-welcome.desktop
+cat > /usr/share/applications/kyth-app-store.desktop <<'APPSTOREEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS App Store
+GenericName=App Store
+Comment=Find and install trusted apps on KythOS
+Exec=/usr/bin/kyth-welcome-launch --page "App Store"
+Icon=plasmadiscover
+Terminal=false
+Categories=Settings;PackageManager;
+Keywords=apps;store;software;flatpak;install;remove;
+StartupNotify=true
+StartupWMClass=kyth-welcome
+APPSTOREEOF
 install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
 
 # Place System Hub on the desktop for all new users. The executable bit is

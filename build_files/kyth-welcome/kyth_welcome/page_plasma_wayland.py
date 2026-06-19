@@ -50,10 +50,17 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     probes: list[HardwareProbe] = []
 
     session = _session_kind()
+    session_status = "ok" if session == "wayland" else ("dim" if session == "x11" else "warn")
+    session_summary = (
+        "Wayland session active" if session == "wayland"
+        else "X11 session active; switch to Wayland from the login screen when ready"
+        if session == "x11"
+        else "Session type could not be identified"
+    )
     probes.append(HardwareProbe(
         "Session",
-        "ok" if session == "wayland" else "warn",
-        "Wayland session active" if session == "wayland" else "Not running a Wayland session",
+        session_status,
+        session_summary,
         f"XDG_SESSION_TYPE={session or 'unknown'}",
     ))
 
@@ -103,13 +110,26 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     ))
 
     color_scheme = _kread("kdeglobals", "General", "ColorScheme")
+    ui_font = _kread("kdeglobals", "General", "font")
+    fixed_font = _kread("kdeglobals", "General", "fixed")
+    icon_theme = _kread("kdeglobals", "Icons", "Theme")
     plasma_theme = _kread("plasmarc", "Theme", "name")
+    visual_ok = (
+        color_scheme == "KythDark"
+        and plasma_theme == "kyth-dark"
+        and icon_theme == "Papirus-Dark"
+        and ui_font.startswith("Inter,")
+        and fixed_font.startswith("Cascadia Code,")
+    )
     probes.append(HardwareProbe(
         "KythOS theme layer",
-        "ok" if color_scheme == "KythDark" and plasma_theme == "kyth-dark" else "warn",
-        "KythOS color and panel theme are active"
-        if color_scheme == "KythDark" and plasma_theme == "kyth-dark" else "KythOS theme polish can be re-applied below",
-        f"ColorScheme={color_scheme or 'unset'}, PlasmaTheme={plasma_theme or 'unset'}",
+        "ok" if visual_ok else "warn",
+        "KythOS color, icon, font, and panel theme are active"
+        if visual_ok else "KythOS visual polish can be re-applied below",
+        (
+            f"ColorScheme={color_scheme or 'unset'}, PlasmaTheme={plasma_theme or 'unset'}, "
+            f"IconTheme={icon_theme or 'unset'}, Font={ui_font or 'unset'}, FixedFont={fixed_font or 'unset'}"
+        ),
     ))
 
     single_click = _kread("kdeglobals", "KDE", "SingleClick").lower()
@@ -120,6 +140,15 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
         "Windows-familiar double-click and clipboard history are configured"
         if single_click == "false" and clip_items == "25" else "Shortcut and clipboard defaults can be re-applied below",
         f"SingleClick={single_click or 'unset'}, ClipboardItems={clip_items or 'unset'}",
+    ))
+
+    layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "WindowsFamiliarLayout")
+    probes.append(HardwareProbe(
+        "Windows Familiar layout",
+        "ok" if layout_marker == "windows-familiar-v1" else "dim",
+        "KythOS bottom taskbar and pinned launcher layout are active"
+        if layout_marker == "windows-familiar-v1" else "Restore the Windows Familiar layout below when you want the KythOS default shell shape",
+        f"WindowsFamiliarLayout={layout_marker or 'unset'}",
     ))
     return probes
 
@@ -139,8 +168,9 @@ class PlasmaWaylandPage(Page):
         title.setObjectName("card-title")
         overview_layout.addWidget(title)
         body = QLabel(
-            "KythOS is tuned around Plasma on Wayland. These checks focus on the pieces "
-            "users notice first: portals, PipeWire capture, display behavior, and session repair."
+            "KythOS keeps a stable Plasma desktop today while preparing a stronger Wayland-first path. "
+            "These checks focus on the pieces users notice first: portals, PipeWire capture, display "
+            "behavior, visual polish, and session repair."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -194,9 +224,9 @@ class PlasmaWaylandPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "Re-apply the KythOS desktop layer: dark shell theme, KythOS wallpaper hint, "
-            "launcher favorites, Windows-familiar shortcuts, clipboard history, window switcher, "
-            "titlebar buttons, and Dolphin defaults."
+            "Restore the Windows Familiar desktop preset: bottom taskbar, KythOS launcher, "
+            "pinned System Hub/App Store/Steam/Brave/Dolphin/Konsole apps, system tray, clock, "
+            "wallpaper, shortcuts, titlebar buttons, clipboard history, and Dolphin defaults."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -204,7 +234,7 @@ class PlasmaWaylandPage(Page):
 
         actions = ActionRow("", "idle")
         actions.status.hide()
-        actions.add_button("Apply KythOS Polish", self._apply_plasma_polish, primary=True)
+        actions.add_button("Restore Windows Familiar Layout", self._apply_plasma_polish, primary=True)
         actions.add_button("Open Desktop Theme", lambda _=False: self._open_kcm("Desktop Theme", "kcm_desktoptheme"))
         actions.add_button("Open Colors", lambda _=False: self._open_kcm("Colors", "kcm_colors"))
         actions.finish()
@@ -277,12 +307,23 @@ class PlasmaWaylandPage(Page):
     def _plasma_polish_command() -> list[str]:
         script = r"""
 set -euo pipefail
+if [ -x /usr/bin/kyth-user-polish ]; then
+  /usr/bin/kyth-user-polish --force
+  exit 0
+fi
 command -v kwriteconfig6 >/dev/null
 
 kwriteconfig6 --file kdeglobals --group General --key ColorScheme KythDark
+kwriteconfig6 --file kdeglobals --group General --key font 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+kwriteconfig6 --file kdeglobals --group General --key fixed 'Cascadia Code,10,-1,5,400,0,0,0,0,0,Regular'
+kwriteconfig6 --file kdeglobals --group General --key smallestReadableFont 'Inter,8,-1,5,400,0,0,0,0,0,Regular'
+kwriteconfig6 --file kdeglobals --group General --key toolBarFont 'Inter,9,-1,5,400,0,0,0,0,0,Regular'
+kwriteconfig6 --file kdeglobals --group General --key menuFont 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+kwriteconfig6 --file kdeglobals --group Icons --key Theme Papirus-Dark
+kwriteconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage org.kde.breezedark.desktop
 kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
 kwriteconfig6 --file plasmarc --group Theme --key name kyth-dark
-kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs 'applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop'
+kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs 'applications:kyth-welcome.desktop,applications:kyth-app-store.desktop,applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:org.kde.konsole.desktop'
 kwriteconfig6 --file kickoffrc --group General --key highlightNewlyInstalledApps --type bool false
 
 kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
@@ -308,6 +349,10 @@ kwriteconfig6 --file dolphinrc --group General --key ShowFullPath --type bool tr
 kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
 kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
 kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock --type bool true
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockGracePeriod 5
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume --type bool true
+kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 15
 
 if [ -r /usr/share/wallpapers/kyth/contents/images/1920x1080.svg ]; then
   kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc \
@@ -323,7 +368,7 @@ fi
 
     def _apply_plasma_polish(self):
         cmd = self._plasma_polish_command()
-        self._polish_result.set_running("Applying KythOS Plasma polish...", self._command_details(cmd))
+        self._polish_result.set_running("Restoring the Windows Familiar layout...", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=20, check=False)
         except Exception as exc:
@@ -332,7 +377,7 @@ fi
         if result.returncode == 0:
             self._polish_result.set_result(
                 "ok",
-                "KythOS Plasma polish applied. Some shell theme and wallpaper changes may appear after restarting Plasma Shell or signing in again.",
+                "Windows Familiar layout restored. Some panel, shell theme, or wallpaper changes may appear after restarting Plasma Shell or signing in again.",
                 self._command_details(cmd, result),
             )
             self.refresh()
