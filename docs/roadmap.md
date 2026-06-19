@@ -34,8 +34,8 @@ desktop over feature volume.
 - Improve recovery guidance for failed installs, failed rebases, and broken
   graphical sessions.
 - Continue reducing first-login prompts and fragile manual setup steps.
-- Iterate on the Windows Familiar Plasma layout preset, then add console,
-  creator, developer, laptop, and docked workflow presets.
+- Expand the Everyday/Gaming role preset system with creator, developer,
+  laptop, and docked workflow presets.
 - Add more automated tests around privileged helper command generation.
 
 ## 6-12 Months

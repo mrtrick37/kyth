@@ -2,21 +2,28 @@
 
 This note tracks the KythOS desktop polish lane: keep the current interface
 coherent first, then use Plasma and Wayland customizations to make the desktop
-feel distinct and easier for Windows users to trust.
+feel distinct, comfortable, and easy for new users to trust.
 
 ## Current Baseline
 
 - KythOS branding is present across boot splash, os-release, SDDM background,
   Kickoff icon, wallpaper, app menu defaults, and System Hub.
 - New users get KythDark, Papirus-Dark, Inter, Cascadia Code, KythOS wallpaper,
-  Windows-style right-side window controls, double-click open, Meta+E,
-  Meta+Shift+S, Meta+V clipboard history, and a quieter Discover notifier.
-- Fresh users get the Windows Familiar layout preset: a bottom taskbar, KythOS
+  right-side window controls, double-click open, Meta+E, Meta+Shift+S, Meta+V
+  clipboard history, and a quieter Discover notifier.
+- Fresh users get the KythOS default layout preset: a bottom taskbar, KythOS
   launcher, pinned System Hub/App Store/Steam/Brave/Dolphin/Konsole apps,
   system tray, clock, show-desktop target, and KythOS wallpaper.
+- The curated tray keeps network, audio, Bluetooth, battery, notifications,
+  clipboard, removable devices, printers, and KDE Connect discoverable.
 - Existing users receive versioned comfort migrations through
   `kyth-user-polish`.
-- System Hub uses Windows-familiar wording and search aliases for tasks like
+- System Hub offers Everyday and Gaming role presets that adjust hub prominence,
+  launcher favorites, and taskbar pins without uninstalling anything.
+- Plasma Browser Integration's native connector is installed so browsers can
+  tie into media keys, download progress, and desktop controls once the browser
+  extension is enabled.
+- Migration and search paths use familiar wording and aliases for tasks like
   Device Manager, Windows Update, Add or remove programs, Map network drive,
   Snipping Tool, PowerToys, and Xbox Game Bar.
 
@@ -31,7 +38,7 @@ feel distinct and easier for Windows users to trust.
 - Avoid automatic visual overrides after every update unless the user has no
   existing theme state. Respect customization by default; make re-apply explicit.
 - Prefer one shared visual vocabulary: KythDark shell, KythOS wallpaper and
-  icons, compact dark surfaces, high-contrast status colors, Windows-familiar
+  icons, compact dark surfaces, high-contrast status colors, and comfortable
   interaction patterns.
 - Treat System Hub as the control surface for tuning rather than scattering
   advanced toggles across undocumented scripts.
@@ -47,18 +54,18 @@ feel distinct and easier for Windows users to trust.
 - The current Kyth plasma theme only overrides the panel background. Expand it
   carefully with a small number of distinctive, maintainable assets instead of
   forking Breeze wholesale.
-- Role-specific shell presets are described in System Hub but not implemented
-  yet beyond the Windows Familiar baseline.
+- Role-specific shell presets now exist for Everyday and Gaming. The next
+  preset work is to add creator, developer, laptop, and docked variants.
 
 ## Plasma/Wayland Customization Path
 
 1. Make the current shell feel finished: consistent panel, wallpaper, icons,
    window controls, Dolphin defaults, clipboard, shortcuts, app menu grouping,
    and desktop repair.
-2. Iterate on the Windows Familiar layout preset: panel sizing, tray spacing,
+2. Iterate on the KythOS default layout preset: panel sizing, tray spacing,
    task manager behavior, multi-monitor behavior, and restore diagnostics.
-3. Add opt-in role presets in System Hub:
-   Console Mode, Creator Mode, Developer Mode, Laptop Mode, and Docked Mode.
+3. Expand opt-in role presets in System Hub:
+   Creator Mode, Developer Mode, Laptop Mode, and Docked Mode.
 4. Harden Wayland readiness:
    portals, PipeWire capture, VRR policy, fractional scaling notes, NVIDIA
    status, remote desktop/screen sharing repair, and per-app workaround buttons.
@@ -66,5 +73,5 @@ feel distinct and easier for Windows users to trust.
    screen sharing, and rollback tests stop producing avoidable first-login
    failures.
 
-The north star: a Windows user should recognize the workflow, then notice that
+The north star: a new user should recognize the workflow, then notice that
 KythOS is calmer, more recoverable, and less noisy.

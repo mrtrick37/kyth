@@ -229,6 +229,16 @@ check_rpm_absent() {
     fi
 }
 
+check_rpm_present() {
+    local package="$1"
+    local label="$2"
+    if rpm -q "$package" >/dev/null 2>&1; then
+        pass "$label" "$package installed"
+    else
+        fail "$label" "$package is not installed"
+    fi
+}
+
 check_desktop_trusted() {
     local path="$1"
     local label="$2"
@@ -420,13 +430,19 @@ check_file_contains /etc/skel/.config/kwalletrc "Default Wallet=kdewallet" "KWal
 check_file_contains /etc/skel/.config/kwalletrc "Leave Open=true" "KWallet session persistence" "wallet stays open after apps start using it"
 check_file /usr/bin/kyth-user-polish "User comfort polish"
 check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "User launcher badge quieting" "new-app badges disabled after updates"
-check_file /usr/bin/kyth-apply-desktop-layout "Windows Familiar layout helper"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "windows-familiar-v1" "Windows Familiar layout version" "desktop layout preset has a versioned repair marker"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.icontasks" "Windows Familiar taskbar" "preset creates an icons-only taskbar"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-welcome.desktop" "Windows Familiar pinned apps" "System Hub is pinned in the taskbar"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-app-store.desktop" "Windows Familiar App Store pin" "KythOS App Store is pinned in the taskbar"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.systemtray" "Windows Familiar tray" "preset keeps the system tray in the bottom panel"
+check_file /usr/bin/kyth-apply-desktop-layout "KythOS default layout helper"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "windows-familiar-v1" "KythOS default layout version" "desktop layout preset has a versioned repair marker"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.icontasks" "KythOS default taskbar" "preset creates an icons-only taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-welcome.desktop" "KythOS default pinned apps" "System Hub is pinned in the taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-app-store.desktop" "KythOS default App Store pin" "KythOS App Store is pinned in the taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.systemtray" "KythOS default tray" "preset keeps the system tray in the bottom panel"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.clipboard" "KythOS tray clipboard" "clipboard history is visible in the curated tray"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.kdeconnect" "KythOS tray KDE Connect" "phone pairing status is visible in the curated tray"
+check_file /usr/bin/kyth-apply-role-preset "KythOS role preset helper"
+check_file_contains /usr/bin/kyth-apply-role-preset "everyday" "Everyday role preset" "everyday preset can refresh launcher pins"
+check_file_contains /usr/bin/kyth-apply-role-preset "gaming" "Gaming role preset" "gaming preset can refresh launcher pins"
 check_file_contains /usr/bin/kyth-user-polish "kyth-apply-desktop-layout --force" "User layout restore path" "System Hub force polish restores the desktop layout"
+check_file_contains /usr/bin/kyth-user-polish "kyth-apply-role-preset" "User role preset polish" "fresh users receive the saved role preset without update churn"
 check_file_contains /usr/bin/kyth-user-polish "--force" "User polish force mode" "System Hub can explicitly re-apply KythOS visual defaults"
 check_file_contains /usr/bin/kyth-user-polish "ColorScheme KythDark" "User visual polish" "existing and manual users can receive KythOS color defaults"
 check_file_contains /usr/bin/kyth-user-polish "Papirus-Dark" "User icon polish" "KythOS icon defaults are part of the shared polish path"
@@ -441,12 +457,22 @@ check_file_contains /usr/bin/kyth-user-polish "kwalletrc" "Existing-user KWallet
 check_file_contains /usr/bin/kyth-user-polish "--password-store=basic" "Brave wallet prompt prevention" "Brave launchers avoid waking KDE Wallet"
 check_file_contains /usr/bin/kyth-vscode-wallet '"password-store": "basic"' "VS Code wallet prompt prevention" "VS Code avoids waking KDE Wallet"
 check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "finish setting up this PC" "First-week setup checklist" "System Hub guides users through everyday setup after first boot"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Cloud storage" "First-week cloud setup" "cloud storage is part of the first-week setup checklist"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Browser integration" "First-week browser integration" "native browser integration is part of the first-week setup checklist"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Apply Preset" "Home role presets" "System Hub can apply Everyday/Gaming presets"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/core.py '_VALID_PROFILES = ("everyday", "gaming")' "Two role presets" "profile model exposes Everyday and Gaming presets"
+check_file_contains /usr/bin/kyth-user-polish "folder-templates" "Dolphin Places essentials" "Templates folder is seeded into Dolphin Places"
+check_file_contains /usr/bin/kyth-user-polish "BrowseThroughArchives" "Dolphin archive browsing" "Dolphin can browse archives like folders"
+check_file_contains /usr/bin/kyth-user-polish "PreviewSettings" "Dolphin thumbnail defaults" "Dolphin thumbnails are enabled for common media and document types"
+check_file /usr/share/kio/servicemenus/kyth-open-terminal-here.desktop "Dolphin Open Terminal Here action"
 check_file /etc/xdg/mimeapps.list "Default app associations"
 check_file /usr/bin/kyth-post-update-check "Post-update confidence"
 check_file_contains /usr/bin/kyth-post-update-check "kyth-welcome-done" "Post-update onboarding quieting" "automatic notifications wait for first-run onboarding"
 check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
 check_file_contains /etc/xdg/autostart/kyth-post-update-check.desktop "--no-notify" "Post-update login quieting" "automatic checks run without desktop popups"
 check_rpm_absent kio-gdrive "Broken KDE Google Drive worker"
+check_rpm_present plasma-browser-integration "Plasma browser integration"
 check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
 check_file /etc/skel/Games "Games folder default"

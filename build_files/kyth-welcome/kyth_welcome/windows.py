@@ -338,7 +338,7 @@ class MainWindow(QMainWindow):
             self._stack.addWidget(page)
         root_layout.addWidget(self._stack)
 
-        # The home page's focus card re-uses the wizard's gaming/work/both
+        # The home page's focus card re-uses the wizard's Everyday/Gaming
         # choice; reflect changes in the sidebar immediately.
         welcome_page = self._pages[self._page_index_by_key["Welcome"]]
         welcome_page.profile_changed.connect(self._apply_profile_visibility)
@@ -355,10 +355,10 @@ class MainWindow(QMainWindow):
 
     # ── Search ("Find a setting") ─────────────────────────────────────────────
 
-    # Windows-familiar phrasings mapped to page keys, so converts can search
-    # for what they knew the task as on Windows.
+    # Familiar phrasings mapped to page keys, so converts can search for what
+    # they knew the task as before moving over.
     _SEARCH_ITEMS: dict[str, tuple[str, str, list[str]]] = {
-        "Welcome": ("Home", "Review this PC, pick a focus, and jump into common setup tasks.", ["Control Panel", "PC focus", "Switch focus"]),
+        "Welcome": ("Home", "Review this PC, pick a preset, and jump into common setup tasks.", ["Control Panel", "PC focus", "Switch focus", "Everyday preset", "Gaming preset"]),
         "Gaming": ("Gaming", "Install launchers, scan game libraries, set up capture, saves, and migration helpers.", ["Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game capture", "Instant replay", "Battle.net"]),
         "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode"]),
         "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat"]),
@@ -381,7 +381,7 @@ class MainWindow(QMainWindow):
     }
 
     _SEARCH_ALIASES: dict[str, list[str]] = {
-        "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
+        "Welcome": ["Home", "Control Panel", "PC focus", "Everyday preset", "Gaming preset", "Switch focus"],
         "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
         "Performance": ["Performance", "Task Manager", "Mission Center"],
         "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
@@ -514,12 +514,12 @@ class MainWindow(QMainWindow):
     _GAMING_PAGE_KEYS = ("Gaming", "Performance", "Compatibility", "Controllers")
 
     def _apply_profile_visibility(self, profile: str):
-        """Tailor the sidebar to the gaming/work/both focus.
+        """Tailor the sidebar to the Everyday/Gaming focus.
 
         Hidden pages stay in the stack and reachable through search — the
         focus only de-emphasizes, it never removes.
         """
-        gaming_visible = profile != "work"
+        gaming_visible = profile == "gaming"
         work_visible = profile != "gaming"
         self._nav_section_labels["Gaming"].setVisible(gaming_visible)
         for key in self._GAMING_PAGE_KEYS:
@@ -850,9 +850,8 @@ class WizardWindow(QMainWindow):
         profile_row = QHBoxLayout()
         profile_row.setSpacing(10)
         for key, label, tip in (
-            ("gaming", "🎮  Gaming", "Game-ready defaults — Steam, Discord, launchers."),
-            ("work", "💼  Work", "Office apps, email, Microsoft 365, VPN, and printing."),
-            ("both", "🖥  Both", "Gaming defaults plus the work essentials."),
+            ("everyday", "Everyday", "Apps, browser, files, cloud storage, VPN, printers, and updates."),
+            ("gaming", "Gaming", "Steam, Discord, launchers, performance, and controller tools."),
         ):
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -1406,7 +1405,7 @@ class WizardWindow(QMainWindow):
             "Office apps, Microsoft 365 shortcuts, document fonts, VPN, shares, and printing."
         )
         self._finish_work_btn.clicked.connect(lambda: self._open_hub_at("Work Setup"))
-        self._finish_work_btn.setVisible(self._profile in ("work", "both"))
+        self._finish_work_btn.setVisible(self._profile == "everyday")
         btn_row.addWidget(self._finish_work_btn)
         hub_btn = QPushButton("Open System Hub")
         hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
@@ -1420,11 +1419,7 @@ class WizardWindow(QMainWindow):
 
     _PROFILE_DEFAULT_APPS = {
         "gaming": {"com.valvesoftware.Steam", "com.discordapp.Discord"},
-        "work": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
-        "both": {
-            "com.valvesoftware.Steam", "com.discordapp.Discord",
-            "org.libreoffice.LibreOffice", "eu.betterbird.Betterbird",
-        },
+        "everyday": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
     }
 
     def _on_profile_chosen(self, profile: str):
@@ -1432,6 +1427,10 @@ class WizardWindow(QMainWindow):
         for key, btn in self._profile_buttons.items():
             btn.setChecked(key == profile)
         _save_profile(profile)
+        try:
+            subprocess.Popen(["/usr/bin/kyth-apply-role-preset", profile], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        except OSError:
+            pass
         # Re-seed the Pick Apps defaults to match the chosen profile. Only
         # enabled boxes are touched — already-installed apps stay locked.
         wanted = self._PROFILE_DEFAULT_APPS.get(profile, set())
@@ -1493,7 +1492,7 @@ class WizardWindow(QMainWindow):
         self._skip_btn.setEnabled(not operation_busy)
         self._next_btn.setEnabled(not operation_busy)
         if hasattr(self, "_finish_work_btn"):
-            self._finish_work_btn.setVisible(self._profile in ("work", "both"))
+            self._finish_work_btn.setVisible(self._profile == "everyday")
 
         if idx == total - 1:
             self._next_btn.setText("Close")

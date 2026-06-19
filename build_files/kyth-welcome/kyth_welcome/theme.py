@@ -564,6 +564,12 @@ QLabel#card-title {
     color: #ffffff;
 }
 
+QLabel#card-subtitle {
+    font-size: 13px;
+    font-weight: 600;
+    color: #ffffff;
+}
+
 QLabel#card-summary {
     color: #e8e8e8;
     font-weight: 600;

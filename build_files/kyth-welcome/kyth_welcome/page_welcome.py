@@ -4,7 +4,7 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _load_profile, _release_worker_when_finished, _save_profile, _steam_libraries_on_ntfs,
+    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _load_profile, _release_worker_when_finished, _restyle, _save_profile, _steam_libraries_on_ntfs,
 )
 from .qt import (  # noqa: E501
     QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt, Signal,
@@ -23,6 +23,62 @@ _FIRST_BOOT_MARKERS = (
 )
 _FIRST_WEEK_MIN_DAYS = 2   # let the first-boot banner have the spotlight first
 _FIRST_WEEK_MAX_DAYS = 30
+
+
+def _path_exists(path: str) -> bool:
+    return os.path.exists(os.path.expanduser(path))
+
+
+def _cmd_ok(cmd: list[str], timeout: int = 5) -> bool:
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
+def _flatpak_installed(app_id: str) -> bool:
+    return _cmd_ok(["flatpak", "info", app_id], timeout=5)
+
+
+def _controller_seen() -> bool:
+    for path in ("/dev/input/by-id", "/dev/input/by-path"):
+        try:
+            names = os.listdir(path)
+        except OSError:
+            continue
+        if any(token in name.lower() for name in names for token in ("joystick", "gamepad", "controller")):
+            return True
+    return False
+
+
+def _kdeconnect_configured() -> bool:
+    if _path_exists("~/.config/kdeconnect"):
+        return True
+    try:
+        result = subprocess.run(["kdeconnect-cli", "--list-devices"], capture_output=True, text=True, timeout=6, check=False)
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _cloud_storage_configured() -> bool:
+    return _path_exists("~/.config/kyth-cloud-sync.json") or _path_exists("~/.config/rclone/rclone.conf")
+
+
+def _printer_configured() -> bool:
+    try:
+        result = subprocess.run(["lpstat", "-v"], capture_output=True, text=True, timeout=5, check=False)
+        return result.returncode == 0 and bool(result.stdout.strip())
+    except Exception:
+        return False
+
+
+def _browser_integration_native_ready() -> bool:
+    return (
+        _cmd_ok(["rpm", "-q", "plasma-browser-integration"], timeout=5)
+        or _path_exists("/usr/bin/plasma-browser-integration-host")
+    )
 
 
 def _first_week_days() -> int | None:
@@ -261,33 +317,97 @@ class WelcomePage(Page):
         return card
 
     def _make_first_week_card(self, days: int) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel(f"Day {days} on KythOS — a few things people find out late")
+        card, layout = _make_card("card-accent-ok")
+        title = QLabel(f"Day {days} on KythOS — finish setting up this PC")
         title.setObjectName("card-title")
         layout.addWidget(title)
-        for text, btn_label, page_key in (
-            ("Every update keeps your previous system as a rollback, so trying the "
-             "latest is risk-free — restart when it suits you.", "Updates", "Update"),
-            ("Set up Ludusavi once and your game saves are backed up before any "
-             "modding or library experiments.", "Gaming", "Gaming"),
-            ("Downloaded an installer? Use App Store first; .exe and .rpm files "
-             "open KythOS guidance instead of changing the base system silently.", "App Store", "App Store"),
-            ("Something feels off after a change? Repair can roll the whole OS back "
-             "to its previous state in one click.", "Repair", "Repair"),
-            ("If a forum tells you to paste terminal commands, search System Hub for "
-             "the Windows name of the task first. Many fixes already have buttons here.", None, None),
-        ):
+
+        body = QLabel("A quick pass over the everyday pieces that make this machine feel settled.")
+        body.setObjectName("card-copy")
+        body.setWordWrap(True)
+        layout.addWidget(body)
+
+        app_setup_done = os.path.exists("/var/lib/kyth/default-flatpaks-v5-done")
+        checklist = [
+            (
+                app_setup_done,
+                "Default apps",
+                "Steam, launchers, Bottles, save backup, and everyday apps are installed.",
+                "App Store",
+            ),
+            (
+                _flatpak_installed("com.brave.Browser"),
+                "Browser",
+                "Brave is ready for sync, extensions, web apps, and media playback.",
+                "App Store",
+            ),
+            (
+                _browser_integration_native_ready(),
+                "Browser integration",
+                "The native Plasma connector is ready for media keys, download progress, and desktop controls.",
+                "App Store",
+            ),
+            (
+                _flatpak_installed("com.valvesoftware.Steam"),
+                "Steam",
+                "Steam is installed; add libraries, Proton tools, and save backup from Gaming.",
+                "Gaming",
+            ),
+            (
+                _controller_seen(),
+                "Controller",
+                "A controller has been detected at least once this session.",
+                "Controllers",
+            ),
+            (
+                _kdeconnect_configured(),
+                "Phone pairing",
+                "KDE Connect is ready for file sharing, notifications, and dynamic lock.",
+                "Move From Windows",
+            ),
+            (
+                _cloud_storage_configured(),
+                "Cloud storage",
+                "Cloud or rclone configuration exists for this account.",
+                "Cloud Storage",
+            ),
+            (
+                _printer_configured(),
+                "Printer",
+                "At least one local or network printer is configured.",
+                "Hardware",
+            ),
+            (
+                _has_rollback_deployment(),
+                "Rollback",
+                "Your previous system image is available if an update or change feels wrong.",
+                "Update",
+            ),
+        ]
+
+        for done, label, text, page_key in checklist:
             row = QHBoxLayout()
             row.setSpacing(10)
-            lbl = QLabel("•  " + text)
+            badge = QLabel("Done" if done else "Set up")
+            badge.setObjectName("task-status-ok" if done else "task-status-idle")
+            row.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+
+            text_col = QVBoxLayout()
+            text_col.setSpacing(2)
+            heading = QLabel(label)
+            heading.setObjectName("card-subtitle")
+            text_col.addWidget(heading)
+            lbl = QLabel(text)
             lbl.setObjectName("card-copy")
             lbl.setWordWrap(True)
-            row.addWidget(lbl, 1)
-            if page_key:
-                btn = QPushButton(btn_label)
-                btn.clicked.connect(lambda _=False, k=page_key: self._navigate(k))
-                row.addWidget(btn, 0, Qt.AlignmentFlag.AlignTop)
+            text_col.addWidget(lbl)
+            row.addLayout(text_col, 1)
+
+            btn = QPushButton("Open" if done else "Set Up")
+            btn.clicked.connect(lambda _=False, k=page_key: self._navigate(k))
+            row.addWidget(btn, 0, Qt.AlignmentFlag.AlignTop)
             layout.addLayout(row)
+
         dismiss_row = QHBoxLayout()
         dismiss_btn = QPushButton("Got it — hide this")
         dismiss_btn.clicked.connect(lambda _=False, c=card: self._dismiss_first_week(c))
@@ -330,8 +450,8 @@ class WelcomePage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "Pick what you use this PC for, and the hub puts those sections front "
-            "and center. Nothing is uninstalled — switch back anytime."
+            "Pick what you use this PC for, and KythOS tunes the hub, pins, and "
+            "desktop defaults around that workflow. Nothing is uninstalled — switch back anytime."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -341,9 +461,8 @@ class WelcomePage(Page):
         row = QHBoxLayout()
         row.setSpacing(10)
         for key, label, tip in (
-            ("gaming", "🎮  Gaming", "Show the gaming sections — launchers, performance, controllers."),
-            ("work", "💼  Work", "Hide the gaming sections; keep apps, VPN, and updates up front."),
-            ("both", "🖥  Both", "Show everything — gaming plus the work essentials."),
+            ("everyday", "Everyday", "Apps, browser, files, cloud storage, VPN, printers, and updates up front."),
+            ("gaming", "Gaming", "Launchers, performance, compatibility, controllers, and gaming pins up front."),
         ):
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -355,6 +474,18 @@ class WelcomePage(Page):
         row.addStretch()
         layout.addLayout(row)
         self._focus_buttons[self._profile].setChecked(True)
+
+        apply_row = QHBoxLayout()
+        apply_row.setSpacing(8)
+        apply_btn = QPushButton("Apply Preset")
+        apply_btn.setObjectName("primary")
+        apply_btn.clicked.connect(lambda _=False: self._apply_role_preset())
+        apply_row.addWidget(apply_btn)
+        self._preset_status = QLabel("Preset changes are safe to re-apply anytime.")
+        self._preset_status.setObjectName("status-dim")
+        self._preset_status.setWordWrap(True)
+        apply_row.addWidget(self._preset_status, 1)
+        layout.addLayout(apply_row)
         return card
 
     def _on_focus_chosen(self, profile: str):
@@ -365,9 +496,30 @@ class WelcomePage(Page):
         self._relayout_categories(profile)
         self.profile_changed.emit(profile)
 
+    def _apply_role_preset(self):
+        try:
+            result = subprocess.run(
+                ["/usr/bin/kyth-apply-role-preset", self._profile],
+                capture_output=True,
+                text=True,
+                timeout=20,
+                check=False,
+            )
+            if result.returncode == 0:
+                self._preset_status.setObjectName("status-ok")
+                self._preset_status.setText(f"{self._profile.title()} preset applied.")
+            else:
+                detail = result.stderr.strip() or result.stdout.strip() or "unknown error"
+                self._preset_status.setObjectName("status-warn")
+                self._preset_status.setText(f"Preset saved, but desktop pins could not be refreshed: {detail}")
+        except Exception as exc:
+            self._preset_status.setObjectName("status-warn")
+            self._preset_status.setText(f"Preset saved, but desktop pins could not be refreshed: {exc}")
+        _restyle(self._preset_status)
+
     def _relayout_categories(self, profile: str):
         """Re-pack the category grid so hiding the Games card leaves no hole."""
-        show_games = profile != "work"
+        show_games = profile == "gaming"
         visible: list[QFrame] = []
         for card, is_games in self._category_cards:
             self._category_grid.removeWidget(card)

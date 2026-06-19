@@ -3020,25 +3020,31 @@ def _mark_wizard_done():
         pass
 
 
-# ── Usage profile (gaming / work / both) ──────────────────────────────────────
+# ── Usage profile (everyday / gaming) ─────────────────────────────────────────
 # Chosen on the first-run wizard's welcome step; drives which app defaults the
-# wizard pre-selects and whether work-oriented setup is surfaced afterwards.
+# wizard pre-selects and which System Hub sections get the most prominence.
+# Older installs used work/both; both are treated as the Everyday preset.
 _PROFILE_PATH = os.path.expanduser("~/.local/share/kyth/profile")
-_VALID_PROFILES = ("gaming", "work", "both")
+_VALID_PROFILES = ("everyday", "gaming")
+_PROFILE_ALIASES = {"work": "everyday", "both": "everyday"}
+
+
+def _normalize_profile(profile: str) -> str:
+    value = profile.strip().lower()
+    value = _PROFILE_ALIASES.get(value, value)
+    return value if value in _VALID_PROFILES else "everyday"
 
 
 def _load_profile() -> str:
     try:
         with open(_PROFILE_PATH, encoding="utf-8") as fh:
-            value = fh.read().strip().lower()
-        return value if value in _VALID_PROFILES else "both"
+            return _normalize_profile(fh.read())
     except OSError:
-        return "both"
+        return "everyday"
 
 
 def _save_profile(profile: str) -> None:
-    if profile not in _VALID_PROFILES:
-        return
+    profile = _normalize_profile(profile)
     try:
         os.makedirs(os.path.dirname(_PROFILE_PATH), exist_ok=True)
         with open(_PROFILE_PATH, "w", encoding="utf-8") as fh:

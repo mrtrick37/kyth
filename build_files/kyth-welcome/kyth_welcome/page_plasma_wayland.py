@@ -137,17 +137,17 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     probes.append(HardwareProbe(
         "Desktop comfort defaults",
         "ok" if single_click == "false" and clip_items == "25" else "dim",
-        "Windows-familiar double-click and clipboard history are configured"
+        "Comfortable double-click and clipboard history defaults are configured"
         if single_click == "false" and clip_items == "25" else "Shortcut and clipboard defaults can be re-applied below",
         f"SingleClick={single_click or 'unset'}, ClipboardItems={clip_items or 'unset'}",
     ))
 
     layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "WindowsFamiliarLayout")
     probes.append(HardwareProbe(
-        "Windows Familiar layout",
+        "KythOS default layout",
         "ok" if layout_marker == "windows-familiar-v1" else "dim",
         "KythOS bottom taskbar and pinned launcher layout are active"
-        if layout_marker == "windows-familiar-v1" else "Restore the Windows Familiar layout below when you want the KythOS default shell shape",
+        if layout_marker == "windows-familiar-v1" else "Restore the KythOS default layout below when you want the standard shell shape",
         f"WindowsFamiliarLayout={layout_marker or 'unset'}",
     ))
     return probes
@@ -224,7 +224,7 @@ class PlasmaWaylandPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "Restore the Windows Familiar desktop preset: bottom taskbar, KythOS launcher, "
+            "Restore the KythOS default desktop preset: bottom taskbar, KythOS launcher, "
             "pinned System Hub/App Store/Steam/Brave/Dolphin/Konsole apps, system tray, clock, "
             "wallpaper, shortcuts, titlebar buttons, clipboard history, and Dolphin defaults."
         )
@@ -234,7 +234,7 @@ class PlasmaWaylandPage(Page):
 
         actions = ActionRow("", "idle")
         actions.status.hide()
-        actions.add_button("Restore Windows Familiar Layout", self._apply_plasma_polish, primary=True)
+        actions.add_button("Restore KythOS Layout", self._apply_plasma_polish, primary=True)
         actions.add_button("Open Desktop Theme", lambda _=False: self._open_kcm("Desktop Theme", "kcm_desktoptheme"))
         actions.add_button("Open Colors", lambda _=False: self._open_kcm("Colors", "kcm_colors"))
         actions.finish()
@@ -368,7 +368,7 @@ fi
 
     def _apply_plasma_polish(self):
         cmd = self._plasma_polish_command()
-        self._polish_result.set_running("Restoring the Windows Familiar layout...", self._command_details(cmd))
+        self._polish_result.set_running("Restoring the KythOS default layout...", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=20, check=False)
         except Exception as exc:
@@ -377,7 +377,7 @@ fi
         if result.returncode == 0:
             self._polish_result.set_result(
                 "ok",
-                "Windows Familiar layout restored. Some panel, shell theme, or wallpaper changes may appear after restarting Plasma Shell or signing in again.",
+                "KythOS default layout restored. Some panel, shell theme, or wallpaper changes may appear after restarting Plasma Shell or signing in again.",
                 self._command_details(cmd, result),
             )
             self.refresh()

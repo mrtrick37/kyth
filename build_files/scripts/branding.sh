@@ -743,11 +743,11 @@ mkdir -p /etc/xdg/autostart
 install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
     /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
-# ── Windows Familiar Plasma layout preset ────────────────────────────────────
+# ── KythOS default Plasma layout preset ───────────────────────────────────────
 # Applies the distinctive KythOS desktop shape: bottom taskbar, KythOS launcher,
 # pinned everyday apps, system tray, clock, show-desktop target, wallpaper, and
 # a restore marker. Run with --initial for fresh users and --force when the user
-# explicitly clicks "Restore Windows Familiar Layout" in System Hub.
+# explicitly clicks "Restore KythOS Layout" in System Hub.
 cat > /usr/bin/kyth-apply-desktop-layout <<'LAYOUTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -814,6 +814,18 @@ var launchers = [
     "applications:org.kde.konsole.desktop"
 ].join(",");
 
+var trayItems = [
+    "org.kde.plasma.networkmanagement",
+    "org.kde.plasma.volume",
+    "org.kde.plasma.bluetooth",
+    "org.kde.plasma.battery",
+    "org.kde.plasma.notifications",
+    "org.kde.plasma.clipboard",
+    "org.kde.plasma.devicenotifier",
+    "org.kde.plasma.printmanager",
+    "org.kde.kdeconnect"
+].join(",");
+
 function safeSet(object, key, value) {
     try {
         object[key] = value;
@@ -874,7 +886,7 @@ function configureDesktops() {
     }
 }
 
-function addWindowsFamiliarPanel(screen) {
+function addKythDefaultPanel(screen) {
     var panel = new Panel;
     safeSet(panel, "screen", screen);
     panel.location = "bottom";
@@ -905,7 +917,7 @@ function addWindowsFamiliarPanel(screen) {
 
     var tray = panel.addWidget("org.kde.plasma.systemtray");
     writeConfig(tray, ["General"], {
-        "extraItems": "org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.plasma.battery,org.kde.plasma.notifications"
+        "extraItems": trayItems
     });
 
     var clock = panel.addWidget("org.kde.plasma.digitalclock");
@@ -920,7 +932,7 @@ removeExistingPanels();
 configureDesktops();
 var screens = uniqueScreens();
 for (var i = 0; i < screens.length; ++i) {
-    addWindowsFamiliarPanel(screens[i]);
+    addKythDefaultPanel(screens[i]);
 }
 JSEOF
 
@@ -931,6 +943,146 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
 fi
 LAYOUTEOF
 chmod +x /usr/bin/kyth-apply-desktop-layout
+
+# ── KythOS role presets ───────────────────────────────────────────────────────
+# Lightweight, user-controlled presets for the home page focus picker. These
+# alter prominence and pins only; they never remove apps or hide tools from
+# search.
+cat > /usr/bin/kyth-apply-role-preset <<'ROLEPRESETEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+profile="${1:-everyday}"
+case "${profile}" in
+    work|both|everyday)
+        profile="everyday"
+        launchers=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.libreoffice.LibreOffice.desktop"
+            "applications:eu.betterbird.Betterbird.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        favorites=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.libreoffice.LibreOffice.desktop"
+            "applications:eu.betterbird.Betterbird.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        ;;
+    gaming)
+        launchers=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:steam.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:dev.vencord.Vesktop.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        favorites=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:steam.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:dev.vencord.Vesktop.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        ;;
+    *)
+        echo "Usage: kyth-apply-role-preset [everyday|gaming]" >&2
+        exit 64
+        ;;
+esac
+
+profile_dir="${HOME}/.local/share/kyth"
+mkdir -p "${profile_dir}"
+printf '%s\n' "${profile}" > "${profile_dir}/profile"
+
+join_by_comma() {
+    local IFS=,
+    printf '%s' "$*"
+}
+launcher_csv="$(join_by_comma "${launchers[@]}")"
+favorite_csv="$(join_by_comma "${favorites[@]}")"
+tray_csv="org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.plasma.battery,org.kde.plasma.notifications,org.kde.plasma.clipboard,org.kde.plasma.devicenotifier,org.kde.plasma.printmanager,org.kde.kdeconnect"
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs "${favorite_csv}"
+    kwriteconfig6 --file plasma-discoverrc --group UpdatesNotifier --key UseNotifications --type bool false
+fi
+
+qdbus_cmd=""
+for candidate in qdbus6 qdbus; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+        qdbus_cmd="${candidate}"
+        break
+    fi
+done
+
+if [[ -n "${qdbus_cmd}" ]]; then
+    runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+    [[ -d "${runtime_dir}" ]] || runtime_dir="/tmp"
+    script_file="$(mktemp "${runtime_dir}/kyth-role-preset.XXXXXX.js")"
+    trap 'rm -f "${script_file}"' EXIT
+    cat > "${script_file}" <<JSEOF
+var launchers = "${launcher_csv}";
+var trayItems = "${tray_csv}";
+
+function writeConfig(object, groups, values) {
+    try {
+        object.currentConfigGroup = groups;
+        for (var key in values) {
+            object.writeConfig(key, values[key]);
+        }
+        object.reloadConfig();
+    } catch (e) {
+    }
+}
+
+for (var p = 0; p < panelIds.length; ++p) {
+    var panel = panelById(panelIds[p]);
+    if (!panel || !panel.widgets) {
+        continue;
+    }
+    var widgets = panel.widgets();
+    for (var i = 0; i < widgets.length; ++i) {
+        var widget = widgets[i];
+        if (widget.type === "org.kde.plasma.icontasks") {
+            writeConfig(widget, ["General"], {
+                "launchers": launchers,
+                "showOnlyCurrentDesktop": false,
+                "showOnlyCurrentScreen": false,
+                "showOnlyCurrentActivity": false,
+                "groupingStrategy": 1,
+                "showToolTips": true,
+                "wheelEnabled": "AllTask",
+                "indicateAudioStreams": true
+            });
+        } else if (widget.type === "org.kde.plasma.systemtray") {
+            writeConfig(widget, ["General"], {
+                "extraItems": trayItems
+            });
+        }
+    }
+}
+JSEOF
+    "${qdbus_cmd}" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "${script_file}")" >/dev/null 2>&1 || true
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+echo "Applied ${profile} preset."
+ROLEPRESETEOF
+chmod +x /usr/bin/kyth-apply-role-preset
 
 # ── User comfort polish ───────────────────────────────────────────────────────
 # KDE stores several "Windows users expect this" preferences per-user. Bake a
@@ -1052,10 +1204,27 @@ org.kde.dolphin.desktop|inode/directory
 MIMEDEFAULTS
 fi
 
-# Dolphin Places sidebar: seed a Windows-familiar set without depending on
-# fragile GUI state. Preserve existing customized places; add Games when absent.
+# Dolphin Places sidebar: seed a comfortable everyday set without depending on
+# fragile GUI state. Preserve existing customized places; add missing essentials.
 mkdir -p "${HOME}/.local/share"
 places_file="${HOME}/.local/share/user-places.xbel"
+ensure_place() {
+    local href=$1
+    local title=$2
+    local icon=$3
+    grep -Fq "href=\"${href}\"" "${places_file}" 2>/dev/null && return 0
+    local tmp_places="${places_file}.kyth-tmp"
+    awk -v href="${href}" -v title="${title}" -v icon="${icon}" '
+        /<\/xbel>/ && !done {
+            print " <bookmark href=\"" href "\">"
+            print "  <title>" title "</title>"
+            print "  <info><metadata owner=\"http://freedesktop.org\"><bookmark:icon name=\"" icon "\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\"/></metadata></info>"
+            print " </bookmark>"
+            done=1
+        }
+        { print }
+    ' "${places_file}" > "${tmp_places}" && mv "${tmp_places}" "${places_file}"
+}
 if [[ ! -f "${places_file}" ]]; then
     cat > "${places_file}" <<PLACESXBELEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -1081,9 +1250,21 @@ if [[ ! -f "${places_file}" ]]; then
   <title>Games</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="applications-games" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
  </bookmark>
+ <bookmark href="file://${HOME}/Music">
+  <title>Music</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-music" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
  <bookmark href="file://${HOME}/Pictures">
   <title>Pictures</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Public">
+  <title>Public</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-publicshare" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Templates">
+  <title>Templates</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-templates" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
  </bookmark>
  <bookmark href="file://${HOME}/Videos">
   <title>Videos</title>
@@ -1099,19 +1280,19 @@ if [[ ! -f "${places_file}" ]]; then
  </bookmark>
 </xbel>
 PLACESXBELEOF
-elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
-    tmp_places="${places_file}.kyth-tmp"
-    awk -v home="${HOME}" '
-        /<\/xbel>/ && !done {
-            print " <bookmark href=\"file://" home "/Games\">"
-            print "  <title>Games</title>"
-            print "  <info><metadata owner=\"http://freedesktop.org\"><bookmark:icon name=\"applications-games\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\"/></metadata></info>"
-            print " </bookmark>"
-            done=1
-        }
-        { print }
-    ' "${places_file}" > "${tmp_places}" && mv "${tmp_places}" "${places_file}"
 fi
+ensure_place "file://${HOME}" "Home" "user-home"
+ensure_place "file://${HOME}/Desktop" "Desktop" "user-desktop"
+ensure_place "file://${HOME}/Documents" "Documents" "folder-documents"
+ensure_place "file://${HOME}/Downloads" "Downloads" "folder-download"
+ensure_place "file://${HOME}/Games" "Games" "applications-games"
+ensure_place "file://${HOME}/Music" "Music" "folder-music"
+ensure_place "file://${HOME}/Pictures" "Pictures" "folder-pictures"
+ensure_place "file://${HOME}/Public" "Public" "folder-publicshare"
+ensure_place "file://${HOME}/Templates" "Templates" "folder-templates"
+ensure_place "file://${HOME}/Videos" "Videos" "folder-videos"
+ensure_place "trash:/" "Trash" "user-trash"
+ensure_place "network:/" "Network" "network-workgroup"
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
     # Ensure KDE apps (Discover, System Settings, etc.) always display English.
@@ -1266,7 +1447,11 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group General --key ShowFullPath --type bool true
     kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
     kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key BrowseThroughArchives --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key ShowToolTips --type bool true
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+    kwriteconfig6 --file dolphinrc --group PreviewSettings --key Plugins \
+        'audiothumbnail,comicbookthumbnail,cursorthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,ffmpegthumbs,imagethumbnail,jpegthumbnail,kraorathumbnail,windowsexethumbnail'
 fi
 
 brave_desktop_src=""
@@ -1318,6 +1503,15 @@ fi
 
 if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
     /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
+fi
+
+if command -v /usr/bin/kyth-apply-role-preset >/dev/null 2>&1 \
+    && [[ "${force}" == "1" || "${had_polish_stamp}" == "0" ]]; then
+    role_profile="everyday"
+    if [[ -r "${HOME}/.local/share/kyth/profile" ]]; then
+        role_profile="$(head -n 1 "${HOME}/.local/share/kyth/profile" 2>/dev/null || printf 'everyday')"
+    fi
+    /usr/bin/kyth-apply-role-preset "${role_profile}" >/dev/null 2>&1 || true
 fi
 
 if [[ -d "${HOME}/Desktop" && ( "${force}" == "1" || "${had_polish_stamp}" == "0" ) ]] \
@@ -1756,17 +1950,32 @@ MIMEAPPSEOF
 # Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
 
-# Add Windows-style nearby sharing to Dolphin's file context menu. KDE Connect
-# handles discovery and transfer; the helper prompts when multiple paired
-# devices are reachable.
+# Add nearby sharing to Dolphin's file context menu. KDE Connect handles
+# discovery and transfer; the helper prompts when multiple paired devices are
+# reachable.
 mkdir -p /usr/share/kio/servicemenus
 install -m 0644 /ctx/kyth-nearby-share.desktop \
     /usr/share/kio/servicemenus/kyth-nearby-share.desktop
 
+# Surface a plain "Open Terminal Here" action in Dolphin. This is a small
+# everyday comfort affordance for support notes, development, and modding.
+cat > /usr/share/kio/servicemenus/kyth-open-terminal-here.desktop <<'TERMHEREDESKTOPEOF'
+[Desktop Entry]
+Type=Service
+MimeType=inode/directory;
+Actions=kythOpenTerminalHere;
+X-KDE-Priority=TopLevel
+
+[Desktop Action kythOpenTerminalHere]
+Name=Open Terminal Here
+Icon=utilities-terminal
+Exec=konsole --workdir %f
+TERMHEREDESKTOPEOF
+
 # ── Right-click "New Document" templates for Dolphin ─────────────────────────
 # Any file placed in ~/Templates appears in Dolphin's right-click → Create New
-# → Document menu — the same behaviour as Windows Explorer's "New" submenu.
-# Seeding /etc/skel ensures every new user gets the templates on first login.
+# → Document menu. Seeding /etc/skel ensures every new user gets the templates
+# on first login.
 mkdir -p /etc/skel/Templates
 printf ''                                          > "/etc/skel/Templates/Plain Text.txt"
 printf '# Title\n\n'                               > "/etc/skel/Templates/Markdown.md"

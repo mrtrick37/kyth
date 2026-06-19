@@ -559,6 +559,7 @@ dnf5 install -y --skip-unavailable \
 	openconnect \
 	vpnc \
 	kde-connect \
+	plasma-browser-integration \
 	cups-browsed
 
 optional_desktop_packages=(
@@ -572,6 +573,8 @@ optional_desktop_packages=(
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
+# plasma-browser-integration: native host for browser media controls, download
+#   progress, and desktop integration once the browser extension is enabled.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
