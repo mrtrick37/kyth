@@ -1966,7 +1966,9 @@ for image in "${images[@]}"; do
         --reproducible \
         --force \
         --add "drm plymouth ostree kyth-plymouth" \
-        --include "${include_root}" / \
+        --include "${include_root}/etc/plymouth" /etc/plymouth \
+        --include "${include_root}/usr/share/plymouth" /usr/share/plymouth \
+        --include "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png \
         "${image}" \
         "${kernel}"
     verify_image "${image}"
@@ -1979,7 +1981,9 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --regenerate-all \
         --force \
         --add "drm plymouth kyth-plymouth" \
-        --include "${include_root}" /
+        --include "${include_root}/etc/plymouth" /etc/plymouth \
+        --include "${include_root}/usr/share/plymouth" /usr/share/plymouth \
+        --include "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png
     collect_images
     for image in "${images[@]}"; do
         verify_image "${image}"
