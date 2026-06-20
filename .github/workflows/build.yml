@@ -433,11 +433,11 @@ jobs:
             fi
           done
 
-          IMAGE_JSON="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ json .Image }}')"
-          LAYERS="$(jq '.RootFS.DiffIDs | length' <<< "${IMAGE_JSON}")"
-          VERSION="$(jq -r '.Config.Labels."org.opencontainers.image.version"' <<< "${IMAGE_JSON}")"
-          REVISION="$(jq -r '.Config.Labels."org.opencontainers.image.revision"' <<< "${IMAGE_JSON}")"
-          BOOTC_LABEL="$(jq -r '.Config.Labels."containers.bootc"' <<< "${IMAGE_JSON}")"
+          LAYERS="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ len .Image.RootFS.DiffIDs }}')"
+          LABELS_JSON="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ json .Image.Config.Labels }}')"
+          VERSION="$(jq -r '."org.opencontainers.image.version"' <<< "${LABELS_JSON}")"
+          REVISION="$(jq -r '."org.opencontainers.image.revision"' <<< "${LABELS_JSON}")"
+          BOOTC_LABEL="$(jq -r '."containers.bootc"' <<< "${LABELS_JSON}")"
           echo "Rechunked image: ${LAYERS} layers"
           test "${LAYERS}" -le 128
           test "${VERSION}" = "${EXPECTED_VERSION}"
