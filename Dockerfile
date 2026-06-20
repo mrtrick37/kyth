@@ -30,6 +30,19 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     bash /ctx/packages.sh
 
+# Headroom context compression CLI/proxy for AI coding workflows.
+# Installed into its own virtualenv so PyPI dependencies do not modify Fedora's
+# system Python. Bump HEADROOM_VERSION when KythOS intentionally updates it.
+ARG HEADROOM_VERSION=0.26.0
+ARG HEADROOM_EXTRAS=proxy,code,relevance
+RUN --mount=type=bind,source=build_files/scripts/headroom.sh,target=/ctx/headroom.sh \
+    --mount=type=cache,id=kyth-var-cache,target=/var/cache \
+    --mount=type=cache,id=kyth-pip-cache,target=/root/.cache/pip \
+    --mount=type=tmpfs,dst=/tmp \
+    HEADROOM_VERSION=${HEADROOM_VERSION} \
+    HEADROOM_EXTRAS=${HEADROOM_EXTRAS} \
+    bash /ctx/headroom.sh
+
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
 # ge-proton.sh changes or GE_PROTON_VER changes — not on every daily dnf

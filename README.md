@@ -103,7 +103,7 @@ Gaming-first doesn't mean gaming-only.
 - **Video & streaming:** OBS Studio with Vulkan/OpenGL capture, Kdenlive, DaVinci Resolve helper
 - **Audio:** Audacity, PipeWire tuned for low latency
 - **Graphics:** GIMP, full media codec stack including thumbnails
-- **Dev tools:** VS Code, GitHub CLI, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC
+- **Dev tools:** VS Code, Headroom, GitHub CLI, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC
 - **Productivity:** Brave, KDE Connect, OpenDeck, rclone cloud storage mounts
 - **Security:** Optional Kali Linux toolbox container, Wireshark, Burp Suite Community
 - **VPN:** Standalone VPN Connect app with GlobalProtect SAML flow

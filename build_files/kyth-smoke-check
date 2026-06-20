@@ -576,6 +576,8 @@ if is_live_session; then
     check_file /usr/share/applications/kyth-install.desktop "Install app launcher"
     check_command code "VS Code command"
     check_file /usr/share/applications/code.desktop "VS Code launcher"
+    check_command headroom "Headroom command"
+    check_file /opt/headroom/bin/headroom "Headroom virtualenv entrypoint"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-welcome.desktop" "System Hub favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-install.desktop" "Installer favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/code.desktop" "VS Code favorite" "pinned in launcher favorites"

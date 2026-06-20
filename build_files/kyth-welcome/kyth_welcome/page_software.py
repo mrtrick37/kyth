@@ -59,7 +59,7 @@ _INSTALL_VSCODE_CMD = [
     "bash", "-c",
     "set -euo pipefail\n"
     "kyth-vscode-wallet\n"
-    "echo 'VS Code is baked into the image. Password storage configured.'",
+    "echo 'VS Code and Headroom are baked into the image. Password storage configured.'",
 ]
 
 _SETUP_DEV_BOX_CMD = [
@@ -2433,7 +2433,7 @@ class SoftwarePage(Page):
         card_layout.addWidget(title)
         body = QLabel(
             "Sets up everything you need to work on KythOS:\n"
-            "  •  Installs VS Code from Flathub (appears in your app launcher)\n"
+            "  •  Uses the built-in VS Code and Headroom developer tools\n"
             "  •  Creates a Fedora 44 distrobox named kyth-dev with the full\n"
             "     build toolchain: git, just, podman, ShellCheck, ripgrep, and more\n\n"
             "Your home directory is shared with the container — no files are moved."

@@ -853,7 +853,9 @@ install-vscode:
     set -euo pipefail
     kyth-vscode-wallet
     echo
-    echo "VS Code is baked into the image. Launch it from the app menu or run: code"
+    echo "VS Code and Headroom are baked into the image."
+    echo "Launch VS Code from the app menu or run: code"
+    echo "Run Headroom with: headroom"
 
 # Set up Waydroid (Android in a container) on KythOS.
 #
