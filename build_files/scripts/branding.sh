@@ -109,7 +109,7 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 TOPGRADEEOF
 
 # ── KythDark color scheme ─────────────────────────────────────────────────────
-# Tokyo Night-derived palette: #1a1b26 dark slate base, #7c5cbf purple accent.
+# Tokyo Night-derived palette: #1a1b26 dark slate base, #2f9b8f Kyth teal accent.
 # All nine Color:* sections share the same palette so colors are consistent
 # across button, view, window, selection, tooltip, and header contexts.
 mkdir -p /usr/share/color-schemes
@@ -137,100 +137,100 @@ IntensityEffect=0
 [Colors:Button]
 BackgroundAlternate=36,40,59
 BackgroundNormal=31,35,53
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Complementary]
 BackgroundAlternate=36,40,59
 BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Header]
 BackgroundAlternate=31,35,53
 BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Selection]
-BackgroundAlternate=124,92,191
-BackgroundNormal=124,92,191
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=47,155,143
+BackgroundNormal=47,155,143
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=255,255,255
 ForegroundInactive=204,204,204
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=255,255,255
 ForegroundPositive=158,206,106
-ForegroundVisited=192,163,255
+ForegroundVisited=166,240,229
 
 [Colors:Tooltip]
 BackgroundAlternate=31,35,53
 BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:View]
 BackgroundAlternate=31,35,53
 BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Window]
 BackgroundAlternate=31,35,53
 BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [General]
 ColorScheme=KythDark
@@ -245,8 +245,8 @@ KYTHCOLORSEOF
 # Minimal theme that overrides only the panel background SVG; all other assets
 # fall back to breeze-dark via X-Plasma-Fallback-Theme.  The panel-background
 # SVG uses fill-opacity=0.82 so KWin's blur effect shines through, producing
-# a frosted glass look.  A thin purple top-edge accent line ties the panel to
-# the KythDark color accent.
+# a frosted glass look. A thin teal top-edge accent line ties the panel to
+# the KythDark color accent and System Hub visual language.
 mkdir -p /usr/share/plasma/desktoptheme/kyth-dark/widgets
 
 cat >/usr/share/plasma/desktoptheme/kyth-dark/metadata.json <<'KYTHMETAEOF'
@@ -268,7 +268,7 @@ KYTHMETAEOF
 # Coordinates: 100×100 canvas, 4px borders, semi-transparent dark slate fill.
 # The hint-* elements encode margin widths for the Plasma SVG renderer;
 # they are invisible (fill:none) and exist only to carry the numeric hint.
-# A 1px purple accent line runs along the top edge of the panel.
+# A 1px teal accent line runs along the top edge of the panel.
 cat >/usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KYTHPANELSVGEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
@@ -277,8 +277,8 @@ cat >/usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KY
   <rect id="hint-right-margin"  x="96" y="49" width="4"  height="1" fill="none"/>
   <rect id="hint-top-margin"    x="49" y="0"  width="1"  height="5" fill="none"/>
   <rect id="hint-bottom-margin" x="49" y="96" width="1"  height="4" fill="none"/>
-  <!-- Purple top accent line (1px, spans the full width across the top border) -->
-  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#7c5cbf" fill-opacity="0.70"/>
+  <!-- Teal top accent line (1px, spans the full width across the top border) -->
+  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#2f9b8f" fill-opacity="0.70"/>
   <!-- 9-patch fill regions: semi-transparent dark slate -->
   <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
   <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
@@ -293,6 +293,13 @@ KYTHPANELSVGEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
+mkdir -p /etc/skel/Screenshots
+cat >/etc/skel/Screenshots/.directory <<'SKELSHOTSDIREEOF'
+[Desktop Entry]
+Icon=folder-pictures
+Name=Screenshots
+SKELSHOTSDIREEOF
+
 cat >/etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
 ColorScheme=KythDark
@@ -441,6 +448,9 @@ Autolock=true
 LockGracePeriod=5
 LockOnResume=true
 Timeout=15
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SCREENLOCKEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
@@ -535,6 +545,8 @@ cat >/usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
 [General]
 type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+logo=/usr/share/pixmaps/kyth.svg
+showlogo=shown
 SDDMEOF
 
 # Make enrolled fingerprints available to the login and screen-lock PAM stack.
@@ -754,7 +766,7 @@ set -euo pipefail
 
 force=0
 initial=0
-layout_version="windows-familiar-v1"
+layout_version="kyth-comfort-v3"
 config_file="plasma-org.kde.plasma.desktop-appletsrc"
 
 for arg in "$@"; do
@@ -774,10 +786,12 @@ done
 
 if [[ "${force}" != "1" ]]; then
     current=""
+    legacy_current=""
     if command -v kreadconfig6 >/dev/null 2>&1; then
-        current="$(kreadconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout 2>/dev/null || true)"
+        current="$(kreadconfig6 --file "${config_file}" --group KythOS --key KythComfortLayout 2>/dev/null || true)"
+        legacy_current="$(kreadconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout 2>/dev/null || true)"
     fi
-    if [[ "${current}" == "${layout_version}" ]]; then
+    if [[ "${current}" == "${layout_version}" || "${current}" == "kyth-comfort-v2" || "${legacy_current}" == "windows-familiar-v1" ]]; then
         exit 0
     fi
 fi
@@ -824,6 +838,11 @@ var trayItems = [
     "org.kde.plasma.devicenotifier",
     "org.kde.plasma.printmanager",
     "org.kde.kdeconnect"
+].join(",");
+
+var hiddenTrayItems = [
+    "org.kde.plasma.keyboardindicator",
+    "org.kde.plasma.mediacontroller"
 ].join(",");
 
 function safeSet(object, key, value) {
@@ -890,7 +909,7 @@ function addKythDefaultPanel(screen) {
     var panel = new Panel;
     safeSet(panel, "screen", screen);
     panel.location = "bottom";
-    panel.height = 50;
+    panel.height = 54;
     safeSet(panel, "alignment", "center");
     safeSet(panel, "floating", false);
     safeSet(panel, "floatingApplets", false);
@@ -898,7 +917,9 @@ function addKythDefaultPanel(screen) {
     var kickoff = panel.addWidget("org.kde.plasma.kickoff");
     writeConfig(kickoff, ["General"], {
         "icon": "kyth-kickoff",
-        "favoritesPortedToKAstats": true
+        "favoritesPortedToKAstats": true,
+        "alphaSort": true,
+        "showActionButtonCaptions": true
     });
 
     var tasks = panel.addWidget("org.kde.plasma.icontasks");
@@ -908,21 +929,31 @@ function addKythDefaultPanel(screen) {
         "showOnlyCurrentScreen": false,
         "showOnlyCurrentActivity": false,
         "groupingStrategy": 1,
+        "maxStripes": 1,
         "showToolTips": true,
         "wheelEnabled": "AllTask",
-        "indicateAudioStreams": true
+        "indicateAudioStreams": true,
+        "highlightWindows": true,
+        "middleClickAction": "NewInstance"
     });
 
     panel.addWidget("org.kde.plasma.marginsseparator");
 
     var tray = panel.addWidget("org.kde.plasma.systemtray");
     writeConfig(tray, ["General"], {
-        "extraItems": trayItems
+        "extraItems": trayItems,
+        "hiddenItems": hiddenTrayItems,
+        "knownItems": trayItems + "," + hiddenTrayItems,
+        "showAllItems": false
     });
+
+    panel.addWidget("org.kde.plasma.panelspacer");
 
     var clock = panel.addWidget("org.kde.plasma.digitalclock");
     writeConfig(clock, ["Appearance"], {
-        "showDate": true
+        "showDate": true,
+        "dateFormat": "shortDate",
+        "showSeconds": false
     });
 
     panel.addWidget("org.kde.plasma.showdesktop");
@@ -939,7 +970,7 @@ JSEOF
 "${qdbus_cmd}" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "${script_file}")" >/dev/null
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
-    kwriteconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout "${layout_version}" >/dev/null 2>&1 || true
+    kwriteconfig6 --file "${config_file}" --group KythOS --key KythComfortLayout "${layout_version}" >/dev/null 2>&1 || true
 fi
 LAYOUTEOF
 chmod +x /usr/bin/kyth-apply-desktop-layout
@@ -1012,6 +1043,7 @@ join_by_comma() {
 launcher_csv="$(join_by_comma "${launchers[@]}")"
 favorite_csv="$(join_by_comma "${favorites[@]}")"
 tray_csv="org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.plasma.battery,org.kde.plasma.notifications,org.kde.plasma.clipboard,org.kde.plasma.devicenotifier,org.kde.plasma.printmanager,org.kde.kdeconnect"
+hidden_tray_csv="org.kde.plasma.keyboardindicator,org.kde.plasma.mediacontroller"
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs "${favorite_csv}"
@@ -1034,6 +1066,7 @@ if [[ -n "${qdbus_cmd}" ]]; then
     cat > "${script_file}" <<JSEOF
 var launchers = "${launcher_csv}";
 var trayItems = "${tray_csv}";
+var hiddenTrayItems = "${hidden_tray_csv}";
 
 function writeConfig(object, groups, values) {
     try {
@@ -1061,13 +1094,25 @@ for (var p = 0; p < panelIds.length; ++p) {
                 "showOnlyCurrentScreen": false,
                 "showOnlyCurrentActivity": false,
                 "groupingStrategy": 1,
+                "maxStripes": 1,
                 "showToolTips": true,
                 "wheelEnabled": "AllTask",
-                "indicateAudioStreams": true
+                "indicateAudioStreams": true,
+                "highlightWindows": true,
+                "middleClickAction": "NewInstance"
             });
         } else if (widget.type === "org.kde.plasma.systemtray") {
             writeConfig(widget, ["General"], {
-                "extraItems": trayItems
+                "extraItems": trayItems,
+                "hiddenItems": hiddenTrayItems,
+                "knownItems": trayItems + "," + hiddenTrayItems,
+                "showAllItems": false
+            });
+        } else if (widget.type === "org.kde.plasma.digitalclock") {
+            writeConfig(widget, ["Appearance"], {
+                "showDate": true,
+                "dateFormat": "shortDate",
+                "showSeconds": false
             });
         }
     }
@@ -1085,14 +1130,14 @@ ROLEPRESETEOF
 chmod +x /usr/bin/kyth-apply-role-preset
 
 # ── User comfort polish ───────────────────────────────────────────────────────
-# KDE stores several "Windows users expect this" preferences per-user. Bake a
-# versioned, automatic polish pass into the image so new accounts get it from
-# /etc/skel and existing accounts receive it once after an OS update.
+# KDE stores several comfort preferences per-user. Bake a versioned, automatic
+# polish pass into the image so new accounts get it from /etc/skel and existing
+# accounts receive it once after an OS update.
 cat >/usr/bin/kyth-user-polish <<'POLISHEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v11"
+version="v12"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
@@ -1123,8 +1168,8 @@ fi
 mkdir -p "${stamp_dir}"
 
 # Ensure common folders exist even when xdg-user-dirs did not run yet. Games is
-# intentionally non-standard but important for a Windows-style "where do I put
-# my game stuff?" mental model.
+# intentionally non-standard, but important for a gaming-first workstation where
+# local launchers, save backups, mods, and exports need an obvious home.
 if command -v xdg-user-dirs-update >/dev/null 2>&1; then
     xdg-user-dirs-update >/dev/null 2>&1 || true
 fi
@@ -1136,6 +1181,7 @@ mkdir -p \
     "${HOME}/Music" \
     "${HOME}/Pictures" \
     "${HOME}/Public" \
+    "${HOME}/Screenshots" \
     "${HOME}/Templates" \
     "${HOME}/Videos"
 
@@ -1145,6 +1191,14 @@ if [[ ! -f "${HOME}/Games/.directory" ]]; then
 Icon=applications-games
 Name=Games
 GAMESDIREEOF
+fi
+
+if [[ ! -f "${HOME}/Screenshots/.directory" ]]; then
+    cat > "${HOME}/Screenshots/.directory" <<'SHOTSDIREEOF'
+[Desktop Entry]
+Icon=folder-pictures
+Name=Screenshots
+SHOTSDIREEOF
 fi
 
 if [[ ! -f "${HOME}/Templates/Plain Text.txt" ]]; then
@@ -1258,6 +1312,10 @@ if [[ ! -f "${places_file}" ]]; then
   <title>Pictures</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
  </bookmark>
+ <bookmark href="file://${HOME}/Screenshots">
+  <title>Screenshots</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
  <bookmark href="file://${HOME}/Public">
   <title>Public</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-publicshare" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
@@ -1288,6 +1346,7 @@ ensure_place "file://${HOME}/Downloads" "Downloads" "folder-download"
 ensure_place "file://${HOME}/Games" "Games" "applications-games"
 ensure_place "file://${HOME}/Music" "Music" "folder-music"
 ensure_place "file://${HOME}/Pictures" "Pictures" "folder-pictures"
+ensure_place "file://${HOME}/Screenshots" "Screenshots" "folder-pictures"
 ensure_place "file://${HOME}/Public" "Public" "folder-publicshare"
 ensure_place "file://${HOME}/Templates" "Templates" "folder-templates"
 ensure_place "file://${HOME}/Videos" "Videos" "folder-videos"
@@ -1363,8 +1422,8 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
             --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
     fi
 
-    # Double-click to open files — KDE defaults to single-click; Windows users
-    # expect double-click everywhere (Dolphin, desktop, file dialogs).
+    # Double-click to open files: predictable across Dolphin, desktop icons, and
+    # file dialogs for people arriving from pointer-first desktops.
     kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
 
     # Keep Kickoff categories quiet after first-boot Flatpak/app installs.
@@ -1373,9 +1432,9 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key highlightNewlyInstalledApps \
         --type bool false
 
-    # Clipboard history — Meta+V (Win+V equivalent).
+    # Clipboard history on Meta+V.
     # Klipper ships enabled but history is off by default; turn it on with a
-    # 25-item buffer and bind the popup to Meta+V so Windows muscle memory works.
+    # 25-item buffer so paste history stays useful without turning into a log.
     kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
     kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
     kwriteconfig6 --file kglobalshortcutsrc \
@@ -1383,9 +1442,9 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key show_clipboard_history \
         'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 
-    # Win+E → file manager and Win+Shift+S → region screenshot, the two
-    # heaviest pieces of Windows muscle memory. Same keys the Move From Windows
-    # page applies; its "Restore KDE Defaults" button remains the opt-out.
+    # Meta+E opens the file manager and Meta+Shift+S starts a rectangular
+    # screenshot. The Move From Windows page applies the same migration shortcuts;
+    # its "Restore KDE Defaults" button remains the opt-out.
     kwriteconfig6 --file kglobalshortcutsrc \
         --group services --group org.kde.dolphin.desktop \
         --key _launch 'Meta+E'
@@ -1393,6 +1452,10 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --group org.kde.spectacle.desktop \
         --key RectangularRegionScreenShot \
         'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
+    kwriteconfig6 --file spectaclerc --group General --key defaultSaveLocation "file://${HOME}/Screenshots"
+    kwriteconfig6 --file spectaclerc --group General --key lastSaveAsLocation "file://${HOME}/Screenshots"
+    kwriteconfig6 --file spectaclerc --group General --key useReleaseToCapture --type bool true
+    kwriteconfig6 --file spectaclerc --group ImageSave --key translatedScreenshotsFolder "${HOME}/Screenshots"
 
     # Screen lock: keep the KythOS default calmer than upstream Plasma's stock
     # five-minute lock while still locking on resume.
@@ -1400,8 +1463,10 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockGracePeriod 5
     kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume --type bool true
     kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 15
+    kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
+        --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 
-    # Alt+Tab window switcher — Thumbnail Grid, the Windows 11-style switcher.
+    # Alt+Tab window switcher: Thumbnail Grid gives a modern, scannable overview.
     # KWin ships it built in and made it the default in Plasma 6.4, but configs
     # carried over from earlier installs (or kyth's previous "thumbnails" strip
     # override) can still select an older layout — pin the grid explicitly.
@@ -1419,9 +1484,8 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     fi
 
-    # Desktop right-click menu — surface "Configure Desktop" prominently so
-    # "right-click desktop → change wallpaper" works like Windows users expect.
-    # KDE's default context menu puts display settings behind two clicks.
+    # Desktop right-click menu: keep wallpaper/display personalization easy to
+    # discover. KDE's default context menu puts display settings behind two clicks.
     kwriteconfig6 --file kwinrc --group Plugins --key desktopchangeosdEnabled --type bool false
 
     # Mixed refresh rate — compositor latency policy.
@@ -1697,9 +1761,9 @@ mkdir -p /etc/skel/Desktop
 install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
 	/etc/skel/Desktop/kyth-welcome.desktop
 
-# Recycle Bin on the desktop — Windows users look for it there. Type=Link
-# entries open in Dolphin and need no executable/trust bit. Kept in
-# /usr/share/kyth so the user-polish pass can seed existing accounts too.
+# Recycle Bin on the desktop keeps deletion recovery visible. Type=Link entries
+# open in Dolphin and need no executable/trust bit. Kept in /usr/share/kyth so
+# the user-polish pass can seed existing accounts too.
 mkdir -p /usr/share/kyth
 cat >/usr/share/kyth/kyth-recycle-bin.desktop <<'TRASHEOF'
 [Desktop Entry]
@@ -1713,10 +1777,9 @@ install -m 0644 /usr/share/kyth/kyth-recycle-bin.desktop \
 	/etc/skel/Desktop/kyth-recycle-bin.desktop
 
 # ── Storage Sense ─────────────────────────────────────────────────────────────
-# Windows-style automatic housekeeping: empty Recycle Bin items older than 30
-# days, drop unused Flatpak runtimes, vacuum the user journal. Opt-in — the
-# timer ships disabled and System Hub → Health Report has the on/off switch,
-# matching how Storage Sense is something Windows users turn on, not fight.
+# Automatic housekeeping: empty Recycle Bin items older than 30 days, drop unused
+# Flatpak runtimes, vacuum the user journal. Opt-in: the timer ships disabled and
+# System Hub -> Health Report has the on/off switch.
 cat >/usr/bin/kyth-storage-sense <<'STORAGESENSEEOF'
 #!/usr/bin/env bash
 # KythOS Storage Sense — enable/disable from System Hub → Health Report.

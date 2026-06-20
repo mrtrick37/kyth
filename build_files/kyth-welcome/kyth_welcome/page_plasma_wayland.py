@@ -142,13 +142,15 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
         f"SingleClick={single_click or 'unset'}, ClipboardItems={clip_items or 'unset'}",
     ))
 
-    layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "WindowsFamiliarLayout")
+    layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "KythComfortLayout")
+    legacy_layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "WindowsFamiliarLayout")
+    layout_ok = layout_marker in ("kyth-comfort-v2", "kyth-comfort-v3") or legacy_layout_marker == "windows-familiar-v1"
     probes.append(HardwareProbe(
         "KythOS default layout",
-        "ok" if layout_marker == "windows-familiar-v1" else "dim",
+        "ok" if layout_ok else "dim",
         "KythOS bottom taskbar and pinned launcher layout are active"
-        if layout_marker == "windows-familiar-v1" else "Restore the KythOS default layout below when you want the standard shell shape",
-        f"WindowsFamiliarLayout={layout_marker or 'unset'}",
+        if layout_ok else "Restore the KythOS default layout below when you want the standard shell shape",
+        f"KythComfortLayout={layout_marker or 'unset'}, LegacyLayout={legacy_layout_marker or 'unset'}",
     ))
     return probes
 
@@ -226,7 +228,8 @@ class PlasmaWaylandPage(Page):
         body = QLabel(
             "Restore the KythOS default desktop preset: bottom taskbar, KythOS launcher, "
             "pinned System Hub/App Store/Steam/Brave/Dolphin/Konsole apps, system tray, clock, "
-            "wallpaper, shortcuts, titlebar buttons, clipboard history, and Dolphin defaults."
+            "wallpaper, shortcuts, titlebar buttons, clipboard history, Screenshots folder, "
+            "and Dolphin defaults."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -312,6 +315,7 @@ if [ -x /usr/bin/kyth-user-polish ]; then
   exit 0
 fi
 command -v kwriteconfig6 >/dev/null
+mkdir -p "${HOME}/Screenshots"
 
 kwriteconfig6 --file kdeglobals --group General --key ColorScheme KythDark
 kwriteconfig6 --file kdeglobals --group General --key font 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
@@ -331,6 +335,10 @@ kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
 kwriteconfig6 --file kglobalshortcutsrc --group org.kde.klipper.desktop --key show_clipboard_history 'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 kwriteconfig6 --file kglobalshortcutsrc --group services --group org.kde.dolphin.desktop --key _launch 'Meta+E'
 kwriteconfig6 --file kglobalshortcutsrc --group org.kde.spectacle.desktop --key RectangularRegionScreenShot 'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
+kwriteconfig6 --file spectaclerc --group General --key defaultSaveLocation "file://${HOME}/Screenshots"
+kwriteconfig6 --file spectaclerc --group General --key lastSaveAsLocation "file://${HOME}/Screenshots"
+kwriteconfig6 --file spectaclerc --group General --key useReleaseToCapture --type bool true
+kwriteconfig6 --file spectaclerc --group ImageSave --key translatedScreenshotsFolder "${HOME}/Screenshots"
 
 kwriteconfig6 --file kwinrc --group TabBox --key LayoutName thumbnail_grid
 kwriteconfig6 --file kwinrc --group TabBox --key ShowDesktop --type bool false
@@ -353,6 +361,7 @@ kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock --type bool t
 kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockGracePeriod 5
 kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume --type bool true
 kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 15
+kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 
 if [ -r /usr/share/wallpapers/kyth/contents/images/1920x1080.svg ]; then
   kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc \

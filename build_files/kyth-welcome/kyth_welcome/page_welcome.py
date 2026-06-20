@@ -190,7 +190,7 @@ class WelcomePage(Page):
         # re-purpose a machine (e.g. a work PC that never games) after the fact.
         self._add(self._make_focus_card())
 
-        self._add(self._make_section_header("Browse by task", "Familiar Windows names like Device Manager, Xbox Game Bar, and Map network drive are mapped into KythOS tools."))
+        self._add(self._make_section_header("Browse by task", "Search understands familiar names, but each card opens a KythOS workflow built for this desktop."))
 
         # ── Category grid, like the Control Panel category view ──────────────
         categories: list[tuple[tuple[str, ...], str, str, list[tuple[str, str]]]] = [
@@ -592,7 +592,7 @@ class WelcomePage(Page):
         body.setWordWrap(True)
         text_col.addWidget(body)
 
-        meta = QLabel("Familiar Windows setting names land on the right KythOS tools here.")
+        meta = QLabel("Search also understands common PC setting names, app tasks, and game setup phrases.")
         meta.setObjectName("home-next-meta")
         meta.setWordWrap(True)
         text_col.addWidget(meta)

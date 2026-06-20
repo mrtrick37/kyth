@@ -2,14 +2,14 @@
 # __KYTH_GENERATED_IMPORTS__
 
 
-# Fluent-inspired theme: neutral dark grays, one accent blue, flat surfaces.
+# KythOS theme: graphite surfaces, teal focus, restrained status colors.
 # Palette:
 #   window      #202020      sidebar          #1b1b1c
 #   card        #2b2b2b      card hover       #313131
 #   border      #3a3a3a      strong border    #4a4a4a
 #   input       #2d2d2d      log/console      #1a1a1a
 #   text        #ffffff      secondary text   #a6a6a6
-#   accent      #0078d4      accent (light)   #4cc2ff
+#   accent      #2f9b8f      accent (light)   #7dd3c7
 #   ok #6ccb5f   warn #d9b54a   error #ff99a4   danger button #c42b1c
 QSS = """
 * {
@@ -104,7 +104,7 @@ QLineEdit#search-box {
 
 QLineEdit#search-box:focus {
     background: #1f1f1f;
-    border-bottom: 2px solid #4cc2ff;
+    border-bottom: 2px solid #7dd3c7;
 }
 
 QFrame#search-results-panel {
@@ -146,8 +146,9 @@ QPushButton#search-result:pressed {
 
 /* ── Sidebar ─────────────────────────────────────────────────────────────── */
 QWidget#sidebar {
-    background: #1b1b1c;
+    background: #191b1d;
     border-right: 1px solid #2e2e2e;
+    border-left: 3px solid #2f9b8f;
 }
 
 QWidget#sidebar-header {
@@ -204,7 +205,7 @@ QPushButton#nav-item:pressed {
 QPushButton#nav-item-active {
     background: #2d2d2d;
     color: #ffffff;
-    border-left: 3px solid #4cc2ff;
+    border-left: 3px solid #7dd3c7;
     padding: 8px 10px 8px 7px;
     font-weight: 600;
 }
@@ -216,7 +217,7 @@ QWidget#page-header {
 }
 
 QLabel#eyebrow {
-    color: #4cc2ff;
+    color: #7dd3c7;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 1px;
@@ -278,9 +279,9 @@ QLabel#task-status-idle {
 }
 
 QLabel#task-status-running {
-    background: #22303a;
-    color: #99d9ff;
-    border: 1px solid #36506a;
+    background: #203331;
+    color: #a6f0e5;
+    border: 1px solid #345d58;
 }
 
 QLabel#task-status-ok {
@@ -335,9 +336,9 @@ QFrame#flow-step {
 }
 
 QLabel#flow-step-num {
-    background: #26303a;
-    color: #99d9ff;
-    border: 1px solid #36506a;
+    background: #223634;
+    color: #a6f0e5;
+    border: 1px solid #345d58;
     border-radius: 10px;
     font-size: 11px;
     font-weight: 700;
@@ -384,21 +385,21 @@ QPushButton:disabled {
 
 QPushButton#primary,
 QPushButton#btn-secondary {
-    background: #0078d4;
+    background: #2f9b8f;
     color: #ffffff;
-    border: 1px solid #1683d8;
+    border: 1px solid #3ab6a9;
     font-weight: 600;
 }
 
 QPushButton#primary:hover,
 QPushButton#btn-secondary:hover {
-    background: #1683d8;
-    border-color: #4cc2ff;
+    background: #3ab6a9;
+    border-color: #7dd3c7;
 }
 
 QPushButton#primary:pressed,
 QPushButton#btn-secondary:pressed {
-    background: #006cbe;
+    background: #237a71;
 }
 
 QPushButton#primary:disabled,
@@ -431,10 +432,10 @@ QPushButton#danger:disabled {
 }
 
 QPushButton#branch-active {
-    background: #0078d4;
+    background: #2f9b8f;
     color: #ffffff;
     font-weight: 600;
-    border: 1px solid #1683d8;
+    border: 1px solid #3ab6a9;
     border-radius: 5px;
     padding: 9px 22px;
 }
@@ -476,12 +477,12 @@ QPushButton#cp-category-title {
 }
 
 QPushButton#cp-category-title:hover {
-    color: #4cc2ff;
+    color: #7dd3c7;
 }
 
 QPushButton#task-link {
     background: transparent;
-    color: #4cc2ff;
+    color: #7dd3c7;
     border: none;
     border-radius: 4px;
     padding: 3px 6px;
@@ -492,11 +493,11 @@ QPushButton#task-link {
 
 QPushButton#task-link:hover {
     background: #383838;
-    color: #99d9ff;
+    color: #a6f0e5;
 }
 
 QPushButton#task-link:pressed {
-    color: #2f9bd8;
+    color: #4fc6b8;
 }
 
 /* ── Gaming section switcher ─────────────────────────────────────────────── */
@@ -529,9 +530,9 @@ QPushButton#gaming-section:hover {
 }
 
 QPushButton#gaming-section-active {
-    background: #26303a;
+    background: #223634;
     color: #ffffff;
-    border: 1px solid #4cc2ff;
+    border: 1px solid #7dd3c7;
 }
 
 /* ── Cards ───────────────────────────────────────────────────────────────── */
@@ -576,7 +577,7 @@ QLabel#card-summary {
 }
 
 QLabel#card-action {
-    color: #4cc2ff;
+    color: #7dd3c7;
 }
 
 QLabel#card-copy {
@@ -585,14 +586,14 @@ QLabel#card-copy {
 }
 
 QFrame#home-recommend-card {
-    background: #26303a;
-    border: 1px solid #36506a;
-    border-left: 3px solid #4cc2ff;
+    background: #203331;
+    border: 1px solid #345d58;
+    border-left: 3px solid #7dd3c7;
     border-radius: 6px;
 }
 
 QLabel#home-kicker {
-    color: #4cc2ff;
+    color: #7dd3c7;
     font-size: 11px;
     font-weight: 700;
     letter-spacing: 1px;
@@ -636,7 +637,7 @@ QFrame#card-accent-err {
 QLabel#home-action-icon {
     font-size: 13px;
     font-weight: 600;
-    color: #4cc2ff;
+    color: #7dd3c7;
 }
 
 QLabel#home-action-title {
@@ -662,7 +663,7 @@ QLabel#home-next-copy {
 }
 
 QLabel#home-next-meta {
-    color: #99d9ff;
+    color: #a6f0e5;
     line-height: 1.45;
 }
 
@@ -677,11 +678,11 @@ QPushButton#starter-pack-header {
 }
 
 QPushButton#starter-pack-header:hover {
-    color: #4cc2ff;
+    color: #7dd3c7;
 }
 
 QLabel#starter-pack-meta {
-    color: #4cc2ff;
+    color: #7dd3c7;
     font-size: 11px;
     font-weight: 600;
 }
@@ -703,7 +704,7 @@ QLabel#store-hero-title {
 }
 
 QLabel#store-kicker {
-    color: #4cc2ff;
+    color: #7dd3c7;
     font-size: 11px;
     font-weight: 600;
     letter-spacing: 1px;
@@ -716,14 +717,14 @@ QFrame#drop-card {
 }
 
 QFrame#drop-card-active {
-    background: #24303a;
-    border: 2px dashed #4cc2ff;
+    background: #213634;
+    border: 2px dashed #7dd3c7;
     border-radius: 6px;
 }
 
 QLabel#drop-glyph {
     background: #2d2d2d;
-    color: #4cc2ff;
+    color: #7dd3c7;
     border: 1px solid #3a3a3a;
     border-radius: 6px;
     font-size: 12px;
@@ -764,7 +765,7 @@ QPushButton#sw-tab:hover {
 
 QPushButton#sw-tab-active {
     color: #ffffff;
-    border-bottom: 2px solid #4cc2ff;
+    border-bottom: 2px solid #7dd3c7;
     font-weight: 600;
 }
 
@@ -890,7 +891,7 @@ QTextEdit {
     font-family: "Cascadia Code", "Noto Mono", "Consolas", monospace;
     font-size: 12px;
     padding: 12px 14px;
-    selection-background-color: #264f78;
+    selection-background-color: #245a55;
 }
 
 /* ── Progress bar ────────────────────────────────────────────────────────── */
@@ -904,7 +905,7 @@ QProgressBar {
 }
 
 QProgressBar::chunk {
-    background: #0078d4;
+    background: #2f9b8f;
     border-radius: 3px;
 }
 
@@ -961,12 +962,12 @@ QLineEdit {
     border-radius: 5px;
     padding: 7px 11px;
     color: #e8e8e8;
-    selection-background-color: #264f78;
+    selection-background-color: #245a55;
 }
 
 QLineEdit:focus {
     background: #1f1f1f;
-    border-bottom: 2px solid #4cc2ff;
+    border-bottom: 2px solid #7dd3c7;
 }
 
 QCheckBox {
@@ -983,12 +984,12 @@ QCheckBox::indicator {
 }
 
 QCheckBox::indicator:checked {
-    background: #0078d4;
-    border-color: #0078d4;
+    background: #2f9b8f;
+    border-color: #2f9b8f;
 }
 
 QCheckBox::indicator:hover {
-    border-color: #4cc2ff;
+    border-color: #7dd3c7;
 }
 
 QComboBox {
@@ -1057,12 +1058,12 @@ QLabel#wizard-footer-hint {
 }
 
 QLabel#step-dot-active {
-    background: #4cc2ff;
+    background: #7dd3c7;
     border-radius: 5px;
 }
 
 QLabel#step-dot-done {
-    background: #0078d4;
+    background: #2f9b8f;
     border-radius: 5px;
 }
 
@@ -1086,7 +1087,7 @@ QLabel#wizard-progress-step-active {
 QLabel#wizard-progress-step-done {
     font-size: 11px;
     font-weight: 400;
-    color: #4cc2ff;
+    color: #7dd3c7;
 }
 
 QWidget#wizard-hero {
@@ -1102,7 +1103,7 @@ QLabel#wizard-logo {
 
 QLabel#wizard-tagline {
     font-size: 16px;
-    color: #4cc2ff;
+    color: #7dd3c7;
     font-weight: 600;
 }
 

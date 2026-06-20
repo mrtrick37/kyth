@@ -269,7 +269,7 @@ class MainWindow(QMainWindow):
             ("Apps", [
                 (("plasmadiscover", "applications-all"), "⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
                 (("x-office-document", "applications-office"), "▤", "Work Setup", "Work Setup", lambda: WorkSetupPage(navigate=self._navigate_to)),
-                (("document-import", "drive-harddisk"), "⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+                (("document-import", "drive-harddisk"), "⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
                 (("system-software-update", "update-none"), "↻", "Updates", "Update", UpdatePage),
@@ -355,22 +355,22 @@ class MainWindow(QMainWindow):
 
     # ── Search ("Find a setting") ─────────────────────────────────────────────
 
-    # Familiar phrasings mapped to page keys, so converts can search for what
-    # they knew the task as before moving over.
+    # Familiar phrasings mapped to page keys, including migration/search terms
+    # people bring with them from another desktop.
     _SEARCH_ITEMS: dict[str, tuple[str, str, list[str]]] = {
         "Welcome": ("Home", "Review this PC, pick a preset, and jump into common setup tasks.", ["Control Panel", "PC focus", "Switch focus", "Everyday preset", "Gaming preset"]),
-        "Gaming": ("Gaming", "Install launchers, scan game libraries, set up capture, saves, and migration helpers.", ["Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game capture", "Instant replay", "Battle.net"]),
-        "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode"]),
-        "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat"]),
-        "Controllers": ("Controllers", "Pair, test, and troubleshoot game controllers.", ["Xbox controller", "PlayStation controller", "Game controllers"]),
+        "Gaming": ("Gaming", "Install launchers, scan game libraries, set up capture, saves, and migration helpers.", ["Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game capture", "Instant replay", "Battle.net", "screen record", "record gameplay"]),
+        "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode", "slow game", "low FPS", "stutter", "lag", "fan noise", "battery life"]),
+        "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat", "game crashes", "game won't launch", "blocked game"]),
+        "Controllers": ("Controllers", "Pair, test, and troubleshoot game controllers.", ["Xbox controller", "PlayStation controller", "Game controllers", "controller not working", "gamepad not detected"]),
         "App Store": ("App Store", "Install trusted Flatpaks, find Windows app alternatives, and manage AppImages.", ["Add or remove programs", "Apps & features", "Install apps", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"]),
         "Work Setup": ("Work Setup", "Set up office, mail, focus sessions, and workday conveniences.", ["Microsoft 365", "Office", "Outlook", "Focus Assist", "Pomodoro"]),
         "Move From Windows": ("Move From Windows", "Copy files, saves, libraries, bookmarks, fonts, and familiar Windows workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
-        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["Windows Update", "Check for updates", "Restart pending"]),
-        "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth"]),
-        "Plasma Wayland": ("Plasma & Wayland", "Check portals, PipeWire capture, display settings, shortcuts, and Plasma session repair.", ["Wayland", "Plasma", "KDE", "Screen sharing", "PipeWire", "Portal", "Display settings", "Window rules", "Shortcuts"]),
+        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["Windows Update", "Check for updates", "Restart pending", "rollback", "undo update", "bad update"]),
+        "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth", "no audio", "no sound", "speaker", "microphone", "wifi", "wi-fi", "printer", "monitor", "black screen"]),
+        "Plasma Wayland": ("Plasma & Wayland", "Check portals, PipeWire capture, display settings, shortcuts, and Plasma session repair.", ["Wayland", "Plasma", "KDE", "Screen sharing", "PipeWire", "Portal", "Display settings", "Window rules", "Shortcuts", "screenshot", "screen shot", "screen capture", "blank screen share", "black screen", "display scale"]),
         "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Windows Security", "Sign-in options", "Fingerprint"]),
-        "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance"]),
+        "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance", "broken", "restore layout", "missing apps", "remote help"]),
         "VPN": ("VPN", "Connect to VPN profiles, including GlobalProtect-style work VPNs.", ["VPN settings", "GlobalProtect"]),
         "Network Shares": ("Network Shares", "Map SMB/CIFS shares and configure mount behavior.", ["Map network drive", "Shared folders"]),
         "Cloud Storage": ("Cloud Storage", "Set up cloud sync and copy workflows for common providers.", ["OneDrive", "Google Drive", "Dropbox"]),
@@ -382,18 +382,18 @@ class MainWindow(QMainWindow):
 
     _SEARCH_ALIASES: dict[str, list[str]] = {
         "Welcome": ["Home", "Control Panel", "PC focus", "Everyday preset", "Gaming preset", "Switch focus"],
-        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
-        "Performance": ["Performance", "Task Manager", "Mission Center"],
-        "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
-        "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net", "Screen record", "Record gameplay"],
+        "Performance": ["Performance", "Task Manager", "Mission Center", "Slow game", "Low FPS", "Stutter", "Lag", "Fan noise", "Battery life"],
+        "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB", "Game crashes", "Game won't launch", "Blocked game"],
+        "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller", "Controller not working", "Gamepad not detected"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
         "Work Setup": ["Work setup", "Microsoft 365", "Office", "Outlook", "PST import", "Focus Assist", "Focus Sessions", "Do Not Disturb", "Pomodoro"],
         "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "Windows fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Windows Subsystem for Linux", "Ubuntu", "Distrobox"],
-        "Update": ["Check for updates", "Windows Update", "Updates"],
-        "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
-        "Plasma Wayland": ["Plasma", "Wayland", "KDE", "Screen sharing", "PipeWire", "Portal", "xdg desktop portal", "Display settings", "VRR", "HDR", "Scale", "Shortcuts", "Window rules", "Restart Plasma"],
+        "Update": ["Check for updates", "Windows Update", "Updates", "Rollback", "Undo update", "Bad update"],
+        "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth", "No audio", "No sound", "Speaker", "Microphone", "Wi-Fi", "Wifi", "Printer", "Monitor", "Black screen"],
+        "Plasma Wayland": ["Plasma", "Wayland", "KDE", "Screen sharing", "PipeWire", "Portal", "xdg desktop portal", "Display settings", "VRR", "HDR", "Scale", "Shortcuts", "Window rules", "Restart Plasma", "Screenshot", "Screen shot", "Screen capture", "Blank screen share", "Display scale"],
         "Diagnostics": ["Health report", "System information", "Diagnostics", "Windows Hello", "Sign-in options", "Fingerprint", "Passkeys", "Windows Security"],
-        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup"],
+        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup", "Restore layout", "Missing apps", "Remote help"],
         "VPN": ["VPN", "VPN settings"],
         "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
         "Cloud Storage": ["Cloud storage", "OneDrive", "Google Drive", "Dropbox"],
@@ -401,6 +401,28 @@ class MainWindow(QMainWindow):
         "Kernel": ["Kernel", "Advanced system settings"],
         "Channels": ["Update channel", "Channels", "Insider program"],
         "Feedback": ["Feedback", "Send feedback", "Feedback Hub"],
+    }
+
+    _PROBLEM_ROUTES: dict[str, str] = {
+        "no audio": "Hardware",
+        "no sound": "Hardware",
+        "microphone not working": "Hardware",
+        "bluetooth not working": "Hardware",
+        "wifi not working": "Hardware",
+        "printer setup": "Hardware",
+        "slow game": "Performance",
+        "low fps": "Performance",
+        "game stutter": "Performance",
+        "game won't launch": "Compatibility",
+        "game crashes": "Compatibility",
+        "controller not working": "Controllers",
+        "black screen": "Plasma Wayland",
+        "screen sharing is blank": "Plasma Wayland",
+        "take screenshot": "Plasma Wayland",
+        "restore layout": "Repair",
+        "missing apps": "Repair",
+        "rollback update": "Update",
+        "undo update": "Update",
     }
 
     def _setup_search(self):
@@ -472,6 +494,9 @@ class MainWindow(QMainWindow):
             words = [part for part in query.split() if part]
             if words and all(word in haystack for word in words):
                 score = max(score, 45 + len(words))
+            for phrase, target_key in self._PROBLEM_ROUTES.items():
+                if key == target_key and (query in phrase or phrase in query):
+                    score = max(score, 130)
             if score:
                 ranked.append((key, score))
         return sorted(ranked, key=lambda item: (-item[1], self._SEARCH_ITEMS[item[0]][0]))[:5]
@@ -488,7 +513,7 @@ class MainWindow(QMainWindow):
         if not matches:
             self._search_results_title.setText("No matching settings")
             self._search_results_hint.setText(
-                "Try a Windows name like Device Manager, Xbox Game Bar, Map network drive, or Add or remove programs."
+                "Try a task name like Device Manager, game capture, map network drive, or add or remove programs."
             )
             return
 
@@ -663,7 +688,7 @@ class WizardWindow(QMainWindow):
         # Accent line
         accent = QFrame()
         accent.setFixedHeight(2)
-        accent.setStyleSheet("background: #0078d4; border: none;")
+        accent.setStyleSheet("background: #2f9b8f; border: none;")
         root_layout.addWidget(accent)
 
         # ── Content stack ─────────────────────────────────────────────────
@@ -1306,7 +1331,7 @@ class WizardWindow(QMainWindow):
         )
         tip.setObjectName("card-copy")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #4cc2ff; margin-top: 6px;")
+        tip.setStyleSheet("color: #7dd3c7; margin-top: 6px;")
         pc_layout.addWidget(tip)
         ps_layout.addWidget(proton_card)
         outer.addWidget(proton_section)
