@@ -88,14 +88,14 @@ jobs:
 
           show_space "before cleanup"
 
-          # The live ISO job uses rootful Podman with its own compressed storage
-          # image. Reclaim large hosted-runner payloads we do not use here, but
-          # avoid broad apt removals/autoremove; those are slower and can churn
-          # runner state without improving KythOS test coverage.
+          # The live ISO job uses rootful Podman writing to a btrfs image on /mnt,
+          # not Docker. Prune the large hosted-runner directories that eat root-disk
+          # space, but skip docker image prune — Docker images live on the root disk
+          # and don't affect /mnt free space, so pruning them buys nothing here
+          # and costs ~45 seconds.
           sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
           sudo swapoff -a || true
           sudo rm -f /mnt/swapfile || true
-          sudo docker image prune --all --force || true
 
           show_space "after cleanup"
 

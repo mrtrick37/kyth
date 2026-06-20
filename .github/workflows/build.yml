@@ -7,7 +7,35 @@ on:
       - main
       - testing
     paths-ignore:
-      - '**/README.md'
+      # Documentation and metadata — never land in the OCI image
+      - '**/*.md'
+      - 'docs/**'
+      - 'LICENSE'
+      - '.gitignore'
+      # Tests and fuzzing — CI-only, not shipped in image
+      - 'tests/**'
+      - 'fuzz/**'
+      - '.clusterfuzzlite/**'
+      # Disk/ISO tooling — used by other workflows, not the OCI build
+      - 'disk_config/**'
+      - 'installer/**'
+      - 'Justfile'
+      # GitHub metadata
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
+      - '.github/CODEOWNERS'
+      - '.github/renovate.json5'
+      - '.github/scripts/**'
+      # Sibling workflows — changes here don't affect image content.
+      # build.yml is intentionally excluded so workflow changes still trigger
+      # a build to validate the updated pipeline.
+      - '.github/workflows/build-live-iso.yml'
+      - '.github/workflows/codeql.yml'
+      - '.github/workflows/cve-scan.yml'
+      - '.github/workflows/fuzzing.yml'
+      - '.github/workflows/scorecard.yml'
+      - '.github/workflows/supply-chain.yml'
+      - '.github/workflows/validation.yml'
   workflow_dispatch:
 
 permissions:
@@ -45,6 +73,7 @@ jobs:
         kernel_flavor: [fedora, cachy]
 
     permissions:
+      actions: write
       contents: read
       packages: write
 
@@ -404,10 +433,11 @@ jobs:
             fi
           done
 
-          LAYERS="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ len .Image.RootFS.DiffIDs }}')"
-          VERSION="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
-          REVISION="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
-          BOOTC_LABEL="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ index .Image.Config.Labels "containers.bootc" }}')"
+          IMAGE_JSON="$(docker buildx imagetools inspect "${IMAGE_FULL}@${DIGEST}" --format '{{ json .Image }}')"
+          LAYERS="$(jq '.RootFS.DiffIDs | length' <<< "${IMAGE_JSON}")"
+          VERSION="$(jq -r '.Config.Labels."org.opencontainers.image.version"' <<< "${IMAGE_JSON}")"
+          REVISION="$(jq -r '.Config.Labels."org.opencontainers.image.revision"' <<< "${IMAGE_JSON}")"
+          BOOTC_LABEL="$(jq -r '.Config.Labels."containers.bootc"' <<< "${IMAGE_JSON}")"
           echo "Rechunked image: ${LAYERS} layers"
           test "${LAYERS}" -le 128
           test "${VERSION}" = "${EXPECTED_VERSION}"
@@ -471,6 +501,28 @@ jobs:
           path: output/build-metadata/image.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Dispatch live ISO build
+        # Dispatch immediately after publish so the ISO build starts in parallel
+        # with the cachy matrix leg and attestation, instead of waiting for all
+        # matrix legs to finish (which adds ~10 min of dead time on the critical path).
+        # Supply-chain is still dispatched from finalize because it verifies
+        # container attestation, which isn't published until finalize completes.
+        if: matrix.kernel_flavor == 'fedora'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          MATRIX_BRANCH: ${{ matrix.branch }}
+          SOURCE_TAG: ${{ steps.prep.outputs.default_tag }}
+          SOURCE_DIGEST: ${{ steps.publish_final.outputs.digest }}
+          SOURCE_SHA: ${{ steps.checkout_sha.outputs.sha }}
+        run: |
+          gh workflow run build-live-iso.yml \
+            --ref "${MATRIX_BRANCH}" \
+            --field "source_tag=${SOURCE_TAG}" \
+            --field "source_digest=${SOURCE_DIGEST}" \
+            --field "source_sha=${SOURCE_SHA}"
 
   finalize:
     name: Attest and dispatch (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
@@ -549,10 +601,10 @@ jobs:
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
 
-      - name: Trigger downstream publication workflows
-        # Only the fedora-kernel image is used for the live ISO.
-        # Dispatch directly so the ISO workflow runs from the correct branch,
-        # not from main (which is what workflow_run would use).
+      - name: Trigger supply chain metadata workflow
+        # Dispatched from finalize (not build_push) because supply-chain verifies
+        # container attestation, which isn't published until this job completes.
+        # Live ISO is dispatched earlier from build_push to avoid waiting for cachy.
         if: matrix.kernel_flavor == 'fedora'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -564,15 +616,10 @@ jobs:
           STEPS_IMAGE_OUTPUTS_GITHUB_SHA: ${{ steps.image.outputs.github_sha }}
         run: |
           SOURCE_TAG="${STEPS_PREP_OUTPUTS_TAG}"
-          echo "==> Dispatching metadata and live ISO builds for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
+          echo "==> Dispatching supply chain metadata for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
           gh workflow run supply-chain.yml \
             --ref "${MATRIX_BRANCH}" \
             --field "source_tag=${SOURCE_TAG}" \
             --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
             --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}" \
             --field "source_github_sha=${STEPS_IMAGE_OUTPUTS_GITHUB_SHA}"
-          gh workflow run build-live-iso.yml \
-            --ref "${MATRIX_BRANCH}" \
-            --field "source_tag=${SOURCE_TAG}" \
-            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
-            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}"
