@@ -286,11 +286,14 @@ class HardwareCard(QFrame):
     def __init__(self, probe: HardwareProbe):
         super().__init__()
         self.setObjectName("hw-card-dim")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._expanded = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(0)
 
+        # Always-visible summary row: title + badge
         top = QHBoxLayout()
         top.setSpacing(10)
         self._title = QLabel()
@@ -299,32 +302,53 @@ class HardwareCard(QFrame):
         top.addStretch()
         self._badge = QLabel()
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._badge.setStyleSheet("border-radius: 3px; padding: 3px 9px; font-size: 11px; font-weight: 700;")
         top.addWidget(self._badge)
         layout.addLayout(top)
 
+        layout.addSpacing(6)
+
+        # Always-visible one-line summary
         self._summary = QLabel()
-        self._summary.setWordWrap(True)
-        self._summary.setObjectName("card-summary")
+        self._summary.setWordWrap(False)
+        self._summary.setObjectName("card-copy")
         layout.addWidget(self._summary)
+
+        # Detail section — hidden until user clicks
+        self._detail_block = QWidget()
+        detail_layout = QVBoxLayout(self._detail_block)
+        detail_layout.setContentsMargins(0, 10, 0, 0)
+        detail_layout.setSpacing(8)
 
         self._details = QLabel()
         self._details.setObjectName("card-copy")
         self._details.setWordWrap(True)
         self._details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self._details)
+        detail_layout.addWidget(self._details)
 
         self._action = QLabel()
         self._action.setWordWrap(True)
         self._action.setObjectName("card-action")
-        layout.addWidget(self._action)
+        detail_layout.addWidget(self._action)
 
         self._action_btn = QPushButton()
         self._action_btn.setObjectName("primary")
         self._action_btn.hide()
-        layout.addWidget(self._action_btn)
+        detail_layout.addWidget(self._action_btn)
+
+        self._detail_block.hide()
+        layout.addWidget(self._detail_block)
 
         self.update_probe(probe)
+
+    def mousePressEvent(self, event):
+        self._expanded = not self._expanded
+        self._detail_block.setVisible(self._expanded)
+        super().mousePressEvent(event)
+
+    def expand(self):
+        if not self._expanded:
+            self._expanded = True
+            self._detail_block.setVisible(True)
 
     def update_probe(self, probe: HardwareProbe):
         self._title.setText(probe.title)

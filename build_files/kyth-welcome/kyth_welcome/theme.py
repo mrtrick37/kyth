@@ -856,9 +856,23 @@ QFrame#hw-card-ok {
     border-radius: 8px;
 }
 
+QFrame#hw-card-ok:hover {
+    background: #303a30;
+    border: 1px solid #4a6b4a;
+    border-left: 4px solid #6ccb5f;
+    border-radius: 8px;
+}
+
 QFrame#hw-card-warn {
     background: #322d20;
     border: 1px solid #5c5126;
+    border-left: 4px solid #d9b54a;
+    border-radius: 8px;
+}
+
+QFrame#hw-card-warn:hover {
+    background: #3a3525;
+    border: 1px solid #6a5f2e;
     border-left: 4px solid #d9b54a;
     border-radius: 8px;
 }
@@ -870,10 +884,24 @@ QFrame#hw-card-err {
     border-radius: 8px;
 }
 
+QFrame#hw-card-err:hover {
+    background: #3b2d2f;
+    border: 1px solid #6e3d42;
+    border-left: 4px solid #ff99a4;
+    border-radius: 8px;
+}
+
 QFrame#hw-card-dim {
     background: #2b2b2b;
     border: 1px solid #3a3a3a;
     border-left: 4px solid #5c5c5c;
+    border-radius: 8px;
+}
+
+QFrame#hw-card-dim:hover {
+    background: #333333;
+    border: 1px solid #484848;
+    border-left: 4px solid #6b6b6b;
     border-radius: 8px;
 }
 

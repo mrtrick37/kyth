@@ -31,8 +31,14 @@ class HardwarePage(Page):
             "Graphics, firmware, connectivity, audio, storage, and platform checks.",
         )
 
+        # Control block: refresh button, status label, and progress bar bundled together
+        ctrl_block = QWidget()
+        ctrl_layout = QVBoxLayout(ctrl_block)
+        ctrl_layout.setContentsMargins(0, 0, 0, 0)
+        ctrl_layout.setSpacing(8)
+
         btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
+        btn_row.setSpacing(12)
         self._refresh_btn = QPushButton("Refresh")
         self._refresh_btn.setObjectName("primary")
         self._refresh_btn.clicked.connect(self.refresh)
@@ -41,11 +47,12 @@ class HardwarePage(Page):
         self._status_lbl = QLabel("Running hardware probes…")
         self._status_lbl.setObjectName("subheading")
         btn_row.addWidget(self._status_lbl)
-        self._add_layout(btn_row)
+        ctrl_layout.addLayout(btn_row)
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
-        self._add(self._progress)
+        ctrl_layout.addWidget(self._progress)
+        self._add(ctrl_block)
 
         # Summary card — hidden until probes finish
         self._summary_card, summary_layout = _make_card()
@@ -61,7 +68,6 @@ class HardwarePage(Page):
 
         # Two-column probe card grid
         self._card_container = QWidget()
-        self._card_container.setObjectName("content-area")
         self._card_col = QGridLayout(self._card_container)
         self._card_col.setContentsMargins(0, 0, 0, 0)
         self._card_col.setSpacing(12)
@@ -69,7 +75,11 @@ class HardwarePage(Page):
         self._card_col.setColumnStretch(1, 1)
         self._add(self._card_container)
 
-        # Operational tool cards below the probe grid
+        # Configuration section
+        config_lbl = QLabel("Configuration")
+        config_lbl.setObjectName("section-heading")
+        self._add(config_lbl)
+
         self._add(self._make_bt_audio_card())
         self._add(self._make_display_card())
 
@@ -324,12 +334,14 @@ class HardwarePage(Page):
                     probe.action or f"Open {key}",
                     lambda k=key: self.action_requested.emit(k),
                 )
+                card.expand()
             elif probe.action_cmd:
                 cmd = probe.action_cmd
                 card.set_action_fn(
                     probe.action or "Fix",
                     lambda c=cmd: self._run_inline_cmd(c),
                 )
+                card.expand()
 
     def _run_inline_cmd(self, cmd: list[str]):
         try:
