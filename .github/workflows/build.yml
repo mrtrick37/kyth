@@ -129,8 +129,8 @@ jobs:
           android: true
           dotnet: true
           haskell: true
-          large-packages: false
-          docker-images: false
+          large-packages: true
+          docker-images: true
           swap-storage: true
 
       - name: Prepare Docker auth config
@@ -338,6 +338,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
+
+      - name: Free disk space before rechunking
+        run: |
+          docker buildx prune -f
+          docker system prune -f
 
       - name: Rechunk final image
         id: rechunk
