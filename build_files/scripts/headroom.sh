@@ -15,6 +15,7 @@ dnf5 install -y --skip-unavailable \
 	python3-virtualenv
 
 rm -rf "${HEADROOM_PREFIX}"
+mkdir -p "$(dirname "${HEADROOM_PREFIX}")"
 python3 -m venv "${HEADROOM_PREFIX}"
 
 "${HEADROOM_PREFIX}/bin/python" -m pip install --upgrade pip setuptools wheel
