@@ -241,13 +241,10 @@ class MainWindow(QMainWindow):
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
-        _branch = _current_branch()
-        _branch_text = {"latest": "Stable Channel", "testing": "Testing Channel"}.get(
-            _branch or "", "System Hub"
-        )
-        ver_lbl = QLabel(_branch_text)
-        ver_lbl.setObjectName("sidebar-ver")
-        logo_layout.addWidget(ver_lbl)
+        self._sidebar_ver_lbl = QLabel("System Hub")
+        self._sidebar_ver_lbl.setObjectName("sidebar-ver")
+        logo_layout.addWidget(self._sidebar_ver_lbl)
+        QTimer.singleShot(0, self._refresh_sidebar_channel)
         sidebar_layout.addWidget(logo_area)
         sidebar_layout.addWidget(_divider())
 
@@ -333,14 +330,15 @@ class MainWindow(QMainWindow):
         # ── Page stack ───────────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
-        self._pages = [factory() for _, factory in page_specs]
-        for page in self._pages:
-            self._stack.addWidget(page)
+        self._page_factories = [factory for _, factory in page_specs]
+        self._pages: list[QWidget | None] = [None] * len(page_specs)
+        for _ in page_specs:
+            self._stack.addWidget(QWidget())  # cheap placeholder; replaced on first visit
         root_layout.addWidget(self._stack)
 
-        # The home page's focus card re-uses the wizard's Everyday/Gaming
-        # choice; reflect changes in the sidebar immediately.
-        welcome_page = self._pages[self._page_index_by_key["Welcome"]]
+        # Build Welcome page eagerly so its profile_changed signal is available.
+        welcome_idx = self._page_index_by_key["Welcome"]
+        welcome_page = self._ensure_page(welcome_idx)
         welcome_page.profile_changed.connect(self._apply_profile_visibility)
         self._apply_profile_visibility(_load_profile())
 
@@ -553,6 +551,20 @@ class MainWindow(QMainWindow):
 
     # ── Navigation ────────────────────────────────────────────────────────────
 
+    def _refresh_sidebar_channel(self):
+        branch = _current_branch()
+        text = {"latest": "Stable Channel", "testing": "Testing Channel"}.get(branch or "", "System Hub")
+        self._sidebar_ver_lbl.setText(text)
+
+    def _ensure_page(self, index: int) -> QWidget:
+        if self._pages[index] is None:
+            page = self._page_factories[index]()
+            self._pages[index] = page
+            placeholder = self._stack.widget(index)
+            self._stack.insertWidget(index, page)
+            self._stack.removeWidget(placeholder)
+        return self._pages[index]  # type: ignore[return-value]
+
     def _make_nav_handler(self, index: int):
         return lambda: self._switch_page(index)
 
@@ -576,6 +588,7 @@ class MainWindow(QMainWindow):
             self._switch_page(self._history[self._history_pos], record=False)
 
     def _switch_page(self, index: int, record: bool = True):
+        self._ensure_page(index)
         for i, btn in enumerate(self._nav_buttons):
             btn.set_active(i == index)
         self._stack.setCurrentIndex(index)

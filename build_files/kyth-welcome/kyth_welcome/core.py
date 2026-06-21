@@ -1,3 +1,4 @@
+import functools
 import glob
 import hashlib
 import os
@@ -15,7 +16,7 @@ from urllib.request import Request, urlopen
 
 # __KYTH_GENERATED_IMPORTS__
 from .qt import (  # noqa: E501
-    QLabel, QLibraryInfo, QPushButton, QTextEdit, QThread, QWidget, Signal,
+    QLabel, QPushButton, QTextEdit, QThread, QWidget, Signal,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -56,17 +57,25 @@ def _prefer_xwayland_if_wayland_plugin_missing() -> None:
     if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("DISPLAY"):
         return
 
-    plugins_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)
-    platform_dir = os.path.join(plugins_dir, "platforms")
-    if not os.path.isdir(platform_dir):
+    # Use filesystem scan so this runs safely before QApplication is created
+    # (QLibraryInfo.path() can initialize Qt internals that produce ghost windows).
+    _QT6_PLATFORM_DIRS = [
+        "/usr/lib64/qt6/plugins/platforms",
+        "/usr/lib/qt6/plugins/platforms",
+        "/usr/lib/x86_64-linux-gnu/qt6/plugins/platforms",
+        "/usr/lib/aarch64-linux-gnu/qt6/plugins/platforms",
+    ]
+    for platform_dir in _QT6_PLATFORM_DIRS:
+        if not os.path.isdir(platform_dir):
+            continue
+        if any(
+            name.startswith("libqwayland-") or name == "libqwayland-generic.so"
+            for name in os.listdir(platform_dir)
+        ):
+            return  # wayland platform plugin present — use it
         os.environ["QT_QPA_PLATFORM"] = "xcb"
         return
-
-    if not any(
-        name.startswith("libqwayland-") or name == "libqwayland-generic.so"
-        for name in os.listdir(platform_dir)
-    ):
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
@@ -463,6 +472,7 @@ def _bootc_status_text() -> str:
     return ""
 
 
+@functools.cache
 def _bootc_status_data() -> dict | None:
     for cmd in (["sudo", "-n", "bootc", "status", "--json"], ["bootc", "status", "--json"]):
         result = _run_command(cmd, timeout=10)
