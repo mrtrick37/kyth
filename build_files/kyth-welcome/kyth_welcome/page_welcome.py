@@ -4,10 +4,10 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DataWorker, _DEFAULT_FIRST_RUN_APPS, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _first_run_app_setup_state, _has_rollback_deployment, _has_staged_update, _load_profile, _release_worker_when_finished, _restyle, _save_profile, _steam_libraries_on_ntfs,
+    DataWorker, _IS_LIVE, _branch_display_name, _command_stdout, _current_branch, _detect_nvidia, _find_ntfs_drives, _has_rollback_deployment, _has_staged_update, _load_profile, _release_worker_when_finished, _restyle, _save_profile, _steam_libraries_on_ntfs,
 )
 from .qt import (  # noqa: E501
-    QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt, Signal,
+    QFrame, QGridLayout, QHBoxLayout, QLabel, QPushButton, QSize, QSizePolicy, QTimer, QVBoxLayout, Qt, Signal,
 )
 from .widgets import (  # noqa: E501
     Page, StatTile, _make_card, _theme_icon,
@@ -143,32 +143,6 @@ class WelcomePage(Page):
 
         self._add_layout(tiles_row)
 
-        # ── First-boot app setup banner ───────────────────────────────────────
-        # Steam and the other default apps download in the background on first
-        # boot; without this banner the app menu just looks broken until they
-        # land. Hidden once setup is complete.
-        self._setup_card, setup_layout = _make_card("card-accent-warn")
-        setup_title = QLabel("Setting up your apps")
-        setup_title.setObjectName("card-title")
-        setup_layout.addWidget(setup_title)
-        self._setup_lbl = QLabel("Checking app setup progress…")
-        self._setup_lbl.setObjectName("card-copy")
-        self._setup_lbl.setWordWrap(True)
-        setup_layout.addWidget(self._setup_lbl)
-        self._setup_progress = QProgressBar()
-        self._setup_progress.setRange(0, len(_DEFAULT_FIRST_RUN_APPS))
-        self._setup_progress.setTextVisible(False)
-        setup_layout.addWidget(self._setup_progress)
-        self._setup_card.hide()
-        self._add(self._setup_card)
-        self._setup_worker: DataWorker | None = None
-        self._setup_timer = QTimer(self)
-        self._setup_timer.setInterval(15000)
-        self._setup_timer.timeout.connect(self._poll_first_run_setup)
-        if not _IS_LIVE and not os.path.exists("/var/lib/kyth/default-flatpaks-v5-done"):
-            self._setup_timer.start()
-            QTimer.singleShot(400, self._poll_first_run_setup)
-
         self._add(self._make_recommended_card(staged, rollback, windows_found))
 
         # ── NTFS Steam library warning ────────────────────────────────────────
@@ -236,13 +210,6 @@ class WelcomePage(Page):
         advanced_tasks.append(("Pick an update channel", "Channels"))
         categories.append((("cpu", "applications-system"), "◌", "Advanced", advanced_tasks))
 
-        categories.append((
-            ("help-contents", "mail-send"), "✉", "Help & Feedback",
-            [
-                ("Send feedback or report a problem", "Feedback"),
-                ("Open repair and recovery tools", "Repair"),
-            ],
-        ))
 
         self._category_grid = QGridLayout()
         self._category_grid.setSpacing(12)
@@ -255,35 +222,7 @@ class WelcomePage(Page):
         self._category_grid.setColumnStretch(1, 1)
         self._add_layout(self._category_grid)
 
-        note = QLabel("Reopen this window anytime from the application menu.")
-        note.setObjectName("status-dim")
-        note.setWordWrap(True)
-        self._add(note)
         self._stretch()
-
-    def _poll_first_run_setup(self):
-        if self._setup_worker is not None and self._setup_worker.isRunning():
-            return
-        worker = DataWorker("first-run", _first_run_app_setup_state)
-        worker.result.connect(self._on_first_run_state)
-        self._setup_worker = worker
-        _release_worker_when_finished(self, "_setup_worker", worker)
-        worker.start()
-
-    def _on_first_run_state(self, _key: str, state_tuple):
-        state, message, missing = state_tuple
-        if state in ("ready", "live"):
-            self._setup_card.hide()
-            self._setup_timer.stop()
-            return
-        total = len(_DEFAULT_FIRST_RUN_APPS)
-        done = max(0, total - len(missing))
-        self._setup_progress.setValue(done)
-        self._setup_lbl.setText(
-            f"{message}  {done} of {total} headline apps are ready — new apps appear "
-            "in the launcher as they finish. No action needed."
-        )
-        self._setup_card.show()
 
     def _make_ntfs_library_card(self, libs: list[str]) -> QFrame:
         card, layout = _make_card("card-accent-warn")

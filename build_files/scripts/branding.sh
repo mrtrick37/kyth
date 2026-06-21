@@ -2072,6 +2072,10 @@ install -m 0755 /ctx/kyth-update-watcher /usr/bin/kyth-update-watcher
 install -m 0644 /ctx/kyth-update-watcher.service /usr/lib/systemd/system/kyth-update-watcher.service
 install -m 0644 /ctx/kyth-update-watcher.timer /usr/lib/systemd/system/kyth-update-watcher.timer
 
+# Zero-Python update escape hatch — works even when KythOS Hub is broken.
+install -m 0755 /ctx/kyth-apply-update /usr/bin/kyth-apply-update
+install -m 0644 /ctx/kyth-apply-update.desktop /usr/share/applications/kyth-apply-update.desktop
+
 mkdir -p /etc/kyth
 install -m 0644 /ctx/kyth-sched-profiles.toml /etc/kyth/sched-profiles.toml
 install -m 0644 /ctx/auto-update.toml /etc/kyth/auto-update.toml

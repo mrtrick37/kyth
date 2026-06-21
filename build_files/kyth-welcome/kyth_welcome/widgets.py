@@ -365,7 +365,7 @@ class StatTile(QFrame):
     def __init__(self, label: str, value: str, value_style: str = "stat-value"):
         super().__init__()
         self.setObjectName("stat-tile")
-        self.setMinimumHeight(76)
+        self.setMinimumHeight(88)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.ArrowCursor)
 

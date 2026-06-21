@@ -4,10 +4,10 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    HardwareProbe, HardwareProbeWorker, _command_stdout, _detect_nvidia, _finish_worker, _restyle,
+    HardwareProbe, HardwareProbeWorker, _command_stdout, _finish_worker, _restyle,
 )
 from .qt import (  # noqa: E501
-    QDesktopServices, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTimer, QUrl, QVBoxLayout, QWidget, Signal,
+    QDesktopServices, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTimer, QUrl, QVBoxLayout, QWidget, Signal,
 )
 from .widgets import (  # noqa: E501
     HardwareCard, Page, _make_card,
@@ -38,7 +38,6 @@ class HardwarePage(Page):
         self._refresh_btn.clicked.connect(self.refresh)
         btn_row.addWidget(self._refresh_btn)
         btn_row.addStretch()
-
         self._status_lbl = QLabel("Running hardware probes…")
         self._status_lbl.setObjectName("subheading")
         btn_row.addWidget(self._status_lbl)
@@ -48,40 +47,7 @@ class HardwarePage(Page):
         self._progress.setRange(0, 0)
         self._add(self._progress)
 
-        driver_card, driver_layout = _make_card("card-accent-ok")
-        driver_title = QLabel("Driver Manager")
-        driver_title.setObjectName("card-title")
-        driver_layout.addWidget(driver_title)
-        driver_body = QLabel(
-            "Start here when graphics, Wi-Fi, Bluetooth, controllers, audio, printers, or firmware feel wrong. "
-            "The checks below turn hardware details into recommended actions; advanced tools stay one click away."
-        )
-        driver_body.setObjectName("card-copy")
-        driver_body.setWordWrap(True)
-        driver_layout.addWidget(driver_body)
-        driver_btns = QHBoxLayout()
-        driver_btns.setSpacing(8)
-        for label, key in (
-            ("Kernel Choice", "Kernel"),
-            ("System Repair", "Repair"),
-            ("Controllers", "Controllers"),
-        ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
-            driver_btns.addWidget(btn)
-        if _detect_nvidia():
-            nvidia_btn = QPushButton("NVIDIA Drivers")
-            nvidia_btn.setObjectName("primary")
-            nvidia_btn.clicked.connect(lambda _=False: self._navigate("NVIDIA"))
-            driver_btns.addWidget(nvidia_btn)
-        driver_btns.addStretch()
-        driver_layout.addLayout(driver_btns)
-        self._add(driver_card)
-
-        self._add(self._make_personality_card())
-        self._add(self._make_bt_audio_card())
-        self._add(self._make_display_card())
-
+        # Summary card — hidden until probes finish
         self._summary_card, summary_layout = _make_card()
         self._summary_title = QLabel()
         self._summary_title.setObjectName("card-title")
@@ -93,13 +59,19 @@ class HardwarePage(Page):
         self._summary_card.hide()
         self._add(self._summary_card)
 
-        # Card container inside the page's scroll area
+        # Two-column probe card grid
         self._card_container = QWidget()
         self._card_container.setObjectName("content-area")
-        self._card_col = QVBoxLayout(self._card_container)
+        self._card_col = QGridLayout(self._card_container)
         self._card_col.setContentsMargins(0, 0, 0, 0)
         self._card_col.setSpacing(12)
+        self._card_col.setColumnStretch(0, 1)
+        self._card_col.setColumnStretch(1, 1)
         self._add(self._card_container)
+
+        # Operational tool cards below the probe grid
+        self._add(self._make_bt_audio_card())
+        self._add(self._make_display_card())
 
         self._stretch()
         self.refresh()
@@ -172,42 +144,6 @@ class HardwarePage(Page):
             if shutil.which("kcmshell6") else None
         )
         btns.addWidget(color_btn)
-        btns.addStretch()
-        layout.addLayout(btns)
-        return card
-
-    def _make_personality_card(self) -> QFrame:
-        pci = _command_stdout(["lspci"], timeout=5).lower()
-        cpu = _command_stdout(["lscpu"], timeout=5).lower()
-        if "nvidia" in pci and ("amd" in cpu or "ryzen" in cpu):
-            title = "NVIDIA gaming desktop"
-            note = "Best first checks: proprietary module active, Vulkan summary, display refresh rate, and Game Night Mode."
-        elif "nvidia" in pci:
-            title = "NVIDIA gaming machine"
-            note = "Best first checks: driver build status, Secure Boot state, Vulkan, and external display behavior."
-        elif "amd" in pci or "radeon" in pci:
-            title = "AMD/Radeon gaming machine"
-            note = "Best first checks: Mesa/Vulkan, VRR/high refresh, MangoHud, and firmware updates."
-        elif "intel" in pci:
-            title = "Intel laptop or iGPU desktop"
-            note = "Best first checks: Wi-Fi, Bluetooth, suspend/resume, fractional scaling, and battery profile."
-        else:
-            title = "KythOS desktop"
-            note = "Best first checks: graphics, audio, network, firmware, and rollback confidence."
-
-        card, layout = _make_card("card-accent-ok")
-        card_title = QLabel(f"Hardware Personality: {title}")
-        card_title.setObjectName("card-title")
-        layout.addWidget(card_title)
-        body = QLabel(note)
-        body.setObjectName("card-copy")
-        body.setWordWrap(True)
-        layout.addWidget(body)
-        btns = QHBoxLayout()
-        for label, key in (("Gaming", "Gaming"), ("Controllers", "Controllers"), ("Repair", "Repair")):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, k=key: self._navigate(k))
-            btns.addWidget(btn)
         btns.addStretch()
         layout.addLayout(btns)
         return card
@@ -339,10 +275,10 @@ class HardwarePage(Page):
             if w := item.widget():
                 w.deleteLater()
         self._cards = []
-        for probe in probes:
+        for i, probe in enumerate(probes):
             card = HardwareCard(probe)
             self._cards.append(card)
-            self._card_col.addWidget(card)
+            self._card_col.addWidget(card, i // 2, i % 2)
 
     def _on_done(self, probes: list[HardwareProbe]):
         self._progress.hide()

@@ -148,11 +148,11 @@ QPushButton#search-result:pressed {
 QWidget#sidebar {
     background: #191b1d;
     border-right: 1px solid #2e2e2e;
-    border-left: 3px solid #2f9b8f;
+    border-left: 4px solid #2f9b8f;
 }
 
 QWidget#sidebar-header {
-    background: #1b1b1c;
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 #1e2426, stop:1 #1b1b1c);
     border-bottom: 1px solid #2e2e2e;
 }
 
@@ -181,7 +181,7 @@ QPushButton#nav-item,
 QPushButton#nav-item-active {
     background: transparent;
     border: none;
-    border-radius: 5px;
+    border-radius: 6px;
     margin: 1px 8px;
     padding: 8px 10px;
     text-align: left;
@@ -212,21 +212,21 @@ QPushButton#nav-item-active {
 
 /* ── Page header band ────────────────────────────────────────────────────── */
 QWidget#page-header {
-    background: #202020;
+    background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #272727, stop:1 #202020);
     border-bottom: 1px solid #2e2e2e;
 }
 
 QLabel#eyebrow {
-    color: #7dd3c7;
+    color: #8be3d7;
     font-size: 11px;
-    font-weight: 600;
-    letter-spacing: 1px;
+    font-weight: 700;
+    letter-spacing: 2px;
     padding: 0;
 }
 
 QLabel#heading {
-    font-size: 26px;
-    font-weight: 600;
+    font-size: 30px;
+    font-weight: 700;
     color: #ffffff;
 }
 
@@ -389,6 +389,8 @@ QPushButton#btn-secondary {
     color: #ffffff;
     border: 1px solid #3ab6a9;
     font-weight: 600;
+    padding: 8px 20px;
+    letter-spacing: 0.3px;
 }
 
 QPushButton#primary:hover,
@@ -458,7 +460,7 @@ QPushButton#branch-inactive:hover {
 QFrame#cp-category {
     background: #2b2b2b;
     border: 1px solid #3a3a3a;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QFrame#cp-category:hover {
@@ -546,7 +548,7 @@ QFrame#store-app-card,
 QFrame#store-category-card {
     background: #2b2b2b;
     border: 1px solid #3a3a3a;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QFrame#card:hover,
@@ -588,8 +590,8 @@ QLabel#card-copy {
 QFrame#home-recommend-card {
     background: #203331;
     border: 1px solid #345d58;
-    border-left: 3px solid #7dd3c7;
-    border-radius: 6px;
+    border-left: 4px solid #7dd3c7;
+    border-radius: 10px;
 }
 
 QLabel#home-kicker {
@@ -619,19 +621,19 @@ QLabel#home-section-copy {
 QFrame#card-accent-ok {
     background: #283028;
     border: 1px solid #3e573c;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QFrame#card-accent-warn {
     background: #322d20;
     border: 1px solid #5c5126;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QFrame#card-accent-err {
     background: #332527;
     border: 1px solid #5e3338;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QLabel#home-action-icon {
@@ -713,20 +715,20 @@ QLabel#store-kicker {
 QFrame#drop-card {
     background: #262626;
     border: 1px dashed #4a4a4a;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QFrame#drop-card-active {
     background: #213634;
     border: 2px dashed #7dd3c7;
-    border-radius: 6px;
+    border-radius: 10px;
 }
 
 QLabel#drop-glyph {
     background: #2d2d2d;
     color: #7dd3c7;
     border: 1px solid #3a3a3a;
-    border-radius: 6px;
+    border-radius: 8px;
     font-size: 12px;
     font-weight: 600;
 }
@@ -777,19 +779,19 @@ QLabel#stat-label {
 }
 
 QLabel#stat-value {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: #e8e8e8;
 }
 
 QLabel#stat-value-ok {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: #6ccb5f;
 }
 
 QLabel#stat-value-warn {
-    font-size: 14px;
+    font-size: 16px;
     font-weight: 600;
     color: #d9b54a;
 }
@@ -850,29 +852,29 @@ QLabel#ready-row-dim {
 QFrame#hw-card-ok {
     background: #283028;
     border: 1px solid #3e573c;
-    border-left: 3px solid #6ccb5f;
-    border-radius: 5px;
+    border-left: 4px solid #6ccb5f;
+    border-radius: 8px;
 }
 
 QFrame#hw-card-warn {
     background: #322d20;
     border: 1px solid #5c5126;
-    border-left: 3px solid #d9b54a;
-    border-radius: 5px;
+    border-left: 4px solid #d9b54a;
+    border-radius: 8px;
 }
 
 QFrame#hw-card-err {
     background: #332527;
     border: 1px solid #5e3338;
-    border-left: 3px solid #ff99a4;
-    border-radius: 5px;
+    border-left: 4px solid #ff99a4;
+    border-radius: 8px;
 }
 
 QFrame#hw-card-dim {
     background: #2b2b2b;
     border: 1px solid #3a3a3a;
-    border-left: 3px solid #5c5c5c;
-    border-radius: 5px;
+    border-left: 4px solid #5c5c5c;
+    border-radius: 8px;
 }
 
 /* ── Divider ─────────────────────────────────────────────────────────────── */
