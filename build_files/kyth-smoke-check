@@ -438,7 +438,7 @@ check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "Use
 check_file /usr/bin/kyth-apply-desktop-layout "KythOS default layout helper"
 check_file_contains /usr/bin/kyth-apply-desktop-layout "kyth-comfort-v3" "KythOS default layout version" "desktop layout preset has a versioned repair marker"
 check_file_contains /usr/bin/kyth-apply-desktop-layout "KythComfortLayout" "KythOS default layout marker" "desktop layout preset uses KythOS comfort naming"
-check_file_contains /usr/bin/kyth-apply-desktop-layout "panel.height = 54" "KythOS comfort panel height" "default panel has comfortable pointer targets"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "panel.height = 42" "KythOS compact panel height" "default panel keeps clock and date compact"
 check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.icontasks" "KythOS default taskbar" "preset creates an icons-only taskbar"
 check_file_contains /usr/bin/kyth-apply-desktop-layout "maxStripes" "KythOS taskbar density" "taskbar stays single-row and scannable"
 check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-welcome.desktop" "KythOS default pinned apps" "System Hub is pinned in the taskbar"

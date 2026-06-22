@@ -109,7 +109,7 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 TOPGRADEEOF
 
 # ── KythDark color scheme ─────────────────────────────────────────────────────
-# Tokyo Night-derived palette: #1a1b26 dark slate base, #2f9b8f Kyth teal accent.
+# Tokyo Night-derived palette: #0c0e16 dark slate base, #2f9b8f Kyth teal accent.
 # All nine Color:* sections share the same palette so colors are consistent
 # across button, view, window, selection, tooltip, and header contexts.
 mkdir -p /usr/share/color-schemes
@@ -135,8 +135,8 @@ IntensityAmount=0
 IntensityEffect=0
 
 [Colors:Button]
-BackgroundAlternate=36,40,59
-BackgroundNormal=31,35,53
+BackgroundAlternate=22,24,36
+BackgroundNormal=18,20,31
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -149,8 +149,8 @@ ForegroundPositive=158,206,106
 ForegroundVisited=125,211,199
 
 [Colors:Complementary]
-BackgroundAlternate=36,40,59
-BackgroundNormal=26,27,38
+BackgroundAlternate=22,24,36
+BackgroundNormal=12,14,22
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -163,8 +163,8 @@ ForegroundPositive=158,206,106
 ForegroundVisited=125,211,199
 
 [Colors:Header]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -191,8 +191,8 @@ ForegroundPositive=158,206,106
 ForegroundVisited=166,240,229
 
 [Colors:Tooltip]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -205,8 +205,8 @@ ForegroundPositive=158,206,106
 ForegroundVisited=125,211,199
 
 [Colors:View]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -219,8 +219,8 @@ ForegroundPositive=158,206,106
 ForegroundVisited=125,211,199
 
 [Colors:Window]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
 DecorationFocus=47,155,143
 DecorationHover=125,211,199
 ForegroundActive=192,202,245
@@ -280,14 +280,14 @@ cat >/usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KY
   <!-- Teal top accent line (1px, spans the full width across the top border) -->
   <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#2f9b8f" fill-opacity="0.70"/>
   <!-- 9-patch fill regions: semi-transparent dark slate -->
-  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#0c0e16" fill-opacity="0.9"/>
+<rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#0c0e16" fill-opacity="0.9"/>
 </svg>
 KYTHPANELSVGEOF
 
@@ -909,7 +909,7 @@ function addKythDefaultPanel(screen) {
     var panel = new Panel;
     safeSet(panel, "screen", screen);
     panel.location = "bottom";
-    panel.height = 54;
+    panel.height = 42;
     safeSet(panel, "alignment", "center");
     safeSet(panel, "floating", false);
     safeSet(panel, "floatingApplets", false);
@@ -951,7 +951,7 @@ function addKythDefaultPanel(screen) {
 
     var clock = panel.addWidget("org.kde.plasma.digitalclock");
     writeConfig(clock, ["Appearance"], {
-        "showDate": true,
+        "showDate": false,
         "dateFormat": "shortDate",
         "showSeconds": false
     });
@@ -1110,7 +1110,7 @@ for (var p = 0; p < panelIds.length; ++p) {
             });
         } else if (widget.type === "org.kde.plasma.digitalclock") {
             writeConfig(widget, ["Appearance"], {
-                "showDate": true,
+                "showDate": false,
                 "dateFormat": "shortDate",
                 "showSeconds": false
             });
