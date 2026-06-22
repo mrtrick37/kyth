@@ -802,14 +802,14 @@ if [[ "${force}" != "1" && "${initial}" != "1" ]]; then
 fi
 
 qdbus_cmd=""
-for candidate in qdbus6 qdbus; do
+for candidate in qdbus6 qdbus-qt6 qdbus; do
     if command -v "${candidate}" >/dev/null 2>&1; then
         qdbus_cmd="${candidate}"
         break
     fi
 done
 if [[ -z "${qdbus_cmd}" ]]; then
-    echo "qdbus6/qdbus is not available; Plasma layout cannot be applied." >&2
+    echo "qdbus6/qdbus-qt6/qdbus is not available; Plasma layout cannot be applied." >&2
     exit 75
 fi
 
@@ -1051,7 +1051,7 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
 fi
 
 qdbus_cmd=""
-for candidate in qdbus6 qdbus; do
+for candidate in qdbus6 qdbus-qt6 qdbus; do
     if command -v "${candidate}" >/dev/null 2>&1; then
         qdbus_cmd="${candidate}"
         break
@@ -1480,8 +1480,15 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight IAX
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key library org.kde.breeze
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key theme Breeze
-    if command -v qdbus6 >/dev/null 2>&1; then
-        qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    qdbus_cmd=""
+    for candidate in qdbus6 qdbus-qt6 qdbus; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            qdbus_cmd="${candidate}"
+            break
+        fi
+    done
+    if [[ -n "${qdbus_cmd}" ]]; then
+        "${qdbus_cmd}" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     fi
 
     # Desktop right-click menu: keep wallpaper/display personalization easy to

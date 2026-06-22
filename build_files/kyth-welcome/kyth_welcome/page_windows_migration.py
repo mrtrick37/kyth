@@ -1869,7 +1869,12 @@ class WindowsMigrationPage(Page):
             self._nearby_status.setText(f"Could not start Nearby Sharing: {exc}")
 
     def _open_krunner(self):
-        for cmd in (["krunner"], ["qdbus6", "org.kde.krunner", "/App", "display"]):
+        for cmd in (
+            ["krunner"],
+            ["qdbus6", "org.kde.krunner", "/App", "display"],
+            ["qdbus-qt6", "org.kde.krunner", "/App", "display"],
+            ["qdbus", "org.kde.krunner", "/App", "display"],
+        ):
             if shutil.which(cmd[0]):
                 try:
                     subprocess.Popen(cmd)

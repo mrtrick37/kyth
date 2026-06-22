@@ -13,6 +13,9 @@ from .widgets import (  # noqa: E501
     ActionRow, CommandResultPanel, HardwareCard, Page, _make_card,
 )
 
+QDBUS_CANDIDATES = ("qdbus6", "qdbus-qt6", "qdbus")
+KDE_PORTAL_UNITS = ("plasma-xdg-desktop-portal-kde.service", "xdg-desktop-portal-kde.service")
+
 
 def _run_text(cmd: list[str], timeout: int = 5) -> tuple[int, str, str]:
     try:
@@ -25,6 +28,27 @@ def _run_text(cmd: list[str], timeout: int = 5) -> tuple[int, str, str]:
 def _user_unit_active(unit: str) -> bool:
     code, out, _ = _run_text(["systemctl", "--user", "is-active", unit])
     return code == 0 and out == "active"
+
+
+def _first_active_user_unit(units: tuple[str, ...]) -> str:
+    for unit in units:
+        if _user_unit_active(unit):
+            return unit
+    return ""
+
+
+def _first_available_binary(names: tuple[str, ...]) -> str:
+    for name in names:
+        if shutil.which(name):
+            return name
+    return ""
+
+
+def _user_bus_name_available(name: str) -> bool:
+    code, out, _ = _run_text(["busctl", "--user", "--no-pager", "list"])
+    if code != 0:
+        return False
+    return any(line.split(maxsplit=1)[0] == name for line in out.splitlines() if line.strip())
 
 
 def _session_kind() -> str:
@@ -82,31 +106,39 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
         f"pipewire={'active' if pipewire else 'inactive'}, wireplumber={'active' if wireplumber else 'inactive'}",
     ))
 
-    portal = _user_unit_active("xdg-desktop-portal.service")
-    portal_kde = _user_unit_active("xdg-desktop-portal-kde.service")
+    portal = _user_unit_active("xdg-desktop-portal.service") or _user_bus_name_available("org.freedesktop.portal.Desktop")
+    portal_kde_unit = _first_active_user_unit(KDE_PORTAL_UNITS)
+    portal_kde = bool(portal_kde_unit) or _user_bus_name_available("org.freedesktop.impl.portal.desktop.kde")
+    portal_details = [
+        f"Desktop portal: {'active' if portal else 'not running'}",
+        f"KDE backend: {'active' if portal_kde else 'not running'}",
+    ]
+    if portal_kde_unit:
+        portal_details.append(f"KDE backend unit: {portal_kde_unit}")
     probes.append(HardwareProbe(
         "Desktop portals",
         "ok" if portal and portal_kde else "warn",
         "KDE portal services are ready for file pickers, permissions, and screen sharing"
-        if portal and portal_kde else "Portal services may need a restart before screen sharing works",
-        f"xdg-desktop-portal={'active' if portal else 'inactive'}, xdg-desktop-portal-kde={'active' if portal_kde else 'inactive'}",
+        if portal and portal_kde else "Restart the capture stack if screen sharing or file pickers misbehave",
+        "\n".join(portal_details),
     ))
 
     has_busctl = bool(shutil.which("busctl"))
-    has_qdbus = bool(shutil.which("qdbus6") or shutil.which("qdbus"))
+    qdbus_binary = _first_available_binary(QDBUS_CANDIDATES)
+    has_qdbus = bool(qdbus_binary)
     probes.append(HardwareProbe(
         "Portal diagnostics",
         "ok" if has_busctl or has_qdbus else "dim",
-        "Portal command-line diagnostics are available" if has_busctl or has_qdbus else "No portal diagnostic command found",
-        f"busctl={'yes' if has_busctl else 'no'}, qdbus={'yes' if has_qdbus else 'no'}",
+        "Portal diagnostic tools are available" if has_busctl or has_qdbus else "Portal diagnostic tools are not installed",
+        f"busctl: {'available' if has_busctl else 'not found'}\nqdbus: {qdbus_binary or 'not found'}",
     ))
 
     vrr = os.environ.get("KWIN_DRM_ALLOW_VRR", "").strip()
     probes.append(HardwareProbe(
         "Display tuning",
         "dim" if not vrr else "ok",
-        "Open Display Settings to review VRR, scale, HDR, and monitor layout",
-        f"KWIN_DRM_ALLOW_VRR={vrr or 'not set'}",
+        "Display Settings controls VRR, HDR, scale, refresh rate, and monitor layout",
+        f"KWin VRR environment policy: {vrr or 'not set; using Plasma defaults'}",
     ))
 
     color_scheme = _kread("kdeglobals", "General", "ColorScheme")
@@ -123,13 +155,16 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     )
     probes.append(HardwareProbe(
         "KythOS theme layer",
-        "ok" if visual_ok else "warn",
+        "ok" if visual_ok else "dim",
         "KythOS color, icon, font, and panel theme are active"
-        if visual_ok else "KythOS visual polish can be re-applied below",
-        (
-            f"ColorScheme={color_scheme or 'unset'}, PlasmaTheme={plasma_theme or 'unset'}, "
-            f"IconTheme={icon_theme or 'unset'}, Font={ui_font or 'unset'}, FixedFont={fixed_font or 'unset'}"
-        ),
+        if visual_ok else "KythOS visual polish is not fully applied; restore it below when wanted",
+        "\n".join((
+            f"Color scheme: {color_scheme or 'unset'}",
+            f"Plasma theme: {plasma_theme or 'unset'}",
+            f"Icon theme: {icon_theme or 'unset'}",
+            f"UI font: {ui_font or 'unset'}",
+            f"Fixed font: {fixed_font or 'unset'}",
+        )),
     ))
 
     single_click = _kread("kdeglobals", "KDE", "SingleClick").lower()
@@ -138,8 +173,8 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
         "Desktop comfort defaults",
         "ok" if single_click == "false" and clip_items == "25" else "dim",
         "Comfortable double-click and clipboard history defaults are configured"
-        if single_click == "false" and clip_items == "25" else "Shortcut and clipboard defaults can be re-applied below",
-        f"SingleClick={single_click or 'unset'}, ClipboardItems={clip_items or 'unset'}",
+        if single_click == "false" and clip_items == "25" else "Comfort defaults are not fully applied; restore them below when wanted",
+        f"Single-click open: {single_click or 'unset'}\nClipboard history size: {clip_items or 'unset'}",
     ))
 
     layout_marker = _kread("plasma-org.kde.plasma.desktop-appletsrc", "KythOS", "KythComfortLayout")
@@ -149,8 +184,8 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
         "KythOS default layout",
         "ok" if layout_ok else "dim",
         "KythOS bottom taskbar and pinned launcher layout are active"
-        if layout_ok else "Restore the KythOS default layout below when you want the standard shell shape",
-        f"KythComfortLayout={layout_marker or 'unset'}, LegacyLayout={legacy_layout_marker or 'unset'}",
+        if layout_ok else "Standard KythOS layout is not marked active; restore it below when wanted",
+        f"KythOS layout marker: {layout_marker or 'unset'}\nLegacy layout marker: {legacy_layout_marker or 'unset'}",
     ))
     return probes
 
@@ -226,14 +261,28 @@ class PlasmaWaylandPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "Restore the KythOS default desktop preset: bottom taskbar, KythOS launcher, "
-            "pinned System Hub/App Store/Steam/Brave/Dolphin/Konsole apps, system tray, clock, "
-            "wallpaper, shortcuts, titlebar buttons, clipboard history, Screenshots folder, "
-            "and Dolphin defaults."
+            "Restore the standard KythOS desktop preset in one pass."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
         layout.addWidget(body)
+
+        for name, summary in (
+            ("Desktop", "bottom taskbar, KythOS launcher, pinned apps, tray, and clock"),
+            ("Comfort", "Meta shortcuts, clipboard history, Screenshots folder, and Dolphin defaults"),
+            ("Look", "KythDark colors, wallpaper, panel theme, fonts, icons, and titlebar buttons"),
+        ):
+            row = QHBoxLayout()
+            row.setSpacing(10)
+            label = QLabel(name)
+            label.setObjectName("card-summary")
+            label.setMinimumWidth(90)
+            row.addWidget(label)
+            copy = QLabel(summary)
+            copy.setObjectName("card-copy")
+            copy.setWordWrap(True)
+            row.addWidget(copy, 1)
+            layout.addLayout(row)
 
         actions = ActionRow("", "idle")
         actions.status.hide()
@@ -369,8 +418,15 @@ if [ -r /usr/share/wallpapers/kyth/contents/images/1920x1080.svg ]; then
     --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 fi
 
-if command -v qdbus6 >/dev/null 2>&1; then
-  qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+qdbus_cmd=""
+for candidate in qdbus6 qdbus-qt6 qdbus; do
+  if command -v "${candidate}" >/dev/null 2>&1; then
+    qdbus_cmd="${candidate}"
+    break
+  fi
+done
+if [ -n "${qdbus_cmd}" ]; then
+  "${qdbus_cmd}" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
 fi
 """
         return ["bash", "-lc", script]
@@ -479,7 +535,10 @@ fi
             "Capture stack restarted. Try screen sharing again.",
             [
                 "bash", "-lc",
-                "systemctl --user restart pipewire wireplumber xdg-desktop-portal xdg-desktop-portal-kde",
+                "systemctl --user restart pipewire wireplumber xdg-desktop-portal; "
+                "if systemctl --user list-unit-files plasma-xdg-desktop-portal-kde.service --no-legend | grep -q '^plasma-xdg-desktop-portal-kde\\.service'; then "
+                "systemctl --user restart plasma-xdg-desktop-portal-kde.service; "
+                "else systemctl --user restart xdg-desktop-portal-kde.service; fi",
             ],
         )
 
@@ -490,7 +549,8 @@ fi
             [
                 "bash", "-lc",
                 "busctl --user call org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.DBus.Peer Ping "
-                "|| qdbus6 org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.DBus.Peer.Ping",
+                "|| { qdbus_cmd=''; for candidate in qdbus6 qdbus-qt6 qdbus; do command -v \"$candidate\" >/dev/null 2>&1 && qdbus_cmd=\"$candidate\" && break; done; "
+                "[ -n \"$qdbus_cmd\" ] && \"$qdbus_cmd\" org.freedesktop.portal.Desktop /org/freedesktop/portal/desktop org.freedesktop.DBus.Peer.Ping; }",
             ],
         )
 

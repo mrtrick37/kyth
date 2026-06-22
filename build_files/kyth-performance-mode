@@ -54,6 +54,8 @@ EOF
 reconfigure_kwin() {
     if command -v qdbus6 >/dev/null 2>&1; then
         qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    elif command -v qdbus-qt6 >/dev/null 2>&1; then
+        qdbus-qt6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     elif command -v qdbus >/dev/null 2>&1; then
         qdbus org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     fi
