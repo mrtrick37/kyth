@@ -568,6 +568,31 @@ optional_desktop_packages=(
 	liberation-fonts-all
 	inter-fonts
 	papirus-icon-theme
+	# Calibri-compatible font: fixes Office document rendering for Windows migrants.
+	# Arial/Times are covered by liberation-fonts; Calibri (default since Office 2007)
+	# needs Carlito for correct line-break and pagination matching.
+	google-carlito-fonts
+	# Emoji rendering — without this, emoji in browsers and terminals render as
+	# empty boxes on systems that only have the liberation/inter font set.
+	google-noto-emoji-fonts
+	# Modern CLI tools loved by Linux veterans (all gracefully absent if unavailable).
+	bat
+	eza
+	fd-find
+	ripgrep
+	fzf
+	zoxide
+	git-delta
+	starship
+	helix
+	# zsh enhancements — sourced automatically by the /etc/skel/.zshrc below.
+	zsh-autosuggestions
+	zsh-syntax-highlighting
+	# fish shell — out-of-box syntax highlighting and autosuggestions with no config.
+	# Good first shell for Windows migrants; veterans can chsh -s /usr/bin/fish.
+	fish
+	# zellij — modern terminal multiplexer; tmux-compatible with a friendlier UI.
+	zellij
 )
 
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"

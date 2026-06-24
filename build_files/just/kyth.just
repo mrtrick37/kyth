@@ -411,7 +411,7 @@ install-vesktop:
     echo
     echo "Vesktop installed. Launch it from the app menu."
 
-# Install GOverlay from Flathub for MangoHud, vkBasalt, and OptiScaler tuning.
+# Install GOverlay from Flathub for MangoHud and vkBasalt configuration.
 [group('KythOS')]
 install-goverlay:
     #!/usr/bin/env bash
@@ -1106,6 +1106,114 @@ install-ludusavi:
     echo
     echo "Ludusavi installed. Launch it from the app menu before migrating or modding games."
 
+# Deploy OptiScaler to a game directory — enables FSR2/3, XeSS, and
+# DLSS-translation for any DirectX 11/12 game through Proton's DLL override.
+#
+# OptiScaler hooks into the game by replacing nvngx.dll.  After deploying, set
+# the Steam launch option:
+#   WINEDLLOVERRIDES="nvngx=n,b" %command%
+#
+# Usage:
+#   ujust deploy-opticscaler /path/to/game/dir
+#
+# The game directory is the folder containing the game's main .exe.
+# For Steam games: ~/.local/share/Steam/steamapps/common/<game>
+#
+# OptiScaler adds upscaling even to games that ship without it:
+#   • FSR2 / FSR3 — AMD FidelityFX Super Resolution (works on all GPUs)
+#   • XeSS        — Intel Xe Super Sampling (works on all GPUs)
+#   • DLSS→FSR    — translates DLSS API calls to FSR on AMD/Intel
+#
+# Docs: https://github.com/cdozdil/OptiScaler
+[group('KythOS')]
+deploy-opticscaler gamedir="":
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    GAMEDIR="${gamedir}"
+    BAKED_DIR="/usr/share/kyth/opticscaler"
+
+    if [[ -z "${GAMEDIR}" ]]; then
+        echo "Usage: ujust deploy-opticscaler /path/to/game/dir" >&2
+        echo
+        echo "Example (Steam):"
+        echo "  ujust deploy-opticscaler ~/.local/share/Steam/steamapps/common/MyGame"
+        exit 1
+    fi
+
+    if [[ ! -d "${GAMEDIR}" ]]; then
+        echo "ERROR: directory not found: ${GAMEDIR}" >&2
+        exit 1
+    fi
+
+    echo "━━━ KythOS OptiScaler Deploy ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    # ── Source: baked image or live download ─────────────────────────────────
+    TMPDIR_OS=""
+    SRC_DIR="${BAKED_DIR}"
+
+    if [[ ! -d "${BAKED_DIR}" ]] || [[ -z "$(ls -A "${BAKED_DIR}" 2>/dev/null)" ]]; then
+        echo "  Baked OptiScaler not found — downloading latest release from GitHub…"
+        echo
+        TMPDIR_OS=$(mktemp -d)
+        trap 'rm -rf "${TMPDIR_OS}"' EXIT
+        release_json="${TMPDIR_OS}/release.json"
+        OS_REPO_API="https://api.github.com/repos/cdozdil/OptiScaler/releases/latest"
+
+        if ! curl -fsSL "${OS_REPO_API}" -o "${release_json}"; then
+            echo "ERROR: failed to fetch OptiScaler release info from GitHub." >&2
+            exit 1
+        fi
+
+        OS_URL=$(
+            grep -oP 'https://[^"]+\.zip' "${release_json}" |
+                grep -iv 'source\|symbols\|pdb\|debug' |
+                grep -iv '\bwin32\b\|_x86[^_]' |
+                head -n1
+        ) || true
+
+        if [[ -z "${OS_URL}" ]]; then
+            echo "ERROR: no suitable zip found in the latest OptiScaler release." >&2
+            echo "  Check https://github.com/cdozdil/OptiScaler/releases" >&2
+            exit 1
+        fi
+
+        OS_ZIP=$(basename "${OS_URL}")
+        echo "  Downloading ${OS_ZIP}…"
+        curl -fsSL "${OS_URL}" -o "${TMPDIR_OS}/${OS_ZIP}"
+        mkdir -p "${TMPDIR_OS}/extracted"
+        unzip -q "${TMPDIR_OS}/${OS_ZIP}" -d "${TMPDIR_OS}/extracted/"
+        SRC_DIR="${TMPDIR_OS}/extracted"
+    else
+        echo "  Using baked OptiScaler from ${BAKED_DIR}"
+    fi
+
+    # ── Copy DLLs and config to the game directory ───────────────────────────
+    echo
+    echo "  Copying OptiScaler files to:"
+    echo "    ${GAMEDIR}"
+    echo
+    cp -r "${SRC_DIR}/." "${GAMEDIR}/"
+    dll_count=$(find "${GAMEDIR}" -maxdepth 2 -iname '*.dll' | wc -l)
+    echo "  Copied ${dll_count} file(s)."
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  OptiScaler deployed."
+    echo
+    echo "  Set this Steam launch option for the game:"
+    echo "    WINEDLLOVERRIDES=\"nvngx=n,b\" %command%"
+    echo
+    echo "  Right-click the game → Properties → Launch Options → paste the above."
+    echo
+    echo "  Upscaling modes (configure in-game or via OptiScaler.ini):"
+    echo "    FSR2 / FSR3 — works on all GPUs"
+    echo "    XeSS        — works on all GPUs (Intel tuned)"
+    echo "    DLSS        — NVIDIA only (requires RTX)"
+    echo
+    echo "  To remove: delete nvngx.dll / OptiScaler.dll from the game folder."
+
 # Install OBS Studio — screen recording and live streaming.
 [group('KythOS')]
 install-obs:
@@ -1495,3 +1603,55 @@ firmware-update:
     echo
     echo "Applying available firmware updates..."
     fwupdmgr update
+
+# Install DisplayLink USB display adapter driver (evdi kernel module + daemon).
+#
+# Required for USB-C/USB-A docking stations from Dell WD, HP, Lenovo, and most
+# "works with DisplayLink" hubs. The evdi kernel module is built by akmods on
+# first boot, then the DisplayLink daemon handles display mux and output routing.
+#
+# Usage:
+#   ujust install-displaylink            # installs and enables the driver
+#
+# After setup: plug in your dock/adapter and it should appear in display settings.
+# If outputs are missing after a kernel upgrade, rerun to rebuild the akmod.
+[group('KythOS')]
+install-displaylink:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    echo "━━━ KythOS DisplayLink Driver ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo
+
+    # ── Already installed ─────────────────────────────────────────────────────
+    if modinfo evdi &>/dev/null 2>&1; then
+        echo "  evdi kernel module is already installed."
+        if systemctl is-enabled displaylink.service &>/dev/null 2>&1; then
+            echo "  DisplayLink daemon is enabled."
+        else
+            echo "  Basic USB display support is active via the evdi module."
+            echo "  For the full Synaptics daemon (advanced multi-monitor):"
+            echo "    https://www.synaptics.com/products/displaylink-graphics/downloads/fedora"
+        fi
+        exit 0
+    fi
+
+    # ── Layer evdi via rpm-ostree (RPM Fusion nonfree) ────────────────────────
+    # akmod-evdi is in RPM Fusion nonfree, which is pre-configured in this image.
+    # rpm-ostree layers it into the next deployment; the akmod build runs at
+    # first boot after the reboot (same mechanism as akmod-nvidia).
+    echo "  Installing evdi kernel module from RPM Fusion nonfree..."
+    sudo rpm-ostree install --idempotent akmod-evdi evdi
+
+    echo
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  evdi staged. Reboot to build and activate the kernel module:"
+    echo "    systemctl reboot"
+    echo
+    echo "  After rebooting, plug in your USB dock — outputs appear in"
+    echo "  System Settings → Display and Monitor."
+    echo
+    echo "  For the full Synaptics DisplayLink daemon (USB 3.0 adapters, audio"
+    echo "  over dock, advanced multi-monitor), download the RPM and then:"
+    echo "    https://www.synaptics.com/products/displaylink-graphics/downloads/fedora"
+    echo "    sudo rpm-ostree install --idempotent /path/to/displaylink-*.rpm"

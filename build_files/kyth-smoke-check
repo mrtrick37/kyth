@@ -689,6 +689,74 @@ check_flatpak net.lutris.Lutris "Lutris Flatpak"
 check_flatpak com.heroicgameslauncher.hgl "Heroic Flatpak"
 check_flatpak com.usebottles.bottles "Bottles Flatpak"
 check_flatpak com.github.mtkennerly.ludusavi "Ludusavi Flatpak"
+check_flatpak com.github.Matoking.protontricks "Protontricks Flatpak"
+check_flatpak net.davidotek.pupgui2 "ProtonUp-Qt Flatpak"
+check_flatpak io.github.benjamimgois.goverlay "GOverlay Flatpak"
+
+check_file_contains /etc/environment.d/proton-radv.conf "PROTON_USE_NTSYNC=1" "NTSYNC env var" "Proton is set to prefer NTSYNC"
+check_file_contains /etc/environment.d/proton-radv.conf "VKD3D_CONFIG=dxr11,dxr" "VKD3D ray tracing" "DX12 RT enabled in VKD3D-Proton"
+check_file_contains /etc/environment.d/proton-radv.conf "WINEFSYNC=1" "FSYNC fallback" "fsync fallback when NTSYNC unavailable"
+
+if [[ -f /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json ]]; then
+    pass "LatencyFleX layer" "Vulkan implicit layer installed"
+else
+    warn "LatencyFleX layer" "not installed — anti-stutter latency-flex layer missing"
+fi
+
+if [[ -f /usr/share/vulkan/implicit_layer.d/VkLowLatencyLayer.json ]] \
+   || ls /usr/share/vulkan/implicit_layer.d/VkLowLatency* >/dev/null 2>&1; then
+    pass "vulkan-low-latency-layer" "AMD Anti-Lag2 / Reflex implicit layer present"
+else
+    warn "vulkan-low-latency-layer" "low-latency Vulkan layer missing (Terra repo may have failed)"
+fi
+
+if command -v dmemcg-booster >/dev/null 2>&1 \
+   || [[ -f /usr/lib/systemd/system/dmemcg-booster-system.service ]]; then
+    pass "dmemcg-booster" "VRAM foreground prioritization available"
+else
+    warn "dmemcg-booster" "not installed (Terra repo may have failed)"
+fi
+
+if [[ -d /usr/share/kyth/opticscaler ]] \
+   && find /usr/share/kyth/opticscaler -name '*.dll' -quit 2>/dev/null | grep -q '.'; then
+    pass "OptiScaler DLLs" "baked into image for offline deploy"
+else
+    warn "OptiScaler DLLs" "not baked (no checksums in release); deploy-opticscaler downloads live"
+fi
+
+section "Work Productivity"
+# Font compatibility — Carlito is the metric-compatible Calibri substitute.
+# Without it, Office documents reflow, tables shift, and PDFs print differently.
+if fc-list 2>/dev/null | grep -qi 'carlito'; then
+    pass "Carlito fonts" "Calibri-compatible fonts present"
+else
+    warn "Carlito fonts" "missing — Office document layout may differ from Windows"
+fi
+if fc-list 2>/dev/null | grep -qi 'noto.*emoji\|noto emoji'; then
+    pass "Noto emoji fonts" "emoji rendering available"
+else
+    warn "Noto emoji fonts" "missing — emoji may render as boxes"
+fi
+check_optional_command fprintd "fingerprint daemon"
+if systemctl is-enabled fprintd.service &>/dev/null || systemctl is-active fprintd.service &>/dev/null; then
+    pass "fprintd service" "fingerprint login available"
+else
+    warn "fprintd service" "disabled — run authselect enable-feature with-fingerprint to activate"
+fi
+check_command openconnect "VPN (GlobalProtect/AnyConnect)"
+check_command vpnc "VPN (Cisco legacy)"
+if systemctl is-enabled cups-browsed.service &>/dev/null; then
+    pass "cups-browsed" "LAN printer auto-discovery enabled"
+else
+    warn "cups-browsed" "not enabled — printers require manual add"
+fi
+check_optional_command smbclient "SMB client"
+check_file_contains /usr/share/applications/kyth-exe-handler.desktop "application/x-ms-dos-executable" ".exe handler registered" ".exe files open in Bottles/Wine selector"
+if flatpak info io.missioncenter.MissionCenter &>/dev/null 2>&1; then
+    pass "Mission Center" "GPU-accelerated Task Manager installed"
+else
+    warn "Mission Center" "not installed yet — runs at first boot via kyth-default-flatpaks"
+fi
 
 section "Windows Migration And App Comfort"
 check_command ntfs-3g "NTFS support"
@@ -719,7 +787,7 @@ check_file_contains /usr/lib/systemd/system/kyth-update-watcher.timer "OnBootSec
 check_file_contains /etc/kyth/auto-update.toml "startup_grace_minutes = 20" "Auto-update grace config" "startup grace is configurable"
 check_file_contains /usr/lib/systemd/system/kyth-default-flatpaks.service "IOSchedulingClass=idle" "Default app setup priority" "first-boot Flatpak setup runs at idle I/O priority"
 check_file_contains /etc/pipewire/pipewire.conf.d/99-kyth.conf "default.clock.quantum       = 256" "PipeWire stability default" "low-latency audio keeps underrun headroom"
-check_file_contains /etc/environment.d/obs-vkcapture.conf "intentionally left unset globally" "OBS capture opt-in" "capture hooks are not injected globally"
+check_file_contains /etc/environment.d/obs-vkcapture.conf "OBS_VKCAPTURE=1" "OBS capture global opt-in" "vkcapture layer active for all Vulkan/OpenGL games"
 check_file_contains /usr/bin/kyth-sched "Do not include launcher shells" "Scheduler launcher calm" "idle launchers do not pin gaming mode"
 check_file_contains /usr/bin/kyth-performance-mode "save|restore" "Performance mode recovery" "performance mode exposes save and restore"
 check_file /usr/share/ublue-os/just/75-kyth.just "KythOS ujust recipes"
@@ -727,6 +795,34 @@ check_optional_command kyth-device-info "Support snapshot"
 check_optional_command kyth-controller-check "Controller check"
 check_optional_command kyth-resume-check "Resume check"
 check_optional_command kyth-nvidia-status "NVIDIA status check"
+
+section "Power User Tools"
+check_optional_command bat         "bat (better cat)"
+check_optional_command eza         "eza (better ls)"
+check_optional_command fd          "fd (better find)"
+check_optional_command rg          "ripgrep"
+check_optional_command fzf         "fzf (fuzzy finder)"
+check_optional_command zoxide      "zoxide (smart cd)"
+check_optional_command starship    "starship prompt"
+check_optional_command delta       "git-delta (better diff)"
+check_optional_command hx          "helix editor"
+check_optional_command fish        "fish shell"
+check_optional_command zellij      "zellij (terminal mux)"
+check_optional_command topgrade    "topgrade"
+if command -v fish >/dev/null 2>&1; then
+    if [[ -f /etc/skel/.config/fish/config.fish ]]; then
+        pass "fish skel config" "/etc/skel/.config/fish/config.fish"
+    else
+        warn "fish skel config" "no /etc/skel/.config/fish/config.fish — new users get a blank fish"
+    fi
+fi
+if command -v zsh >/dev/null 2>&1; then
+    if [[ -f /etc/skel/.zshrc ]]; then
+        pass "zsh skel config" "/etc/skel/.zshrc"
+    else
+        warn "zsh skel config" "no /etc/skel/.zshrc"
+    fi
+fi
 
 if [[ "$VERBOSE" -eq 1 ]]; then
     section "Verbose Context"

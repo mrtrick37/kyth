@@ -108,6 +108,161 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 "KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 TOPGRADEEOF
 
+# ── Default shell environment for all new users ───────────────────────────────
+# /etc/skel/.zshrc seeds a polished zsh experience out-of-box. Every tool
+# integration is conditional so the file works identically whether the optional
+# packages were installed or not.
+# Also seeds /etc/skel/.bashrc with the same modern tool aliases for bash users.
+cat >/etc/skel/.zshrc <<'ZSHRCEOF'
+# KythOS default zsh config — edit freely, it's yours.
+
+# History: large buffer, no duplicates, shared across sessions
+HISTFILE=~/.zsh_history
+HISTSIZE=100000
+SAVEHIST=100000
+setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY INC_APPEND_HISTORY
+
+# Modern tool aliases — each falls back gracefully when the tool is absent
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --group-directories-first --icons=auto'
+    alias ll='eza -la --group-directories-first --icons=auto'
+    alias lt='eza --tree --group-directories-first'
+else
+    alias ll='ls -la'
+fi
+command -v bat  >/dev/null 2>&1 && alias cat='bat --paging=never'
+command -v rg   >/dev/null 2>&1 && alias search='rg'
+
+# zsh-autosuggestions (fish-like inline suggestions)
+[[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] &&
+    source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# fzf key bindings (Ctrl+R history, Ctrl+T file picker, Alt+C cd)
+[[ -f /usr/share/fzf/shell/key-bindings.zsh ]] &&
+    source /usr/share/fzf/shell/key-bindings.zsh
+[[ -f /usr/share/fzf/shell/completion.zsh ]] &&
+    source /usr/share/fzf/shell/completion.zsh
+
+# zoxide — smarter cd with frecency-ranked jump (z foo, zi interactive)
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+
+# Starship prompt — must come last to override any prompt set above
+command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+
+# zsh-syntax-highlighting — must be sourced after all other init (Zle hook)
+[[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] &&
+    source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+ZSHRCEOF
+
+# Also seed a .bashrc that picks up the same modern tool aliases so bash
+# users benefit without switching shells.
+cat >/etc/skel/.bashrc <<'BASHRCEOF'
+# KythOS default bash config — edit freely, it's yours.
+
+# Source system-wide config (Fedora bash completion, PATH additions, etc.)
+[[ -f /etc/bashrc ]] && source /etc/bashrc
+
+# Sensible history defaults
+HISTSIZE=100000
+HISTFILESIZE=200000
+HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# Modern tool aliases
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --group-directories-first --icons=auto'
+    alias ll='eza -la --group-directories-first --icons=auto'
+    alias lt='eza --tree --group-directories-first'
+else
+    alias ll='ls -la'
+fi
+command -v bat  >/dev/null 2>&1 && alias cat='bat --paging=never'
+command -v rg   >/dev/null 2>&1 && alias search='rg'
+
+# fzf key bindings
+[[ -f /usr/share/fzf/shell/key-bindings.bash ]] &&
+    source /usr/share/fzf/shell/key-bindings.bash
+
+# zoxide
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"
+
+# Starship prompt
+command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"
+BASHRCEOF
+
+# System-wide git-delta pager config — makes `git diff`, `git log`, and
+# `git show` output beautiful syntax-highlighted diffs with line numbers.
+# delta is the pager; any user can override in their own ~/.gitconfig.
+cat >/etc/gitconfig <<'GITCONFIGEOF'
+[core]
+    pager = delta
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    dark = true
+    line-numbers = true
+    syntax-theme = OneHalfDark
+
+[merge]
+    conflictstyle = diff3
+
+[diff]
+    colorMoved = default
+GITCONFIGEOF
+
+# ── Fish shell default config ──────────────────────────────────────────────────
+# Fish has out-of-box syntax highlighting and autosuggestions — no plugins needed.
+# New users who choose fish (chsh -s /usr/bin/fish) get a polished experience.
+mkdir -p /etc/skel/.config/fish
+cat >/etc/skel/.config/fish/config.fish <<'FISHCONFIGEOF'
+# KythOS fish config — edit freely, it's yours.
+
+# Starship cross-shell prompt
+if command -q starship
+    starship init fish | source
+end
+
+# Smarter cd (zoxide) — tracks frecency, `z dir` jumps to most-used match
+if command -q zoxide
+    zoxide init fish | source
+end
+
+# fzf key bindings (Ctrl+R history search, Ctrl+T file search, Alt+C cd)
+if test -f /usr/share/fzf/shell/key-bindings.fish
+    source /usr/share/fzf/shell/key-bindings.fish
+end
+
+# Modern CLI aliases with graceful fallbacks
+if command -q eza
+    alias ls='eza --color=auto --group-directories-first --icons=auto'
+    alias ll='eza -la --color=auto --group-directories-first --icons=auto --git'
+    alias lt='eza --tree --color=auto --icons=auto -L 2'
+end
+if command -q bat
+    alias cat='bat --paging=never'
+end
+if command -q rg
+    alias search='rg'
+end
+
+# Abbreviations (fish's smarter alias — expands on Enter, not inline)
+abbr --add g    git
+abbr --add gst  'git status'
+abbr --add gd   'git diff'
+abbr --add gcm  'git commit -m'
+abbr --add gp   'git push'
+abbr --add gl   'git log --oneline --graph --decorate -20'
+
+# History: keep a large, deduplicated history
+set -U fish_history_size 100000
+
+# Suppress the fish greeting
+set -U fish_greeting ""
+FISHCONFIGEOF
+
 # ── KythDark color scheme ─────────────────────────────────────────────────────
 # Tokyo Night-derived palette: #0c0e16 dark slate base, #2f9b8f Kyth teal accent.
 # All nine Color:* sections share the same palette so colors are consistent
@@ -502,6 +657,37 @@ cat >/etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
+
+# ── Wayland/X11 auto-detect (runs before SDDM on every boot) ─────────────────
+# kyth-configure-session detects VM vs bare metal and writes the SDDM session
+# conf before the greeter starts. Bare metal gets Wayland (VRR, HDR, lower
+# latency); VMs keep X11 so SDDM's Wayland compositor mode doesn't fail against
+# virtual GPU drivers that lack DRM/KMS backend support.
+# The script runs as SDDM's ExecStartPre — fast, idempotent, no flag file.
+cat >/usr/bin/kyth-configure-session <<'CONFIGURESESIONEOF'
+#!/bin/bash
+mkdir -p /etc/sddm.conf.d
+if systemd-detect-virt -q 2>/dev/null; then
+    cat >/etc/sddm.conf.d/11-kyth-session.conf <<'EOF'
+[General]
+DisplayServer=x11
+DefaultSession=plasmax11.desktop
+EOF
+else
+    cat >/etc/sddm.conf.d/11-kyth-session.conf <<'EOF'
+[General]
+DisplayServer=wayland
+DefaultSession=plasma.desktop
+EOF
+fi
+CONFIGURESESIONEOF
+chmod +x /usr/bin/kyth-configure-session
+
+mkdir -p /usr/lib/systemd/system/sddm.service.d
+cat >/usr/lib/systemd/system/sddm.service.d/10-kyth-detect-session.conf <<'SDDMDROPINEOF'
+[Service]
+ExecStartPre=/usr/bin/kyth-configure-session
+SDDMDROPINEOF
 
 # ── SDDM session type + login screen background ───────────────────────────────
 # Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;

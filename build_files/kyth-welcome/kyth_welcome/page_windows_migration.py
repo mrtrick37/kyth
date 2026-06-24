@@ -1068,6 +1068,41 @@ class WindowsMigrationPage(Page):
         powertoys_layout.addWidget(self._powertoys_status)
         self._add(powertoys_card)
 
+        # Terminal & shell tools card
+        shell_card, shell_layout = _make_card()
+        shell_title = QLabel("Terminal & Shell Tools")
+        shell_title.setObjectName("card-title")
+        shell_layout.addWidget(shell_title)
+        shell_body = QLabel(
+            "KythOS ships a pre-configured terminal experience — no manual plugin installs. "
+            "Every new account gets eza (better ls), bat (syntax-highlighted cat), fd (better find), "
+            "ripgrep (fast search), fzf (Ctrl+R fuzzy history), zoxide (smart cd that learns your habits), "
+            "git-delta (beautiful diffs), and starship (git-aware prompt). "
+            "Fish and Zsh both have autosuggestions and syntax highlighting out of the box. "
+            "To switch to fish: open Konsole → Settings → Edit Profiles → Command → /usr/bin/fish."
+        )
+        shell_body.setObjectName("card-copy")
+        shell_body.setWordWrap(True)
+        shell_layout.addWidget(shell_body)
+        for win_tool, linux_equiv in [
+            ("cmd / PowerShell", "Konsole with zsh/fish — autosuggestions + syntax highlighting"),
+            ("Windows Terminal tabs", "Konsole profiles or zellij (modern terminal multiplexer)"),
+            ("Everything (search)", "fd / ripgrep — 10–100× faster, respects .gitignore"),
+            ("notepad.exe", "helix (hx) — modal editor with LSP, no config needed"),
+            ("grep / findstr", "rg (ripgrep) — alias: search <pattern>"),
+        ]:
+            shell_layout.addWidget(self._make_migration_row("ok", win_tool, linux_equiv))
+        shell_btns = QHBoxLayout()
+        shell_btns.setSpacing(8)
+        open_konsole_btn = QPushButton("Open Terminal")
+        open_konsole_btn.clicked.connect(
+            lambda _=False: self._run_background(["konsole"])
+        )
+        shell_btns.addWidget(open_konsole_btn)
+        shell_btns.addStretch()
+        shell_layout.addLayout(shell_btns)
+        self._add(shell_card)
+
         # OneDrive / cloud sync card
         onedrive_card, onedrive_layout = _make_card()
         onedrive_title = QLabel("OneDrive & Google Drive sync")

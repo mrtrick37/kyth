@@ -622,6 +622,11 @@ PROTON_NO_WINDOWS_CRASH_DIALOG=1
 # on every DX9/10/11 draw call setup, adding measurable I/O overhead on
 # titles with high draw call counts. "none" keeps only fatal errors.
 DXVK_LOG_LEVEL=none
+# Enable DirectX 12 ray tracing in VKD3D-Proton. dxr advertises Tier 1 RT;
+# dxr11 adds DX11-style conservative RT fallback used by some titles. VKD3D
+# won't expose RT to the game unless the GPU Vulkan driver actually supports the
+# VK_KHR_ray_tracing_pipeline extension, so this is safe to set globally.
+VKD3D_CONFIG=dxr11,dxr
 PROTONEOF
 
 # obs-vkcapture: make game capture available by default for OBS users. The layer

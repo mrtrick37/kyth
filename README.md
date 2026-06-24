@@ -103,10 +103,57 @@ Gaming-first doesn't mean gaming-only.
 - **Video & streaming:** OBS Studio with Vulkan/OpenGL capture, Kdenlive, DaVinci Resolve helper
 - **Audio:** Audacity, PipeWire tuned for low latency
 - **Graphics:** GIMP, full media codec stack including thumbnails
-- **Dev tools:** VS Code, Headroom, GitHub CLI, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC
-- **Productivity:** Brave, KDE Connect, OpenDeck, rclone cloud storage mounts
+- **Dev tools:** VS Code, Headroom, GitHub CLI, GitKraken, Docker, Homebrew, Distrobox, QEMU/libvirt, Incus/LXC
+- **Productivity:** Brave, KDE Connect, OpenDeck, rclone cloud storage mounts, Mission Center (Task Manager)
 - **Security:** Optional Kali Linux toolbox container, Wireshark, Burp Suite Community
 - **VPN:** Standalone VPN Connect app with GlobalProtect SAML flow
+
+---
+
+## Shell & Terminal
+
+Every new user account starts with a polished terminal experience — no manual plugin installs.
+
+| Shell | What you get |
+|---|---|
+| **zsh** | Autosuggestions (fish-like inline completions), syntax highlighting, starship prompt, fzf history (Ctrl+R), zoxide smart `cd` |
+| **fish** | Out-of-box autosuggestions + syntax highlighting, starship prompt, git abbreviations, zoxide — `chsh -s /usr/bin/fish` to switch |
+| **bash** | Same eza/bat/fzf aliases, source-compatible with all Fedora system profiles |
+
+Power tools baked into every image:
+
+| Tool | Replaces | Why |
+|---|---|---|
+| `bat` | `cat` | Syntax highlighting, git integration, pager |
+| `eza` | `ls` | Icons, git status, tree view (`lt`) |
+| `fd` | `find` | Intuitive syntax, respects `.gitignore` |
+| `rg` (ripgrep) | `grep -r` | 10–100× faster, respects `.gitignore` |
+| `fzf` | nothing | Fuzzy finder for files, history, completions |
+| `zoxide` | `cd` | Frecency-based jumps: `z proj` → most-used match |
+| `delta` | `git diff` | Syntax-highlighted, side-by-side diffs |
+| `starship` | shell prompts | Git branch, status, language version in any shell |
+| `helix` | vim/nano | Modal editor with LSP built in, no config needed |
+| `zellij` | tmux | Modern terminal multiplexer with discoverable UI |
+
+---
+
+## Work & Productivity
+
+KythOS is tuned for developers and creators who use it as a daily driver alongside work obligations.
+
+| Feature | Detail |
+|---|---|
+| **Font compatibility** | Carlito (metric-compatible Calibri) + MS Core Fonts baked in — Office documents render correctly without reflow |
+| **Emoji** | Noto Emoji fonts installed — no missing-character boxes in browsers, terminals, or chat apps |
+| **Fingerprint login** | fprintd pre-installed and enabled; enrol at System Settings → Users |
+| **VPN** | GlobalProtect SAML (kyth-vpn-connect), openconnect, vpnc — covers most corporate networks |
+| **Printers** | CUPS + cups-browsed for auto-discovery; HP and common USB printers work out of the box; `ujust setup-printer` opens KDE Printer Settings |
+| **USB docks** | DisplayLink support via `ujust install-displaylink` — Dell WD, HP, Lenovo and other dock families |
+| **Task Manager** | Mission Center (Ctrl+Shift+Esc) — per-process CPU/GPU/RAM graphs, familiar layout |
+| **Office suite** | LibreOffice via `ujust` or the Software page — opens .docx/.xlsx/.pptx |
+| **Email** | Betterbird (Thunderbird-based) via the Software page |
+| **Cloud storage** | rclone wizard in System Hub → Network covers Google Drive, OneDrive, Dropbox, S3 |
+| **Android phone** | KDE Connect — notifications, clipboard sync, file transfer, remote input |
 
 ---
 

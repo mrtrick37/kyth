@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode
 
 # __KYTH_GENERATED_IMPORTS__
@@ -454,7 +455,7 @@ class GamingPage(Page):
             {
                 "flatpak": "io.github.benjamimgois.goverlay",
                 "name": "GOverlay",
-                "desc": "Graphical tuning for MangoHud, vkBasalt, and OptiScaler presets.",
+                "desc": "Graphical tuning for MangoHud and vkBasalt overlays — adjust metrics, colors, and presets without editing config files.",
                 "ujust": "install-goverlay",
                 "launch": ["flatpak", "run", "io.github.benjamimgois.goverlay"],
             },
@@ -521,6 +522,48 @@ class GamingPage(Page):
         tuning_btns.addStretch()
         tuning_layout.addLayout(tuning_btns)
         self._add(tuning_card)
+
+        # ── OptiScaler card ──────────────────────────────────────────────────
+        opti_card, opti_layout = _make_card()
+        opti_title = QLabel("OptiScaler — Universal Upscaling")
+        opti_title.setObjectName("card-title")
+        opti_layout.addWidget(opti_title)
+        opti_desc = QLabel(
+            "Enables FSR2/3, XeSS, and DLSS-translation in any DirectX 11/12 game through "
+            "Proton's DLL override — including games that ship without upscaling support. "
+            "Works on all AMD and Intel GPUs. Deploy to a game folder, then set the Steam "
+            "launch option: <code>WINEDLLOVERRIDES=\"nvngx=n,b\" %command%</code>"
+        )
+        opti_desc.setObjectName("card-copy")
+        opti_desc.setWordWrap(True)
+        opti_desc.setTextFormat(Qt.RichText)
+        opti_layout.addWidget(opti_desc)
+        opti_btns = QHBoxLayout()
+        opti_btns.setSpacing(8)
+        opti_deploy_btn = QPushButton("Deploy to Game Folder…")
+        opti_deploy_btn.clicked.connect(
+            lambda _=False, b=opti_deploy_btn: self._deploy_opticscaler(b)
+        )
+        opti_btns.addWidget(opti_deploy_btn)
+        self._opti_deploy_btn = opti_deploy_btn
+        opti_copy_btn = QPushButton("Copy Launch Option")
+        opti_copy_btn.setToolTip('Copies: WINEDLLOVERRIDES="nvngx=n,b" %command%')
+        opti_copy_btn.clicked.connect(lambda _=False: self._copy_opticscaler_launch_opt(opti_copy_btn))
+        opti_btns.addWidget(opti_copy_btn)
+        self._opti_copy_btn = opti_copy_btn
+        opti_btns.addStretch()
+        opti_layout.addLayout(opti_btns)
+        self._opti_status_lbl = QLabel("")
+        self._opti_status_lbl.setObjectName("subheading")
+        self._opti_status_lbl.hide()
+        opti_layout.addWidget(self._opti_status_lbl)
+        self._opti_log = QTextEdit()
+        self._opti_log.setReadOnly(True)
+        self._opti_log.setMaximumHeight(140)
+        self._opti_log.hide()
+        opti_layout.addWidget(self._opti_log)
+        self._opticscaler_worker: Worker | None = None
+        self._add(opti_card)
 
         streaming_card, streaming_layout = _make_card()
         streaming_top = QHBoxLayout()
@@ -1963,6 +2006,51 @@ class GamingPage(Page):
             "CoreCtrl",
             "CoreCtrl is not installed in this image. Use LACT for AMD GPU tuning, or rebuild with CoreCtrl available in the package repos.",
         )
+
+    def _copy_opticscaler_launch_opt(self, btn: QPushButton):
+        _copy_text('WINEDLLOVERRIDES="nvngx=n,b" %command%')
+        btn.setText("Copied!")
+        QTimer.singleShot(2000, lambda: btn.setText("Copy Launch Option"))
+
+    def _deploy_opticscaler(self, btn: QPushButton):
+        if self._opticscaler_worker and self._opticscaler_worker.isRunning():
+            return
+        game_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Game Directory",
+            str(Path.home() / ".local/share/Steam/steamapps/common"),
+        )
+        if not game_dir:
+            return
+        btn.setEnabled(False)
+        self._opti_log.clear()
+        self._opti_log.append(f"→ ujust deploy-opticscaler '{game_dir}'\n")
+        self._opti_log.show()
+        self._opti_status_lbl.setText("Deploying OptiScaler…")
+        self._opti_status_lbl.setObjectName("subheading")
+        self._opti_status_lbl.show()
+        _restyle(self._opti_status_lbl)
+        cmd = ["ujust", "deploy-opticscaler", game_dir]
+        self._opticscaler_worker = Worker(cmd)
+        self._opticscaler_worker.line.connect(lambda ln: (
+            self._opti_log.append(ln),
+            self._opti_log.ensureCursorVisible(),
+        ))
+        self._opticscaler_worker.done.connect(lambda code: self._on_opticscaler_done(code, btn))
+        self._opticscaler_worker.start()
+
+    def _on_opticscaler_done(self, code: int, btn: QPushButton):
+        btn.setEnabled(True)
+        _finish_worker(self, attr="_opticscaler_worker")
+        if code == 0:
+            self._opti_status_lbl.setText(
+                "Deployed. Set Steam launch option: WINEDLLOVERRIDES=\"nvngx=n,b\" %command%"
+            )
+            self._opti_status_lbl.setObjectName("status-ok")
+        else:
+            self._opti_status_lbl.setText(f"Deploy failed (exit {code}). See output above.")
+            self._opti_status_lbl.setObjectName("status-err")
+        _restyle(self._opti_status_lbl)
 
     def _set_scx_scheduler(self, scheduler: str):
         if self._scx_worker and self._scx_worker.isRunning():

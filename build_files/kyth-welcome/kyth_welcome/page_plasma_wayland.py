@@ -77,7 +77,7 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     session_status = "ok" if session == "wayland" else ("dim" if session == "x11" else "warn")
     session_summary = (
         "Wayland session active" if session == "wayland"
-        else "X11 session active; switch to Wayland from the login screen when ready"
+        else "X11 session active (VM detected — Wayland enabled automatically on bare metal)"
         if session == "x11"
         else "Session type could not be identified"
     )
