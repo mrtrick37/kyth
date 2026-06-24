@@ -5,7 +5,7 @@ from datetime import datetime
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DownloadMonitor, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_timestamp, _bootc_proxy_running, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
+    DownloadMonitor, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_timestamp, _bootc_proxy_running, _bootc_status_data, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
     QCheckBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QVBoxLayout, Qt,
@@ -530,6 +530,7 @@ class UpdatePage(Page):
     def _on_done(self, code: int):
         self._heartbeat.stop()
         self._stop_dl_monitor()
+        _bootc_status_data.cache_clear()
         self._progress.hide()
         self._cancel_btn.hide()
         self._cancel_note.hide()
