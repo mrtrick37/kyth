@@ -541,6 +541,7 @@ dnf5 install -y --skip-unavailable \
 	python3-pyqt6 \
 	python3-pyqt6-webengine \
 	python3-pip \
+	python3-devel \
 	qt6-qtwayland \
 	plymouth \
 	plymouth-plugin-script \
