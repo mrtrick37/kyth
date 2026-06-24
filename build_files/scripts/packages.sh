@@ -540,6 +540,7 @@ dnf5 remove -y firefox || true
 dnf5 install -y --skip-unavailable \
 	python3-pyqt6 \
 	python3-pyqt6-webengine \
+	python3-pip \
 	qt6-qtwayland \
 	plymouth \
 	plymouth-plugin-script \
@@ -561,6 +562,19 @@ dnf5 install -y --skip-unavailable \
 	kde-connect \
 	plasma-browser-integration \
 	cups-browsed
+
+# Fedora has historically moved between versioned and unversioned Python tool
+# entrypoints. Keep the familiar `pip` command present on PATH for users while
+# leaving the RPM-owned pip3 binary untouched.
+if ! command -v pip >/dev/null 2>&1; then
+	pip3_path="$(command -v pip3 || true)"
+	if [[ -z "${pip3_path}" ]]; then
+		echo "ERROR: python3-pip installed without pip3 on PATH." >&2
+		exit 1
+	fi
+	ln -s "${pip3_path}" /usr/local/bin/pip
+fi
+pip --version
 
 optional_desktop_packages=(
 	jetbrains-mono-fonts

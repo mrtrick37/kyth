@@ -366,6 +366,9 @@ check_system_unit_enabled kyth-selinux-relabel-home.service "SELinux home relabe
 check_system_unit_enabled kyth-first-boot-message.service "First boot message"
 check_system_unit_enabled fstrim.timer "SSD trim timer"
 check_system_unit_enabled fwupd.service "Firmware service"
+check_command python3 "Python 3"
+check_command pip3 "pip3"
+check_command pip "pip"
 
 section "Desktop Familiarity"
 if [[ "${XDG_CURRENT_DESKTOP:-}" == *KDE* || "${DESKTOP_SESSION:-}" == plasma* ]]; then
