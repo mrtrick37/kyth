@@ -1106,6 +1106,235 @@ install-ludusavi:
     echo
     echo "Ludusavi installed. Launch it from the app menu before migrating or modding games."
 
+# Toggle FSR4 upscaling globally for all Steam/Proton games.
+# Writes PROTON_FSR4_UPGRADE=1 to ~/.config/environment.d/ so every game
+# launched through Steam inherits it. Run again to remove the override.
+# Requires RDNA3+ (RX 7000 series) for native FSR4; on RDNA2 it falls back
+# to FSR3.1.
+[group('KythOS')]
+toggle-fsr4:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    conf="${HOME}/.config/environment.d/99-kyth-fsr4.conf"
+    mkdir -p "${HOME}/.config/environment.d"
+    if [[ -f "${conf}" ]]; then
+        rm -f "${conf}"
+        echo "FSR4 global override removed. Restart Steam to apply."
+    else
+        printf 'PROTON_FSR4_UPGRADE=1\n' > "${conf}"
+        echo "FSR4 global override enabled — applies to all Steam/Proton games on next launch."
+        echo "Run again to disable."
+    fi
+
+# Toggle DLSS/NVAPI globally for all Steam/Proton games.
+# Writes PROTON_ENABLE_NVAPI=1 + DXVK_ENABLE_NVAPI=1 to environment.d so
+# every game inherits NVAPI (required for DLSS on NVIDIA, and for DLSS-to-FSR
+# translation via OptiScaler on AMD/Intel). Run again to remove.
+[group('KythOS')]
+toggle-nvapi:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    conf="${HOME}/.config/environment.d/99-kyth-nvapi.conf"
+    mkdir -p "${HOME}/.config/environment.d"
+    if [[ -f "${conf}" ]]; then
+        rm -f "${conf}"
+        echo "NVAPI global override removed. Restart Steam to apply."
+    else
+        printf 'PROTON_ENABLE_NVAPI=1\nDXVK_ENABLE_NVAPI=1\n' > "${conf}"
+        echo "NVAPI global override enabled — DLSS and NVIDIA Reflex will work in all Steam games."
+        echo "Run again to disable."
+    fi
+
+# Install lsfg-vk (Lossless Scaling Frame Generation for Vulkan) — software
+# frame interpolation as a Vulkan implicit layer. Works with any game regardless
+# of engine, doubling the rendered frame count from the GPU's perspective.
+# Different from OptiScaler (which replaces DLSS/XeSS with FSR) — lsfg-vk works
+# on top of any renderer output without per-game deployment.
+#
+# After install, enable per-game via Steam launch options:
+#   ENABLE_LSFG=1 %command%
+[group('KythOS')]
+install-lsfg-vk:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    LSFG_REPO="https://api.github.com/repos/Juniorkl/lsfg-vk/releases/latest"
+    INSTALL_DIR="${HOME}/.local/lib"
+    LAYER_JSON_DIR="${HOME}/.local/share/vulkan/implicit_layer.d"
+
+    echo "Fetching latest lsfg-vk release..."
+    release_json=$(curl -fsSL "${LSFG_REPO}")
+    tarball_url=$(printf '%s' "${release_json}" \
+        | python3 -c "import sys,json; data=json.load(sys.stdin); \
+          print(next(a['browser_download_url'] for a in data['assets'] \
+          if a['name'].endswith('.tar.gz')))")
+
+    tarball_name="${tarball_url##*/}"
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "${tmpdir}"' EXIT
+
+    echo "Downloading ${tarball_name}..."
+    curl -fsSL -o "${tmpdir}/${tarball_name}" "${tarball_url}"
+
+    mkdir -p "${INSTALL_DIR}" "${LAYER_JSON_DIR}"
+    tar -xzf "${tmpdir}/${tarball_name}" -C "${tmpdir}"
+
+    so_file=$(find "${tmpdir}" -name 'liblsfg-vk.so' | head -n1)
+    json_file=$(find "${tmpdir}" -name '*.json' | head -n1)
+
+    if [[ -z "${so_file}" ]]; then
+        echo "ERROR: liblsfg-vk.so not found in archive." >&2
+        exit 1
+    fi
+
+    install -Dm 0755 "${so_file}" "${INSTALL_DIR}/liblsfg-vk.so"
+    if [[ -n "${json_file}" ]]; then
+        sed "s|\"library_path\":.*|\"library_path\": \"${INSTALL_DIR}/liblsfg-vk.so\"|" \
+            "${json_file}" > "${LAYER_JSON_DIR}/lsfg-vk.json"
+    fi
+
+    echo
+    echo "lsfg-vk installed to ${INSTALL_DIR}/liblsfg-vk.so"
+    echo
+    echo "Enable per game in Steam launch options:"
+    echo "  ENABLE_LSFG=1 %command%"
+    echo
+    echo "Or enable globally (all Vulkan games):"
+    echo "  DISABLE_LSFG_VK=0 in ~/.config/environment.d/99-kyth-lsfg.conf"
+
+# Set up Sunshine game streaming server.
+# Sunshine lets you stream your desktop to any Moonlight client (phone, TV,
+# Shield, another PC). Uses the hardware encoder on AMD/Intel/NVIDIA GPUs.
+# After setup, open https://localhost:47990 in a browser to configure.
+[group('KythOS')]
+setup-sunshine:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    if ! command -v sunshine >/dev/null 2>&1; then
+        echo "Sunshine is not installed. Installing via rpm-ostree..."
+        sudo rpm-ostree install --idempotent sunshine
+        echo
+        echo "Reboot required to activate. Then run 'ujust setup-sunshine' again."
+        exit 0
+    fi
+
+    # Enable and start Sunshine as a user service
+    systemctl --user enable --now sunshine.service
+
+    # Open the web UI
+    echo
+    echo "Sunshine is running. Open https://localhost:47990 in your browser to configure."
+    echo "Default credentials: admin / admin (change immediately)"
+    echo
+    echo "Firewall: Sunshine listens on TCP 47984-47990 and UDP 47998-48010."
+    echo "If remote streaming does not work, open those ports:"
+    echo "  sudo firewall-cmd --permanent --add-port=47984-47990/tcp"
+    echo "  sudo firewall-cmd --permanent --add-port=47998-48010/udp"
+    echo "  sudo firewall-cmd --reload"
+
+# Install CoolerControl — GUI fan curve and thermal management.
+# More flexible than CoreCtrl: supports PWM fan curves per temperature source,
+# lighting, and per-profile automation.
+[group('KythOS')]
+install-coolercontrol:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Installing CoolerControl..."
+    sudo rpm-ostree install --idempotent coolercontrol
+    echo
+    echo "Done. Reboot to activate, then enable the service:"
+    echo "  sudo systemctl enable --now coolercontrold"
+    echo "  systemctl --user enable --now coolercontrol-liqctld.service"
+
+# Install JetBrains Toolbox — manages all JetBrains IDEs (IntelliJ, PyCharm,
+# CLion, Rider, etc.) with one-click install, update, and rollback.
+[group('KythOS')]
+install-jetbrains-toolbox:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    TOOLBOX_REPO="https://data.services.jetbrains.com/products/releases?code=TBA&latest=true&type=release"
+    INSTALL_DIR="${HOME}/.local/bin"
+    APPIMAGE_DIR="${HOME}/.local/share/JetBrains/Toolbox"
+
+    echo "Fetching latest JetBrains Toolbox release..."
+    download_url=$(curl -fsSL "${TOOLBOX_REPO}" \
+        | python3 -c "import sys,json; d=json.load(sys.stdin); \
+          print(d['TBA'][0]['downloads']['linux']['link'])")
+
+    tarball="${download_url##*/}"
+    tmpdir=$(mktemp -d)
+    trap 'rm -rf "${tmpdir}"' EXIT
+
+    echo "Downloading ${tarball}..."
+    curl -fsSL -o "${tmpdir}/${tarball}" "${download_url}"
+
+    mkdir -p "${APPIMAGE_DIR}" "${INSTALL_DIR}"
+    tar -xzf "${tmpdir}/${tarball}" -C "${tmpdir}"
+    appimage=$(find "${tmpdir}" -name 'jetbrains-toolbox' | head -n1)
+    install -Dm 0755 "${appimage}" "${APPIMAGE_DIR}/jetbrains-toolbox"
+
+    # Symlink to PATH
+    ln -sf "${APPIMAGE_DIR}/jetbrains-toolbox" "${INSTALL_DIR}/jetbrains-toolbox"
+
+    echo
+    echo "JetBrains Toolbox installed to ${APPIMAGE_DIR}/jetbrains-toolbox"
+    echo "Run it once to complete setup and install your IDEs:"
+    echo "  jetbrains-toolbox"
+
+# Add a 'Boot Windows' entry to Steam as a non-Steam game.
+# Clicking it from within Steam reboots directly into Windows via EFI firmware.
+# Requires a dual-boot setup with Windows on a separate EFI entry.
+[group('KythOS')]
+setup-boot-windows-steam:
+    #!/usr/bin/env bash
+    set -euo pipefail
+
+    # Find the Windows EFI boot entry
+    windows_entry=$(sudo efibootmgr -v 2>/dev/null \
+        | grep -i "windows\|Windows Boot Manager" \
+        | grep -oP '(?<=Boot)[0-9A-F]{4}' | head -n1)
+
+    if [[ -z "${windows_entry}" ]]; then
+        echo "ERROR: No Windows EFI boot entry found." >&2
+        echo "Run 'sudo efibootmgr -v' to list available entries." >&2
+        exit 1
+    fi
+
+    # Install the helper script
+    tmpscript=$(mktemp)
+    printf '#!/bin/bash\nexec sudo efibootmgr -n %s && sudo systemctl reboot\n' \
+        "${windows_entry}" > "${tmpscript}"
+    sudo install -Dm 0755 "${tmpscript}" /usr/local/bin/boot-windows
+    rm -f "${tmpscript}"
+
+    # Add sudo rule for boot-windows (passwordless reboot + efibootmgr)
+    printf '%%wheel ALL=(root) NOPASSWD: /usr/sbin/efibootmgr -n *, /usr/bin/systemctl reboot\n' \
+        | sudo tee /etc/sudoers.d/kyth-boot-windows >/dev/null
+    sudo chmod 0440 /etc/sudoers.d/kyth-boot-windows
+
+    echo "boot-windows helper installed."
+    echo
+    echo "Add it to Steam:"
+    echo "  Steam → Add a game → Add a Non-Steam Game → Browse → /usr/local/bin/boot-windows"
+
+# Set up Tailscale zero-config WireGuard mesh VPN.
+# Tailscale makes your devices available on a private network with no port
+# forwarding — great for LAN party gaming over the internet, remote desktop,
+# and Moonlight streaming through NAT.
+[group('KythOS')]
+setup-tailscale:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    echo "Enabling tailscaled service..."
+    sudo systemctl enable --now tailscaled.service
+    echo
+    echo "Starting Tailscale — a browser window will open to authenticate:"
+    sudo tailscale up --accept-routes
+    echo
+    echo "Done. Check your Tailscale network at https://login.tailscale.com/admin/machines"
+
 # Deploy OptiScaler to a game directory — enables FSR2/3, XeSS, and
 # DLSS-translation for any DirectX 11/12 game through Proton's DLL override.
 #

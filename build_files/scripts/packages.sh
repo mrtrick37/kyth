@@ -235,7 +235,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 	nss.i686 \
 	steam-devices \
 	kdeplasma-addons \
-	input-remapper
+	input-remapper \
+	libxcrypt-compat
 
 # ── Optional PC gaming peripheral stack ──────────────────────────────────────
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
@@ -258,12 +259,19 @@ optional_gaming_packages=(
 	corectrl
 	akmod-v4l2loopback
 	v4l2loopback
+	v4l-utils
 	joycond
 	gamescope-session-plus
 	openrgb
 	libwacom
 	libwacom-data
 	hplip
+	ryzenadj
+	i2c-tools
+	lm_sensors
+	sunshine
+	extest
+	extest.i686
 )
 
 install_available_optional_packages() {
@@ -630,6 +638,20 @@ optional_desktop_packages=(
 	fish
 	# zellij — modern terminal multiplexer; tmux-compatible with a friendlier UI.
 	zellij
+	# btop — interactive resource/process monitor (better htop).
+	btop
+	# fastfetch — system info display (neofetch replacement, actively maintained).
+	fastfetch
+	# gum — Charm CLI beautification library; used by ujust scripts for interactive menus.
+	gum
+	# ydotool — Wayland-compatible xdotool; required for Wayland automation scripts.
+	ydotool
+	# ddcutil — DDC/CI monitor brightness/contrast control via I²C.
+	ddcutil
+	ddcutil-service
+	# iio-sensor-proxy — exposes orientation sensors (accelerometer) over D-Bus
+	# for auto-rotation on convertibles and handhelds.
+	iio-sensor-proxy
 )
 
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"
@@ -696,7 +718,10 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
 PWSHREPOEOF
 
-dnf5 install -y azure-cli powershell
+# Install powershell first in its own transaction so RPM owns /opt/microsoft/powershell/7/
+# before azure-cli runs — avoids "cpio: mkdir failed - File exists" on powershell 7.6.2.
+dnf5 install -y powershell
+dnf5 install -y azure-cli
 rpm -q azure-cli powershell
 
 # Disable update checks for these — same reason as VS Code: immutable image.
@@ -719,6 +744,25 @@ dnf5 install -y --skip-unavailable \
 	krb5-workstation \
 	samba-client \
 	openldap-clients
+
+# ── greenboot boot-time health checks ────────────────────────────────────────
+# greenboot marks each boot good/bad and triggers automatic rollback to the
+# previous bootc deployment if health checks fail across three consecutive boots.
+# greenboot-default-health-checks adds basic required/wanted service checks out
+# of the box. Installed last so a transient package issue here cannot gate the
+# full image build — the core gaming stack lands regardless.
+dnf5 install -y greenboot greenboot-default-health-checks
+systemctl enable greenboot-healthcheck.service greenboot-set-rollback-trigger.service
+
+# ── Tailscale zero-config VPN ─────────────────────────────────────────────────
+# WireGuard-based mesh VPN with no port forwarding required. Useful for LAN party
+# gaming over the internet and remote desktop access.
+# Disabled by default — opt-in via `ujust setup-tailscale`.
+dnf5 -y config-manager addrepo --overwrite \
+	--from-repofile=https://pkgs.tailscale.com/stable/fedora/tailscale.repo
+dnf5 install -y tailscale
+systemctl disable tailscaled.service 2>/dev/null || true
+dnf5 config-manager setopt tailscale-stable.enabled=0
 
 # Keep downloaded metadata and RPMs in Docker's /var/cache mount. The cache is
 # excluded from the image layer automatically and speeds up later rebuilds.
