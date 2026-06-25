@@ -708,27 +708,11 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
 AZUREREPOEOF
 
-# PowerShell — Microsoft ships a RHEL 8 repo that works on Fedora.
-cat >/etc/yum.repos.d/microsoft-powershell.repo <<'PWSHREPOEOF'
-[microsoft-powershell]
-name=Microsoft PowerShell
-baseurl=https://packages.microsoft.com/rhel/8/prod/
-enabled=1
-gpgcheck=1
-gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
-PWSHREPOEOF
-
-# VS Code 1.126+ creates /opt/microsoft/powershell/7/ in its %post scriptlet, which causes
-# the powershell RPM's cpio extraction to fail with "mkdir failed - File exists". Clear it
-# so the RPM can take ownership of the directory cleanly.
-rm -rf /opt/microsoft/powershell
-dnf5 install -y powershell
 dnf5 install -y azure-cli
-rpm -q azure-cli powershell
+rpm -q azure-cli
 
-# Disable update checks for these — same reason as VS Code: immutable image.
+# Disable update checks — same reason as VS Code: immutable image.
 dnf5 config-manager setopt azure-cli.enabled=0
-dnf5 config-manager setopt microsoft-powershell.enabled=0
 
 # RDP, Active Directory, Kerberos, and SMB tooling — all in standard Fedora repos.
 # freerdp: best-in-class RDP client; powers Remmina's RDP backend.
