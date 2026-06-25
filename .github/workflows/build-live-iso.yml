@@ -100,15 +100,15 @@ jobs:
           show_space "after cleanup"
 
           available_kb="$(df --output=avail /mnt | awk 'NR == 2 {print $1}')"
-          required_kb=$((75 * 1024 * 1024))
+          required_kb=$((65 * 1024 * 1024))
           if (( available_kb < required_kb )); then
-            echo "::error::Need at least 75 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
+            echo "::error::Need at least 65 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
             exit 1
           fi
 
       - name: Mount compressed Podman storage
         run: |
-          sudo truncate -s 70G /mnt/podman-storage.img
+          sudo truncate -s 65G /mnt/podman-storage.img
           sudo mkfs.btrfs -f /mnt/podman-storage.img
           sudo podman system reset --force
           sudo systemctl stop podman.service
