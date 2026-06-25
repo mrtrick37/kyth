@@ -27,7 +27,6 @@ ExecStart=/usr/bin/flatpak install -y --noninteractive --system --or-update flat
     org.x.Warpinator \
     com.usebottles.bottles \
     com.github.tchx84.Flatseal \
-    io.github.vikdevelop.WebApp \
     com.dec05eba.gpu_screen_recorder \
     io.github.benjamimgois.goverlay \
     dev.vencord.Vesktop \

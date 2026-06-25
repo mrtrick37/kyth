@@ -430,6 +430,7 @@ dnf5 install -y --skip-unavailable \
 	xorg-x11-drv-amdgpu \
 	xorg-x11-drv-ati \
 	radeontop \
+	nvtop \
 	libclc \
 	qemu-guest-agent
 
@@ -474,7 +475,8 @@ echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 dnf5 install -y --skip-unavailable \
 	intel-media-driver \
 	libva-intel-driver \
-	intel-gpu-tools || true
+	intel-gpu-tools \
+	intel-compute-runtime || true
 
 # ── NVIDIA GPU ────────────────────────────────────────────────────────────────
 # Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
@@ -493,12 +495,17 @@ if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
 	KERNEL_VR=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
 	dnf5 install -y --setopt=excludepkgs= \
 		"kernel-devel-${KERNEL_VR}" \
-		akmod-nvidia
+		akmod-nvidia \
+		nvidia-vaapi-driver \
+		egl-wayland
 	rpm -q akmod-nvidia akmods "kernel-devel-${KERNEL_VR}"
 else
 	# CachyOS flavor: matching headers (kernel-cachyos-devel-matched) come from
 	# the COPR in build_base; only the akmod machinery is needed here.
-	dnf5 install -y --setopt=excludepkgs= akmod-nvidia
+	dnf5 install -y --setopt=excludepkgs= \
+		akmod-nvidia \
+		nvidia-vaapi-driver \
+		egl-wayland
 	rpm -q akmod-nvidia akmods
 fi
 

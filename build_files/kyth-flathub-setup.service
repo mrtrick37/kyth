@@ -14,6 +14,12 @@ Requires=network-online.target
 Type=oneshot
 ExecStart=flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 RemainAfterExit=yes
+# Retry on DNS-not-ready races at first boot (network-online fires before
+# resolver is actually usable on some systems/boot paths).
+Restart=on-failure
+RestartSec=10s
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target

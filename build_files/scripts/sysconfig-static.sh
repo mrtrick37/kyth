@@ -850,8 +850,11 @@ WINEFSYNC=1
 WINEESYNC=1
 mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
-# run at native resolution get AMD FidelityFX Super Resolution upscaling.
-# Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
+# run at native resolution get FidelityFX Super Resolution upscaling via Wine's
+# built-in FSR pass. Works on AMD, NVIDIA, and Intel — it's a shader effect, not
+# hardware. Strength 0 = sharpest, 5 = most blur; 2 is a good default balance.
+WINE_FULLSCREEN_FSR=1
+WINE_FULLSCREEN_FSR_STRENGTH=2
 # Suppress the Windows-style crash/error dialog that pops up when a game
 # exits unexpectedly via Wine's built-in error handler. On Linux the crash is
 # already captured by the kernel and Proton's own logging; the dialog just
@@ -881,10 +884,20 @@ install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-
 #!/bin/bash
 if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
    lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
+    # VKD3D-Proton (DX12) NVAPI: enables DLSS, Reflex, and NV-specific rendering
+    # paths in DX12 games. Proton checks this before its own NVAPI detection.
     echo "PROTON_ENABLE_NVAPI=1"
+    # DXVK (DX9/10/11) NVAPI: complementary to PROTON_ENABLE_NVAPI — DXVK has
+    # its own NVAPI implementation used for DX11 games with NVAPI dependencies.
+    echo "DXVK_ENABLE_NVAPI=1"
     # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
     # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
     echo "__GL_THREADED_OPTIMIZATIONS=1"
+    # nvidia-vaapi-driver: libva will not auto-detect the NVIDIA backend without
+    # an explicit driver name. NVD_BACKEND=direct uses the NvDecode API directly
+    # (avoids the deprecated CUDA path; works on Turing/Ampere/Ada without CUDA).
+    echo "LIBVA_DRIVER_NAME=nvidia"
+    echo "NVD_BACKEND=direct"
 fi
 NVAPIEOF
 
@@ -1042,11 +1055,11 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
-# ── Font rendering — Windows ClearType-compatible defaults ────────────────────
-# Linux freetype defaults vary by distro; Fedora's are conservative. Tuning
-# toward "hintslight" + RGB subpixel + lcddefault matches what Windows ClearType
-# produces: horizontal stems snap to pixel boundaries while vertical letterforms
-# are preserved, and colour fringing is suppressed by the LCD filter.
+# ── Font rendering — sharp LCD defaults ──────────────────────────────────────
+# Linux freetype defaults vary by distro; Fedora's are conservative. hintfull
+# snaps stems to pixel boundaries for maximum on-screen crispness (matches the
+# sharpness of Windows ClearType on typical 1080p panels). autohint=false keeps
+# FreeType using the font's own hinting tables rather than its generic engine.
 # Users who prefer a different look can drop a file in ~/.config/fontconfig/.
 mkdir -p /etc/fonts/conf.d
 cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
@@ -1056,7 +1069,8 @@ cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
   <match target="font">
     <edit name="antialias"  mode="assign"><bool>true</bool></edit>
     <edit name="hinting"    mode="assign"><bool>true</bool></edit>
-    <edit name="hintstyle"  mode="assign"><const>hintslight</const></edit>
+    <edit name="autohint"   mode="assign"><bool>false</bool></edit>
+    <edit name="hintstyle"  mode="assign"><const>hintfull</const></edit>
     <edit name="rgba"       mode="assign"><const>rgb</const></edit>
     <edit name="lcdfilter"  mode="assign"><const>lcddefault</const></edit>
   </match>

@@ -554,40 +554,6 @@ install_msfonts() {
 	echo "msfonts: installed ${count} TrueType fonts"
 }
 
-install_gitkraken() {
-	local GK_REPO_API="https://api.github.com/repos/gitkraken/gitkraken-desktop/releases/latest"
-	local TMPDIR_GK
-	TMPDIR_GK=$(mktemp -d)
-	local release_json="${TMPDIR_GK}/release.json"
-
-	if curl -fsSL "${CURL_COMMON_ARGS[@]}" "${CURL_AUTH_ARGS[@]}" "${GK_REPO_API}" -o "${release_json}" 2>/dev/null; then
-		local GK_RPM_URL
-		GK_RPM_URL=$(
-			grep -oP 'https://[^"]+\.x86_64\.rpm' "${release_json}" |
-				grep -iv 'source' |
-				head -n1
-		) || true
-		if [[ -n "${GK_RPM_URL}" ]]; then
-			local GK_RPM
-			GK_RPM=$(basename "${GK_RPM_URL}")
-			if ! release_asset_has_verification "${release_json}" "${GK_RPM}"; then
-				echo "WARNING: gitkraken: no verification metadata for ${GK_RPM}; skipping unverified install." >&2
-			else
-				echo "gitkraken: downloading ${GK_RPM}"
-				curl -fsSL "${CURL_COMMON_ARGS[@]}" "${GK_RPM_URL}" -o "${TMPDIR_GK}/${GK_RPM}"
-				verify_release_asset "${release_json}" "${TMPDIR_GK}/${GK_RPM}" \
-					"${GK_RPM}" "${TMPDIR_GK}"
-				dnf5 install -y "${TMPDIR_GK}/${GK_RPM}"
-				echo "gitkraken: installed ${GK_RPM}"
-			fi
-		else
-			echo "gitkraken: no x86_64 RPM found in release assets; skipping."
-		fi
-	else
-		echo "gitkraken: failed to fetch release info from GitHub; skipping."
-	fi
-	rm -rf "${TMPDIR_GK}"
-}
 
 install_opticscaler() {
 	# OptiScaler — universal upscaling intermediary that lets any game use FSR2/3,
@@ -664,7 +630,6 @@ _launch umu install_umu
 _launch latencyflex install_latencyflex
 _launch opticscaler install_opticscaler
 _launch msfonts install_msfonts
-_launch gitkraken install_gitkraken
 if is_enabled "${ENABLE_SCX:-1}"; then
 	_launch scx install_scx
 fi
