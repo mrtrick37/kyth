@@ -9,6 +9,9 @@ Requires=network-online.target
 # Flatpak remotes live in /var — only configurable at runtime, not build time.
 # This service is idempotent: --if-not-exists means it exits immediately if
 # Flathub is already configured (e.g. after the first successful run).
+# Retry limit for DNS-not-ready races at first boot.
+StartLimitIntervalSec=120
+StartLimitBurst=5
 
 [Service]
 Type=oneshot
@@ -18,8 +21,6 @@ RemainAfterExit=yes
 # resolver is actually usable on some systems/boot paths).
 Restart=on-failure
 RestartSec=10s
-StartLimitIntervalSec=120
-StartLimitBurst=5
 
 [Install]
 WantedBy=multi-user.target
