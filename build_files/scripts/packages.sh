@@ -500,11 +500,9 @@ if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
 		xorg-x11-drv-nvidia-libs \
 		xorg-x11-drv-nvidia-libs.i686 \
 		xorg-x11-drv-nvidia-cuda-libs \
-		xorg-x11-drv-nvidia-cuda-libs.i686 \
-		nvidia-vaapi-driver \
 		egl-wayland
 	rpm -q akmod-nvidia akmods "kernel-devel-${KERNEL_VR}" \
-		xorg-x11-drv-nvidia nvidia-vaapi-driver egl-wayland
+		xorg-x11-drv-nvidia egl-wayland
 else
 	# CachyOS flavor: matching headers (kernel-cachyos-devel-matched) come from
 	# the COPR in build_base; only the akmod machinery is needed here.
@@ -514,12 +512,17 @@ else
 		xorg-x11-drv-nvidia-libs \
 		xorg-x11-drv-nvidia-libs.i686 \
 		xorg-x11-drv-nvidia-cuda-libs \
-		xorg-x11-drv-nvidia-cuda-libs.i686 \
-		nvidia-vaapi-driver \
 		egl-wayland
 	rpm -q akmod-nvidia akmods \
-		xorg-x11-drv-nvidia nvidia-vaapi-driver egl-wayland
+		xorg-x11-drv-nvidia egl-wayland
 fi
+# nvidia-vaapi-driver and 32-bit CUDA libs: best-effort — not yet consistently
+# published for Fedora 44 in RPM Fusion nonfree. Install when available;
+# LIBVA_DRIVER_NAME=nvidia + NVD_BACKEND=direct (set in the NVIDIA runtime env
+# generator) will activate it automatically once the package lands.
+dnf5 install -y --skip-unavailable --setopt=excludepkgs= \
+	nvidia-vaapi-driver \
+	xorg-x11-drv-nvidia-cuda-libs.i686 || true
 
 # Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
 # the VA-API driver is installed. Verify the capability and file ownership
