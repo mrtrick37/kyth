@@ -718,8 +718,10 @@ gpgcheck=1
 gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
 PWSHREPOEOF
 
-# Install powershell first in its own transaction so RPM owns /opt/microsoft/powershell/7/
-# before azure-cli runs — avoids "cpio: mkdir failed - File exists" on powershell 7.6.2.
+# VS Code 1.126+ creates /opt/microsoft/powershell/7/ in its %post scriptlet, which causes
+# the powershell RPM's cpio extraction to fail with "mkdir failed - File exists". Clear it
+# so the RPM can take ownership of the directory cleanly.
+rm -rf /opt/microsoft/powershell
 dnf5 install -y powershell
 dnf5 install -y azure-cli
 rpm -q azure-cli powershell
