@@ -233,10 +233,11 @@ class UpdatePage(Page):
             row.addWidget(v, 1)
             return row, v
 
-        last_row, self._au_last_lbl   = _au_row("Last check:")
-        result_row, self._au_result_lbl = _au_row("Result:")
-        reason_row, self._au_reason_lbl = _au_row("Reason:")
-        for row in (last_row, result_row, reason_row):
+        last_row, self._au_last_lbl      = _au_row("Last check:")
+        result_row, self._au_result_lbl  = _au_row("Result:")
+        reason_row, self._au_reason_lbl  = _au_row("Reason:")
+        flatpak_row, self._au_flatpak_lbl = _au_row("Flatpak:")
+        for row in (last_row, result_row, reason_row, flatpak_row):
             auto_state_col.addLayout(row)
         auto_status_row.addLayout(auto_state_col, 1)
 
@@ -737,6 +738,15 @@ class UpdatePage(Page):
         self._au_result_lbl.setText(result.replace("_", " ").title() if result else "—")
         self._au_result_lbl.setStyleSheet(f"color: {_colors.get(result, '#b0bccf')};")
         self._au_reason_lbl.setText(status.get("reason") or "—")
+
+        flatpak_count = status.get("flatpak_updates", 0)
+        if flatpak_count > 0:
+            noun = "update" if flatpak_count == 1 else "updates"
+            self._au_flatpak_lbl.setText(f"{flatpak_count} {noun} pending")
+            self._au_flatpak_lbl.setStyleSheet("color: #ffa726;")
+        else:
+            self._au_flatpak_lbl.setText("Up to date")
+            self._au_flatpak_lbl.setStyleSheet("color: #4caf50;")
 
         # Reflect timer enabled state
         try:

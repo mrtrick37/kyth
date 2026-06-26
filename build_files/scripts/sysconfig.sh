@@ -845,9 +845,14 @@ if systemctl list-unit-files --type=timer --no-legend 2>/dev/null | grep -q '^rp
 fi
 # Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
 # plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
-# DNF/PackageKit backend as a belt-and-suspenders measure. Discover's Flatpak
-# backend does not use PackageKit and is unaffected.
+# DNF/PackageKit backend as a belt-and-suspenders measure.
 systemctl mask packagekit.service 2>/dev/null || true
+
+# Mask the Discover update notifier for all users. Discover's Flatpak backend
+# bypasses PackageKit and would still surface its own update prompts.
+# System Hub owns the update notification flow via kyth-update-watcher.
+mkdir -p /etc/systemd/user
+ln -sf /dev/null /etc/systemd/user/plasma-discover-notifier.service
 
 # ── Boot-time noise reduction ─────────────────────────────────────────────────
 # NetworkManager-wait-online blocks network-online.target (and thus multi-user
