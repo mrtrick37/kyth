@@ -155,6 +155,7 @@ dnf5 install -y --skip-unavailable \
 	irqbalance \
 	p7zip \
 	p7zip-plugins \
+	plocate \
 	cabextract \
 	ntfs-3g \
 	ntfsprogs \

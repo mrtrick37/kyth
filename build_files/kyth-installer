@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-kyth-installer — KythOS installer (erase mode only)
+kyth-installer — KythOS installer
 
-Serves a local web UI, launches Chromium in kiosk mode, and runs:
-  bootc install to-disk --wipe  →  configure hostname / timezone / user
+Serves a local web UI, launches Chromium in kiosk mode, and runs either:
+  bootc install to-disk --wipe          (erase full disk)
+  bootc install to-filesystem           (install alongside / dual-boot)
+then configures hostname / timezone / user.
 """
 
 import glob
@@ -98,7 +100,6 @@ def list_disks() -> list[dict]:
                 d.get("type") == "disk"
                 and size > 0
                 and not name.startswith("zram")
-                and tran != "usb"
                 and not bool(d.get("rm"))
             ):
                 result.append({
@@ -108,11 +109,64 @@ def list_disks() -> list[dict]:
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
                     "tran":  tran,
+                    "usb":   tran == "usb",
                     "current": f"/dev/{name}" == running_disk,
                 })
         return result
     except Exception:
         return []
+
+
+EFI_PART_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+
+
+def list_partitions(disk: str) -> list[dict]:
+    """Return partitions on disk with metadata for alongside-install picker."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes", "--paths",
+             "--output", "NAME,SIZE,TYPE,FSTYPE,PARTTYPE,LABEL,MOUNTPOINT",
+             disk],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        result = []
+        for d in json.loads(out).get("blockdevices", []):
+            for child in d.get("children", []):
+                if child.get("type") == "part":
+                    size = int(child.get("size", 0))
+                    parttype = (child.get("parttype") or "").lower()
+                    fstype = child.get("fstype") or ""
+                    result.append({
+                        "name":       child["name"],
+                        "size":       _human_size(size),
+                        "bytes":      size,
+                        "fstype":     fstype,
+                        "parttype":   parttype,
+                        "label":      child.get("label") or "",
+                        "mountpoint": child.get("mountpoint") or "",
+                        "is_efi":     parttype == EFI_PART_GUID,
+                    })
+        return result
+    except Exception:
+        return []
+
+
+def find_efi_partition(disk: str) -> str:
+    """Return the EFI partition path on disk, or '' if not found."""
+    for part in list_partitions(disk):
+        if part["is_efi"]:
+            return part["name"]
+    for mount in ("/boot/efi", "/efi"):
+        try:
+            out = subprocess.check_output(
+                ["findmnt", "-n", "-o", "SOURCE", mount],
+                text=True, stderr=subprocess.DEVNULL, timeout=5,
+            ).strip()
+            if out and out.startswith("/dev/"):
+                return out
+        except Exception:
+            pass
+    return ""
 
 
 def list_timezones() -> list[str]:
@@ -521,7 +575,11 @@ def _install_images(kernel: str) -> tuple[str, str]:
 # ── Install state ─────────────────────────────────────────────────────────────
 
 _state: dict = {
-    "disk": "", "hostname": "kyth", "timezone": "UTC",
+    "disk": "",
+    "install_mode": "wipe",       # "wipe" or "alongside"
+    "target_partition": "",       # alongside only
+    "efi_partition": "",          # alongside only (may be auto-detected)
+    "hostname": "kyth", "timezone": "UTC",
     "username": "", "password_hash": "", "kernel": "fedora",
 }
 
@@ -695,41 +753,105 @@ def _run_install() -> None:
     try:
         disk = _state["disk"]
         kernel = _state.get("kernel", "fedora")
+        install_mode = _state.get("install_mode", "wipe")
         src_ref, tgt_ref = _install_images(kernel)
+        log(f"Mode         : {install_mode}")
         log(f"Kernel       : {kernel}")
         log(f"Source imgref: {src_ref}")
         log(f"Target image : {tgt_ref}")
         log(f"Disk         : {disk}")
         log("")
 
-        unmount_target_disk(disk, log)
+        alongside_mount = ""
 
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
-        install_cmd = [
-            "bootc", "install", "to-disk",
-            "--source-imgref", src_ref,
-            "--target-imgref", tgt_ref,
-            "--filesystem", "btrfs",
-            "--generic-image",
-            "--wipe",
-            disk,
-        ]
-        if SKIP_FETCH_CHECK:
-            install_cmd.insert(-2, "--skip-fetch-check")
-        run_cmd(install_cmd, 5, 90)
+
+        if install_mode == "alongside":
+            target_part = _state.get("target_partition", "")
+            efi_part    = _state.get("efi_partition", "")
+            alongside_mount = "/var/tmp/kyth-alongside-target"
+
+            log(f"Target partition : {target_part}")
+            log(f"EFI partition    : {efi_part or '(none detected)'}")
+
+            subprocess.run(_as_root(["umount", "-l", target_part]), check=False, capture_output=True)
+            subprocess.run(_as_root(["umount", "-Rl", alongside_mount]), check=False, capture_output=True)
+
+            log(f"Formatting {target_part} as btrfs ...")
+            run_cmd(["mkfs.btrfs", "-f", target_part], 5, 10)
+
+            Path(alongside_mount).mkdir(parents=True, exist_ok=True)
+            subprocess.run(_as_root(["mount", target_part, alongside_mount]), check=True)
+            progress(11)
+
+            if efi_part:
+                efi_mountpoint = Path(alongside_mount) / "boot" / "efi"
+                efi_mountpoint.mkdir(parents=True, exist_ok=True)
+                try:
+                    current_efi_mnt = subprocess.check_output(
+                        ["findmnt", "-n", "-o", "MOUNTPOINT", efi_part],
+                        text=True, stderr=subprocess.DEVNULL, timeout=5,
+                    ).strip()
+                except Exception:
+                    current_efi_mnt = ""
+                if current_efi_mnt:
+                    subprocess.run(
+                        _as_root(["mount", "--bind", current_efi_mnt, str(efi_mountpoint)]),
+                        check=True,
+                    )
+                    log(f"EFI bind-mounted from {current_efi_mnt}")
+                else:
+                    subprocess.run(
+                        _as_root(["mount", efi_part, str(efi_mountpoint)]),
+                        check=True,
+                    )
+                    log(f"EFI mounted from {efi_part}")
+
+            install_cmd = [
+                "bootc", "install", "to-filesystem",
+                "--source-imgref", src_ref,
+                "--target-imgref", tgt_ref,
+                "--generic-image",
+                alongside_mount,
+            ]
+            if SKIP_FETCH_CHECK:
+                install_cmd.insert(-1, "--skip-fetch-check")
+            run_cmd(install_cmd, 12, 90)
+
+            root_part = target_part
+
+        else:
+            unmount_target_disk(disk, log)
+            install_cmd = [
+                "bootc", "install", "to-disk",
+                "--source-imgref", src_ref,
+                "--target-imgref", tgt_ref,
+                "--filesystem", "btrfs",
+                "--generic-image",
+                "--wipe",
+                disk,
+            ]
+            if SKIP_FETCH_CHECK:
+                install_cmd.insert(-2, "--skip-fetch-check")
+            run_cmd(install_cmd, 5, 90)
+            root_part = get_root_partition(disk)
 
         log("── Phase 2: Configuring installed system ─────────────────────────")
         progress(91)
-        root_part = get_root_partition(disk)
-        mount     = "/var/tmp/kyth-install-root"
-        Path(mount).mkdir(parents=True, exist_ok=True)
-        # Detach any stale mount left by a previously crashed install attempt.
-        subprocess.run(_as_root(["umount", "-l", mount]), check=False, capture_output=True)
-        subprocess.run(_as_root(["mount", root_part, mount]), check=True)
+
+        if alongside_mount:
+            config_root = alongside_mount
+        else:
+            config_root = "/var/tmp/kyth-install-root"
+            Path(config_root).mkdir(parents=True, exist_ok=True)
+            # Detach any stale mount left by a previously crashed install attempt.
+            subprocess.run(_as_root(["umount", "-l", config_root]), check=False, capture_output=True)
+            subprocess.run(_as_root(["mount", root_part, config_root]), check=True)
+
         progress(93)
 
         try:
-            etc = find_deploy_etc(mount)
+            etc = find_deploy_etc(config_root)
             if etc:
                 subprocess.run(
                     _as_root(["/usr/bin/tee", str(Path(etc, "hostname"))]),
@@ -801,7 +923,7 @@ def _run_install() -> None:
                                 break
 
                         var_home = (
-                            Path(mount) / "ostree/deploy/default/var/home" / username
+                            Path(config_root) / "ostree/deploy/default/var/home" / username
                         )
                         subprocess.run(_as_root(["mkdir", "-p", str(var_home)]), check=True)
                         subprocess.run(_as_root(["chown", f"{uid}:{gid}", str(var_home)]), check=True)
@@ -833,7 +955,10 @@ def _run_install() -> None:
         finally:
             subprocess.run(_as_root(["sync"]), check=False)
             progress(99)
-            subprocess.run(_as_root(["umount", mount]), check=False)
+            if alongside_mount:
+                subprocess.run(_as_root(["umount", "-R", alongside_mount]), check=False)
+            else:
+                subprocess.run(_as_root(["umount", config_root]), check=False)
 
         log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
         mok_state = _try_stage_mok_enrollment(log, kernel)
@@ -896,6 +1021,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(list_disks())
         elif path == "/api/timezones":
             self._json(list_timezones())
+        elif path == "/api/partitions":
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            disk = (qs.get("disk") or [""])[0]
+            self._json(list_partitions(disk) if disk else [])
         elif path == "/api/stream":
             self._sse()
         elif path == "/api/log":
@@ -944,27 +1074,52 @@ class Handler(BaseHTTPRequestHandler):
             if not body.get("confirm_backup") or not body.get("confirm_erase"):
                 self._json({
                     "started": False,
-                    "message": "Please confirm that your files are backed up and that the selected disk will be erased.",
+                    "message": "Please confirm that your files are backed up and that the selected target will be erased.",
                 }, status=409)
                 return
-            if disks[disk].get("current") and not _IS_LIVE_SESSION:
-                self._json({
-                    "started": False,
-                    "message": (
-                        "This is the disk running the current KythOS session.\n\n"
-                        "The running root filesystem cannot be unmounted, so reinstalling "
-                        "onto this disk requires the KythOS live ISO.\n\n"
-                        "Boot from the live ISO to reinstall onto this disk. "
-                        "You can download it from the Repair page in kyth-welcome."
-                    ),
-                }, status=409)
-                return
-            if disks[disk].get("current") and not body.get("confirm_current"):
-                self._json({
-                    "started": False,
-                    "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
-                }, status=409)
-                return
+            install_mode = body.get("install_mode", "wipe")
+            if install_mode not in ("wipe", "alongside"):
+                install_mode = "wipe"
+
+            target_partition = ""
+            efi_partition = ""
+            if install_mode == "alongside":
+                target_partition = body.get("target_partition", "")
+                partitions = {p["name"]: p for p in list_partitions(disk)}
+                if target_partition not in partitions:
+                    self.send_error(400, "Invalid target partition")
+                    return
+                if partitions[target_partition].get("is_efi"):
+                    self._json({"started": False, "message": "Cannot install to an EFI partition."}, status=409)
+                    return
+                if partitions[target_partition].get("mountpoint"):
+                    self._json({
+                        "started": False,
+                        "message": f"Target partition {target_partition} is currently mounted at "
+                                   f"{partitions[target_partition]['mountpoint']}. Unmount it first.",
+                    }, status=409)
+                    return
+                efi_partition = body.get("efi_partition", "") or find_efi_partition(disk)
+            else:
+                if disks[disk].get("current") and not _IS_LIVE_SESSION:
+                    self._json({
+                        "started": False,
+                        "message": (
+                            "This is the disk running the current KythOS session.\n\n"
+                            "The running root filesystem cannot be unmounted, so reinstalling "
+                            "onto this disk requires the KythOS live ISO.\n\n"
+                            "Boot from the live ISO to reinstall onto this disk. "
+                            "You can download it from the Repair page in kyth-welcome."
+                        ),
+                    }, status=409)
+                    return
+                if disks[disk].get("current") and not body.get("confirm_current"):
+                    self._json({
+                        "started": False,
+                        "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
+                    }, status=409)
+                    return
+
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
@@ -985,12 +1140,15 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"started": False, "message": network_error}, status=409)
                 return
             _state.update({
-                "disk":     disk,
-                "hostname": hostname,
-                "timezone": timezone,
-                "username": username,
-                "password_hash": password_hash,
-                "kernel":   kernel,
+                "disk":              disk,
+                "install_mode":      install_mode,
+                "target_partition":  target_partition,
+                "efi_partition":     efi_partition,
+                "hostname":          hostname,
+                "timezone":          timezone,
+                "username":          username,
+                "password_hash":     password_hash,
+                "kernel":            kernel,
             })
             with _events_lock:
                 _events.clear()
@@ -1117,6 +1275,27 @@ button.danger:hover:not(:disabled){background:#1a080f;border-color:var(--red)}
 .disk-tools{display:flex;gap:8px;margin-top:8px}
 .warn-box{background:#1a110a;border:1px solid #5a3000;border-radius:8px;padding:10px 14px;font-size:13px;color:var(--amber);margin:12px 0}
 
+/* install mode cards */
+.mode-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:4px}
+.mode-card{display:flex;align-items:flex-start;gap:14px;padding:13px 15px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
+.mode-card:hover{border-color:var(--accent)}
+.mode-card.selected{border-color:var(--accent);background:#0d1e3a}
+.mode-icon{font-size:20px;flex-shrink:0;padding-top:2px}
+.mode-name{font-weight:700;font-size:14px;margin-bottom:3px;display:flex;align-items:center;gap:8px}
+.mode-desc{color:var(--muted);font-size:12px;line-height:1.5}
+
+/* partition picker */
+.part-grid{display:flex;flex-direction:column;gap:6px;margin:10px 0}
+.part-card{display:flex;align-items:center;gap:12px;padding:11px 14px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
+.part-card:hover:not(.part-locked){border-color:var(--accent)}
+.part-card.selected{border-color:var(--accent);background:#0d1e3a}
+.part-card.part-locked{opacity:.55;cursor:not-allowed}
+.part-info{flex:1;min-width:0}
+.part-name{font-weight:600;font-size:13px;display:flex;align-items:center;gap:6px}
+.part-detail{color:var(--muted);font-size:11px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.part-size{font-size:12px;color:var(--accent-hi);font-weight:600;flex-shrink:0}
+.efi-badge{display:inline-block;background:#1a2a3a;border:1px solid #2a5a7a;color:#5ab8ff;font-size:9px;padding:1px 5px;border-radius:3px;letter-spacing:.04em}
+
 /* form fields */
 .field-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px}
 input[type=text],input[type=password],select{width:100%;padding:9px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:14px;font-family:var(--font);outline:none;transition:border-color .15s}
@@ -1209,10 +1388,11 @@ select{cursor:pointer}
         Connect using the network icon in the bottom-right panel before clicking Start Install. Your disk, account, timezone, and kernel selections will remain if you need to reconnect.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
-        &nbsp; 2. Choose your kernel<br>
-        &nbsp; 3. Set hostname, timezone, and user account<br>
-        &nbsp; 4. Download and write KythOS to disk<br><br>
-        <span style="color:var(--amber)">⚠ The selected disk will be completely erased.</span><br>
+        &nbsp; 2. Choose install mode — erase full disk or install alongside existing OS<br>
+        &nbsp; 3. Choose your kernel<br>
+        &nbsp; 4. Set hostname, timezone, and user account<br>
+        &nbsp; 5. Download and write KythOS to disk<br><br>
+        <span style="color:var(--amber)">⚠ The selected disk or partition will be erased.</span><br>
         Back up any data you need before continuing.
       </p>
       <div class="btn-row">
@@ -1225,15 +1405,48 @@ select{cursor:pointer}
   <div class="page" id="page-disk">
     <div class="card">
       <div class="card-title">Select Disk</div>
-      <div class="card-sub">KythOS will be installed on the selected disk. All existing data will be erased.</div>
+      <div class="card-sub">Choose a target disk, then select how KythOS should be installed.</div>
       <hr class="divider">
       <div class="disk-grid" id="disk-grid">
         <div class="status-box status-info">Loading disks…</div>
       </div>
-      <div class="warn-box" id="disk-warn" style="display:none">⚠ All data on this disk will be permanently destroyed.</div>
+      <div class="warn-box" id="disk-warn" style="display:none"></div>
       <div class="disk-tools">
         <button onclick="loadDisks()">Refresh</button>
       </div>
+
+      <!-- Install mode (revealed after disk is selected) -->
+      <div id="mode-section" style="display:none">
+        <hr class="divider" style="margin:22px 0 18px">
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px">Installation Mode</div>
+        <div class="mode-grid">
+          <div class="mode-card selected" id="mcard-wipe" onclick="selectMode('wipe')">
+            <div class="mode-icon">💥</div>
+            <div>
+              <div class="mode-name">Erase Full Disk <span class="kernel-badge">Recommended</span></div>
+              <div class="mode-desc">Install KythOS on the entire disk. All existing data will be erased. Simplest option.</div>
+            </div>
+          </div>
+          <div class="mode-card" id="mcard-alongside" onclick="selectMode('alongside')">
+            <div class="mode-icon">🔀</div>
+            <div>
+              <div class="mode-name">Install Alongside</div>
+              <div class="mode-desc">Install KythOS to a specific partition. Keep Windows, Linux, or other systems.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Partition picker (alongside only) -->
+        <div id="partition-section" style="display:none">
+          <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Select Target Partition</div>
+          <div id="part-grid" class="part-grid">
+            <div class="status-box status-info">Loading partitions…</div>
+          </div>
+          <div class="warn-box" id="part-warn" style="display:none"></div>
+          <div id="efi-info" style="display:none;font-size:12px;color:var(--muted);margin-top:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)"></div>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button onclick="goto('welcome')">← Back</button>
         <button id="disk-next" class="primary" onclick="goto('kernel')" disabled>Continue →</button>
@@ -1293,7 +1506,7 @@ select{cursor:pointer}
       </label>
       <label class="review-confirm">
         <input type="checkbox" id="confirm-erase" onchange="updateInstallReady()">
-        <span>I understand KythOS will erase the selected disk and install a fresh system.</span>
+        <span id="confirm-erase-label">I understand KythOS will erase the selected disk and install a fresh system.</span>
       </label>
       <label class="review-confirm review-current" id="confirm-current-wrap" style="display:none">
         <input type="checkbox" id="confirm-current" onchange="updateInstallReady()">
@@ -1383,7 +1596,7 @@ select{cursor:pointer}
 </div><!-- #app -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
+const S = { disk: null, install_mode: 'wipe', target_partition: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
 let SESSION_TOKEN = '';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
 
@@ -1420,7 +1633,9 @@ function loadDisks(attempt) {
   document.getElementById('disk-grid').innerHTML = '<div class="status-box status-info">Scanning for disks…</div>';
   document.getElementById('disk-next').disabled  = true;
   document.getElementById('disk-warn').style.display = 'none';
-  S.disk = null;
+  document.getElementById('mode-section').style.display = 'none';
+  document.getElementById('partition-section').style.display = 'none';
+  S.disk = null; S.install_mode = 'wipe'; S.target_partition = null;
   fetch('/api/disks').then(r=>r.json()).then(disks => {
     _disks = disks;
     const grid = document.getElementById('disk-grid');
@@ -1437,7 +1652,7 @@ function loadDisks(attempt) {
         <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
         <div class="disk-info">
           <div class="disk-name">${d.name}</div>
-          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.current ? ' · current system disk' : ''}</div>
+          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.usb ? ' · USB storage' : ''}${d.current ? ' · current system disk' : ''}</div>
         </div>
         <div class="disk-size">${d.size}</div>
       </div>`).join('');
@@ -1445,17 +1660,102 @@ function loadDisks(attempt) {
     document.getElementById('disk-grid').innerHTML = '<div class="status-box status-err">Failed to load disk list.</div>';
   });
 }
+
 function selectDisk(idx) {
   document.querySelectorAll('.disk-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('dcard-' + idx).classList.add('selected');
   S.disk = _disks[idx];
-  document.getElementById('disk-next').disabled = false;
-  document.getElementById('disk-warn').style.display = 'block';
-  document.getElementById('disk-warn').textContent = S.disk.current
+  S.install_mode = 'wipe'; S.target_partition = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('mcard-wipe').classList.add('selected');
+  document.getElementById('partition-section').style.display = 'none';
+  document.getElementById('mode-section').style.display = '';
+  const warn = document.getElementById('disk-warn');
+  warn.style.display = 'block';
+  warn.textContent = S.disk.current
     ? (S.isLive
         ? '⚠ This appears to be the disk currently running this session. Reinstalling will replace it.'
         : '⚠ This is the running system disk. To reinstall this disk, boot from the KythOS live ISO.')
-    : '⚠ All data on this disk will be permanently destroyed.';
+    : S.disk.usb
+        ? '⚠ This is a USB storage device. Make sure you have the right disk selected.'
+        : '⚠ All data on this disk will be permanently destroyed (Erase mode) or a partition will be erased (Alongside mode).';
+  updateDiskNext();
+}
+
+function selectMode(id) {
+  S.install_mode = id; S.target_partition = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('mcard-' + id).classList.add('selected');
+  const ps = document.getElementById('partition-section');
+  ps.style.display = id === 'alongside' ? '' : 'none';
+  if (id === 'alongside') loadPartitions();
+  updateDiskNext();
+}
+
+let _partitions = [];
+function loadPartitions() {
+  if (!S.disk) return;
+  document.getElementById('part-grid').innerHTML = '<div class="status-box status-info">Loading partitions…</div>';
+  document.getElementById('part-warn').style.display = 'none';
+  document.getElementById('efi-info').style.display = 'none';
+  S.target_partition = null;
+  fetch('/api/partitions?disk=' + encodeURIComponent(S.disk.name))
+    .then(r => r.json())
+    .then(parts => {
+      _partitions = parts;
+      const efi = parts.find(p => p.is_efi);
+      const grid = document.getElementById('part-grid');
+      if (!parts.length) {
+        grid.innerHTML = '<div class="status-box status-err">No partitions found. This disk may be unpartitioned — use Erase Full Disk mode instead.</div>';
+        return;
+      }
+      grid.innerHTML = parts.map((p, i) => {
+        const locked = p.is_efi || !!p.mountpoint;
+        const classes = ['part-card', locked ? 'part-locked' : ''].filter(Boolean).join(' ');
+        const badge = p.is_efi ? '<span class="efi-badge">EFI</span>' : '';
+        const reason = p.is_efi ? ' · EFI System' : p.mountpoint ? ` · mounted at ${p.mountpoint}` : '';
+        const detail = [p.fstype, p.label, reason].filter(Boolean).join(' · ') || 'unformatted';
+        const icon = p.is_efi ? '🔒' : p.fstype ? '📁' : '📄';
+        const onclick = locked ? '' : `onclick="selectPartition(${i})"`;
+        return `<div class="${classes}" id="pcard-${i}" ${onclick}>
+          <div class="disk-icon">${icon}</div>
+          <div class="part-info">
+            <div class="part-name">${p.name}${badge}</div>
+            <div class="part-detail">${detail}</div>
+          </div>
+          <div class="part-size">${p.size}</div>
+        </div>`;
+      }).join('');
+      if (efi) {
+        const el = document.getElementById('efi-info');
+        el.style.display = '';
+        el.textContent = `EFI partition detected: ${efi.name} — KythOS will add a boot entry here for dual-boot.`;
+      }
+    })
+    .catch(() => {
+      document.getElementById('part-grid').innerHTML = '<div class="status-box status-err">Failed to load partitions.</div>';
+    });
+}
+
+function selectPartition(idx) {
+  const p = _partitions[idx];
+  if (!p || p.is_efi || p.mountpoint) return;
+  document.querySelectorAll('.part-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('pcard-' + idx).classList.add('selected');
+  S.target_partition = p;
+  const warn = document.getElementById('part-warn');
+  if (p.fstype && p.fstype !== 'swap') {
+    warn.style.display = 'block';
+    warn.textContent = `⚠ ${p.name} contains a ${p.fstype} filesystem${p.label ? ' ("' + p.label + '")' : ''}. It will be erased and replaced with KythOS.`;
+  } else {
+    warn.style.display = 'none';
+  }
+  updateDiskNext();
+}
+
+function updateDiskNext() {
+  const ok = !!S.disk && (S.install_mode === 'wipe' || (S.install_mode === 'alongside' && !!S.target_partition));
+  document.getElementById('disk-next').disabled = !ok;
 }
 
 // ── Kernel ────────────────────────────────────────────────────────────────────
@@ -1535,6 +1835,7 @@ function saveConfig() {
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
   const kernelLabels = { fedora: 'KythOS Standard', cachy: 'KythOS Performance' };
+  const modeLabels   = { wipe: 'Erase Full Disk', alongside: 'Install Alongside' };
   const targetImage = (() => {
     const base = S._sourceImage || '';
     if (!base || S.kernel === 'fedora') return base || '—';
@@ -1545,40 +1846,60 @@ function buildReview() {
     return base.slice(0, colon + 1) + tag + '-cachy';
   })();
   const rows = [
-    ['Disk',     S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
-    ['Model',    S.disk ? S.disk.model : '—'],
+    ['Disk',          S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
+    ['Model',         S.disk ? S.disk.model : '—'],
+    ['Install Mode',  modeLabels[S.install_mode] || S.install_mode],
+  ];
+  if (S.install_mode === 'alongside' && S.target_partition) {
+    rows.push(['Target Partition', `${S.target_partition.name}  (${S.target_partition.size})`]);
+    if (S.target_partition.fstype) rows.push(['Partition FS', S.target_partition.fstype]);
+  }
+  rows.push(
     ['Hostname', S.hostname],
     ['Timezone', S.timezone],
     ['Username', S.username],
     ['Password', '••••••••'],
     ['Kernel',   kernelLabels[S.kernel] || S.kernel],
     ['Image',    targetImage],
-  ];
+  );
   document.getElementById('review-table').innerHTML =
     rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
   document.getElementById('confirm-backup').checked = false;
   document.getElementById('confirm-erase').checked = false;
   document.getElementById('confirm-current').checked = false;
-  const isCurrentNonLive = S.disk && S.disk.current && !S.isLive;
-  const isCurrentLive    = S.disk && S.disk.current && S.isLive;
+
+  const isAlongside    = S.install_mode === 'alongside';
+  const isCurrentNonLive = !isAlongside && S.disk && S.disk.current && !S.isLive;
+  const isCurrentLive    = !isAlongside && S.disk && S.disk.current && S.isLive;
+
   document.getElementById('confirm-current-wrap').style.display = isCurrentLive ? 'flex' : 'none';
   document.getElementById('live-iso-required').style.display    = isCurrentNonLive ? 'block' : 'none';
+
+  const partName = isAlongside && S.target_partition ? S.target_partition.name : '';
   document.getElementById('review-wipe').textContent = isCurrentNonLive
     ? '⚠ This is the running system disk — see notice below.'
-    : (S.disk && S.disk.current
-        ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
-        : '⚠ Everything on the selected disk will be permanently erased.');
+    : isAlongside
+        ? `⚠ Partition ${partName || '?'} will be erased and replaced with KythOS.`
+        : (S.disk && S.disk.current
+            ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
+            : '⚠ Everything on the selected disk will be permanently erased.');
+
+  document.getElementById('confirm-erase-label').textContent = isAlongside
+    ? `I understand partition ${partName || '?'} will be erased and replaced with KythOS.`
+    : 'I understand KythOS will erase the selected disk and install a fresh system.';
+
   updateInstallReady();
 }
 
 function updateInstallReady() {
-  if (S.disk && S.disk.current && !S.isLive) {
+  const isAlongside = S.install_mode === 'alongside';
+  if (!isAlongside && S.disk && S.disk.current && !S.isLive) {
     document.getElementById('install-now').disabled = true;
     return;
   }
   const backup    = document.getElementById('confirm-backup').checked;
   const erase     = document.getElementById('confirm-erase').checked;
-  const currentOk = !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
+  const currentOk = isAlongside || !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
   document.getElementById('install-now').disabled = !(backup && erase && currentOk);
 }
 
@@ -1599,9 +1920,11 @@ function startInstall() {
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
       kernel: S.kernel,
-      confirm_backup: document.getElementById('confirm-backup').checked,
-      confirm_erase: document.getElementById('confirm-erase').checked,
-      confirm_current: document.getElementById('confirm-current').checked,
+      install_mode:      S.install_mode,
+      target_partition:  S.target_partition ? S.target_partition.name : '',
+      confirm_backup:    document.getElementById('confirm-backup').checked,
+      confirm_erase:     document.getElementById('confirm-erase').checked,
+      confirm_current:   document.getElementById('confirm-current').checked,
     }),
   }).then(r => {
     if (!r.ok) {
