@@ -142,6 +142,8 @@ class WelcomePage(Page):
         tiles_row.addWidget(self._kernel_tile, 1)
 
         self._add_layout(tiles_row)
+        self._add(self._make_setup_readiness_card(staged, rollback, kernel, hostname, windows_found))
+        self._add(self._make_desktop_experience_summary())
 
         self._add(self._make_recommended_card(staged, rollback, windows_found))
 
@@ -223,6 +225,95 @@ class WelcomePage(Page):
         self._add_layout(self._category_grid)
 
         self._stretch()
+
+
+
+    def _make_desktop_experience_summary(self) -> QFrame:
+        session = os.environ.get("XDG_SESSION_TYPE", "unknown")
+        portal = _command_stdout(["bash", "-lc", "systemctl --user is-active xdg-desktop-portal.service 2>/dev/null || true"], timeout=3) or "unknown"
+        pipewire = _command_stdout(["bash", "-lc", "systemctl --user is-active pipewire.service 2>/dev/null || true"], timeout=3) or "unknown"
+        card = QFrame()
+        card.setObjectName("desktop-experience-summary")
+        card.setStyleSheet(
+            "QFrame#desktop-experience-summary { background:#101820; border:1px solid #2d3a48; border-radius:8px; }"
+            "QLabel#desktop-title { color:#eef5f7; font-size:17px; font-weight:800; }"
+            "QLabel#desktop-copy { color:#95a6b4; font-size:12px; }"
+        )
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setSpacing(10)
+        title = QLabel("Desktop Experience")
+        title.setObjectName("desktop-title")
+        copy = QLabel("Wayland, Plasma layouts, snap/grid tuning, and desktop modes live in the Plasma & Wayland section.")
+        copy.setObjectName("desktop-copy")
+        copy.setWordWrap(True)
+        outer.addWidget(title)
+        outer.addWidget(copy)
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        for idx, (name, value) in enumerate([
+            ("Session", session),
+            ("Portal", portal.strip()),
+            ("PipeWire", pipewire.strip()),
+            ("Modes", "Gaming / Dev / Creator / Laptop / Ultrawide"),
+        ]):
+            chip = QLabel(f"<b>{name}</b><br><span style='color:#95a6b4'>{value}</span>")
+            chip.setTextFormat(Qt.TextFormat.RichText)
+            chip.setStyleSheet("QLabel { background:#0b1118; border:1px solid #253442; border-radius:8px; padding:9px 11px; color:#eef5f7; }")
+            grid.addWidget(chip, idx // 2, idx % 2)
+        outer.addLayout(grid)
+        return card
+
+    def _make_setup_readiness_card(self, staged: bool, rollback: bool, kernel: str, hostname: str, windows_found: bool) -> QFrame:
+        card = QFrame()
+        card.setObjectName("setup-readiness-card")
+        card.setStyleSheet(
+            "QFrame#setup-readiness-card {"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #18232d, stop:1 #101820);"
+            "border: 1px solid #2f4656; border-radius: 8px; padding: 2px; }"
+            "QLabel#setup-title { color: #eef5f7; font-size: 18px; font-weight: 800; }"
+            "QLabel#setup-subtitle { color: #95a6b4; font-size: 12px; }"
+        )
+        outer = QVBoxLayout(card)
+        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setSpacing(12)
+
+        header = QHBoxLayout()
+        title_box = QVBoxLayout()
+        title = QLabel("Finish setup")
+        title.setObjectName("setup-title")
+        subtitle = QLabel(f"{hostname} is ready for first-run choices that make KythOS feel complete.")
+        subtitle.setObjectName("setup-subtitle")
+        subtitle.setWordWrap(True)
+        title_box.addWidget(title)
+        title_box.addWidget(subtitle)
+        header.addLayout(title_box, 1)
+        badge = QLabel("Recommended")
+        badge.setStyleSheet("color:#06110f;background:#35d0aa;border-radius:999px;padding:5px 10px;font-weight:800;font-size:11px;")
+        header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
+        outer.addLayout(header)
+
+        grid = QGridLayout()
+        grid.setHorizontalSpacing(8)
+        grid.setVerticalSpacing(8)
+        items = [
+            ("Updates", "Staged update ready" if staged else "Current deployment", not staged),
+            ("Rollback", "Available" if rollback else "None yet", rollback),
+            ("Kernel", kernel or "Default", True),
+            ("Windows", "Detected" if windows_found else "No dual-boot detected", True),
+            ("Gaming", "Install launchers from Software", False),
+            ("Recovery", "Rollback and logs in Repair", True),
+        ]
+        for idx, (name, detail, ok) in enumerate(items):
+            chip = QLabel(f"<b>{name}</b><br><span style='color:#95a6b4'>{detail}</span>")
+            chip.setTextFormat(Qt.TextFormat.RichText)
+            chip.setStyleSheet(
+                "QLabel { background: #0f171f; border: 1px solid #2a3a47; border-radius: 8px; padding: 9px 11px; color: #eef5f7; }"
+                + ("QLabel { border-color: #315f55; background: #10251f; }" if ok else "QLabel { border-color: #624d24; background: #251d10; }")
+            )
+            grid.addWidget(chip, idx // 3, idx % 3)
+        outer.addLayout(grid)
+        return card
 
     def _make_ntfs_library_card(self, libs: list[str]) -> QFrame:
         card, layout = _make_card("card-accent-warn")

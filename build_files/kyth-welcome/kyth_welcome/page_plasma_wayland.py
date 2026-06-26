@@ -7,7 +7,7 @@ from .core import (  # noqa: E501
     DataWorker, HardwareProbe, _release_worker_when_finished,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QLabel, QVBoxLayout,
+    QFrame, QHBoxLayout, QLabel, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
     ActionRow, CommandResultPanel, HardwareCard, Page, _make_card,
@@ -190,6 +190,64 @@ def _collect_wayland_probes() -> list[HardwareProbe]:
     return probes
 
 
+
+DESKTOP_PROFILES = {
+    "gaming": {
+        "title": "Gaming",
+        "summary": "Fullscreen-first, quiet notifications, launcher/chat side space.",
+        "zones": "Primary game focus; secondary display keeps chat, browser, and monitoring visible.",
+        "snap": 12,
+        "placement": "Centered",
+        "animation": 1,
+        "tiling_padding": 6,
+    },
+    "dev": {
+        "title": "Development",
+        "summary": "Keyboard-driven thirds for editor, terminal, and docs.",
+        "zones": "25% terminal | 50% editor | 25% docs on wide screens; 70/30 on laptops.",
+        "snap": 10,
+        "placement": "Smart",
+        "animation": 1,
+        "tiling_padding": 4,
+    },
+    "creator": {
+        "title": "Creator",
+        "summary": "Large canvas with predictable asset/tool side panes.",
+        "zones": "70% canvas/editor | 30% assets/tools, with capture-friendly notifications.",
+        "snap": 10,
+        "placement": "Centered",
+        "animation": 2,
+        "tiling_padding": 8,
+    },
+    "laptop": {
+        "title": "Laptop",
+        "summary": "Compact panel, gesture-first flow, simple two-column snapping.",
+        "zones": "Full-screen focus or 60% main | 40% reference; avoids cramped thirds.",
+        "snap": 14,
+        "placement": "Smart",
+        "animation": 2,
+        "tiling_padding": 5,
+    },
+    "ultrawide": {
+        "title": "Ultrawide",
+        "summary": "Prevents huge empty windows and makes thirds feel native.",
+        "zones": "25% side | 50% main | 25% side with centered dialogs.",
+        "snap": 8,
+        "placement": "Centered",
+        "animation": 1,
+        "tiling_padding": 8,
+    },
+    "balanced": {
+        "title": "Balanced",
+        "summary": "Clean default for browsing, files, settings, and everyday multitasking.",
+        "zones": "Halves and quarters with normal notifications and moderate density.",
+        "snap": 12,
+        "placement": "Smart",
+        "animation": 2,
+        "tiling_padding": 6,
+    },
+}
+
 class PlasmaWaylandPage(Page):
     def __init__(self):
         super().__init__()
@@ -227,6 +285,10 @@ class PlasmaWaylandPage(Page):
         self._add(self._make_polish_card())
         self._add(self._make_repair_card())
         self._add(self._make_presets_card())
+        self._add(self._make_desktop_modes_card())
+        self._add(self._make_snap_grid_card())
+        self._add(self._make_wayland_readiness_card())
+
         self._stretch()
 
         self.refresh()
@@ -355,7 +417,183 @@ class PlasmaWaylandPage(Page):
             layout.addLayout(row)
         return card
 
-    @staticmethod
+
+    def _make_desktop_modes_card(self) -> QFrame:
+        card, body = _make_card("card-accent-ok")
+        body.setContentsMargins(18, 16, 18, 16)
+        body.setSpacing(12)
+        title = QLabel("Kyth Desktop Modes")
+        title.setObjectName("card-title")
+        copy = QLabel("Apply opinionated Plasma and KWin defaults for the way you use the machine. Each mode tunes snapping, placement, animation speed, tiling gaps, and stores a Kyth layout marker for future automation.")
+        copy.setObjectName("card-copy")
+        copy.setWordWrap(True)
+        body.addWidget(title)
+        body.addWidget(copy)
+        for key, profile in DESKTOP_PROFILES.items():
+            row = ActionRow(f"{profile['title']}: {profile['summary']}")
+            row.add_button("Apply", lambda _checked=False, profile_key=key: self._apply_desktop_profile(profile_key))
+            detail = QLabel(profile["zones"])
+            detail.setObjectName("card-copy")
+            detail.setWordWrap(True)
+            body.addWidget(row)
+            body.addWidget(detail)
+        self._profile_result = CommandResultPanel()
+        body.addWidget(self._profile_result)
+        return card
+
+    def _make_snap_grid_card(self) -> QFrame:
+        card, body = _make_card()
+        body.setContentsMargins(18, 16, 18, 16)
+        body.setSpacing(10)
+        title = QLabel("Snap, Grid, and Flow Defaults")
+        title.setObjectName("card-title")
+        copy = QLabel("Kyth defaults favor fast halves, quarters, and thirds, visible snap previews, centered transient windows, and compact gaps. Use Plasma's tiling editor for exact per-monitor layouts, then save the mode that matches your workflow.")
+        copy.setObjectName("card-copy")
+        copy.setWordWrap(True)
+        body.addWidget(title)
+        body.addWidget(copy)
+        shortcuts = QLabel("Super+Arrow: halves/maximize • Super+Alt+Arrow: thirds/rows target • Super+Ctrl+Arrow: move between desktops • Super+Alt+L: layout selector target")
+        shortcuts.setObjectName("card-copy")
+        shortcuts.setWordWrap(True)
+        body.addWidget(shortcuts)
+        row = ActionRow("Open Plasma tools for detailed tuning")
+        row.add_button("Edit Tiles", lambda: self._open_kcm("Desktop Effects", "kcm_kwin_effects"))
+        row.add_button("Shortcuts", lambda: self._open_kcm("Shortcuts", "kcm_keys"))
+        row.add_button("Window Rules", lambda: self._open_kcm("Window Rules", "kcm_kwinrules"))
+        body.addWidget(row)
+        return card
+
+    def _make_wayland_readiness_card(self) -> QFrame:
+        card, body = _make_card("card-accent-ok")
+        body.setContentsMargins(18, 16, 18, 16)
+        body.setSpacing(10)
+        title = QLabel("Wayland Readiness")
+        title.setObjectName("card-title")
+        copy = QLabel("A quick signal check for the modern desktop path: session type, GPU stack, portals, screen sharing, VRR, and HDR readiness.")
+        copy.setObjectName("card-copy")
+        copy.setWordWrap(True)
+        body.addWidget(title)
+        body.addWidget(copy)
+        rows = [
+            ("Session", self._session_status()),
+            ("GPU", self._gpu_status()),
+            ("Portals", self._portal_status()),
+            ("Screen sharing", self._screen_share_status()),
+            ("VRR", self._kscreen_status("vrr")),
+            ("HDR", self._kscreen_status("hdr")),
+        ]
+        for name, value in rows:
+            line = QLabel(f"<b>{name}</b><br><span style='color:#95a6b4'>{value}</span>")
+            line.setTextFormat(Qt.TextFormat.RichText)
+            line.setStyleSheet("QLabel { background:#101820; border:1px solid #2d3a48; border-radius:8px; padding:9px 11px; color:#eef5f7; }")
+            body.addWidget(line)
+        return card
+
+    def _apply_desktop_profile(self, profile_key: str) -> None:
+        profile = DESKTOP_PROFILES[profile_key]
+        self._profile_result.set_running(f"Applying {profile['title']} mode", "Writing Plasma and KWin defaults...")
+        script = self._desktop_profile_command(profile_key, profile)
+        try:
+            result = subprocess.run(["bash", "-lc", script], capture_output=True, text=True, timeout=20)
+        except Exception as exc:
+            self._profile_result.set_result("error", f"Could not apply {profile['title']} mode", str(exc))
+            return
+        details = (result.stdout or "") + (result.stderr or "")
+        if result.returncode == 0:
+            self._profile_result.set_result("ok", f"Applied {profile['title']} mode", details.strip() or "KWin settings refreshed.")
+        else:
+            self._profile_result.set_result("error", f"Failed to apply {profile['title']} mode", details.strip())
+
+    def _desktop_profile_command(self, profile_key: str, profile: dict[str, object]) -> str:
+        snap = int(profile["snap"])
+        padding = int(profile["tiling_padding"])
+        animation = int(profile["animation"])
+        placement = str(profile["placement"])
+        mode_notes = {
+            "gaming": """
+kwriteconfig6 --file kwinrc --group KythOS --key GamingMode true
+kwriteconfig6 --file kwinrc --group KythOS --key FullscreenNotifications quiet
+kwriteconfig6 --file kwinrc --group Windows --key FocusPolicy ClickToFocus
+""",
+            "dev": """
+kwriteconfig6 --file kwinrc --group KythOS --key DeveloperMode true
+kwriteconfig6 --file kwinrc --group KythOS --key PreferredColumns 3
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window One Desktop to the Left' 'Meta+Ctrl+Left,Meta+Ctrl+Left,Window One Desktop to the Left'
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window One Desktop to the Right' 'Meta+Ctrl+Right,Meta+Ctrl+Right,Window One Desktop to the Right'
+""",
+            "creator": """
+kwriteconfig6 --file kwinrc --group KythOS --key CreatorMode true
+kwriteconfig6 --file kwinrc --group KythOS --key CaptureNotifications quiet
+kwriteconfig6 --file kwinrc --group Windows --key Placement Centered
+""",
+            "laptop": """
+kwriteconfig6 --file kwinrc --group KythOS --key LaptopMode true
+kwriteconfig6 --file kwinrc --group KythOS --key PreferredColumns 2
+""",
+            "ultrawide": """
+kwriteconfig6 --file kwinrc --group KythOS --key UltrawideMode true
+kwriteconfig6 --file kwinrc --group KythOS --key PreferredColumns 3
+kwriteconfig6 --file kwinrc --group KythOS --key CenteredDialogs true
+""",
+        }.get(profile_key, "")
+        return f"""
+set -e
+kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc --group KythOS --key DesktopMode {profile_key}
+kwriteconfig6 --file kwinrc --group Windows --key Placement {placement}
+kwriteconfig6 --file kwinrc --group Windows --key BorderSnapZone {snap}
+kwriteconfig6 --file kwinrc --group Windows --key WindowSnapZone {snap}
+kwriteconfig6 --file kwinrc --group Windows --key CenterSnapZone 0
+kwriteconfig6 --file kwinrc --group Tiling --key Padding {padding}
+kwriteconfig6 --file kwinrc --group Compositing --key AnimationSpeed {animation}
+kwriteconfig6 --file kwinrc --group Plugins --key overviewEnabled true
+kwriteconfig6 --file kwinrc --group Plugins --key presentwindowsEnabled true
+{mode_notes}
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window Quick Tile Left' 'Meta+Left,Meta+Left,Quick Tile Window to the Left'
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window Quick Tile Right' 'Meta+Right,Meta+Right,Quick Tile Window to the Right'
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window Quick Tile Top' 'Meta+Up,Meta+Up,Quick Tile Window to the Top'
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Window Quick Tile Bottom' 'Meta+Down,Meta+Down,Quick Tile Window to the Bottom'
+kwriteconfig6 --file kglobalshortcutsrc --group kwin --key 'Overview' 'Meta,Meta,Toggle Overview'
+qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || qdbus-qt6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+"""
+
+    def _session_status(self) -> str:
+        session = os.environ.get("XDG_SESSION_TYPE") or "unknown"
+        display = os.environ.get("WAYLAND_DISPLAY") or os.environ.get("DISPLAY") or "no display variable"
+        return f"{session} session, {display}"
+
+    def _gpu_status(self) -> str:
+        try:
+            out = subprocess.run(["bash", "-lc", "lspci | grep -Ei 'vga|3d|display' | head -2"], capture_output=True, text=True, timeout=4).stdout.strip()
+        except Exception:
+            out = ""
+        return out or "GPU probe unavailable"
+
+    def _portal_status(self) -> str:
+        checks = [
+            ("portal", "systemctl --user is-active xdg-desktop-portal.service"),
+            ("kde", "systemctl --user is-active xdg-desktop-portal-kde.service"),
+            ("pipewire", "systemctl --user is-active pipewire.service"),
+        ]
+        states = []
+        for name, cmd in checks:
+            result = subprocess.run(["bash", "-lc", cmd], capture_output=True, text=True, timeout=3)
+            states.append(f"{name}:{(result.stdout or 'inactive').strip()}")
+        return ", ".join(states)
+
+    def _screen_share_status(self) -> str:
+        return "Ready when PipeWire and xdg-desktop-portal-kde are active"
+
+    def _kscreen_status(self, feature: str) -> str:
+        try:
+            out = subprocess.run(["bash", "-lc", "kscreen-doctor -o 2>/dev/null | head -40"], capture_output=True, text=True, timeout=4).stdout.lower()
+        except Exception:
+            out = ""
+        if not out:
+            return "Install/run kscreen-doctor to probe display capabilities"
+        if feature in out:
+            return "Capability appears in display probe"
+        return "Not advertised by current display probe"
+
     def _plasma_polish_command() -> list[str]:
         script = r"""
 set -euo pipefail
