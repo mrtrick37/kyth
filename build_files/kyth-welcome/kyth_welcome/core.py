@@ -1050,7 +1050,8 @@ def _load_smb_config() -> list[dict]:
 
 def _save_smb_config(shares: list[dict]) -> None:
     os.makedirs(os.path.dirname(_SMB_CONFIG), exist_ok=True)
-    with open(_SMB_CONFIG, "w") as f:
+    fd = os.open(_SMB_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(shares, f, indent=2)
 
 

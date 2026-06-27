@@ -201,7 +201,7 @@ def find_deploy_etc(root_mount: str) -> Optional[str]:
     candidates = glob.glob(f"{root_mount}/ostree/deploy/default/deploy/*/etc")
     if not candidates:
         return None
-    return max(candidates, key=lambda p: os.path.getmtime(p))
+    return sorted(candidates)[-1]
 
 
 SYSTEM_GROUP_FALLBACKS = {
@@ -412,7 +412,7 @@ def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
 
 
-def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
+def _try_stage_mok_enrollment(log, kernel: str = "fedora", mok_password: str = "") -> str:
     """Stage Kyth Secure Boot MOK enrollment via mokutil.
 
     Returns one of: skipped, enrolled, pending, staged, failed.
@@ -468,9 +468,10 @@ def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
         pass
 
     try:
+        log(f"Secure Boot: MOK enrollment password: {mok_password}")
         result = subprocess.run(
             _as_root([mokutil, "--import", str(cert_der), "--stdin-passwd"]),
-            input="kyth\n", text=True, capture_output=True, timeout=15,
+            input=f"{mok_password}\n", text=True, capture_output=True, timeout=15,
         )
         if result.returncode == 0:
             log("Secure Boot: enrollment staged — confirm it on first boot before the KythOS performance kernel starts")
@@ -581,11 +582,13 @@ _state: dict = {
     "efi_partition": "",          # alongside only (may be auto-detected)
     "hostname": "kyth", "timezone": "UTC",
     "username": "", "password_hash": "", "kernel": "fedora",
+    "mok_password": "",
 }
 
 _events: list[dict] = []
 _events_lock = threading.Lock()
 _new_event = threading.Condition(_events_lock)
+_install_lock = threading.Lock()
 
 
 def _push(event: dict) -> None:
@@ -961,7 +964,7 @@ def _run_install() -> None:
                 subprocess.run(_as_root(["umount", config_root]), check=False)
 
         log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
-        mok_state = _try_stage_mok_enrollment(log, kernel)
+        mok_state = _try_stage_mok_enrollment(log, kernel, _state["mok_password"])
 
         progress(100)
         _push({"type": "done", "mok_state": mok_state})
@@ -975,6 +978,8 @@ def _run_install() -> None:
         _push({"type": "error", "message": str(exc)})
     finally:
         _state["password_hash"] = ""
+        _state["mok_password"] = ""
+        _install_lock.release()
 
 
 # ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -1150,6 +1155,10 @@ class Handler(BaseHTTPRequestHandler):
                 "password_hash":     password_hash,
                 "kernel":            kernel,
             })
+            if not _install_lock.acquire(blocking=False):
+                self._json({"started": False, "message": "Install already in progress"}, status=409)
+                return
+            _state["mok_password"] = secrets.token_urlsafe(8)
             with _events_lock:
                 _events.clear()
             threading.Thread(target=_run_install, daemon=True).start()
@@ -1487,6 +1496,7 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
 const S = { disk: null, install_mode: 'wipe', target_partition: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
 let SESSION_TOKEN = '';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function apiFetch(url, opts={}) {
   const o = {...opts, credentials:'same-origin'};
@@ -1539,10 +1549,10 @@ function loadDisks(attempt) {
       <div class="disk-card" id="dcard-${i}" onclick="selectDisk(${i})">
         <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
         <div class="disk-info">
-          <div class="disk-name">${d.name}</div>
-          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.usb ? ' · USB storage' : ''}${d.current ? ' · current system disk' : ''}</div>
+          <div class="disk-name">${esc(d.name)}</div>
+          <div class="disk-detail">${esc(d.model)}${d.tran ? ' · '+esc(d.tran.toUpperCase()) : ''}${d.usb ? ' · USB storage' : ''}${d.current ? ' · current system disk' : ''}</div>
         </div>
-        <div class="disk-size">${d.size}</div>
+        <div class="disk-size">${esc(d.size)}</div>
       </div>`).join('');
   }).catch(() => {
     document.getElementById('disk-grid').innerHTML = '<div class="status-box status-err">Failed to load disk list.</div>';
@@ -1601,17 +1611,17 @@ function loadPartitions() {
         const locked = p.is_efi || !!p.mountpoint;
         const classes = ['part-card', locked ? 'part-locked' : ''].filter(Boolean).join(' ');
         const badge = p.is_efi ? '<span class="efi-badge">EFI</span>' : '';
-        const reason = p.is_efi ? ' · EFI System' : p.mountpoint ? ` · mounted at ${p.mountpoint}` : '';
-        const detail = [p.fstype, p.label, reason].filter(Boolean).join(' · ') || 'unformatted';
+        const reason = p.is_efi ? ' · EFI System' : p.mountpoint ? ` · mounted at ${esc(p.mountpoint)}` : '';
+        const detail = [p.fstype && esc(p.fstype), p.label && esc(p.label), reason].filter(Boolean).join(' · ') || 'unformatted';
         const icon = p.is_efi ? '🔒' : p.fstype ? '📁' : '📄';
         const onclick = locked ? '' : `onclick="selectPartition(${i})"`;
         return `<div class="${classes}" id="pcard-${i}" ${onclick}>
           <div class="disk-icon">${icon}</div>
           <div class="part-info">
-            <div class="part-name">${p.name}${badge}</div>
+            <div class="part-name">${esc(p.name)}${badge}</div>
             <div class="part-detail">${detail}</div>
           </div>
-          <div class="part-size">${p.size}</div>
+          <div class="part-size">${esc(p.size)}</div>
         </div>`;
       }).join('');
       if (efi) {
@@ -1751,7 +1761,7 @@ function buildReview() {
     ['Image',    targetImage],
   );
   document.getElementById('review-table').innerHTML =
-    rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    rows.map(([k,v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');
   document.getElementById('confirm-backup').checked = false;
   document.getElementById('confirm-erase').checked = false;
   document.getElementById('confirm-current').checked = false;
@@ -1940,7 +1950,7 @@ function showError(msg) {
 }
 
 function reboot() {
-  document.body.innerHTML = '<div id="app"><div id="content" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div></div>';
+  document.body.innerHTML = '<div id="main" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div>';
   apiFetch('/api/reboot', {method:'POST'}).catch(()=>{});
 }
 

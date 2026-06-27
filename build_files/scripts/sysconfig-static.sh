@@ -829,43 +829,6 @@ monitor.bluez.rules = [
 ]
 WPEOF
 
-# ── Proton / RADV environment variables ───────────────────────────────────────
-# PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
-#   Forces 32-bit Windows games to use the full 4 GB address space, reducing
-#   OOM crashes in memory-heavy titles (e.g. Skyrim modded, DayZ).
-# mesa_glthread=true:
-#   Offloads OpenGL command submission to a second thread, improving CPU-bound
-#   framerate in OpenGL games (Minecraft, older Source titles, etc.). Safe
-#   system-wide; Vulkan/DXVK games are unaffected.
-mkdir -p /etc/environment.d
-cat >/etc/environment.d/proton-radv.conf <<'PROTONEOF'
-PROTON_FORCE_LARGE_ADDRESS_AWARE=1
-WINE_LARGE_ADDRESS_AWARE=1
-PROTON_USE_NTSYNC=1
-# esync/fsync: fallback sync primitives used when NTSYNC is unavailable (module
-# not loaded, older kernel, or non-kyth install). Proton checks in priority order:
-# NTSYNC → fsync → esync → default. Having both enabled costs nothing when NTSYNC
-# is active, and keeps Wine/Proton fast on any system this image runs on.
-WINEFSYNC=1
-WINEESYNC=1
-mesa_glthread=true
-# FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
-# run at native resolution get FidelityFX Super Resolution upscaling via Wine's
-# built-in FSR pass. Works on AMD, NVIDIA, and Intel — it's a shader effect, not
-# hardware. Strength 0 = sharpest, 5 = most blur; 2 is a good default balance.
-WINE_FULLSCREEN_FSR=1
-WINE_FULLSCREEN_FSR_STRENGTH=2
-# Suppress the Windows-style crash/error dialog that pops up when a game
-# exits unexpectedly via Wine's built-in error handler. On Linux the crash is
-# already captured by the kernel and Proton's own logging; the dialog just
-# forces the user to click through a meaningless "Application Error" popup.
-PROTON_NO_WINDOWS_CRASH_DIALOG=1
-# Silence DXVK verbose debug output. The default "info" level writes to disk
-# on every DX9/10/11 draw call setup, adding measurable I/O overhead on
-# titles with high draw call counts. "none" keeps only fatal errors.
-DXVK_LOG_LEVEL=none
-PROTONEOF
-
 # obs-vkcapture is available, but do not inject it into every desktop process by
 # default. Global capture hooks are convenient for streamers, but they can become
 # another compatibility variable for games and GPU apps. `ujust install-obs`
