@@ -278,6 +278,34 @@ class UpdateCheckWorker(QThread):
             self.result.emit("available", remote_ts)
 
 
+# ── Firmware check worker ──────────────────────────────────────────────────────
+class FirmwareCheckWorker(QThread):
+    """Query fwupd for pending firmware updates (non-blocking background check).
+
+    Emits result(count, summary) where count is:
+      -1  fwupd unavailable or hard error
+       0  up to date
+       n  number of devices with pending updates
+    """
+    result = Signal(int, str)
+
+    def run(self):
+        _run_command(["fwupdmgr", "refresh", "--force"], timeout=30)
+        updates = _run_command(["fwupdmgr", "get-updates"], timeout=20)
+        if updates is None:
+            self.result.emit(-1, "fwupd not available.")
+            return
+        if updates.returncode == 2 or not updates.stdout.strip():
+            # exit code 2 = nothing to update
+            self.result.emit(0, "")
+            return
+        if updates.returncode != 0:
+            self.result.emit(-1, updates.stdout.strip() or "fwupdmgr get-updates failed.")
+            return
+        count = max(1, updates.stdout.count("Device ID:"))
+        self.result.emit(count, updates.stdout.strip())
+
+
 # ── Changelog worker ───────────────────────────────────────────────────────────
 class ChangelogWorker(QThread):
     """Fetches OCI revision annotations for the booted and latest remote images so the

@@ -5,7 +5,7 @@ from datetime import datetime
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    DownloadMonitor, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_timestamp, _bootc_proxy_running, _bootc_status_data, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
+    DownloadMonitor, FirmwareCheckWorker, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_timestamp, _bootc_proxy_running, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
     QCheckBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QVBoxLayout, Qt,
@@ -210,6 +210,36 @@ class UpdatePage(Page):
         self._reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
         self._add(self._reboot_btn)
 
+        # ── Firmware updates ──────────────────────────────────────────────────
+        fw_card, fw_layout = _make_card()
+        fw_header = QHBoxLayout()
+        fw_header.setSpacing(12)
+        self._fw_icon = QLabel("↻")
+        self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+        self._fw_icon.setFixedWidth(32)
+        fw_text_col = QVBoxLayout()
+        fw_text_col.setSpacing(2)
+        fw_title = QLabel("Firmware updates")
+        fw_title.setObjectName("card-title")
+        self._fw_status_lbl = QLabel("Checking for firmware updates…")
+        self._fw_status_lbl.setObjectName("card-copy")
+        self._fw_status_lbl.setWordWrap(True)
+        fw_text_col.addWidget(fw_title)
+        fw_text_col.addWidget(self._fw_status_lbl)
+        self._fw_btn = QPushButton("Update Firmware")
+        self._fw_btn.setObjectName("primary")
+        self._fw_btn.setMinimumWidth(150)
+        self._fw_btn.hide()
+        self._fw_btn.clicked.connect(self._run_firmware_update)
+        fw_btn_col = QVBoxLayout()
+        fw_btn_col.addWidget(self._fw_btn)
+        fw_btn_col.addStretch()
+        fw_header.addLayout(fw_text_col, 1)
+        fw_header.addLayout(fw_btn_col)
+        fw_layout.addLayout(fw_header)
+        self._fw_check_worker = None
+        self._add(fw_card)
+
         # ── Automatic update schedule ─────────────────────────────────────────
         auto_card, auto_layout = _make_card()
         auto_title = QLabel("Automatic updates")
@@ -265,6 +295,7 @@ class UpdatePage(Page):
     def _set_buttons_enabled(self, enabled: bool):
         self._topgrade_btn.setEnabled(enabled)
         self._os_btn.setEnabled(enabled)
+        self._fw_btn.setEnabled(enabled)
         rollback_ok = enabled and _has_rollback_deployment()
         self._rollback_btn.setEnabled(rollback_ok)
 
@@ -533,7 +564,6 @@ class UpdatePage(Page):
     def _on_done(self, code: int):
         self._heartbeat.stop()
         self._stop_dl_monitor()
-        _bootc_status_data.cache_clear()
         self._progress.hide()
         self._cancel_btn.hide()
         self._cancel_note.hide()
@@ -548,6 +578,16 @@ class UpdatePage(Page):
             self._log.append("\nCancelled. You can start the update again when ready.")
             self._check_for_update()
         elif code == 0:
+            if self._mode == "firmware":
+                self._status_lbl.setText("Firmware updates queued — reboot to flash.")
+                self._status_lbl.setObjectName("status-ok")
+                self._log.append("\nDone. Firmware will be applied during the next reboot (EFI capsule).")
+                self._reboot_btn.show()
+                self._fw_btn.hide()
+                self._fw_status_lbl.setText("Firmware update queued — reboot to apply.")
+                self._fw_icon.setText("✓")
+                self._fw_icon.setStyleSheet("font-size: 22px; color: #4fc1ff;")
+                return
             if self._mode == "rollback":
                 self._status_lbl.setText("Rollback staged — restart to return to the previous system.")
                 self._status_lbl.setObjectName("status-warn")
@@ -580,6 +620,7 @@ class UpdatePage(Page):
             label = {
                 "topgrade": "topgrade", "update": "bootc upgrade",
                 "rollback": "bootc rollback", "switch": "bootc switch",
+                "firmware": "fwupdmgr upgrade",
             }.get(self._mode, "operation")
             self._status_lbl.setText(f"{label} failed (exit code {code}).")
             self._status_lbl.setObjectName("status-err")
@@ -643,6 +684,7 @@ class UpdatePage(Page):
         super().showEvent(event)
         if self._check_state == "idle":
             self._check_for_update()
+        self._check_firmware()
 
     def _check_for_update(self):
         if self._check_worker and self._check_worker.isRunning():
@@ -781,3 +823,50 @@ class UpdatePage(Page):
             )
         except Exception:
             pass
+
+    # ── Firmware update ───────────────────────────────────────────────────────
+
+    def _check_firmware(self) -> None:
+        if self._fw_check_worker is not None and self._fw_check_worker.isRunning():
+            return
+        if self._worker is not None:
+            return
+        self._fw_icon.setText("↻")
+        self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+        self._fw_status_lbl.setText("Checking for firmware updates…")
+        self._fw_btn.hide()
+        self._fw_check_worker = FirmwareCheckWorker()
+        self._fw_check_worker.result.connect(self._on_firmware_check_result)
+        self._fw_check_worker.finished.connect(self._fw_check_worker.deleteLater)
+        self._fw_check_worker.start()
+
+    def _on_firmware_check_result(self, count: int, summary: str) -> None:
+        self._fw_check_worker = None
+        if count < 0:
+            self._fw_icon.setText("—")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+            self._fw_status_lbl.setText("fwupd not available.")
+            self._fw_btn.hide()
+        elif count == 0:
+            self._fw_icon.setText("✓")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #4caf50;")
+            self._fw_status_lbl.setText("Firmware up to date.")
+            self._fw_btn.hide()
+        else:
+            noun = "update" if count == 1 else "updates"
+            self._fw_icon.setText("↓")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #d4a843;")
+            self._fw_status_lbl.setText(
+                f"{count} firmware {noun} available. "
+                "Updates download now and are flashed during the next reboot."
+            )
+            if self._worker is None:
+                self._fw_btn.show()
+
+    def _run_firmware_update(self) -> None:
+        self._start_operation(
+            "firmware",
+            "Updating firmware…",
+            ["fwupdmgr", "upgrade", "--no-reboot-check"],
+            "Firmware Update",
+        )
