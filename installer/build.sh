@@ -275,6 +275,7 @@ chmod +x /var/lib/livesys/livesys-session-extra
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
 kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
 	grep -v cachyos | sort -V | tail -n 1)
+[[ -n "$kernel" ]] || { echo "ERROR: no non-cachyos kernel in /usr/lib/modules — dracut cannot build live initramfs" >&2; exit 1; }
 /usr/libexec/kyth-plymouth-branding-guard
 plymouth-set-default-theme kyth
 mkdir -p /etc/plymouth /usr/share/plymouth

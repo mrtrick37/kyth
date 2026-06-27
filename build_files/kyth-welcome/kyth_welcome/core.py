@@ -1,4 +1,3 @@
-import functools
 import glob
 import hashlib
 import os
@@ -472,7 +471,6 @@ def _bootc_status_text() -> str:
     return ""
 
 
-@functools.cache
 def _bootc_status_data() -> dict | None:
     for cmd in (["sudo", "-n", "bootc", "status", "--json"], ["bootc", "status", "--json"]):
         result = _run_command(cmd, timeout=10)

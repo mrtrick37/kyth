@@ -1455,6 +1455,20 @@ install-obs:
     echo "OBS Studio installed. Launch it from the app menu."
     echo "obs-vkcapture is enabled for Vulkan/OpenGL game capture."
 
+# Enable OBS game capture (obs-vkcapture) system-wide for the current user.
+# Use this if you run OBS outside Flatpak (e.g. a native build).
+# Flatpak OBS users don't need this — install-obs already sets it per-app.
+[group('KythOS')]
+enable-obs-capture:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    mkdir -p "${HOME}/.config/environment.d"
+    printf 'OBS_VKCAPTURE=1\n' > "${HOME}/.config/environment.d/obs-vkcapture.conf"
+    echo "OBS_VKCAPTURE=1 written to ~/.config/environment.d/obs-vkcapture.conf"
+    echo "Log out and back in (or reboot) to apply."
+    echo
+    echo "To disable:  rm ~/.config/environment.d/obs-vkcapture.conf"
+
 # Install the Itch.io desktop app — indie game store and library manager.
 [group('KythOS')]
 install-itch:

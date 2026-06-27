@@ -632,12 +632,6 @@ DXVK_LOG_LEVEL=none
 VKD3D_CONFIG=dxr11,dxr
 PROTONEOF
 
-# obs-vkcapture: make game capture available by default for OBS users. The layer
-# is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
-# a Nobara-like "works without launch-option archaeology" setup.
-cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
-OBS_VKCAPTURE=1
-OBSVKCAPTUREEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
 # PROTON_ENABLE_NVAPI tells Proton to emulate NVIDIA's API layer.  It is only
