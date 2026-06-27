@@ -1231,11 +1231,11 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
 .confidence-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.confidence-chip{border:1px solid var(--border);background:rgba(14,20,27,.84);border-radius:8px;padding:11px}.confidence-chip strong{display:block;font-size:12px;color:var(--text);margin-bottom:2px}.confidence-chip span{font-size:11px;color:var(--muted)}.confidence-chip.ok{border-color:rgba(86,213,182,.42);background:rgba(86,213,182,.08)}.confidence-chip.warn{border-color:rgba(244,189,97,.4);background:rgba(244,189,97,.08)}
 .progress-bar{height:10px;background:#0e141b;border:1px solid var(--border);border-radius:999px;overflow:hidden;margin:18px 0}.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),#59b6ff);width:0%;transition:width .25s ease;box-shadow:0 0 18px rgba(53,208,170,.35)}.phase-rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:16px 0 8px}.phase-pill{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(18,24,32,.86);color:var(--muted);font-size:12px;font-weight:700}.phase-pill::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--border-strong);margin-right:7px}.phase-pill.active{color:var(--text);border-color:rgba(53,208,170,.5);background:rgba(53,208,170,.1)}.phase-pill.active::before{background:var(--accent)}pre.log{background:#070b10;border:1px solid var(--border);border-radius:8px;padding:14px;color:#c7d1da;font-family:var(--mono);font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
 .success-mark{width:62px;height:62px;border-radius:16px;background:linear-gradient(135deg,var(--accent),#59b6ff);display:grid;place-items:center;color:#06110f;font-size:32px;margin:0 auto 18px;box-shadow:0 16px 38px rgba(53,208,170,.22)}.error-mark{width:62px;height:62px;border-radius:16px;background:rgba(255,111,134,.14);border:1px solid rgba(255,111,134,.45);display:grid;place-items:center;color:var(--red);font-size:32px;margin:0 auto 18px}
+.page{display:none}.page.active{display:block}
 @media (max-width:860px){body{display:block;overflow:auto}#sidebar{width:100%;min-width:0;position:static;padding:16px;flex-direction:row;overflow:auto}.logo{display:none}.step{min-width:max-content}#main{padding:22px 16px}.mode-grid,.form-grid,.confidence-grid,.phase-rail{grid-template-columns:1fr}h1{font-size:27px}.btn-row{flex-direction:column-reverse}.btn{width:100%}}
 </style>
 </head>
 <body>
-<div id="app">
 
 <nav id="sidebar">
   <div class="logo">KythOS</div>
@@ -1250,7 +1250,7 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
   <div class="sidebar-footer">kyth installer</div>
 </nav>
 
-<div id="content">
+<div id="main">
 
   <!-- Welcome -->
   <div class="page active" id="page-welcome">
@@ -1481,8 +1481,7 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
     </div>
   </div>
 
-</div><!-- #content -->
-</div><!-- #app -->
+</div><!-- #main -->
 
 <script>
 const S = { disk: null, install_mode: 'wipe', target_partition: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
