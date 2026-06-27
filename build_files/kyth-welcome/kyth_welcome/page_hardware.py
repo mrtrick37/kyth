@@ -4,7 +4,7 @@ import time
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    HardwareProbe, HardwareProbeWorker, _command_stdout, _finish_worker, _restyle,
+    DataWorker, HardwareProbe, HardwareProbeWorker, _command_stdout, _finish_worker, _restyle,
 )
 from .qt import (  # noqa: E501
     QDesktopServices, QFrame, QGridLayout, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTimer, QUrl, QVBoxLayout, QWidget, Signal,
@@ -24,6 +24,9 @@ class HardwarePage(Page):
         self._navigate = navigate or (lambda key: self.action_requested.emit(key))
         self._cards: list[HardwareCard] = []
         self._last_probes: list[HardwareProbe] = []
+        self._initial_refresh_started = False
+        self._display_worker: DataWorker | None = None
+        self._display_status_lbl: QLabel | None = None
 
         self._page_header(
             "System",
@@ -84,16 +87,16 @@ class HardwarePage(Page):
         self._add(self._make_display_card())
 
         self._stretch()
-        self.refresh()
 
-    def _make_display_card(self) -> QFrame:
-        card, layout = _make_card()
-        title = QLabel("Display — HDR & Variable Refresh Rate")
-        title.setObjectName("card-title")
-        layout.addWidget(title)
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_refresh_started:
+            return
+        self._initial_refresh_started = True
+        QTimer.singleShot(0, self.refresh)
+        QTimer.singleShot(0, self._refresh_display_status)
 
-        # Read current display state via kscreen-doctor
-        raw = _command_stdout(["kscreen-doctor", "-o"], timeout=6)
+    def _display_status_text(self, raw: str) -> str:
         hdr_outputs: list[tuple[str, str]] = []   # (name, hdr_state)
         vrr_outputs: list[tuple[str, str]] = []   # (name, vrr_state)
         if raw:
@@ -121,9 +124,37 @@ class HardwarePage(Page):
             for name, vrr in vrr_outputs:
                 if name not in seen:
                     lines.append(f"{name}: VRR {vrr}")
-            status_lbl = QLabel("\n".join(lines))
-        else:
-            status_lbl = QLabel("Display info unavailable — kscreen not running or no outputs detected.")
+            return "\n".join(lines)
+        return "Display info unavailable — kscreen not running or no outputs detected."
+
+    def _refresh_display_status(self):
+        if self._display_worker is not None or self._display_status_lbl is None:
+            return
+        self._display_worker = DataWorker(
+            "display",
+            lambda: _command_stdout(["kscreen-doctor", "-o"], timeout=6),
+        )
+        self._display_worker.result.connect(self._on_display_status_ready)
+        self._display_worker.failed.connect(self._on_display_status_failed)
+        self._display_worker.finished.connect(lambda: setattr(self, "_display_worker", None))
+        self._display_worker.start()
+
+    def _on_display_status_ready(self, _key: str, raw: object):
+        if self._display_status_lbl is not None:
+            self._display_status_lbl.setText(self._display_status_text(str(raw or "")))
+
+    def _on_display_status_failed(self, _key: str, _message: str):
+        if self._display_status_lbl is not None:
+            self._display_status_lbl.setText("Display info unavailable — kscreen not running or no outputs detected.")
+
+    def _make_display_card(self) -> QFrame:
+        card, layout = _make_card()
+        title = QLabel("Display — HDR & Variable Refresh Rate")
+        title.setObjectName("card-title")
+        layout.addWidget(title)
+
+        status_lbl = QLabel("Checking display capabilities…")
+        self._display_status_lbl = status_lbl
         status_lbl.setObjectName("card-copy")
         status_lbl.setWordWrap(True)
         layout.addWidget(status_lbl)

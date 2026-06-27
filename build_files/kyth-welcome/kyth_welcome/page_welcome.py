@@ -114,8 +114,9 @@ class WelcomePage(Page):
         branch = _branch_display_name(_current_branch())
         staged = _has_staged_update()
         rollback = _has_rollback_deployment()
-        kernel = _command_stdout(["uname", "-r"], timeout=5) or "unknown"
-        hostname = _command_stdout(["hostname"], timeout=5) or "This PC"
+        uname = os.uname()
+        kernel = uname.release or "unknown"
+        hostname = uname.nodename or "This PC"
         windows_found = bool(_find_ntfs_drives())
 
         # Device summary row, like the device card at the top of Settings
@@ -150,9 +151,10 @@ class WelcomePage(Page):
         # ── NTFS Steam library warning ────────────────────────────────────────
         # Proton on a Windows-formatted drive fails in ways that read as
         # "Linux gaming is broken"; catch it here before the first bad evening.
-        ntfs_libs = [] if _IS_LIVE else _steam_libraries_on_ntfs()
-        if ntfs_libs:
-            self._add(self._make_ntfs_library_card(ntfs_libs))
+        self._ntfs_library_insert_index = self._layout.count()
+        self._ntfs_library_worker: DataWorker | None = None
+        if not _IS_LIVE:
+            QTimer.singleShot(0, self._refresh_ntfs_library_warning)
 
         # ── First-week tips: the things people discover too late ─────────────
         days = None if _IS_LIVE else _first_week_days()
@@ -345,6 +347,22 @@ class WelcomePage(Page):
         btns.addStretch()
         layout.addLayout(btns)
         return card
+
+    def _refresh_ntfs_library_warning(self):
+        if self._ntfs_library_worker is not None:
+            return
+        self._ntfs_library_worker = DataWorker("ntfs-libraries", _steam_libraries_on_ntfs)
+        self._ntfs_library_worker.result.connect(self._on_ntfs_library_warning_ready)
+        self._ntfs_library_worker.failed.connect(lambda _key, _message: None)
+        self._ntfs_library_worker.finished.connect(lambda: setattr(self, "_ntfs_library_worker", None))
+        self._ntfs_library_worker.start()
+
+    def _on_ntfs_library_warning_ready(self, _key: str, libs: object):
+        if not libs:
+            return
+        card = self._make_ntfs_library_card(list(libs))
+        self._layout.insertWidget(self._ntfs_library_insert_index, card)
+        _restyle(card)
 
     def _make_first_week_card(self, days: int) -> QFrame:
         card, layout = _make_card("card-accent-ok")

@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from pathlib import Path
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
@@ -14,6 +15,13 @@ from .widgets import (  # noqa: E501
     Page, _make_card, _make_flow_step, _set_log_panel,
 )
 
+
+def _read_sys_text(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
+
 # ── Page: Repair ──────────────────────────────────────────────────────────────
 class RepairPage(Page):
     def __init__(self, navigate=None):
@@ -22,6 +30,7 @@ class RepairPage(Page):
         self._snapshot_worker = None
         self._assist_worker = None
         self._setup_worker = None
+        self._has_rollback = _has_rollback_deployment()
         self._setup_operation = ""
         self._navigate = navigate or (lambda _key: None)
 
@@ -88,7 +97,7 @@ class RepairPage(Page):
         self._add(immutable)
 
         # Undo last update
-        rollback, rollback_layout = _make_card("card-accent-warn" if _has_rollback_deployment() else None)
+        rollback, rollback_layout = _make_card("card-accent-warn" if self._has_rollback else None)
         rollback_title = QLabel("Undo last update")
         rollback_title.setObjectName("card-title")
         rollback_layout.addWidget(rollback_title)
@@ -99,7 +108,7 @@ class RepairPage(Page):
                 "your files, saves, and projects in /home stay in place."
                 + (f"\n\nPrevious image built: {rollback_ts}" if rollback_ts else "")
             )
-            if _has_rollback_deployment()
+            if self._has_rollback
             else (
                 "No previous system image is available right now. After the next OS update, "
                 "KythOS will keep a rollback target here so you can undo a bad update."
@@ -113,7 +122,7 @@ class RepairPage(Page):
         self._rollback_repair_btn = QPushButton("Rollback and Reboot")
         self._rollback_repair_btn.setObjectName("primary")
         self._rollback_repair_btn.setToolTip("Activate the previous OS image on the next boot. Your files in /home stay untouched.")
-        self._rollback_repair_btn.setEnabled(_has_rollback_deployment())
+        self._rollback_repair_btn.setEnabled(self._has_rollback)
         self._rollback_repair_btn.clicked.connect(self._run_rollback)
         rollback_btns.addWidget(self._rollback_repair_btn)
         update_btn = QPushButton("Open Update Page")
@@ -472,8 +481,8 @@ class RepairPage(Page):
         sleep_title.setObjectName("card-title")
         sleep_layout.addWidget(sleep_title)
 
-        mem_sleep = _command_stdout(["cat", "/sys/power/mem_sleep"], timeout=3)
-        sleep_state = _command_stdout(["cat", "/sys/power/state"], timeout=3)
+        mem_sleep = _read_sys_text("/sys/power/mem_sleep")
+        sleep_state = _read_sys_text("/sys/power/state")
         current_mode = "unknown"
         if "[deep]" in mem_sleep:
             current_mode = "S3 deep (good)"

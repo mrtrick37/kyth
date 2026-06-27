@@ -13,7 +13,7 @@ from .core import (  # noqa: E501
     DataWorker, HardwareProbe, HardwareProbeWorker, _command_stdout, _diagnostics_report, _finish_worker, _has_rollback_deployment, _has_staged_update, _health_command_report, _health_recommendations, _release_worker_when_finished, _restyle,
 )
 from .qt import (  # noqa: E501
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QTimer, QVBoxLayout, QWidget,
 )
 from .widgets import (  # noqa: E501
     ActionRow, EmptyState, HardwareCard, Page, _make_card, _make_flow_step,
@@ -165,6 +165,7 @@ class DiagnosticsPage(Page):
         super().__init__()
         self._worker = None
         self._health_worker = None
+        self._initial_refresh_started = False
         self._last_probes: list[HardwareProbe] = []
         self._base_report = ""
         self._health_report = ""
@@ -250,7 +251,13 @@ class DiagnosticsPage(Page):
         self._add(self._make_storage_sense_card())
 
         self._stretch()
-        self.refresh()
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_refresh_started:
+            return
+        self._initial_refresh_started = True
+        QTimer.singleShot(0, self.refresh)
+
 
     def _set_status(self, state: str, text: str) -> None:
         self._status_lbl.set_state(state, text)

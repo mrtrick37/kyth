@@ -7,7 +7,7 @@ from .core import (  # noqa: E501
     DataWorker, HardwareProbe, _release_worker_when_finished,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QLabel, QVBoxLayout, Qt,
+    QFrame, QHBoxLayout, QLabel, QTimer, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
     ActionRow, CommandResultPanel, HardwareCard, Page, _make_card,
@@ -251,6 +251,7 @@ DESKTOP_PROFILES = {
 class PlasmaWaylandPage(Page):
     def __init__(self):
         super().__init__()
+        self._initial_refresh_started = False
         self._worker = None
         self._page_header(
             "System",
@@ -291,7 +292,12 @@ class PlasmaWaylandPage(Page):
 
         self._stretch()
 
-        self.refresh()
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_refresh_started:
+            return
+        self._initial_refresh_started = True
+        QTimer.singleShot(0, self.refresh)
 
     def _make_settings_card(self) -> QFrame:
         card, layout = _make_card()

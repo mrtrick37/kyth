@@ -5,7 +5,7 @@ from .core import (  # noqa: E501
     REGISTRY, Worker, _bootc_cancel_block_reason, _branch_display_name, _command_stdout, _current_branch, _current_kernel_flavor, _finish_worker, _image_tag_for_kernel, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
-    QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit,
+    QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card, _set_log_panel,
@@ -16,6 +16,7 @@ class KernelPage(Page):
     def __init__(self):
         super().__init__()
         self._worker = None
+        self._initial_refresh_started = False
         self._current_phase = ""
         self._cancel_blocked = False
         self._cancel_block_reason = ""
@@ -124,7 +125,12 @@ class KernelPage(Page):
         self._reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
         self._add(self._reboot_btn)
         self._stretch()
-        self._refresh()
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_refresh_started:
+            return
+        self._initial_refresh_started = True
+        QTimer.singleShot(0, self._refresh)
 
     def _refresh(self):
         flavor = _current_kernel_flavor()
