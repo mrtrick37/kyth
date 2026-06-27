@@ -767,6 +767,17 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
+# ── topgrade defaults — disable steps that don't apply or cause noise ─────────
+# helix: grammar fetch fails when git picks up a stale VS Code credential-helper
+#   socket (GIT_ASKPASS), producing spurious auth errors; Helix ships grammars
+#   bundled with the binary so grammar fetching is not needed during routine updates.
+# system/distrobox/containers/toolbx: managed separately by KythOS tooling.
+mkdir -p /etc/skel/.config
+cat >/etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+[misc]
+disable = ["system", "distrobox", "containers", "toolbx", "helix"]
+TOPGRADEEOF
+
 # ── Font rendering — sharp LCD defaults ──────────────────────────────────────
 # Linux freetype defaults vary by distro; Fedora's are conservative. hintfull
 # snaps stems to pixel boundaries for maximum on-screen crispness (matches the
