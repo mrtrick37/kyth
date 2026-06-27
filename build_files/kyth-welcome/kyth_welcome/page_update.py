@@ -354,6 +354,8 @@ class UpdatePage(Page):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
+        if self._worker is None:
+            return
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.setText("Cancelling…")
         self._cancel_note.setText("Cancel requested. Waiting for the update process to stop cleanly…")

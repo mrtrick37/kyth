@@ -27,6 +27,7 @@ class HardwarePage(Page):
         self._initial_refresh_started = False
         self._display_worker: DataWorker | None = None
         self._display_status_lbl: QLabel | None = None
+        self._bt_worker: DataWorker | None = None
 
         self._page_header(
             "System",
@@ -235,68 +236,91 @@ class HardwarePage(Page):
         layout.addLayout(btns)
         return card
 
+    def _start_bt_worker(self, key: str, fn, on_result, on_failed=None):
+        self._bt_worker = DataWorker(key, fn)
+        self._bt_worker.result.connect(on_result)
+        if on_failed:
+            self._bt_worker.failed.connect(on_failed)
+        else:
+            self._bt_worker.failed.connect(lambda _k, err: self._bt_status_lbl.setText(f"Bluetooth operation failed: {err}"))
+        self._bt_worker.finished.connect(lambda: setattr(self, "_bt_worker", None))
+        self._bt_worker.start()
+
     def _refresh_bt_audio(self):
-        paired = _command_stdout(["bluetoothctl", "devices", "Paired"], timeout=5)
-        connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
-        connected_addrs = {
-            line.split()[1] for line in connected.splitlines()
-            if len(line.split()) >= 2
-        }
-        sinks_raw = _command_stdout(
-            ["bash", "-c", "wpctl status 2>/dev/null | grep -E 'bluez_output' | head -8"],
-            timeout=5,
-        )
-        lines: list[str] = []
-        for line in paired.splitlines():
-            parts = line.split(" ", 2)
-            if len(parts) < 3:
-                continue
-            addr, name = parts[1], parts[2]
-            state = "Connected" if addr in connected_addrs else "Paired (not connected)"
-            lines.append(f"{name}  [{addr}]  —  {state}")
-        if sinks_raw.strip():
-            lines.append(f"\nWirePlumber BT sinks:\n{sinks_raw.strip()}")
-        self._bt_status_lbl.setText(
-            "\n".join(lines) if lines
-            else "No paired Bluetooth devices found. Pair a headset via Bluetooth Settings."
-        )
+        self._bt_status_lbl.setText("Scanning Bluetooth devices…")
+
+        def _collect() -> str:
+            paired = _command_stdout(["bluetoothctl", "devices", "Paired"], timeout=5)
+            connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
+            connected_addrs = {
+                line.split()[1] for line in connected.splitlines()
+                if len(line.split()) >= 2
+            }
+            sinks_raw = _command_stdout(
+                ["bash", "-c", "wpctl status 2>/dev/null | grep -E 'bluez_output' | head -8"],
+                timeout=5,
+            )
+            lines: list[str] = []
+            for line in paired.splitlines():
+                parts = line.split(" ", 2)
+                if len(parts) < 3:
+                    continue
+                addr, name = parts[1], parts[2]
+                state = "Connected" if addr in connected_addrs else "Paired (not connected)"
+                lines.append(f"{name}  [{addr}]  —  {state}")
+            if sinks_raw.strip():
+                lines.append(f"\nWirePlumber BT sinks:\n{sinks_raw.strip()}")
+            return "\n".join(lines) if lines else "No paired Bluetooth devices found. Pair a headset via Bluetooth Settings."
+
+        self._start_bt_worker("bt-refresh", _collect,
+                              lambda _k, text: self._bt_status_lbl.setText(str(text)))
 
     def _switch_to_bt_audio(self):
-        result = subprocess.run(
-            ["bash", "-c",
-             "wpctl status 2>/dev/null | grep -E '\\bbluez_output' | head -1"
-             " | awk '{print $1}' | tr -d '.*'"],
-            capture_output=True, text=True, timeout=5,
-        )
-        sink_id = result.stdout.strip()
-        if sink_id:
-            subprocess.run(["wpctl", "set-default", sink_id], timeout=5, check=False)
-            self._bt_status_lbl.setText(
-                f"Audio output switched to Bluetooth device (WirePlumber ID: {sink_id}). "
-                "If the change doesn't take effect, log out and back in."
+        self._bt_status_lbl.setText("Switching audio output to Bluetooth…")
+
+        def _do_switch() -> str:
+            result = subprocess.run(
+                ["bash", "-c",
+                 "wpctl status 2>/dev/null | grep -E '\\bbluez_output' | head -1"
+                 " | awk '{print $1}' | tr -d '.*'"],
+                capture_output=True, text=True, timeout=5,
             )
-        else:
-            self._bt_status_lbl.setText(
-                "No Bluetooth audio output found. Make sure your headset is connected, then refresh."
-            )
+            sink_id = result.stdout.strip()
+            if sink_id:
+                subprocess.run(["wpctl", "set-default", sink_id], timeout=5, check=False)
+                return (
+                    f"Audio output switched to Bluetooth device (WirePlumber ID: {sink_id}). "
+                    "If the change doesn't take effect, log out and back in."
+                )
+            return "No Bluetooth audio output found. Make sure your headset is connected, then refresh."
+
+        self._start_bt_worker("bt-switch", _do_switch,
+                              lambda _k, text: self._bt_status_lbl.setText(str(text)))
 
     def _force_ldac_reconnect(self):
-        connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
-        for line in connected.splitlines():
-            parts = line.split(" ", 2)
-            if len(parts) < 2:
-                continue
-            addr = parts[1]
-            self._bt_status_lbl.setText(f"Reconnecting {addr} to renegotiate codec…")
-            subprocess.run(["bluetoothctl", "disconnect", addr], timeout=6, check=False)
-            time.sleep(1.5)
-            subprocess.run(["bluetoothctl", "connect", addr], timeout=12, check=False)
-            self._bt_status_lbl.setText(
-                f"Reconnected {addr}. LDAC should now be active if your device supports it. "
-                "Refresh Devices to confirm the WirePlumber sink is present."
-            )
-            return
-        self._bt_status_lbl.setText("No connected Bluetooth device found. Connect your headset first.")
+        self._bt_status_lbl.setText("Looking for connected Bluetooth device…")
+
+        def _do_reconnect() -> str:
+            connected = _command_stdout(["bluetoothctl", "devices", "Connected"], timeout=5)
+            for line in connected.splitlines():
+                parts = line.split(" ", 2)
+                if len(parts) < 2:
+                    continue
+                addr = parts[1]
+                subprocess.run(["bluetoothctl", "disconnect", addr], timeout=6, check=False)
+                time.sleep(1.5)
+                subprocess.run(["bluetoothctl", "connect", addr], timeout=12, check=False)
+                return (
+                    f"Reconnected {addr}. LDAC should now be active if your device supports it. "
+                    "Refresh Devices to confirm the WirePlumber sink is present."
+                )
+            return ""
+
+        def _on_done(_key: str, msg: object) -> None:
+            text = str(msg) if msg else "No connected Bluetooth device found. Connect your headset first."
+            self._bt_status_lbl.setText(text)
+
+        self._start_bt_worker("ldac-reconnect", _do_reconnect, _on_done)
 
     def refresh(self):
         self._refresh_btn.setEnabled(False)

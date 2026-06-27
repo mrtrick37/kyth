@@ -600,6 +600,7 @@ qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || qdbus-qt6 org.kde.KWin 
             return "Capability appears in display probe"
         return "Not advertised by current display probe"
 
+    @staticmethod
     def _plasma_polish_command() -> list[str]:
         script = r"""
 set -euo pipefail
