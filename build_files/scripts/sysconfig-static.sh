@@ -833,6 +833,7 @@ WPEOF
 # default. Global capture hooks are convenient for streamers, but they can become
 # another compatibility variable for games and GPU apps. `ujust install-obs`
 # enables OBS_VKCAPTURE for the OBS Flatpak specifically.
+mkdir -p /etc/environment.d
 cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
 # OBS_VKCAPTURE intentionally left unset globally.
 OBSVKCAPTUREEOF
