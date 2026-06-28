@@ -630,6 +630,15 @@ DXVK_LOG_LEVEL=none
 # won't expose RT to the game unless the GPU Vulkan driver actually supports the
 # VK_KHR_ray_tracing_pipeline extension, so this is safe to set globally.
 VKD3D_CONFIG=dxr11,dxr
+# VKD3D-Proton logs at "warn" level by default — noisy in the journal.
+# Matches DXVK_LOG_LEVEL=none above.
+VKD3D_LOG_LEVEL=none
+# MangoHud: fall back to dlsym hooking for older OpenGL games that dlopen libGL
+# rather than linking it at load time. Safe to set globally; no-op for Vulkan.
+MANGOHUD_DLSYM=1
+# Prevent Steam from spawning a renderer subprocess for the built-in browser
+# when it is not in use — saves ~100 MB of resident memory.
+STEAM_DISABLE_BROWSER_SUBPROCESS=1
 PROTONEOF
 
 
@@ -652,6 +661,11 @@ if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
     # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
     # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
     echo "__GL_THREADED_OPTIMIZATIONS=1"
+    # Keep the NVIDIA OpenGL shader disk cache and prevent automatic pruning.
+    # Without these, NVIDIA deletes cached shaders when the cache grows beyond
+    # a threshold, forcing recompilation stutter every N launches.
+    echo "__GL_SHADER_DISK_CACHE=1"
+    echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
     # nvidia-vaapi-driver: libva will not auto-detect the NVIDIA backend without
     # an explicit driver name. NVD_BACKEND=direct uses the NvDecode API directly
     # (avoids the deprecated CUDA path; works on Turing/Ampere/Ada without CUDA).
@@ -725,6 +739,7 @@ frametime=1
 frame_timing=1
 
 # GPU
+gpu_name
 gpu_stats
 gpu_temp
 gpu_core_clock
@@ -732,6 +747,8 @@ gpu_mem_clock
 vram
 # GPU power draw — a sustained drop toward TDP indicates thermal throttling
 gpu_power
+# Active Vulkan driver (RADV, AMDVLK, ANV, etc.)
+vulkan_driver
 
 # CPU
 cpu_stats
@@ -746,8 +763,12 @@ ram
 # Battery (shown only on systems where a battery is present)
 battery
 
-# Show Wine/Proton version when running Windows games
+# Presentation mode (FIFO=vsync, Immediate=tearing, Mailbox=triple-buffer)
+present_mode
+
+# Wine/Proton layer: show version and translation layer (DXVK/VKD3D) version
 wine
+engine_version
 MANGOHUDEOF
 
 # ── vkBasalt default config ───────────────────────────────────────────────────

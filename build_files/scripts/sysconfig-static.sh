@@ -857,6 +857,11 @@ if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
     # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
     # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
     echo "__GL_THREADED_OPTIMIZATIONS=1"
+    # Keep the NVIDIA OpenGL shader disk cache and prevent automatic pruning.
+    # Without these, NVIDIA deletes cached shaders when the cache grows beyond
+    # a threshold, forcing recompilation stutter every N launches.
+    echo "__GL_SHADER_DISK_CACHE=1"
+    echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
     # nvidia-vaapi-driver: libva will not auto-detect the NVIDIA backend without
     # an explicit driver name. NVD_BACKEND=direct uses the NvDecode API directly
     # (avoids the deprecated CUDA path; works on Turing/Ampere/Ada without CUDA).
