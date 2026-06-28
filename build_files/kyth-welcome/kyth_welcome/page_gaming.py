@@ -154,7 +154,7 @@ class GamingPage(Page):
         self._refresh_game_bar_btn()
         self._add(game_bar_card)
 
-        # ── Windows Game Library ──────────────────────────────────────────────
+        # ── PC Game Library ──────────────────────────────────────────────
         self._win_lib_card, self._win_lib_layout = _make_card("card-accent-ok")
         self._win_lib_card.hide()
         self._add(self._win_lib_card)
@@ -202,9 +202,9 @@ class GamingPage(Page):
         health_top.addWidget(health_refresh)
         health_layout.addLayout(health_top)
         health_desc = QLabel(
-            "Fast checks for the pieces that make Windows games feel plug-and-play: "
+            "Fast checks for the pieces that make PC games feel plug-and-play: "
             "Steam, Proton runners, Vulkan, NTSYNC, launchers, overlays, controllers, "
-            "Windows game drives, and staged OS updates."
+            "PC game drives, and staged OS updates."
         )
         health_desc.setObjectName("card-copy")
         health_desc.setWordWrap(True)
@@ -214,10 +214,10 @@ class GamingPage(Page):
         health_layout.addLayout(self._health_rows_layout)
         self._add(health_card)
 
-        # ── Windows gamer migration checklist ───────────────────────────────
+        # ── PC gamer migration checklist ───────────────────────────────
         checklist_card, checklist_layout = _make_card("card-accent-ok")
         checklist_top = QHBoxLayout()
-        checklist_title = QLabel("Windows Gamer Migration Checklist")
+        checklist_title = QLabel("PC Game Migration Checklist")
         checklist_title.setObjectName("card-title")
         checklist_top.addWidget(checklist_title)
         checklist_top.addStretch()
@@ -374,7 +374,7 @@ class GamingPage(Page):
         self._add(tools_head)
         tools_sub = QLabel(
             "Install the launchers and tools you want. "
-            "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
+            "Bottles is the easiest option for standalone `.exe` and `.msi` installers. "
             "Additional launchers and device tools are available here or via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
@@ -385,14 +385,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.valvesoftware.Steam",
                 "name": "Steam",
-                "desc": "Valve's gaming platform plus Windows games via Proton.",
+                "desc": "Valve's gaming platform plus PC games through Proton.",
                 "ujust": "install-steam",
                 "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
             },
             {
                 "flatpak": "net.lutris.Lutris",
                 "name": "Lutris",
-                "desc": "Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "desc": "Battle.net, EA App, Ubisoft Connect, and other compatibility launchers.",
                 "ujust": "install-lutris",
                 "launch": ["flatpak", "run", "net.lutris.Lutris"],
             },
@@ -406,14 +406,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.usebottles.bottles",
                 "name": "Bottles",
-                "desc": "Best for running standalone Windows .exe and .msi installers in isolated app environments.",
+                "desc": "Best for running standalone .exe and .msi installers in isolated app environments.",
                 "ujust": "install-bottles",
                 "launch": ["flatpak", "run", "com.usebottles.bottles"],
             },
             {
                 "flatpak": "com.github.mtkennerly.ludusavi",
                 "name": "Ludusavi",
-                "desc": "Back up and restore game saves across Steam, Heroic, Lutris, and Windows migrations.",
+                "desc": "Back up and restore game saves across Steam, Heroic, Lutris, and PC migrations.",
                 "ujust": "install-ludusavi",
                 "launch": ["flatpak", "run", "com.github.mtkennerly.ludusavi"],
             },
@@ -576,7 +576,7 @@ class GamingPage(Page):
         streaming_top.addWidget(streaming_refresh)
         streaming_layout.addLayout(streaming_top)
         streaming_desc = QLabel(
-            "Windows gamers bring Discord, OBS, capture, microphones, and screen share "
+            "PC gamers bring Discord, OBS, capture, microphones, and screen share "
             "expectations with them. This checks the pieces that make that feel normal."
         )
         streaming_desc.setObjectName("card-copy")
@@ -1050,23 +1050,23 @@ class GamingPage(Page):
         self._active_gaming_section = "migration"
         # ── Steam Library Migration ────────────────────────────────────────────
         self._divider()
-        migrate_head = QLabel("Steam Library — Migrate from Windows")
+        migrate_head = QLabel("Steam Library — Migrate from another system")
         migrate_head.setObjectName("heading")
         migrate_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(migrate_head)
         migrate_sub = QLabel(
-            "Dual-booting? Use this tool to copy your Steam library from a Windows "
+            "Dual-booting? Use this tool to copy your Steam library from a other system "
             "NTFS partition directly into Steam on KythOS. The drive is mounted "
-            "read-only — your Windows install is never modified."
+            "read-only — your original install is never modified."
         )
         migrate_sub.setObjectName("card-copy")
         migrate_sub.setWordWrap(True)
         self._add(migrate_sub)
 
         hibernate_warn = QLabel(
-            "⚠  Before scanning: boot Windows and do a full Shut Down (not Restart). "
-            "Windows Fast Startup leaves NTFS volumes in a hibernated state — Linux "
-            "can read them safely read-only, but Windows may report errors on resume "
+            "⚠  Before scanning: boot the other system and do a full Shut Down (not Restart). "
+            "other system Fast Startup leaves NTFS volumes in a hibernated state — Linux "
+            "can read them safely read-only, but other system may report errors on resume "
             "if any other tool writes to the partition. This tool never writes to it."
         )
         hibernate_warn.setObjectName("card-copy")
@@ -1079,7 +1079,7 @@ class GamingPage(Page):
         # Drive selection
         drive_row = QHBoxLayout()
         drive_row.setSpacing(8)
-        drive_lbl = QLabel("Windows drive:")
+        drive_lbl = QLabel("PC drive:")
         drive_lbl.setObjectName("card-copy")
         drive_row.addWidget(drive_lbl)
         self._drive_combo = QComboBox()
@@ -1105,7 +1105,7 @@ class GamingPage(Page):
         self._lib_combo.hide()
         migrate_layout.addWidget(self._lib_combo)
 
-        # Per-game readiness for the scanned Windows library — answers
+        # Per-game readiness for the scanned game library — answers
         # "can I play *my* games?" before any copying happens.
         check_row = QHBoxLayout()
         check_row.setSpacing(8)
@@ -1192,7 +1192,7 @@ class GamingPage(Page):
         saves_layout.addWidget(saves_title)
         saves_desc = QLabel(
             "KythOS recommends Ludusavi for game save backup and restore. Run it "
-            "before a Windows migration, after importing a library, and before "
+            "before a other system migration, after importing a library, and before "
             "large modding sessions."
         )
         saves_desc.setObjectName("card-copy")
@@ -1589,7 +1589,7 @@ class GamingPage(Page):
             ac_badge = QLabel(f"  ⛔ {compat.anticheat}  ")
             ac_badge.setToolTip(
                 f"Blocked by {compat.anticheat} anti-cheat — not supported on Linux. "
-                "No workaround exists; this game requires Windows."
+                "No workaround exists; this game requires other system."
             )
             ac_badge.setStyleSheet(
                 "background:#3a1010; color:#f48771; border:1px solid #f48771;"
@@ -1712,7 +1712,7 @@ class GamingPage(Page):
 
     def _recommended_profile_for_game(self, game) -> str:
         if game.status == "blocked":
-            return "Do not try bypass launch options; use Windows or wait for publisher support."
+            return "Do not try bypass launch options; use other system or wait for publisher support."
         if any(token in game.name.lower() for token in ("cyberpunk", "red dead", "hogwarts")):
             return "kyth-gamescope quality -- %command%"
         if game.anticheat in ("EAC", "BattlEye", "VAC", "Warden"):
@@ -1742,7 +1742,7 @@ class GamingPage(Page):
             else "Do not migrate saves until the game has a supported Linux path."
         )
         mod_note = (
-            "Use the Modding guide before applying Windows mod managers."
+            "Use the Modding guide before applying other system mod managers."
             if game.status != "blocked"
             else "Modding is irrelevant while the game is blocked."
         )
@@ -1936,7 +1936,7 @@ class GamingPage(Page):
         any_dirty = any(p["is_dirty"] or p["is_hibernated"] for p in partitions)
         any_clean = any(not p["is_dirty"] and not p["is_hibernated"] for p in partitions)
 
-        title_lbl = QLabel("Windows Drive Detected")
+        title_lbl = QLabel("other system Drive Detected")
         title_lbl.setObjectName("card-title")
         self._win_lib_layout.addWidget(title_lbl)
 
@@ -1944,10 +1944,10 @@ class GamingPage(Page):
             self._win_lib_card.setObjectName("card-accent-err")
             _restyle(self._win_lib_card)
             warn = QLabel(
-                "⚠  Your Windows partition is in a hibernated or dirty state — "
-                "this means Windows used Fast Startup or wasn't shut down cleanly.\n\n"
+                "⚠  Your system partition is in a hibernated or dirty state — "
+                "this means other system used Fast Startup or wasn't shut down cleanly.\n\n"
                 "To safely import your games:\n"
-                "  1.  Boot into Windows\n"
+                "  1.  Boot into other system\n"
                 "  2.  Open Start → Settings → System → Power & Sleep → Additional power settings\n"
                 "  3.  Click \"Choose what the power buttons do\" → \"Turn on fast startup\" — disable it\n"
                 "  4.  Do a full Shut Down (not Restart)\n"
@@ -1964,13 +1964,13 @@ class GamingPage(Page):
             found_any_steam = any(p["steam_paths"] for p in partitions if not p["is_dirty"])
             if found_any_steam:
                 msg = QLabel(
-                    "✓  Your Windows Steam library was found on this drive.\n"
+                    "✓  Your Steam library was found on this drive.\n"
                     "Use the Steam Library tool below to copy your games to KythOS — "
-                    "the drive is accessed read-only, your Windows install is never touched."
+                    "the drive is accessed read-only, your original install is never touched."
                 )
             else:
                 msg = QLabel(
-                    "✓  A clean Windows drive is available.\n"
+                    "✓  A clean PC drive is available.\n"
                     "Use the Steam Library tool below to scan it and copy games to KythOS."
                 )
             msg.setObjectName("card-copy")
@@ -2562,8 +2562,8 @@ class GamingPage(Page):
                     err = r.stderr.strip()
                     if "hibernate" in err.lower() or "windows" in err.lower():
                         self._migrate_status.setText(
-                            "Mount blocked: Windows did not shut down cleanly (Fast Startup / hibernate). "
-                            "Boot Windows and do a full Shut Down, then try again."
+                            "Mount blocked: The other system did not shut down cleanly (Fast Startup / hibernate). "
+                            "Boot the other system and do a full shut down, then try again."
                         )
                     else:
                         self._migrate_status.setText(f"Mount failed: {err}")
@@ -2783,7 +2783,7 @@ class GamingPage(Page):
         ntsync_ok = os.path.exists("/dev/ntsync")
         items = [
             ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam for your library."),
-            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing Windows games."),
+            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing PC games."),
             ("ok" if vulkan_hint else "err", "Vulkan", "Render device found." if vulkan_hint else "No Vulkan render device found."),
             ("ok" if ntsync_ok else "warn", "NTSYNC", "Ready." if ntsync_ok else "Not active; Proton can fall back safely."),
             ("ok" if _gamescope_installed() else "warn", "Gamescope", "Ready." if _gamescope_installed() else "Install for scaling, HDR, and frame pacing presets."),
@@ -2817,7 +2817,7 @@ class GamingPage(Page):
         title.setObjectName("card-title")
         copy_col.addWidget(title)
         if issue_count:
-            summary = "A couple of core pieces need attention before Windows games will feel smooth."
+            summary = "A couple of core pieces need attention before PC games will feel smooth."
         elif warn_count:
             summary = "The core stack is close. Review the yellow items before benchmarking or migrating."
         else:

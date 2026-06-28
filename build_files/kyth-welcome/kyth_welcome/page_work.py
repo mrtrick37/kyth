@@ -98,7 +98,7 @@ _PST_IMPORT_DIR = os.path.expanduser("~/Documents/Outlook Import")
 
 
 def _scan_for_pst_files() -> list[str]:
-    """Look for Outlook .pst archives in the usual Windows locations."""
+    """Look for Outlook .pst archives in the usual profile locations."""
     found: list[str] = []
     roots = [d.get("mount") for d in _find_ntfs_drives() if d.get("mount")]
     roots.append(os.path.expanduser("~"))
@@ -299,7 +299,7 @@ class WorkSetupPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         copy = QLabel(
-            "Documents from Windows colleagues use fonts like Times New Roman and Arial. "
+            "Documents from other PCs may use fonts like Times New Roman and Arial. "
             "Installing them keeps layouts pixel-identical instead of substituted."
         )
         copy.setObjectName("card-copy")
@@ -366,7 +366,7 @@ class WorkSetupPage(Page):
         btns.setSpacing(8)
         self._pst_scan_btn = QPushButton("Find PST Files")
         self._pst_scan_btn.setObjectName("primary")
-        self._pst_scan_btn.setToolTip("Scans mounted Windows drives and your home folder for Outlook archives.")
+        self._pst_scan_btn.setToolTip("Scans mounted PC drives and your home folder for Outlook archives.")
         self._pst_scan_btn.clicked.connect(self._scan_pst)
         btns.addWidget(self._pst_scan_btn)
         pick_btn = QPushButton("Choose PST File…")
@@ -408,8 +408,8 @@ class WorkSetupPage(Page):
                 item.widget().deleteLater()
         if not paths:
             self._set_pst_status(
-                "No .pst files found. If your Windows drive is not mounted yet, "
-                "scan and unlock it from the Move From Windows page first, or "
+                "No .pst files found. If your PC drive is not mounted yet, "
+                "scan and unlock it from the Move Files page first, or "
                 "use Choose PST File."
             )
             return

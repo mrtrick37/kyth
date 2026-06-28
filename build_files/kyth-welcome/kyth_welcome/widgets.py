@@ -29,8 +29,8 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName(name)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(22, 20, 22, 20)
-    layout.setSpacing(14)
+    layout.setContentsMargins(24, 22, 24, 22)
+    layout.setSpacing(12)
     return card, layout
 
 
@@ -445,16 +445,16 @@ class Page(QWidget):
 
         self._layout = QVBoxLayout(container)
         # Right padding accounts for the 8 px vertical scrollbar overlap
-        self._layout.setContentsMargins(56, 44, 64, 48)
-        self._layout.setSpacing(24)
+        self._layout.setContentsMargins(48, 34, 56, 42)
+        self._layout.setSpacing(18)
 
     def _page_header(self, eyebrow: str, title: str, subtitle: str = "") -> None:
         """Insert a styled header band at the top of the page (above scroll)."""
         hdr = QWidget()
         hdr.setObjectName("page-header")
         hdr_layout = QVBoxLayout(hdr)
-        hdr_layout.setContentsMargins(56, 24, 56, 20)
-        hdr_layout.setSpacing(5)
+        hdr_layout.setContentsMargins(48, 26, 56, 18)
+        hdr_layout.setSpacing(7)
 
         ew = QLabel(eyebrow.upper())
         ew.setObjectName("eyebrow")

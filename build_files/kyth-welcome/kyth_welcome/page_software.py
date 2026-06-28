@@ -103,7 +103,7 @@ class SoftwarePage(Page):
     _STARTER_PACKS = [
         {
             "name": "Gaming",
-            "desc": "Steam, Epic/GOG, Windows launchers, saves, and standalone .exe support.",
+            "desc": "Steam, Epic/GOG, compatibility launchers, saves, and standalone .exe support.",
             "apps": [
                 ("com.valvesoftware.Steam", "Steam", True),
                 ("com.heroicgameslauncher.hgl", "Heroic Games Launcher", True),
@@ -247,13 +247,13 @@ class SoftwarePage(Page):
         ("Edge", "Pin any web app with WebApp Manager, or use Brave Browser.", "com.brave.Browser"),
         # Creative
         ("Photoshop", "Use GIMP for raster editing; Krita is excellent for painting.", "org.gimp.GIMP"),
-        ("Adobe Creative Cloud", "Most Adobe desktop apps do not run cleanly here. Use web apps, native alternatives, or keep a Windows VM/dual boot for those projects.", ""),
+        ("Adobe Creative Cloud", "Most Adobe desktop apps do not run cleanly here. Use web apps, native alternatives, or keep a VM or dual boot for those projects.", ""),
         ("Paint.NET / MS Paint", "Use GIMP for editing or Krita for painting. Kolourpaint is simpler.", "org.gimp.GIMP"),
         ("Illustrator", "Use Inkscape for vector graphics.", "org.inkscape.Inkscape"),
         ("Premiere", "Use Kdenlive or install DaVinci Resolve from Creator tools.", "org.kde.kdenlive"),
         ("After Effects", "Use Kdenlive or Blender's compositor for motion graphics.", "org.kde.kdenlive"),
         # Gaming
-        ("Game Pass / Xbox app", "Use Xbox Cloud Gaming in the browser. Local PC Game Pass installs still need Windows.", "com.brave.Browser"),
+        ("Game Pass / Xbox app", "Use Xbox Cloud Gaming in the browser. Local PC Game Pass installs still need the original platform.", "com.brave.Browser"),
         ("Battle.net", "Use Lutris for Battle.net and Blizzard games.", "net.lutris.Lutris"),
         ("Epic Games", "Use Heroic Games Launcher for Epic, GOG, and Amazon libraries.", "com.heroicgameslauncher.hgl"),
         ("Vortex / MO2", "Use SteamTinkerLaunch per game, or Bottles for standalone mod tools.", ""),
@@ -266,7 +266,7 @@ class SoftwarePage(Page):
         ("Nearby Share / Quick Share", "Use LocalSend across PCs and phones, or KDE Connect for paired devices.", "org.localsend.localsend_app"),
         ("PuTTY", "Use Konsole with built-in SSH: open a terminal and type ssh user@host.", ""),
         # System tools
-        ("Task Manager", "Mission Center looks and works like Windows Task Manager. Installing it here also moves Ctrl+Shift+Esc to open it. (System Monitor is the built-in alternative.)", "io.missioncenter.MissionCenter"),
+        ("Task Manager", "Mission Center looks and works like a familiar task manager. Installing it here also moves Ctrl+Shift+Esc to open it. (System Monitor is the built-in alternative.)", "io.missioncenter.MissionCenter"),
         ("VirtualBox", "Use GNOME Boxes from Flatpak — simpler VM setup for most use cases.", "org.gnome.Boxes"),
         ("CCleaner", "Not needed — KythOS is immutable and self-maintaining. Run 'ujust kyth-upgrade' to update.", ""),
         # Communication & social
@@ -279,10 +279,10 @@ class SoftwarePage(Page):
         ("VLC", "Install VLC from Flatpak — plays everything.", "org.videolan.VLC"),
         ("iTunes", "Use Spotify or a local music player like Lollypop or Elisa.", "com.spotify.Client"),
         # Hardware / peripherals
-        ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported; some cloud profiles and onboard memory flows still need Windows.", "org.freedesktop.Piper"),
-        ("Corsair iCUE", "Use OpenRGB for lighting where supported. Advanced fan, macro, and ecosystem profiles may still need Windows.", ""),
+        ("Logitech G HUB", "Use Piper or OpenRGB when your device is supported; some cloud profiles and onboard memory flows still need the original platform.", "org.freedesktop.Piper"),
+        ("Corsair iCUE", "Use OpenRGB for lighting where supported. Advanced fan, macro, and ecosystem profiles may still need the original platform.", ""),
         ("Razer Synapse", "Use OpenRGB and OpenRazer-compatible tools where supported. Some device features remain vendor-only.", ""),
-        ("SteelSeries GG", "Use OpenRGB or per-device onboard profiles where supported. Sonar and cloud features remain Windows-first.", ""),
+        ("SteelSeries GG", "Use OpenRGB or per-device onboard profiles where supported. Sonar and cloud features remain vendor-first.", ""),
         ("iCUE / Razer Synapse", "Use OpenRGB for unified RGB control across most brands, with vendor-tool gaps for advanced features.", ""),
         # Fonts & documents
         ("Microsoft fonts", "Run 'ujust install-ms-fonts' to install Times New Roman, Arial, and other core fonts for LibreOffice.", ""),
@@ -515,7 +515,7 @@ class SoftwarePage(Page):
         layout.addWidget(title)
         body = QLabel(
             "LibreOffice substitutes fonts when Microsoft's core fonts (Times New Roman, Arial, "
-            "Courier New, Verdana, Georgia, Impact) are missing. If documents sent from Windows "
+            "Courier New, Verdana, Georgia, Impact) are missing. If documents sent from another system "
             "users look wrong, install the fonts below — they are free to use under Microsoft's EULA."
         )
         body.setObjectName("card-copy")
@@ -623,7 +623,7 @@ class SoftwarePage(Page):
 
     def _make_install_hierarchy_card(self) -> QFrame:
         card, layout = _make_card()
-        title = QLabel("Coming from Windows? Here's how software works here.")
+        title = QLabel("Coming from another system? Here's how software works here.")
         title.setObjectName("card-title")
         layout.addWidget(title)
 
@@ -669,7 +669,7 @@ class SoftwarePage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "Search by the Windows app name you remember. KythOS will suggest the native, Flatpak, web-app, Bottles, or launcher path."
+            "Search by the app name you remember. KythOS will suggest the native, Flatpak, web-app, Bottles, or launcher path."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)

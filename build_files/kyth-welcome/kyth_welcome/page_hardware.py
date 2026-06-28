@@ -198,7 +198,7 @@ class HardwarePage(Page):
 
         desc = QLabel(
             "KythOS prefers LDAC (990 kbps HQ) over SBC when your headset supports it. "
-            "If your Bluetooth headset sounds worse than on Windows, use the controls below "
+            "If your Bluetooth headset sounds worse than expected, use the controls below "
             "to check the active codec, switch audio to your headset, or reconnect to renegotiate the codec."
         )
         desc.setObjectName("card-copy")

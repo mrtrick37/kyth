@@ -1155,3 +1155,202 @@ QLabel#finish-subtitle {
     line-height: 1.6;
 }
 """
+
+QSS += """
+/* Modern System Hub overlay.
+   Keep this after the base theme so every hub page uses the same surface,
+   spacing, control, and status language without touching page behavior. */
+QWidget {
+    background-color: #111315;
+    color: #f4f6f8;
+    font-size: 13px;
+}
+
+QScrollArea,
+QScrollArea > QWidget > QWidget {
+    background: transparent;
+    border: 0;
+}
+
+QFrame#card,
+QFrame#card-accent-ok,
+QFrame#card-accent-warn,
+QFrame#card-accent-err,
+QFrame#card-accent-dim,
+QFrame#hw-card-dim {
+    background-color: #1a1d21;
+    border: 1px solid #2f343b;
+    border-radius: 8px;
+}
+
+QFrame#card-accent-ok {
+    border-left: 4px solid #39c46b;
+}
+
+QFrame#card-accent-warn {
+    border-left: 4px solid #e6b84a;
+}
+
+QFrame#card-accent-err {
+    border-left: 4px solid #e05f67;
+}
+
+QFrame#card-accent-dim,
+QFrame#hw-card-dim {
+    border-left: 4px solid #66717f;
+}
+
+QLabel#card-title {
+    color: #ffffff;
+    font-size: 15px;
+    font-weight: 700;
+}
+
+QLabel#card-summary,
+QLabel#subheading,
+QLabel#page-subtitle,
+QLabel#wizard-desc {
+    color: #b7c0ca;
+}
+
+QLabel#page-eyebrow,
+QLabel#eyebrow {
+    color: #7dd3c7;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0;
+}
+
+QLabel#page-title,
+QLabel#heading {
+    color: #ffffff;
+    font-size: 24px;
+    font-weight: 750;
+}
+
+QPushButton {
+    background-color: #23282f;
+    border: 1px solid #3b444f;
+    border-radius: 6px;
+    color: #f7f9fb;
+    font-weight: 650;
+    padding: 8px 13px;
+}
+
+QPushButton:hover {
+    background-color: #2b323b;
+    border-color: #53606d;
+}
+
+QPushButton:pressed {
+    background-color: #1d2228;
+}
+
+QPushButton:disabled {
+    background-color: #191c20;
+    border-color: #2a2f36;
+    color: #707985;
+}
+
+QPushButton#primary,
+QPushButton[primary="true"] {
+    background-color: #0f6f78;
+    border-color: #2099a4;
+    color: #ffffff;
+}
+
+QPushButton#primary:hover,
+QPushButton[primary="true"]:hover {
+    background-color: #12818c;
+}
+
+QLineEdit,
+QTextEdit,
+QComboBox,
+QSpinBox {
+    background-color: #15181c;
+    border: 1px solid #333a43;
+    border-radius: 6px;
+    color: #f4f6f8;
+    padding: 7px 9px;
+    selection-background-color: #0f6f78;
+}
+
+QLineEdit:focus,
+QTextEdit:focus,
+QComboBox:focus,
+QSpinBox:focus {
+    border-color: #46b8c2;
+}
+
+QProgressBar {
+    background-color: #15181c;
+    border: 1px solid #333a43;
+    border-radius: 6px;
+    color: #f4f6f8;
+    text-align: center;
+    min-height: 14px;
+}
+
+QProgressBar::chunk {
+    background-color: #24a7b4;
+    border-radius: 5px;
+}
+
+QListWidget,
+QListView {
+    background-color: #15181c;
+    border: 1px solid #2f343b;
+    border-radius: 8px;
+    outline: 0;
+}
+
+QListWidget::item,
+QListView::item {
+    border-radius: 6px;
+    margin: 3px 6px;
+    padding: 8px 10px;
+}
+
+QListWidget::item:selected,
+QListView::item:selected {
+    background-color: #20383d;
+    color: #ffffff;
+}
+
+QLabel#status-ok,
+QLabel#task-status-ok {
+    background-color: #173823;
+    border: 1px solid #2f8d4d;
+    border-radius: 6px;
+    color: #9ee6b2;
+    padding: 4px 8px;
+}
+
+QLabel#status-warn,
+QLabel#task-status-warn {
+    background-color: #3b3018;
+    border: 1px solid #9b7927;
+    border-radius: 6px;
+    color: #f0d37a;
+    padding: 4px 8px;
+}
+
+QLabel#status-err,
+QLabel#task-status-err {
+    background-color: #3b1d22;
+    border: 1px solid #9f464f;
+    border-radius: 6px;
+    color: #ffb0b6;
+    padding: 4px 8px;
+}
+
+QLabel#status-dim,
+QLabel#task-status-dim {
+    background-color: #20252b;
+    border: 1px solid #3d4651;
+    border-radius: 6px;
+    color: #aab4bf;
+    padding: 4px 8px;
+}
+"""

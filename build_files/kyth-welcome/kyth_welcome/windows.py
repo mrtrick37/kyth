@@ -266,7 +266,7 @@ class MainWindow(QMainWindow):
             ("Apps", [
                 (("plasmadiscover", "applications-all"), "⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
                 (("x-office-document", "applications-office"), "▤", "Work Setup", "Work Setup", lambda: WorkSetupPage(navigate=self._navigate_to)),
-                (("document-import", "drive-harddisk"), "⇄", "Move From Windows", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+                (("document-import", "drive-harddisk"), "⇄", "Move Files", "Move Files", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
                 (("system-software-update", "update-none"), "↻", "Updates", "Update", UpdatePage),
@@ -361,13 +361,13 @@ class MainWindow(QMainWindow):
         "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode", "slow game", "low FPS", "stutter", "lag", "fan noise", "battery life"]),
         "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat", "game crashes", "game won't launch", "blocked game"]),
         "Controllers": ("Controllers", "Pair, test, and troubleshoot game controllers.", ["Xbox controller", "PlayStation controller", "Game controllers", "controller not working", "gamepad not detected"]),
-        "App Store": ("App Store", "Install trusted Flatpaks, find Windows app alternatives, and manage AppImages.", ["Add or remove programs", "Apps & features", "Install apps", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"]),
+        "App Store": ("App Store", "Install trusted Flatpaks, find familiar app alternatives, and manage AppImages.", ["Add or remove programs", "Apps & features", "Install apps", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"]),
         "Work Setup": ("Work Setup", "Set up office, mail, focus sessions, and workday conveniences.", ["Microsoft 365", "Office", "Outlook", "Focus Assist", "Pomodoro"]),
-        "Move From Windows": ("Move From Windows", "Copy files, saves, libraries, bookmarks, fonts, and familiar Windows workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
-        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["Windows Update", "Check for updates", "Restart pending", "rollback", "undo update", "bad update"]),
+        "Move Files": ("Move Files", "Copy files, saves, libraries, bookmarks, fonts, and familiar workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
+        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["System Update", "Check for updates", "Restart pending", "rollback", "undo update", "bad update"]),
         "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth", "no audio", "no sound", "speaker", "microphone", "wifi", "wi-fi", "printer", "monitor", "black screen"]),
         "Plasma Wayland": ("Plasma & Wayland", "Check portals, PipeWire capture, display settings, shortcuts, and Plasma session repair.", ["Wayland", "Plasma", "KDE", "Screen sharing", "PipeWire", "Portal", "Display settings", "Window rules", "Shortcuts", "screenshot", "screen shot", "screen capture", "blank screen share", "black screen", "display scale"]),
-        "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Windows Security", "Sign-in options", "Fingerprint"]),
+        "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Security", "Sign-in options", "Fingerprint"]),
         "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance", "broken", "restore layout", "missing apps", "remote help"]),
         "VPN": ("VPN", "Connect to VPN profiles, including GlobalProtect-style work VPNs.", ["VPN settings", "GlobalProtect"]),
         "Network Shares": ("Network Shares", "Map SMB/CIFS shares and configure mount behavior.", ["Map network drive", "Shared folders"]),
@@ -386,11 +386,11 @@ class MainWindow(QMainWindow):
         "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller", "Controller not working", "Gamepad not detected"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
         "Work Setup": ["Work setup", "Microsoft 365", "Office", "Outlook", "PST import", "Focus Assist", "Focus Sessions", "Do Not Disturb", "Pomodoro"],
-        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "Windows fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Windows Subsystem for Linux", "Ubuntu", "Distrobox"],
-        "Update": ["Check for updates", "Windows Update", "Updates", "Rollback", "Undo update", "Bad update"],
+        "Move Files": ["Move files", "Transfer my files", "PC migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "familiar shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "system fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Linux subsystem", "Ubuntu", "Distrobox"],
+        "Update": ["Check for updates", "System Update", "Updates", "Rollback", "Undo update", "Bad update"],
         "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth", "No audio", "No sound", "Speaker", "Microphone", "Wi-Fi", "Wifi", "Printer", "Monitor", "Black screen"],
         "Plasma Wayland": ["Plasma", "Wayland", "KDE", "Screen sharing", "PipeWire", "Portal", "xdg desktop portal", "Display settings", "VRR", "HDR", "Scale", "Shortcuts", "Window rules", "Restart Plasma", "Screenshot", "Screen shot", "Screen capture", "Blank screen share", "Display scale"],
-        "Diagnostics": ["Health report", "System information", "Diagnostics", "Windows Hello", "Sign-in options", "Fingerprint", "Passkeys", "Windows Security"],
+        "Diagnostics": ["Health report", "System information", "Diagnostics", "Sign-in options", "Fingerprint", "Passkeys", "Security"],
         "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup", "Restore layout", "Missing apps", "Remote help"],
         "VPN": ["VPN", "VPN settings"],
         "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
@@ -818,7 +818,7 @@ class WizardWindow(QMainWindow):
             )
         if not _IS_LIVE and _find_ntfs_drives():
             rows.append(
-                "Windows game drive detected. Copy Steam libraries to a Linux-formatted disk before using Proton."
+                "PC game drive detected. Copy Steam libraries to a Linux-formatted disk before using Proton."
             )
         if _detect_nvidia():
             rows.append(
@@ -860,7 +860,7 @@ class WizardWindow(QMainWindow):
         logo.setObjectName("wizard-logo")
         hero_layout.addWidget(logo)
 
-        tagline = QLabel("Your Windows games, running on Linux.")
+        tagline = QLabel("Your PC games, running on Linux.")
         tagline.setObjectName("wizard-tagline")
         hero_layout.addWidget(tagline)
 
@@ -868,8 +868,8 @@ class WizardWindow(QMainWindow):
 
         desc = QLabel(
             "KythOS runs many Steam, Epic, and GOG games through Proton, then checks "
-            "the traps Windows players usually hit first: anti-cheat blockers, "
-            "Windows-formatted game drives, drivers, and rollback. Xbox and "
+            "the traps PC players usually hit first: anti-cheat blockers, "
+            "NTFS-formatted game drives, drivers, and rollback. Xbox and "
             "PlayStation controllers connect automatically."
         )
         desc.setObjectName("wizard-desc")
@@ -997,7 +997,7 @@ class WizardWindow(QMainWindow):
         install_model_title.setObjectName("card-title")
         install_model_layout.addWidget(install_model_title)
         install_model_copy = QLabel(
-            "Use App Store or Flathub first. Standalone Windows .exe and .msi installers "
+            "Use App Store or Flathub first. Standalone .exe and .msi installers "
             "belong in Bottles, while downloaded .rpm packages are system packages for "
             "mutable Fedora-style installs and are usually the wrong path on KythOS."
         )
@@ -1258,12 +1258,12 @@ class WizardWindow(QMainWindow):
 
     def _make_windows_game_drive_card(self, drives: list[dict]) -> QFrame:
         card, layout = _make_card("card-accent-warn")
-        title = QLabel("Windows game drive found")
+        title = QLabel("PC game drive found")
         title.setObjectName("card-title")
         layout.addWidget(title)
         names = []
         for drive in drives[:3]:
-            label = drive.get("label") or drive.get("name") or drive.get("dev") or "Windows drive"
+            label = drive.get("label") or drive.get("name") or drive.get("dev") or "PC drive"
             size = drive.get("size") or ""
             names.append(f"{label} {size}".strip())
         listed = ", ".join(names)
@@ -1272,7 +1272,7 @@ class WizardWindow(QMainWindow):
         body = QLabel(
             f"Detected: {listed}. Do not point Steam at the NTFS library and start playing. "
             "Copy the library into Steam on a Linux-formatted disk first, then let Proton "
-            "build clean prefixes there. The migration tool below mounts Windows read-only."
+            "build clean prefixes there. The migration tool below mounts other system read-only."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -1295,7 +1295,7 @@ class WizardWindow(QMainWindow):
         title_lbl.setObjectName("heading")
         subtitle_lbl = QLabel(
             "Install launchers for Steam, Epic, GOG, and Battle.net below. "
-            "Then follow the Proton steps to unlock your full Windows library."
+            "Then follow the Proton steps to unlock your full game library."
         )
         subtitle_lbl.setObjectName("subheading")
         subtitle_lbl.setWordWrap(True)
@@ -1317,7 +1317,7 @@ class WizardWindow(QMainWindow):
         if windows_drives:
             ps_layout.addWidget(self._make_windows_game_drive_card(windows_drives))
 
-        proton_head = QLabel("Enable Proton — play your entire Windows library")
+        proton_head = QLabel("Enable Proton — play your entire game library")
         proton_head.setObjectName("heading")
         proton_head.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         ps_layout.addWidget(proton_head)
@@ -1332,7 +1332,7 @@ class WizardWindow(QMainWindow):
             "2.  Steam  →  Settings  →  Compatibility",
             "3.  Turn on  Enable Steam Play for all other titles",
             "4.  Select  GE-Proton  from the version dropdown",
-            "5.  Restart Steam — your full Windows library now appears",
+            "5.  Restart Steam — your full game library now appears",
         ]:
             lbl = QLabel(step)
             lbl.setObjectName("card-copy")
@@ -1363,7 +1363,7 @@ class WizardWindow(QMainWindow):
         compat_lbl.setStyleSheet("font-weight: 600; color: #ffffff;")
         cc_layout.addWidget(compat_lbl)
         # Front-load the hard wall: kernel-level anti-cheat is the #1 reason
-        # Windows switchers give up, and no Proton setting will ever fix it.
+        # other system switchers give up, and no Proton setting will ever fix it.
         # Showing the blocked titles here beats discovering them the hard way.
         blocked = [game for game in _COMPAT_GAMES if game.status == "blocked"]
         if blocked:
@@ -1423,7 +1423,7 @@ class WizardWindow(QMainWindow):
 
         subtitle = QLabel(
             "Open Steam, go to Settings → Compatibility, and enable Proton for all titles.\n"
-            "Your full Windows library will appear and be ready to install.\n\n"
+            "Your full game library will appear and be ready to install.\n\n"
             "If an update makes games worse, open System Hub → Update and use Roll Back "
             "before reinstalling anything. The System Hub is always available from the app menu."
         )

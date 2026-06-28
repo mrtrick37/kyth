@@ -149,7 +149,7 @@ class WelcomePage(Page):
         self._add(self._make_recommended_card(staged, rollback, windows_found))
 
         # ── NTFS Steam library warning ────────────────────────────────────────
-        # Proton on a Windows-formatted drive fails in ways that read as
+        # Proton on a NTFS-formatted drive fails in ways that read as
         # "Linux gaming is broken"; catch it here before the first bad evening.
         self._ntfs_library_insert_index = self._layout.count()
         self._ntfs_library_worker: DataWorker | None = None
@@ -185,7 +185,7 @@ class WelcomePage(Page):
                 ("plasmadiscover", "applications-all"), "⬡", "Apps",
                 [
                     ("Browse and install apps", "App Store"),
-                    ("Move files and saves from Windows", "Move From Windows"),
+                    ("Move files and saves", "Move Files"),
                 ],
             ),
             (
@@ -302,7 +302,7 @@ class WelcomePage(Page):
             ("Updates", "Staged update ready" if staged else "Current deployment", not staged),
             ("Rollback", "Available" if rollback else "None yet", rollback),
             ("Kernel", kernel or "Default", True),
-            ("Windows", "Detected" if windows_found else "No dual-boot detected", True),
+            ("other system", "Detected" if windows_found else "No dual-boot detected", True),
             ("Gaming", "Install launchers from Software", False),
             ("Recovery", "Rollback and logs in Repair", True),
         ]
@@ -319,7 +319,7 @@ class WelcomePage(Page):
 
     def _make_ntfs_library_card(self, libs: list[str]) -> QFrame:
         card, layout = _make_card("card-accent-warn")
-        title = QLabel("Your Steam library is on a Windows-formatted drive")
+        title = QLabel("Your Steam library is on an NTFS-formatted drive")
         title.setObjectName("card-title")
         layout.addWidget(title)
         home = os.path.expanduser("~")
@@ -328,9 +328,9 @@ class WelcomePage(Page):
             listed += f"  (+{len(libs) - 3} more)"
         body = QLabel(
             f"Steam is using a library on an NTFS/exFAT drive: {listed}.  Proton needs a "
-            "Linux-formatted disk — games on Windows-formatted drives crash, hang at launch, "
+            "Linux-formatted disk — games on NTFS-formatted drives crash, hang at launch, "
             "or corrupt their save prefixes, and it won't look like a drive problem when they do. "
-            "Copy the games onto your KythOS disk instead; your Windows drive stays untouched."
+            "Copy the games onto your KythOS disk instead; your PC drive stays untouched."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -342,7 +342,7 @@ class WelcomePage(Page):
         copy_btn.clicked.connect(lambda _=False: self._navigate("Gaming"))
         btns.addWidget(copy_btn)
         learn_btn = QPushButton("Why This Breaks")
-        learn_btn.clicked.connect(lambda _=False: self._navigate("Move From Windows"))
+        learn_btn.clicked.connect(lambda _=False: self._navigate("Move Files"))
         btns.addWidget(learn_btn)
         btns.addStretch()
         layout.addLayout(btns)
@@ -411,7 +411,7 @@ class WelcomePage(Page):
                 _kdeconnect_configured(),
                 "Phone pairing",
                 "KDE Connect is ready for file sharing, notifications, and dynamic lock.",
-                "Move From Windows",
+                "Move Files",
             ),
             (
                 _cloud_storage_configured(),
@@ -605,12 +605,12 @@ class WelcomePage(Page):
             buttons = [("View Rollback", "Update", True), ("Set Up Games", "Gaming", False)]
         elif windows_found:
             kicker = "Recommended next"
-            title = "Windows drive found — bring your games and files"
+            title = "PC drive found — bring your games and files"
             copy = (
-                "KythOS sees one or more Windows drives. Copy saves, inspect Steam "
-                "libraries, and keep your Windows install untouched."
+                "KythOS sees one or more PC drives. Copy saves, inspect Steam "
+                "libraries, and keep your original install untouched."
             )
-            buttons = [("Move From Windows", "Move From Windows", True), ("Set Up Games", "Gaming", False)]
+            buttons = [("Move Files", "Move Files", True), ("Set Up Games", "Gaming", False)]
         else:
             kicker = "Recommended next"
             title = "Everything starts here"

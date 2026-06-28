@@ -34,7 +34,7 @@ def _storage_sense_enabled() -> bool:
 
 
 def _collect_security_status() -> list[tuple[str, str, str]]:
-    """Windows Security-style overview rows: (status, area, text)."""
+    """Security overview rows: (status, area, text)."""
     rows: list[tuple[str, str, str]] = []
 
     try:
@@ -91,7 +91,7 @@ def _collect_security_status() -> list[tuple[str, str, str]]:
 
 
 def _collect_signin_status() -> list[tuple[str, str, str]]:
-    """Windows Hello-style account and sign-in overview."""
+    """Account and sign-in overview."""
     rows: list[tuple[str, str, str]] = []
     user = getpass.getuser()
 
@@ -269,7 +269,7 @@ class DiagnosticsPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "The Windows Security checklist, KythOS edition — what protects this "
+            "The Security checklist, KythOS edition — what protects this "
             "PC and whether it's active right now."
         )
         body.setObjectName("card-copy")
@@ -309,7 +309,7 @@ class DiagnosticsPage(Page):
     # ── Sign-in options ─────────────────────────────────────────────────────
     def _make_signin_card(self) -> QFrame:
         card, layout = _make_card()
-        title = QLabel("Sign-in options — Windows Hello style")
+        title = QLabel("Sign-in options")
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(

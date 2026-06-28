@@ -1309,7 +1309,7 @@ def _vulkan_state() -> tuple[str, str]:
 
 
 def _gaming_health_items() -> list[tuple[str, str, str]]:
-    """Small, fast checks aimed at Windows gamers before they launch a title."""
+    """Small, fast checks aimed at PC gamers before they launch a title."""
     ge_ver = _ge_proton_version()
     cachy_ver = _compat_tool_version("proton-cachyos")
     vulkan_status, vulkan_summary = _vulkan_state()
@@ -1341,7 +1341,7 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
         ("ok" if _mangohud_installed() else "warn", "MangoHud", "Installed." if _mangohud_installed() else "Missing performance overlay."),
         ("ok" if controller_count else "dim", "Controllers", f"{controller_count} controller input(s) detected." if controller_count else "Connect one and press Refresh."),
         ("ok" if heroic_ok or lutris_ok else "dim", "Non-Steam launchers", "Heroic or Lutris installed." if heroic_ok or lutris_ok else "Install Heroic or Lutris for Epic, GOG, Battle.net, EA, and Ubisoft."),
-        ("warn" if windows_drives else "ok", "Windows game drives", windows_drive_summary if windows_drives else "No Windows game drives detected."),
+        ("warn" if windows_drives else "ok", "PC game drives", windows_drive_summary if windows_drives else "No PC game drives detected."),
         ("warn" if _has_staged_update() else "ok", "OS update", "Update staged; reboot before benchmarking." if _has_staged_update() else "No staged OS update."),
     ]
 
@@ -1361,17 +1361,17 @@ def _gaming_migration_checklist_items() -> list[tuple[str, str, str]]:
     if bitlocker_count:
         migration_summary = (
             f"{ntfs_count} readable NTFS and {bitlocker_count} locked BitLocker "
-            "partition(s) detected; unlock them on Move From Windows first."
+            "partition(s) detected; unlock them on Move Files first."
         )
     else:
         migration_summary = f"{ntfs_count} NTFS partition(s) detected; copy games read-only below."
     ge_ver = _ge_proton_version()
     return [
         ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
-        ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing Windows games."),
+        ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing PC games."),
         ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
         (ludusavi_status, "Saves backed up", ludusavi_summary),
-        ("warn" if windows_drives else "dim", "Windows library migration", migration_summary if windows_drives else "No Windows game drive detected."),
+        ("warn" if windows_drives else "dim", "Game library migration", migration_summary if windows_drives else "No PC game drive detected."),
         ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
         ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
         ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
@@ -1460,9 +1460,9 @@ def _decode_proc_mount_field(value: str) -> str:
 
 
 def _steam_libraries_on_ntfs() -> list[str]:
-    """Steam library roots that sit on an NTFS/Windows filesystem.
+    """Steam library roots that sit on an NTFS/other system filesystem.
 
-    Reusing the old Windows game drive as a Steam library is the first thing
+    Reusing the old PC game drive as a Steam library is the first thing
     most switchers try, and Proton breaks on NTFS in ways that look like
     "Linux gaming is broken" rather than "wrong filesystem" — so detect it
     proactively instead of waiting for the support request.
@@ -3020,7 +3020,7 @@ def _health_recommendations(report: str) -> str:
         ("Controller readiness has warnings", "Controller support is partially unverified. Open Controllers, pair or plug in a gamepad, then run ujust controller-check."),
         ("resume readiness has warnings", "Suspend/resume has warnings. Test Wi-Fi, Bluetooth, audio, display, and Vulkan after waking."),
         ("not daily-driver ready", "Daily-driver smoke check found a blocker. Review the FAIL lines below first."),
-        ("Windows drives", "A Windows drive needs care. Use Move From Windows and fully shut down Windows before copying files."),
+        ("PC drives", "A PC drive needs care. Use Move Files and fully shut down the other system before copying files."),
     ]
     recs: list[str] = []
     lower_report = report.lower()
@@ -3111,7 +3111,7 @@ def _restyle(widget: QWidget):
 # ── NTFS / Steam migration helpers ───────────────────────────────────────────
 
 def _find_ntfs_drives() -> list[dict]:
-    """Return Windows NTFS and locked BitLocker partitions visible to lsblk."""
+    """Return other system NTFS and locked BitLocker partitions visible to lsblk."""
     try:
         r = subprocess.run(
             ["lsblk", "--json", "--output", "NAME,FSTYPE,SIZE,LABEL,MOUNTPOINT,PATH"],
@@ -3150,7 +3150,7 @@ def _find_ntfs_drives() -> list[dict]:
 def _find_steam_libraries(mount_point: str) -> list[str]:
     """Scan a mounted NTFS drive for steamapps directories."""
     found: list[str] = []
-    # Known Windows Steam install locations
+    # Known other system Steam install locations
     candidates = [
         os.path.join(mount_point, "Program Files (x86)", "Steam", "steamapps"),
         os.path.join(mount_point, "Program Files", "Steam", "steamapps"),
