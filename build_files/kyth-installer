@@ -468,7 +468,6 @@ def _try_stage_mok_enrollment(log, kernel: str = "fedora", mok_password: str = "
         pass
 
     try:
-        log(f"Secure Boot: MOK enrollment password: {mok_password}")
         result = subprocess.run(
             _as_root([mokutil, "--import", str(cert_der), "--stdin-passwd"]),
             input=f"{mok_password}\n", text=True, capture_output=True, timeout=15,
@@ -979,6 +978,10 @@ def _run_install() -> None:
     finally:
         _state["password_hash"] = ""
         _state["mok_password"] = ""
+        # Guard against orphaned mounts when Phase 1 fails before the inner
+        # try/finally (which holds the normal umount) is ever entered.
+        if alongside_mount:
+            subprocess.run(_as_root(["umount", "-Rl", alongside_mount]), check=False, capture_output=True)
         _install_lock.release()
 
 
@@ -1144,6 +1147,9 @@ class Handler(BaseHTTPRequestHandler):
             if network_error:
                 self._json({"started": False, "message": network_error}, status=409)
                 return
+            if not _install_lock.acquire(blocking=False):
+                self._json({"started": False, "message": "Install already in progress"}, status=409)
+                return
             _state.update({
                 "disk":              disk,
                 "install_mode":      install_mode,
@@ -1155,9 +1161,6 @@ class Handler(BaseHTTPRequestHandler):
                 "password_hash":     password_hash,
                 "kernel":            kernel,
             })
-            if not _install_lock.acquire(blocking=False):
-                self._json({"started": False, "message": "Install already in progress"}, status=409)
-                return
             _state["mok_password"] = secrets.token_urlsafe(8)
             with _events_lock:
                 _events.clear()

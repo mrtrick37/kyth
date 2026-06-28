@@ -293,12 +293,16 @@ def _notify_updates(os_staged: bool, flatpak_count: int) -> None:
             except Exception as exc:
                 LOG.debug("Could not notify uid: %s", exc)
 
-        t = threading.Thread(target=_notify_user, daemon=False)
+        t = threading.Thread(target=_notify_user, daemon=True)
         t.start()
         threads.append(t)
 
+    deadline = time.monotonic() + 70
     for t in threads:
-        t.join(timeout=70)
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
 
 
 # ---------------------------------------------------------------------------

@@ -790,7 +790,7 @@ check_file_contains /usr/lib/systemd/system/kyth-update-watcher.timer "OnBootSec
 check_file_contains /etc/kyth/auto-update.toml "startup_grace_minutes = 20" "Auto-update grace config" "startup grace is configurable"
 check_file_contains /usr/lib/systemd/system/kyth-default-flatpaks.service "IOSchedulingClass=idle" "Default app setup priority" "first-boot Flatpak setup runs at idle I/O priority"
 check_file_contains /etc/pipewire/pipewire.conf.d/99-kyth.conf "default.clock.quantum       = 256" "PipeWire stability default" "low-latency audio keeps underrun headroom"
-check_file_contains /etc/environment.d/obs-vkcapture.conf "OBS_VKCAPTURE=1" "OBS capture global opt-in" "vkcapture layer active for all Vulkan/OpenGL games"
+check_file_contains /etc/environment.d/obs-vkcapture.conf "OBS_VKCAPTURE intentionally" "OBS capture config present" "per-user opt-in via ujust install-obs"
 check_file_contains /usr/bin/kyth-sched "Do not include launcher shells" "Scheduler launcher calm" "idle launchers do not pin gaming mode"
 check_file_contains /usr/bin/kyth-performance-mode "save|restore" "Performance mode recovery" "performance mode exposes save and restore"
 check_file /usr/share/ublue-os/just/75-kyth.just "KythOS ujust recipes"
