@@ -42,7 +42,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/kyth-ci-tools
-          key: validation-tools-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}-${{ env.HADOLINT_VERSION }}
+          key: validation-tools-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}-${{ env.HADOLINT_VERSION }}-${{ env.ZIZMOR_VERSION }}
       - name: Install pinned validators
         run: |
           exec 5>>"${GITHUB_PATH}"
@@ -78,6 +78,19 @@ jobs:
             rm -rf "${work}"
           fi
           install -m 0755 "${hadolint_bin}" "${bin_dir}/hadolint"
+
+          zizmor_bin="${cache_dir}/zizmor-${ZIZMOR_VERSION}"
+          if [[ ! -x "${zizmor_bin}" ]]; then
+            work="$(mktemp -d)"
+            zizmor_archive="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+            zizmor_base="https://github.com/woodruffw/zizmor/releases/download/v${ZIZMOR_VERSION}"
+            curl -fsSL -o "${work}/${zizmor_archive}" "${zizmor_base}/${zizmor_archive}"
+            echo "${ZIZMOR_SHA256}  ${work}/${zizmor_archive}" | sha256sum -c -
+            tar -xzf "${work}/${zizmor_archive}" -C "${work}" zizmor
+            install -m 0755 "${work}/zizmor" "${zizmor_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${zizmor_bin}" "${bin_dir}/zizmor"
       - name: Validate GitHub Actions workflows
         run: |
           actionlint -color -shellcheck=""
