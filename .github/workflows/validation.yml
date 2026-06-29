@@ -58,7 +58,7 @@ jobs:
             actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
             actionlint_base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
             curl -fsSL -o "${work}/${actionlint_archive}" "${actionlint_base}/${actionlint_archive}"
-            curl -fsSL -o "${work}/checksums.txt" "${actionlint_base}/checksums.txt"
+          curl -fsSL -o "${work}/checksums.txt" "${actionlint_base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
             (cd "${work}" && grep " ${actionlint_archive}$" checksums.txt | sha256sum -c -)
             tar -xzf "${work}/${actionlint_archive}" -C "${work}" actionlint
             install -m 0755 "${work}/actionlint" "${actionlint_bin}"
