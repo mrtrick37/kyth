@@ -1354,3 +1354,99 @@ QLabel#task-status-dim {
     padding: 4px 8px;
 }
 """
+
+QSS += """
+/* Home polish pass: keep text transparent and move structure to panels. */
+QWidget#page,
+QScrollArea,
+QScrollArea > QWidget,
+QWidget#scroll-content {
+    background: #1f2020;
+}
+
+QLabel {
+    background: transparent;
+}
+
+QFrame#card,
+QFrame#card-accent-ok,
+QFrame#card-accent-warn,
+QFrame#stat-tile,
+QFrame#summary-tile,
+QFrame#home-action,
+QFrame#home-section-header {
+    background: #252728;
+    border: 1px solid #3b4144;
+    border-radius: 8px;
+}
+
+QFrame#card,
+QFrame#home-section-header {
+    padding: 0;
+}
+
+QFrame#card-accent-ok {
+    background: #20362f;
+    border-color: #3f8b79;
+}
+
+QFrame#card-accent-warn {
+    background: #352a1d;
+    border-color: #8a6a2f;
+}
+
+QFrame#stat-tile {
+    background: #292b2c;
+    border-color: #44494c;
+}
+
+QFrame#stat-tile:hover,
+QFrame#summary-tile:hover,
+QFrame#home-action:hover {
+    background: #303335;
+    border-color: #5a666b;
+}
+
+QLabel#home-section-title {
+    color: #f4f7f8;
+    font-size: 20px;
+    font-weight: 700;
+}
+
+QLabel#home-section-subtitle,
+QLabel#card-copy,
+QLabel#stat-label {
+    color: #b8c6cc;
+}
+
+QLabel#home-kicker {
+    color: #72d8cc;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 1px;
+}
+
+QLabel#stat-value {
+    color: #f0f4f5;
+    font-size: 16px;
+    font-weight: 600;
+}
+
+QLabel#stat-value-ok {
+    color: #75dc86;
+}
+
+QLabel#stat-value-warn {
+    color: #e6b95c;
+}
+
+QPushButton#primary {
+    background: #16827f;
+    border: 1px solid #2ca69d;
+    color: #ffffff;
+}
+
+QPushButton#primary:hover {
+    background: #1e928d;
+}
+"""

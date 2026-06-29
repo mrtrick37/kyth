@@ -1246,6 +1246,88 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
 .page{display:none}.page.active{display:block}
 @media (max-width:860px){body{display:block;overflow:auto}#sidebar{width:100%;min-width:0;position:static;padding:16px;flex-direction:row;overflow:auto}.logo{display:none}.step{min-width:max-content}#main{padding:22px 16px}.mode-grid,.form-grid,.confidence-grid,.phase-rail{grid-template-columns:1fr}h1{font-size:27px}.btn-row{flex-direction:column-reverse}.btn{width:100%}}
 </style>
+<style>
+#kernel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 14px;
+}
+.kernel-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(18,24,32,.86);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.kernel-card:hover,
+.kernel-card:focus-visible {
+  border-color: var(--border-strong);
+  background: rgba(31,42,53,.9);
+  outline: none;
+  transform: translateY(-1px);
+}
+.kernel-card.selected {
+  border-color: rgba(53,208,170,.85);
+  background: linear-gradient(180deg,rgba(53,208,170,.16),rgba(18,24,32,.94));
+  box-shadow: 0 0 0 1px rgba(53,208,170,.22), 0 16px 34px rgba(0,0,0,.24);
+}
+.kernel-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(53,208,170,.12);
+  border: 1px solid rgba(53,208,170,.28);
+  font-size: 24px;
+}
+.kernel-name {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.kernel-desc,
+.kernel-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.kernel-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(53,208,170,.18);
+  color: #9af1e6;
+  font-size: 11px;
+  vertical-align: 2px;
+}
+.kernel-note {
+  grid-column: 2;
+  margin-top: 8px;
+}
+.log-wrap {
+  display: none;
+}
+.log-wrap.open,
+.log-wrap.expanded {
+  display: block;
+}
+@media (max-width: 860px) {
+  #kernel-grid {
+    grid-template-columns: 1fr;
+  }
+}
+</style>
 </head>
 <body>
 
@@ -1673,7 +1755,7 @@ function initKernel() {
   const grid = document.getElementById('kernel-grid');
   if (grid.children.length) return;
   grid.innerHTML = KERNELS.map(k => `
-    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" onclick="selectKernel('${k.id}')">
+    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" role="button" tabindex="0" aria-pressed="${k.id === S.kernel ? 'true' : 'false'}" onclick="selectKernel('${k.id}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault();selectKernel('${k.id}')}">
       <div class="kernel-icon">${k.icon}</div>
       <div class="kernel-body">
         <div class="kernel-name">${k.name}${k.badge ? ` <span class="kernel-badge">${k.badge}</span>` : ''}</div>
@@ -1686,7 +1768,12 @@ function initKernel() {
 function selectKernel(id) {
   S.kernel = id;
   document.querySelectorAll('.kernel-card').forEach(c => c.classList.remove('selected'));
-  document.getElementById('kcard-' + id).classList.add('selected');
+  document.querySelectorAll('.kernel-card').forEach(c => c.setAttribute('aria-pressed', 'false'));
+  const card = document.getElementById('kcard-' + id);
+  if (card) {
+    card.classList.add('selected');
+    card.setAttribute('aria-pressed', 'true');
+  }
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
