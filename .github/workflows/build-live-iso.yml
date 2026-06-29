@@ -14,6 +14,11 @@ on:
         required: false
         type: string
         default: ""
+      source_sha:
+        description: Source commit matching source_digest
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       source_tag:
