@@ -115,9 +115,15 @@ jobs:
           show_space "after cleanup"
 
           available_kb="$(df --output=avail /mnt | awk 'NR == 2 {print $1}')"
-          required_kb=$((65 * 1024 * 1024))
+          # podman-storage.img is intentionally sparse: the btrfs filesystem
+          # needs a 65G logical size, but the runner only needs enough backing
+          # space for the blocks the ISO build actually writes. GitHub's
+          # ubuntu-24.04 runners can now expose about 63 GiB free on /mnt after
+          # cleanup, so requiring the full logical size rejects otherwise usable
+          # runners before the build starts.
+          required_kb=$((58 * 1024 * 1024))
           if (( available_kb < required_kb )); then
-            echo "::error::Need at least 65 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
+            echo "::error::Need at least 58 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
             exit 1
           fi
 
