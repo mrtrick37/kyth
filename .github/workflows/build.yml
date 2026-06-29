@@ -519,7 +519,7 @@ jobs:
           retention-days: 7
 
   build_live_iso:
-    name: Build Live ISO (${{ matrix.branch }})
+    name: Build Live ISO (${{ format('{0}-cachy', matrix.branch == 'main' && 'latest' || matrix.branch) }})
     needs: build_push
     if: ${{ github.event_name != 'pull_request' }}
     strategy:
@@ -528,7 +528,7 @@ jobs:
         branch: ${{ fromJSON(format('["{0}"]', github.event_name == 'schedule' && 'latest' || github.ref_name)) }}
     uses: ./.github/workflows/build-live-iso.yml
     with:
-      source_tag: ${{ matrix.branch }}
+      source_tag: ${{ format('{0}-cachy', matrix.branch == 'main' && 'latest' || matrix.branch) }}
       source_digest: ""
     permissions:
       actions: read

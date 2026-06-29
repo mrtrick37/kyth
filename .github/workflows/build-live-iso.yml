@@ -8,7 +8,7 @@ on:
         description: Source image tag to build ISO from
         required: false
         type: string
-        default: testing
+        default: testing-cachy
       source_digest:
         description: Optional pinned source image digest
         required: false
@@ -23,7 +23,9 @@ on:
         type: choice
         options:
           - latest
+          - latest-cachy
           - testing
+          - testing-cachy
       source_digest:
         description: Immutable source image digest from the build workflow
         required: false
