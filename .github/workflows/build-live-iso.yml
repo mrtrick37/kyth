@@ -2,6 +2,18 @@ name: Build Live ISO
 run-name: "Build Live ISO - ${{ inputs.source_tag }}"
 
 on:
+  workflow_call:
+    inputs:
+      source_tag:
+        description: Source image tag to build ISO from
+        required: false
+        type: string
+        default: testing
+      source_digest:
+        description: Optional pinned source image digest
+        required: false
+        type: string
+        default: ""
   workflow_dispatch:
     inputs:
       source_tag:
@@ -61,6 +73,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SOURCE_SHA="$(git rev-parse HEAD)"
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
           DATE="$(date -u +%Y%m%d)"
@@ -70,12 +83,12 @@ jobs:
           IMMUTABLE_TAG="iso-${SOURCE_TAG}-${RELEASE_ID}"
           ARTIFACT_NAME="kyth-live-iso-${SOURCE_TAG}-${RELEASE_ID}"
 
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
-          echo "iso_basename=${ISO_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "channel_basename=${CHANNEL_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "immutable_tag=${IMMUTABLE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "release_id=${RELEASE_ID}" >&3
+          echo "iso_basename=${ISO_BASENAME}" >&3
+          echo "channel_basename=${CHANNEL_BASENAME}" >&3
+          echo "immutable_tag=${IMMUTABLE_TAG}" >&3
+          echo "artifact_name=${ARTIFACT_NAME}" >&3
 
       - name: Prepare live ISO build space
         run: |
@@ -121,6 +134,7 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           EXPECTED_DIGEST: ${{ inputs.source_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           TAGGED_IMAGE="${IMAGE}:${SOURCE_TAG}"
           if [[ -n "${EXPECTED_DIGEST}" ]]; then
@@ -134,9 +148,9 @@ jobs:
           fi
           REVISION="$(sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" | jq -r '.Labels["org.opencontainers.image.revision"] // empty')"
           test "${REVISION}" = "$(git rev-parse HEAD)"
-          echo "name=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "pinned=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "name=${IMAGE}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "pinned=${IMAGE}@${DIGEST}" >&3
 
       - name: Build live payload container
         env:
@@ -231,6 +245,7 @@ jobs:
         env:
           GRYPE_VERSION: 0.88.0
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           ARCHIVE="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
           BASE="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
           curl --fail --location --silent --show-error \
@@ -241,7 +256,7 @@ jobs:
           (cd "${RUNNER_TEMP}" && grep " ${ARCHIVE}$" grype_checksums.txt | sha256sum --check --strict -)
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" grype
           chmod +x "${RUNNER_TEMP}/grype"
-          echo "cmd=${RUNNER_TEMP}/grype" >> "$GITHUB_OUTPUT"
+          echo "cmd=${RUNNER_TEMP}/grype" >&3
 
       - name: Pull source image SBOM
         id: current_sbom
@@ -249,6 +264,7 @@ jobs:
           SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
           SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SBOM_DIGEST="$(oras discover --format json "${SOURCE_IMAGE}@${SOURCE_DIGEST}" \
             | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
             2>/dev/null || true)"
@@ -259,7 +275,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/current-sbom"
           oras pull "${SOURCE_IMAGE}@${SBOM_DIGEST}" -o "${RUNNER_TEMP}/current-sbom/"
           SBOM="$(find "${RUNNER_TEMP}/current-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${SBOM}" ]] && echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+          [[ -n "${SBOM}" ]] && echo "path=${SBOM}" >&3
 
       - name: Scan source image with Grype
         id: grype_current
@@ -268,10 +284,11 @@ jobs:
           GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
           SBOM_PATH: ${{ steps.current_sbom.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="${RUNNER_TEMP}/grype-current.json"
           "${GRYPE_CMD}" "sbom:${SBOM_PATH}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan failed; security section will be limited"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Pull previous ISO source image SBOM
         id: previous_sbom
@@ -282,6 +299,7 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           PREV_DIGEST=""
           PREV_TAG="$(gh release list --limit 30 --json tagName \
             -q ".[] | .tagName | select(startswith(\"iso-${SOURCE_TAG}-\"))" \
@@ -309,7 +327,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/prev-sbom"
           oras pull "${SOURCE_IMAGE}@${PREV_SBOM_DIGEST}" -o "${RUNNER_TEMP}/prev-sbom/"
           PREV_SBOM="$(find "${RUNNER_TEMP}/prev-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >> "$GITHUB_OUTPUT"
+          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >&3
 
       - name: Scan previous source image with Grype
         id: grype_previous
@@ -318,10 +336,11 @@ jobs:
           GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
           PREV_SBOM: ${{ steps.previous_sbom.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="${RUNNER_TEMP}/grype-previous.json"
           "${GRYPE_CMD}" "sbom:${PREV_SBOM}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan of previous SBOM failed"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Generate ISO release changelog
         id: iso_changelog
@@ -334,6 +353,7 @@ jobs:
           GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
           GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           NOTES="$(mktemp --suffix=.md)"
           IMAGE_VERSION="$(skopeo inspect --no-creds \
             "docker://${SOURCE_IMAGE}@${SOURCE_DIGEST}" 2>/dev/null \
@@ -384,7 +404,7 @@ jobs:
 
           Path(notes_path).write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
           PY
-          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
+          echo "path=${NOTES}" >&3
 
       - name: Download built ISO
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1

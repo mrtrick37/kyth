@@ -84,9 +84,11 @@ jobs:
           MATRIX_BRANCH: ${{ matrix.branch }}
           MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
+          exec 4>>"${GITHUB_ENV}"
           [[ "${MATRIX_BRANCH}" == main || "${MATRIX_BRANCH}" == testing ]]
-          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >> "${GITHUB_ENV}"
-          echo "IMAGE_NAME=${IMAGE_NAME,,}" >> "${GITHUB_ENV}"
+          echo "IMAGE_REGISTRY=${IMAGE_REGISTRY,,}" >&4
+          echo "IMAGE_NAME=${IMAGE_NAME,,}" >&4
           # main → :latest, everything else → :<branch-name>
           TAG="${MATRIX_BRANCH}"
           if [[ "${TAG}" == main ]]; then
@@ -96,11 +98,11 @@ jobs:
             fedora) SUFFIX="" ;;
             cachy)  SUFFIX="-cachy" ;;
           esac
-          echo "DEFAULT_TAG=${TAG}" >> "${GITHUB_ENV}"
-          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >> "${GITHUB_ENV}"
-          echo "default_tag=${TAG}${SUFFIX}" >> "${GITHUB_OUTPUT}"
+          echo "DEFAULT_TAG=${TAG}" >&4
+          echo "KERNEL_TAG_SUFFIX=${SUFFIX}" >&4
+          echo "default_tag=${TAG}${SUFFIX}" >&3
           DATE_SHORT="$(date -u +%Y%m%d)"
-          echo "date_short=${DATE_SHORT}" >> "${GITHUB_OUTPUT}"
+          echo "date_short=${DATE_SHORT}" >&3
 
       # These stage versions are pinned by https://github.com/renovatebot/renovate
       - name: Checkout
@@ -112,10 +114,11 @@ jobs:
       - name: Capture checked-out commit
         id: checkout_sha
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SHA="$(git rev-parse HEAD)"
-          echo "sha=${SHA}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=${SHA:0:8}" >> "$GITHUB_OUTPUT"
-          echo "image_version=${STEPS_PREP_OUTPUTS_DEFAULT_TAG}.${STEPS_PREP_OUTPUTS_DATE_SHORT}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >> "$GITHUB_OUTPUT"
+          echo "sha=${SHA}" >&3
+          echo "short_sha=${SHA:0:8}" >&3
+          echo "image_version=${STEPS_PREP_OUTPUTS_DEFAULT_TAG}.${STEPS_PREP_OUTPUTS_DATE_SHORT}.${GITHUB_RUN_NUMBER}.${GITHUB_RUN_ATTEMPT}.${SHA:0:8}" >&3
         env:
           STEPS_PREP_OUTPUTS_DEFAULT_TAG: ${{ steps.prep.outputs.default_tag }}
           STEPS_PREP_OUTPUTS_DATE_SHORT: ${{ steps.prep.outputs.date_short }}
@@ -145,7 +148,8 @@ jobs:
           # E.G: 2022-02-08T15:38:15Z'
           # https://artifacthub.io/docs/topics/repositories/container-images/
           # https://linux.die.net/man/1/date
-          echo "date=$(date -u +%Y\-%m\-%d\T%H\:%M\:%S\Z)" >> $GITHUB_OUTPUT
+          exec 3>>"${GITHUB_OUTPUT}"
+          echo "date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >&3
 
       # Image metadata for https://artifacthub.io/ - This is optional but is highly recommended so we all can get a index of all the custom images
       # The metadata by itself is not going to do anything, you choose if you want your image to be on ArtifactHub or not.
@@ -193,8 +197,9 @@ jobs:
         id: cachyos_kernel
         if: matrix.kernel_flavor == 'cachy'
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           KVER=$(./build_files/scripts/resolve-versions.sh cachyos-kernel)
-          echo "version=${KVER}" >> $GITHUB_OUTPUT
+          echo "version=${KVER}" >&3
           echo "Resolved CachyOS kernel: ${KVER}"
 
       - name: Resolve latest GE-Proton version
@@ -202,8 +207,9 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           GE_VER=$(./build_files/scripts/resolve-versions.sh ge-proton)
-          echo "version=${GE_VER}" >> $GITHUB_OUTPUT
+          echo "version=${GE_VER}" >&3
           echo "Resolved GE-Proton: ${GE_VER:-latest}"
 
       - name: Resolve thirdparty tool versions
@@ -211,25 +217,28 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           HASH=$(./build_files/scripts/resolve-versions.sh thirdparty-hash)
-          echo "hash=${HASH}" >> $GITHUB_OUTPUT
+          echo "hash=${HASH}" >&3
           echo "Resolved thirdparty hash: ${HASH}"
 
       - name: Resolve upstream base image digest
         id: upstream_base
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE="ghcr.io/ublue-os/kinoite-main:44"
           DIGEST="$(docker buildx imagetools inspect "${IMAGE}" --format '{{ .Manifest.Digest }}')"
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "pinned=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "pinned=${IMAGE}@${DIGEST}" >&3
 
       - name: Build base image
         id: build_base
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
-          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
+          BASE_CACHE_REF="${IMAGE_FULL}:buildcache-base-${MATRIX_BRANCH}"
           BASE_IMAGE_REF="${IMAGE_FULL}:base-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}"
 
           docker buildx build \
@@ -245,9 +254,9 @@ jobs:
 
           BASE_DIGEST="$(jq -r '."containerimage.digest"' "${RUNNER_TEMP}/base-build-metadata.json")"
           [[ "${BASE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          echo "image=${BASE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
-          echo "digest=${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "pinned=${BASE_IMAGE_REF}@${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "image=${BASE_IMAGE_REF}" >&3
+          echo "digest=${BASE_DIGEST}" >&3
+          echo "pinned=${BASE_IMAGE_REF}@${BASE_DIGEST}" >&3
         env:
           MATRIX_BRANCH: ${{ matrix.branch }}
           MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
@@ -258,6 +267,7 @@ jobs:
       - name: Build final image
         id: build_final
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE_FULL="ghcr.io/${{ github.repository_owner }}/${IMAGE_NAME}"
           FINAL_CACHE_REF="${IMAGE_FULL}:buildcache-final-${MATRIX_BRANCH}-${MATRIX_KERNEL_FLAVOR}"
           RAW_IMAGE_REF="${IMAGE_FULL}:build-input-${STEPS_PREP_OUTPUTS_DEFAULT_TAG}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
@@ -309,12 +319,12 @@ jobs:
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           REVISION="$(docker buildx imagetools inspect "${RAW_IMAGE_REF}@${DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
           test "${REVISION}" = "${STEPS_CHECKOUT_SHA_OUTPUTS_SHA}"
-          echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_FULL}" >&3
           # legacy-rechunk derives its OCI output directory from this value and
           # cannot safely handle digest-qualified references containing @sha256.
           # The run-unique tag prevents another build from moving this input.
-          echo "raw_ref=${RAW_IMAGE_REF}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "raw_ref=${RAW_IMAGE_REF}" >&3
+          echo "digest=${DIGEST}" >&3
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           # Repository-only secret on trusted push/schedule builds; an environment
@@ -405,6 +415,7 @@ jobs:
           EXPECTED_VERSION: ${{ steps.checkout_sha.outputs.image_version }}
           EXPECTED_REVISION: ${{ steps.checkout_sha.outputs.sha }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           set -euo pipefail
           PRIMARY_REF="${IMAGE_FULL}:${PRIMARY_TAG}"
           SKOPEO_COMPRESSION_ARGS=(
@@ -449,10 +460,10 @@ jobs:
           test "${REVISION}" = "${EXPECTED_REVISION}"
           test "${BOOTC_LABEL}" = 1
 
-          echo "image=${IMAGE_FULL}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "layers=${LAYERS}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE_FULL}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "version=${VERSION}" >&3
+          echo "layers=${LAYERS}" >&3
 
       - name: Publish immutable build metadata
         env:
@@ -507,27 +518,21 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-      - name: Dispatch live ISO build
-        # Dispatch immediately after publish so the ISO build starts in parallel
-        # with the cachy matrix leg and attestation, instead of waiting for all
-        # matrix legs to finish (which adds ~10 min of dead time on the critical path).
-        # Supply-chain is still dispatched from finalize because it verifies
-        # container attestation, which isn't published until finalize completes.
-        if: matrix.kernel_flavor == 'fedora'
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          MATRIX_BRANCH: ${{ matrix.branch }}
-          SOURCE_TAG: ${{ steps.prep.outputs.default_tag }}
-          SOURCE_DIGEST: ${{ steps.publish_final.outputs.digest }}
-          SOURCE_SHA: ${{ steps.checkout_sha.outputs.sha }}
-        run: |
-          gh workflow run build-live-iso.yml \
-            --ref "${MATRIX_BRANCH}" \
-            --field "source_tag=${SOURCE_TAG}" \
-            --field "source_digest=${SOURCE_DIGEST}" \
-            --field "source_sha=${SOURCE_SHA}"
+  build_live_iso:
+    name: Build Live ISO (${{ matrix.branch }})
+    needs: build_push
+    if: ${{ github.event_name != 'pull_request' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        branch: ${{ fromJSON(format('["{0}"]', github.event_name == 'schedule' && 'latest' || github.ref_name)) }}
+    uses: ./.github/workflows/build-live-iso.yml
+    with:
+      source_tag: ${{ matrix.branch }}
+      source_digest: ""
+    permissions:
+      contents: read
+      packages: read
 
   finalize:
     name: Attest and dispatch (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
@@ -554,6 +559,7 @@ jobs:
           MATRIX_BRANCH: ${{ matrix.branch }}
           MATRIX_KERNEL_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           TAG="${MATRIX_BRANCH}"
           if [[ "${TAG}" == main ]]; then
             TAG=latest
@@ -562,7 +568,7 @@ jobs:
             fedora) SUFFIX="" ;;
             cachy) SUFFIX="-cachy" ;;
           esac
-          echo "tag=${TAG}${SUFFIX}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}${SUFFIX}" >&3
 
       - name: Download immutable build metadata
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -575,6 +581,7 @@ jobs:
         env:
           EXPECTED_FLAVOR: ${{ matrix.kernel_flavor }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           METADATA=output/build-metadata/image.json
           jq -e . "${METADATA}" >/dev/null
           IMAGE="$(jq -r .image "${METADATA}")"
@@ -587,10 +594,10 @@ jobs:
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${GITHUB_SHA_META}" =~ ^[0-9a-f]{40}$ ]]
           test "${KERNEL_FLAVOR}" = "${EXPECTED_FLAVOR}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "github_sha=${GITHUB_SHA_META}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "github_sha=${GITHUB_SHA_META}" >&3
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
@@ -605,26 +612,3 @@ jobs:
           subject-name: ${{ steps.image.outputs.image }}
           subject-digest: ${{ steps.image.outputs.digest }}
           push-to-registry: true
-
-      - name: Trigger supply chain metadata workflow
-        # Dispatched from finalize (not build_push) because supply-chain verifies
-        # container attestation, which isn't published until this job completes.
-        # Live ISO is dispatched earlier from build_push to avoid waiting for cachy.
-        if: matrix.kernel_flavor == 'fedora'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GH_REPO: ${{ github.repository }}
-          STEPS_PREP_OUTPUTS_TAG: ${{ steps.prep.outputs.tag }}
-          MATRIX_BRANCH: ${{ matrix.branch }}
-          STEPS_IMAGE_OUTPUTS_DIGEST: ${{ steps.image.outputs.digest }}
-          STEPS_IMAGE_OUTPUTS_SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
-          STEPS_IMAGE_OUTPUTS_GITHUB_SHA: ${{ steps.image.outputs.github_sha }}
-        run: |
-          SOURCE_TAG="${STEPS_PREP_OUTPUTS_TAG}"
-          echo "==> Dispatching supply chain metadata for ${SOURCE_TAG} on ${MATRIX_BRANCH}"
-          gh workflow run supply-chain.yml \
-            --ref "${MATRIX_BRANCH}" \
-            --field "source_tag=${SOURCE_TAG}" \
-            --field "source_digest=${STEPS_IMAGE_OUTPUTS_DIGEST}" \
-            --field "source_sha=${STEPS_IMAGE_OUTPUTS_SOURCE_SHA}" \
-            --field "source_github_sha=${STEPS_IMAGE_OUTPUTS_GITHUB_SHA}"

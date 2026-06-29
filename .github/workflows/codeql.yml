@@ -4,8 +4,18 @@ name: CodeQL
 on:
   push:
     branches: [main, testing]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
   pull_request:
     branches: [main, testing]
+    paths-ignore:
+      - '**/*.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - '.github/pull_request_template.md'
   workflow_dispatch:
   schedule:
     - cron: '0 9 * * 1'  # Weekly Monday — catches new CVEs against unchanged code

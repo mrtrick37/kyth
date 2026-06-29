@@ -2,6 +2,10 @@
 name: Supply Chain Metadata
 
 on:
+  workflow_run:
+    workflows: ["Build container image"]
+    types: [completed]
+    branches: [latest, testing]
   workflow_dispatch:
     inputs:
       source_tag:
@@ -33,20 +37,21 @@ env:
 
 jobs:
   prepare:
-    name: Prepare metadata (${{ inputs.source_tag }})
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    name: Prepare metadata (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }})
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
       packages: read
     concurrency:
-      group: supply-chain-prepare-${{ inputs.source_tag }}
+      group: supply-chain-prepare-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
       - name: Validate dispatch inputs
         env:
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
           SOURCE_SHA: ${{ inputs.source_sha }}
           SOURCE_GITHUB_SHA: ${{ inputs.source_github_sha }}
         run: |
@@ -60,14 +65,22 @@ jobs:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
+      - name: Preflight source image
+        run: |
+          set -euo pipefail
+          tag="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:${tag}"
+          echo "Checking ${image} before preparing supply-chain metadata"
+          docker manifest inspect "${image}" >/dev/null
       - name: Prepare metadata variables
         id: meta
         env:
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=${SOURCE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >&3
+          echo "tag=${SOURCE_TAG}" >&3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5 # v4.1.0
@@ -80,7 +93,7 @@ jobs:
       - name: Wait for image to be available in registry
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
         run: |
           for attempt in $(seq 1 10); do
             if docker buildx imagetools inspect "${IMAGE}@${SOURCE_DIGEST}" >/dev/null 2>&1; then
@@ -98,9 +111,10 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           CURRENT_DIGEST="${SOURCE_DIGEST}"
           [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
@@ -134,16 +148,16 @@ jobs:
             PREVIOUS_DIGEST="$(docker buildx imagetools inspect "${IMAGE}:${PREVIOUS_TAG}" --format '{{ .Manifest.Digest }}' 2>/dev/null || true)"
           fi
 
-          echo "current_digest=${CURRENT_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "current_version=${CURRENT_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "previous_digest=${PREVIOUS_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "base_name=${BASE_NAME}" >> "$GITHUB_OUTPUT"
-          echo "base_digest=${BASE_DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "upstream_base=${UPSTREAM_BASE}" >> "$GITHUB_OUTPUT"
-          echo "ge_proton_version=${GE_PROTON_VERSION}" >> "$GITHUB_OUTPUT"
-          echo "thirdparty_hash=${THIRDPARTY_HASH}" >> "$GITHUB_OUTPUT"
-          echo "kernel_flavor=${KERNEL_FLAVOR}" >> "$GITHUB_OUTPUT"
+          echo "current_digest=${CURRENT_DIGEST}" >&3
+          echo "current_version=${CURRENT_VERSION}" >&3
+          echo "previous_digest=${PREVIOUS_DIGEST}" >&3
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "base_name=${BASE_NAME}" >&3
+          echo "base_digest=${BASE_DIGEST}" >&3
+          echo "upstream_base=${UPSTREAM_BASE}" >&3
+          echo "ge_proton_version=${GE_PROTON_VERSION}" >&3
+          echo "thirdparty_hash=${THIRDPARTY_HASH}" >&3
+          echo "kernel_flavor=${KERNEL_FLAVOR}" >&3
 
       - name: Setup Syft
         id: setup_syft
@@ -151,13 +165,14 @@ jobs:
           SYFT_VERSION: 1.39.0
           SYFT_SHA256: bb8f1ba8201d1ce0d99ab4f5243142629c1afba4da97a7c4ca2df97327f97190
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           ARCHIVE="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
           URL="https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${ARCHIVE}"
           curl --fail --location --silent --show-error --output "${RUNNER_TEMP}/${ARCHIVE}" "${URL}"
           echo "${SYFT_SHA256}  ${RUNNER_TEMP}/${ARCHIVE}" | sha256sum --check
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" syft
           chmod +x "${RUNNER_TEMP}/syft"
-          echo "cmd=${RUNNER_TEMP}/syft" >> "$GITHUB_OUTPUT"
+          echo "cmd=${RUNNER_TEMP}/syft" >&3
 
       - name: Prepare image RPM database
         id: image_rootfs
@@ -166,6 +181,7 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
           DIGEST: ${{ steps.image.outputs.current_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           printf '%s' "${GH_TOKEN}" | sudo podman login ghcr.io --username "${GITHUB_ACTOR}" --password-stdin
           sudo podman pull "${IMAGE}@${DIGEST}"
           CONTAINER="$(sudo podman create "${IMAGE}@${DIGEST}" /usr/bin/true)"
@@ -177,7 +193,7 @@ jobs:
           sudo cp -a "${ROOTFS}/usr/share/rpm" "${SCAN_ROOT}/usr/share/rpm"
           sudo cp "${ROOTFS}/usr/lib/os-release" "${SCAN_ROOT}/usr/lib/os-release"
           sudo chown -R "${USER}:${USER}" "${SCAN_ROOT}"
-          echo "rootfs=${SCAN_ROOT}" >> "$GITHUB_OUTPUT"
+          echo "rootfs=${SCAN_ROOT}" >&3
 
       - name: Generate image SBOM
         id: sbom
@@ -192,6 +208,7 @@ jobs:
           SYFT_CHECK_FOR_APP_UPDATE: "false"
           XDG_CACHE_HOME: ${{ runner.temp }}/syft-cache
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SBOM="kyth-${TAG}-${VERSION}.syft.json"
           sudo "${SYFT_CMD}" "dir:${ROOTFS}" \
             --override-default-catalogers rpm-db-cataloger \
@@ -200,7 +217,7 @@ jobs:
             -o "syft-json=${SBOM}"
           sudo chown "${USER}:${USER}" "${SBOM}"
           jq -e '.artifacts | length > 0' "${SBOM}" >/dev/null
-          echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+          echo "path=${SBOM}" >&3
 
       - name: Capture RPM manifest
         id: rpm_manifest
@@ -209,6 +226,7 @@ jobs:
           VERSION: ${{ steps.image.outputs.current_version }}
           SBOM_PATH: ${{ steps.sbom.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT_FILE="rpm-manifest-${TAG}-${VERSION}.txt"
           python3 - "${SBOM_PATH}" "${OUT_FILE}" <<'PY'
           import json, sys
@@ -231,13 +249,14 @@ jobs:
           pkgs.sort()
           Path(sys.argv[2]).write_text("\n".join(pkgs) + "\n")
           PY
-          echo "path=${OUT_FILE}" >> "$GITHUB_OUTPUT"
+          echo "path=${OUT_FILE}" >&3
 
       - name: Setup Grype
         id: setup_grype
         env:
           GRYPE_VERSION: 0.88.0
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           ARCHIVE="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
           BASE="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
           curl --fail --location --silent --show-error \
@@ -248,7 +267,7 @@ jobs:
           (cd "${RUNNER_TEMP}" && grep " ${ARCHIVE}$" grype_checksums.txt | sha256sum --check --strict -)
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" grype
           chmod +x "${RUNNER_TEMP}/grype"
-          echo "cmd=${RUNNER_TEMP}/grype" >> "$GITHUB_OUTPUT"
+          echo "cmd=${RUNNER_TEMP}/grype" >&3
 
       - name: Scan current SBOM with Grype
         id: grype_current
@@ -258,10 +277,11 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.image.outputs.current_version }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="grype-current-${TAG}-${VERSION}.json"
           "${GRYPE_CMD}" "sbom:${SBOM_PATH}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan failed; security section will be skipped"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Pull previous image SBOM
         id: previous_sbom
@@ -270,6 +290,7 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           PREV_SBOM_DIGEST="$(oras discover --format json "${IMAGE}@${PREVIOUS_DIGEST}" \
             | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
             2>/dev/null || true)"
@@ -280,7 +301,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/prev-sbom"
           oras pull "${IMAGE}@${PREV_SBOM_DIGEST}" -o "${RUNNER_TEMP}/prev-sbom/"
           PREV_SBOM="$(find "${RUNNER_TEMP}/prev-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >> "$GITHUB_OUTPUT"
+          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >&3
 
       - name: Scan previous SBOM with Grype
         id: grype_previous
@@ -290,10 +311,11 @@ jobs:
           PREV_SBOM: ${{ steps.previous_sbom.outputs.path }}
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="grype-previous-${TAG}.json"
           "${GRYPE_CMD}" "sbom:${PREV_SBOM}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan of previous SBOM failed; CVE diff will be incomplete"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Generate SBOM-powered changelog
         id: changelog
@@ -304,10 +326,11 @@ jobs:
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
           CURRENT_SHA: ${{ steps.image.outputs.source_sha }}
           CURRENT_SBOM: ${{ steps.sbom.outputs.path }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
           GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
           GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           NOTES="image-changelog-${CURRENT_TAG}.md"
           BRANCH=main
           if [[ "${SOURCE_TAG}" == "testing" ]]; then
@@ -326,7 +349,7 @@ jobs:
             --current-sbom-file "${CURRENT_SBOM}" \
             "${GRYPE_ARGS[@]}" \
             --output "${NOTES}"
-          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
+          echo "path=${NOTES}" >&3
 
       - name: Package publish inputs
         env:
@@ -385,13 +408,13 @@ jobs:
       - name: Upload prepared metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain/*
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    name: Publish metadata (${{ inputs.source_tag }})
+    name: Publish metadata (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }})
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -402,19 +425,20 @@ jobs:
       packages: write
       id-token: write
     concurrency:
-      group: supply-chain-publish-${{ inputs.source_tag }}
+      group: supply-chain-publish-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
       - name: Download prepared metadata
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain
 
       - name: Validate publish inputs
         id: meta
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           METADATA=output/supply-chain/metadata.json
           jq -e . "${METADATA}" >/dev/null
           IMAGE="$(jq -r .image "${METADATA}")"
@@ -446,16 +470,16 @@ jobs:
           [[ "${SBOM}" == "$(basename "${SBOM}")" && -s "output/supply-chain/${SBOM}" ]]
           [[ "${NOTES}" == "$(basename "${NOTES}")" && -s "output/supply-chain/${NOTES}" ]]
 
-          echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "github_sha=${GITHUB_SHA_META}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "sbom=${SBOM}" >> "$GITHUB_OUTPUT"
-          echo "notes=${NOTES}" >> "$GITHUB_OUTPUT"
+          echo "image=${IMAGE}" >&3
+          echo "tag=${TAG}" >&3
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "github_sha=${GITHUB_SHA_META}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "version=${VERSION}" >&3
+          echo "sbom=${SBOM}" >&3
+          echo "notes=${NOTES}" >&3
         env:
-          MATRIX_SOURCE_TAG: ${{ inputs.source_tag }}
+          MATRIX_SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
 
       - name: Install ORAS
         uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
@@ -487,6 +511,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           SBOM: output/supply-chain/${{ steps.meta.outputs.sbom }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           ATTACH_OUTPUT="$(oras attach --format json \
             --artifact-type application/vnd.syft+json \
             --annotation "org.opencontainers.image.title=$(basename "${SBOM}")" \
@@ -496,7 +521,7 @@ jobs:
             "${SBOM}")"
           SBOM_DIGEST="$(jq -r '.digest' <<< "${ATTACH_OUTPUT}")"
           [[ "${SBOM_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
-          echo "digest=${SBOM_DIGEST}" >> "$GITHUB_OUTPUT"
+          echo "digest=${SBOM_DIGEST}" >&3
           cosign sign -y "${IMAGE}@${SBOM_DIGEST}"
 
       - name: Verify published signatures and build provenance
@@ -541,7 +566,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
           NOTES: output/supply-chain/${{ steps.meta.outputs.notes }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
           RELEASE_TAG="image-${VERSION//./-}"
           TITLE="Kyth Image - ${VERSION}"
@@ -564,7 +589,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
           gh workflow run cve-scan.yml \
             --ref "${GITHUB_REF_NAME}" \
