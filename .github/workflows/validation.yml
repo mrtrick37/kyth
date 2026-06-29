@@ -42,7 +42,7 @@ jobs:
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .cache/kyth-ci-tools
-          key: validation-tools-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}-${{ env.HADOLINT_VERSION }}-${{ env.ZIZMOR_VERSION }}
+          key: validation-tools-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}-${{ env.HADOLINT_VERSION }}-${{ env.JUST_VERSION }}-${{ env.ZIZMOR_VERSION }}
       - name: Install pinned validators
         run: |
           exec 5>>"${GITHUB_PATH}"
@@ -78,6 +78,20 @@ jobs:
             rm -rf "${work}"
           fi
           install -m 0755 "${hadolint_bin}" "${bin_dir}/hadolint"
+
+          just_bin="${cache_dir}/just-${JUST_VERSION}"
+          if [[ ! -x "${just_bin}" ]]; then
+            work="$(mktemp -d)"
+            just_archive="just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+            just_base="https://github.com/casey/just/releases/download/${JUST_VERSION}"
+            curl -fsSL -o "${work}/${just_archive}" "${just_base}/${just_archive}"
+            curl -fsSL -o "${work}/SHA256SUMS" "${just_base}/SHA256SUMS"
+            (cd "${work}" && grep " ${just_archive}$" SHA256SUMS | sha256sum -c -)
+            tar -xzf "${work}/${just_archive}" -C "${work}" just
+            install -m 0755 "${work}/just" "${just_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${just_bin}" "${bin_dir}/just"
 
           zizmor_bin="${cache_dir}/zizmor-${ZIZMOR_VERSION}"
           if [[ ! -x "${zizmor_bin}" ]]; then
