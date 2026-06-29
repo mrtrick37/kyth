@@ -2,7 +2,7 @@
 name: Supply Chain Metadata
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] consumes completed internal image-build workflows only
     workflows: ["Build container image"]
     types: [completed]
     branches: [latest, testing]
@@ -68,10 +68,12 @@ jobs:
       - name: Preflight source image
         run: |
           set -euo pipefail
-          tag="${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}"
+          tag="${SOURCE_TAG}"
           image="ghcr.io/${GITHUB_REPOSITORY,,}:${tag}"
           echo "Checking ${image} before preparing supply-chain metadata"
           docker manifest inspect "${image}" >/dev/null
+        env:
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       - name: Prepare metadata variables
         id: meta
         env:

@@ -180,13 +180,15 @@ jobs:
       - name: Move and verify ISO
         run: |
           ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
-          mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
+          mv "${RUNNER_TEMP}/kyth-live-${SOURCE_TAG}.iso" "${ISO}"
           sudo chown "$(id -u):$(id -g)" "${ISO}"
           test -s "${ISO}"
           test -r "${ISO}"
           test -w "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
         env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
 
       - name: Generate ISO checksums
