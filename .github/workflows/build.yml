@@ -530,6 +530,7 @@ jobs:
     with:
       source_tag: ${{ format('{0}-cachy', matrix.branch == 'main' && 'latest' || matrix.branch) }}
       source_digest: ""
+      source_sha: ${{ github.event_name == 'schedule' && '' || github.sha }}
     permissions:
       actions: read
       contents: write
