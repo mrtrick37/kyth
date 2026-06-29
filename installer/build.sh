@@ -273,8 +273,20 @@ EOF
 chmod +x /var/lib/livesys/livesys-session-extra
 
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
-kernel=$(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' |
-	grep -v cachyos | sort -V | tail -n 1)
+mapfile -t kernels < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V)
+kernel=
+for candidate in "${kernels[@]}"; do
+	if [[ "${candidate}" != *cachyos* ]]; then
+		kernel="${candidate}"
+	fi
+done
+if [[ -z "${kernel}" && ${#kernels[@]} -gt 0 ]]; then
+	kernel="${kernels[$((${#kernels[@]} - 1))]}"
+fi
+if [[ -z "${kernel}" ]]; then
+	echo "No kernel modules found in /usr/lib/modules" >&2
+	exit 1
+fi
 [[ -n "$kernel" ]] || { echo "ERROR: no non-cachyos kernel in /usr/lib/modules — dracut cannot build live initramfs" >&2; exit 1; }
 /usr/libexec/kyth-plymouth-branding-guard
 plymouth-set-default-theme kyth
