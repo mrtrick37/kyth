@@ -165,6 +165,7 @@ dnf5 install -y --skip-unavailable \
 	xorriso \
 	squashfs-tools \
 	fuse \
+	fuse-libs \
 	fuse3 \
 	mtools \
 	dosfstools \

@@ -762,6 +762,7 @@ else
 fi
 
 section "Windows Migration And App Comfort"
+check_rpm_present fuse-libs "AppImage FUSE 2 compatibility library"
 check_command ntfs-3g "NTFS support"
 check_command rsync "Migration copy tool"
 check_file /usr/bin/kyth-exe-handler ".exe safety handler"
