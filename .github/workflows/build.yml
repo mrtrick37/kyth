@@ -531,8 +531,11 @@ jobs:
       source_tag: ${{ matrix.branch }}
       source_digest: ""
     permissions:
-      contents: read
+      actions: read
+      contents: write
       packages: read
+      id-token: write
+      attestations: write
 
   finalize:
     name: Attest and dispatch (${{ matrix.branch }}, ${{ matrix.kernel_flavor }})
