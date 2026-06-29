@@ -155,7 +155,11 @@ jobs:
             DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${TAGGED_IMAGE}")"
           fi
           REVISION="$(sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" | jq -r '.Labels["org.opencontainers.image.revision"] // empty')"
-          test "${REVISION}" = "$(git rev-parse HEAD)"
+          EXPECTED_REVISION="$(git rev-parse HEAD)"
+          if [[ "${REVISION}" != "${EXPECTED_REVISION}" ]]; then
+            echo "::error::Source image ${IMAGE}@${DIGEST} was built from revision '${REVISION:-<missing>}', but this ISO workflow checked out '${EXPECTED_REVISION}'. Re-run the image build for this commit, then pass its digest as source_digest."
+            exit 1
+          fi
           echo "name=${IMAGE}" >&3
           echo "digest=${DIGEST}" >&3
           echo "pinned=${IMAGE}@${DIGEST}" >&3
