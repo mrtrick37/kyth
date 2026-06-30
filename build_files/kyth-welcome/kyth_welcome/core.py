@@ -2507,6 +2507,45 @@ def _peripheral_probe(usb_text: str) -> HardwareProbe:
     return HardwareProbe("Peripherals", "ok", summary, "\n\n".join(details_parts))
 
 
+def _displaylink_probe(usb_text: str, lsmod_text: str) -> HardwareProbe:
+    found_desc: str | None = None
+    for line in usb_text.splitlines():
+        m = re.search(r"ID\s+([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*(.*)", line)
+        if not m:
+            continue
+        vid, _pid, desc = m.group(1).lower(), m.group(2).lower(), m.group(3).strip()
+        if vid == "17e9":
+            found_desc = desc or "DisplayLink dock/adapter"
+            break
+
+    if not found_desc:
+        return HardwareProbe(
+            "DisplayLink dock", "dim",
+            "No DisplayLink dock or adapter detected.",
+            (
+                "DisplayLink USB/USB-C docks let you drive extra monitors from a "
+                "single port. Connect one and press Refresh."
+            ),
+        )
+
+    if re.search(r"^evdi\s", lsmod_text, re.MULTILINE):
+        return HardwareProbe(
+            "DisplayLink dock", "ok",
+            f"{found_desc} connected — driver active.",
+            "The evdi kernel module is loaded; extra displays through this dock should work.",
+        )
+
+    return HardwareProbe(
+        "DisplayLink dock", "warn",
+        f"{found_desc} detected, but the driver is not installed.",
+        (
+            "The evdi kernel module isn't loaded, so extra monitors on this dock "
+            "won't show video.\n\nRun `ujust install-displaylink` in a terminal to "
+            "install and sign the evdi driver, then reboot."
+        ),
+    )
+
+
 def _storage_probe() -> HardwareProbe:
     usage = shutil.disk_usage("/home")
     free_pct = (usage.free / usage.total) * 100 if usage.total else 0
@@ -2906,6 +2945,7 @@ def _collect_hardware_probes() -> list[HardwareProbe]:
         # Input devices
         _controller_probe(usb_text, lsmod_text),
         _peripheral_probe(usb_text),
+        _displaylink_probe(usb_text, lsmod_text),
         # System health
         _audio_probe(),
         _thermal_probe(),

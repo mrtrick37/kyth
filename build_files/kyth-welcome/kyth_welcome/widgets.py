@@ -277,9 +277,9 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #283028; color: #6ccb5f; border: 1px solid #3e573c;",  "OK"),
-        "warn": ("background: #322d20; color: #d9b54a; border: 1px solid #5c5126;",  "Warning"),
-        "err":  ("background: #332527; color: #ff99a4; border: 1px solid #5e3338;",  "Issue"),
+        "ok":   ("background: #1e2b24; color: #5fb88a; border: 1px solid #3f7a5c;",  "OK"),
+        "warn": ("background: #2e2417; color: #d6a35c; border: 1px solid #8a6534;",  "Warning"),
+        "err":  ("background: #35262a; color: #ff99a4; border: 1px solid #5e3338;",  "Issue"),
         "dim":  ("background: #2b2b2b; color: #a6a6a6; border: 1px solid #3a3a3a;",  "Info"),
     }
 
@@ -389,13 +389,13 @@ class StatTile(QFrame):
     def __init__(self, label: str, value: str, value_style: str = "stat-value"):
         super().__init__()
         self.setObjectName("stat-tile")
-        self.setMinimumHeight(88)
+        self.setMinimumHeight(68)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.ArrowCursor)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(5)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(4)
 
         self._label = QLabel(label.upper())
         self._label.setObjectName("stat-label")

@@ -119,7 +119,13 @@ class WelcomePage(Page):
         hostname = uname.nodename or "This PC"
         windows_found = bool(_find_ntfs_drives())
 
-        # Device summary row, like the device card at the top of Settings
+        # ── Recommended next action — the hero: the one thing to do next ───────
+        # Placed immediately under the page header so it's the first thing the
+        # eye lands on, ahead of the metadata strip below.
+        self._add(self._make_recommended_card(staged, rollback, windows_found))
+
+        # Device summary row, like the device card at the top of Settings.
+        # This is metadata, not a focal point, so it stays visually quiet.
         tiles_row = QHBoxLayout()
         tiles_row.setSpacing(10)
 
@@ -145,8 +151,6 @@ class WelcomePage(Page):
         self._add_layout(tiles_row)
         self._add(self._make_setup_readiness_card(staged, rollback, kernel, hostname, windows_found))
         self._add(self._make_desktop_experience_summary())
-
-        self._add(self._make_recommended_card(staged, rollback, windows_found))
 
         # ── NTFS Steam library warning ────────────────────────────────────────
         # Proton on a NTFS-formatted drive fails in ways that read as
@@ -237,12 +241,12 @@ class WelcomePage(Page):
         card = QFrame()
         card.setObjectName("desktop-experience-summary")
         card.setStyleSheet(
-            "QFrame#desktop-experience-summary { background:#101820; border:1px solid #2d3a48; border-radius:8px; }"
-            "QLabel#desktop-title { color:#eef5f7; font-size:17px; font-weight:800; }"
-            "QLabel#desktop-copy { color:#95a6b4; font-size:12px; }"
+            "QFrame#desktop-experience-summary { background:#21242a; border:1px solid #2f343b; border-radius:8px; }"
+            "QLabel#desktop-title { color:#f4f6f8; font-size:16px; font-weight:700; }"
+            "QLabel#desktop-copy { color:#aab4bf; font-size:12px; }"
         )
         outer = QVBoxLayout(card)
-        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(10)
         title = QLabel("Desktop Experience")
         title.setObjectName("desktop-title")
@@ -259,9 +263,9 @@ class WelcomePage(Page):
             ("PipeWire", pipewire.strip()),
             ("Modes", "Gaming / Dev / Creator / Laptop / Ultrawide"),
         ]):
-            chip = QLabel(f"<b>{name}</b><br><span style='color:#95a6b4'>{value}</span>")
+            chip = QLabel(f"<b>{name}</b><br><span style='color:#aab4bf'>{value}</span>")
             chip.setTextFormat(Qt.TextFormat.RichText)
-            chip.setStyleSheet("QLabel { background:#0b1118; border:1px solid #253442; border-radius:8px; padding:9px 11px; color:#eef5f7; }")
+            chip.setStyleSheet("QLabel { background:#1a1d21; border:1px solid #2f343b; border-radius:8px; padding:9px 11px; color:#f4f6f8; }")
             grid.addWidget(chip, idx // 2, idx % 2)
         outer.addLayout(grid)
         return card
@@ -271,13 +275,13 @@ class WelcomePage(Page):
         card.setObjectName("setup-readiness-card")
         card.setStyleSheet(
             "QFrame#setup-readiness-card {"
-            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #18232d, stop:1 #101820);"
-            "border: 1px solid #2f4656; border-radius: 8px; padding: 2px; }"
-            "QLabel#setup-title { color: #eef5f7; font-size: 18px; font-weight: 800; }"
-            "QLabel#setup-subtitle { color: #95a6b4; font-size: 12px; }"
+            "background: qlineargradient(x1:0,y1:0,x2:1,y2:1, stop:0 #21242a, stop:1 #1a1d21);"
+            "border: 1px solid #2f343b; border-radius: 8px; padding: 2px; }"
+            "QLabel#setup-title { color: #f4f6f8; font-size: 17px; font-weight: 700; }"
+            "QLabel#setup-subtitle { color: #aab4bf; font-size: 12px; }"
         )
         outer = QVBoxLayout(card)
-        outer.setContentsMargins(18, 16, 18, 16)
+        outer.setContentsMargins(20, 16, 20, 16)
         outer.setSpacing(12)
 
         header = QHBoxLayout()
@@ -291,7 +295,7 @@ class WelcomePage(Page):
         title_box.addWidget(subtitle)
         header.addLayout(title_box, 1)
         badge = QLabel("Recommended")
-        badge.setStyleSheet("color:#06110f;background:#35d0aa;border-radius:999px;padding:5px 10px;font-weight:800;font-size:11px;")
+        badge.setStyleSheet("color:#0d1f17;background:#5fb88a;border-radius:999px;padding:5px 10px;font-weight:800;font-size:11px;")
         header.addWidget(badge, 0, Qt.AlignmentFlag.AlignTop)
         outer.addLayout(header)
 
@@ -307,11 +311,11 @@ class WelcomePage(Page):
             ("Recovery", "Rollback and logs in Repair", True),
         ]
         for idx, (name, detail, ok) in enumerate(items):
-            chip = QLabel(f"<b>{name}</b><br><span style='color:#95a6b4'>{detail}</span>")
+            chip = QLabel(f"<b>{name}</b><br><span style='color:#aab4bf'>{detail}</span>")
             chip.setTextFormat(Qt.TextFormat.RichText)
             chip.setStyleSheet(
-                "QLabel { background: #0f171f; border: 1px solid #2a3a47; border-radius: 8px; padding: 9px 11px; color: #eef5f7; }"
-                + ("QLabel { border-color: #315f55; background: #10251f; }" if ok else "QLabel { border-color: #624d24; background: #251d10; }")
+                "QLabel { background: #1a1d21; border: 1px solid #2f343b; border-radius: 8px; padding: 9px 11px; color: #f4f6f8; }"
+                + ("QLabel { border-color: #3f7a5c; background: #1e2b24; }" if ok else "QLabel { border-color: #8a6534; background: #2e2417; }")
             )
             grid.addWidget(chip, idx // 3, idx % 3)
         outer.addLayout(grid)
