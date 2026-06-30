@@ -21,6 +21,13 @@ on:
         required: false
         type: string
         default: ""
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_ACCOUNT_ID:
+        required: true
   workflow_dispatch:
     inputs:
       source_tag:

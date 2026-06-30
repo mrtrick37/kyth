@@ -534,7 +534,10 @@ jobs:
       source_tag: ${{ matrix.branch == 'main' && 'latest' || matrix.branch }}
       source_digest: ""
       source_sha: ${{ github.event_name == 'schedule' && '' || github.sha }}
-    secrets: inherit
+    secrets:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
     permissions:
       actions: read
       contents: write
