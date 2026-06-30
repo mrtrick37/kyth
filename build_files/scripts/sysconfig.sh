@@ -854,6 +854,7 @@ else
 fi
 systemctl enable docker.socket 2>/dev/null || true
 systemctl enable fwupd 2>/dev/null || true
+systemctl enable pcscd.socket 2>/dev/null || true
 
 # ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
 # rpm-ostreed-automatic conflicts with bootc over the sysroot lock.

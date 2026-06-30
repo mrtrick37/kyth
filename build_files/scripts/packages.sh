@@ -145,6 +145,8 @@ dnf5 install -y --skip-unavailable \
 	kwallet-pam \
 	fprintd \
 	fprintd-pam \
+	pcsc-lite \
+	opensc \
 	krdc \
 	bubblewrap \
 	skopeo \
@@ -620,10 +622,11 @@ optional_desktop_packages=(
 	liberation-fonts-all
 	inter-fonts
 	papirus-icon-theme
-	# Calibri-compatible font: fixes Office document rendering for Windows migrants.
+	# Calibri/Cambria-compatible fonts: fix Office document rendering for Windows migrants.
 	# Arial/Times are covered by liberation-fonts; Calibri (default since Office 2007)
-	# needs Carlito for correct line-break and pagination matching.
+	# needs Carlito, and Cambria needs Caladea, for correct line-break and pagination matching.
 	google-carlito-fonts
+	google-caladea-fonts
 	# Emoji rendering — without this, emoji in browsers and terminals render as
 	# empty boxes on systems that only have the liberation/inter font set.
 	google-noto-emoji-fonts

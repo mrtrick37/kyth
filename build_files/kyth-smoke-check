@@ -735,6 +735,11 @@ if fc-list 2>/dev/null | grep -qi 'carlito'; then
 else
     warn "Carlito fonts" "missing — Office document layout may differ from Windows"
 fi
+if fc-list 2>/dev/null | grep -qi 'caladea'; then
+    pass "Caladea fonts" "Cambria-compatible fonts present"
+else
+    warn "Caladea fonts" "missing — Office document layout may differ from Windows"
+fi
 if fc-list 2>/dev/null | grep -qi 'noto.*emoji\|noto emoji'; then
     pass "Noto emoji fonts" "emoji rendering available"
 else
@@ -745,6 +750,17 @@ if systemctl is-enabled fprintd.service &>/dev/null || systemctl is-active fprin
     pass "fprintd service" "fingerprint login available"
 else
     warn "fprintd service" "disabled — run authselect enable-feature with-fingerprint to activate"
+fi
+check_optional_command pcscd "smartcard daemon"
+if systemctl is-enabled pcscd.socket &>/dev/null || systemctl is-active pcscd.socket &>/dev/null; then
+    pass "pcscd.socket" "smartcard login/auth available"
+else
+    warn "pcscd.socket" "disabled — smartcard readers will not be detected on demand"
+fi
+if compgen -G "/dev/video*" >/dev/null 2>&1; then
+    pass "Camera" "video capture device present (/dev/video*)"
+else
+    warn "Camera" "no /dev/video* device detected — built-in or USB webcam may be missing/disabled"
 fi
 check_command openconnect "VPN (GlobalProtect/AnyConnect)"
 check_command vpnc "VPN (Cisco legacy)"
