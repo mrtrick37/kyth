@@ -8,7 +8,9 @@ on:
         description: Source image tag to build ISO from
         required: false
         type: string
-        default: testing-cachy
+        # Fedora variant only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy image has no Fedora kernel and would fail.
+        default: testing
       source_digest:
         description: Optional pinned source image digest
         required: false
@@ -26,11 +28,12 @@ on:
         required: false
         default: latest
         type: choice
+        # Fedora variants only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy images have no Fedora kernel and the ISO
+        # build will hard-fail on them by design.
         options:
           - latest
-          - latest-cachy
           - testing
-          - testing-cachy
       source_digest:
         description: Immutable source image digest from the build workflow
         required: false

@@ -273,6 +273,12 @@ EOF
 chmod +x /var/lib/livesys/livesys-session-extra
 
 # ── dracut-live + initramfs ───────────────────────────────────────────────────
+# The live ISO must boot the signed Fedora kernel so it works under Secure Boot.
+# CachyOS is opt-in: chosen during installation or from System Hub on the
+# installed system (a bootc switch to the -cachy image), never in the live
+# environment. So always pick the non-CachyOS (Fedora) kernel here, and refuse
+# to build a live ISO from a CachyOS-only image rather than silently producing an
+# unsignable one.
 mapfile -t kernels < <(find /usr/lib/modules -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -V)
 kernel=
 for candidate in "${kernels[@]}"; do
@@ -280,14 +286,10 @@ for candidate in "${kernels[@]}"; do
 		kernel="${candidate}"
 	fi
 done
-if [[ -z "${kernel}" && ${#kernels[@]} -gt 0 ]]; then
-	kernel="${kernels[$((${#kernels[@]} - 1))]}"
-fi
 if [[ -z "${kernel}" ]]; then
-	echo "No kernel modules found in /usr/lib/modules" >&2
+	echo "ERROR: no signed Fedora kernel in /usr/lib/modules — the live ISO must use the Fedora kernel for Secure Boot. Build the ISO from the Fedora image variant, not the -cachy variant." >&2
 	exit 1
 fi
-[[ -n "$kernel" ]] || { echo "ERROR: no non-cachyos kernel in /usr/lib/modules — dracut cannot build live initramfs" >&2; exit 1; }
 /usr/libexec/kyth-plymouth-branding-guard
 plymouth-set-default-theme kyth
 mkdir -p /etc/plymouth /usr/share/plymouth
