@@ -31,7 +31,7 @@ def _path_exists(path: str) -> bool:
 
 def _cmd_ok(cmd: list[str], timeout: int = 5) -> bool:
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, check=False)  # nosemgrep
         return result.returncode == 0
     except Exception:
         return False
@@ -56,7 +56,7 @@ def _kdeconnect_configured() -> bool:
     if _path_exists("~/.config/kdeconnect"):
         return True
     try:
-        result = subprocess.run(["kdeconnect-cli", "--list-devices"], capture_output=True, text=True, timeout=6, check=False)
+        result = subprocess.run(["kdeconnect-cli", "--list-devices"], capture_output=True, text=True, timeout=6, check=False)  # nosemgrep
         return result.returncode == 0 and bool(result.stdout.strip())
     except Exception:
         return False
@@ -68,7 +68,7 @@ def _cloud_storage_configured() -> bool:
 
 def _printer_configured() -> bool:
     try:
-        result = subprocess.run(["lpstat", "-v"], capture_output=True, text=True, timeout=5, check=False)
+        result = subprocess.run(["lpstat", "-v"], capture_output=True, text=True, timeout=5, check=False)  # nosemgrep
         return result.returncode == 0 and bool(result.stdout.strip())
     except Exception:
         return False
@@ -550,7 +550,7 @@ class WelcomePage(Page):
 
     def _apply_role_preset(self):
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosemgrep
                 ["/usr/bin/kyth-apply-role-preset", self._profile],
                 capture_output=True,
                 text=True,

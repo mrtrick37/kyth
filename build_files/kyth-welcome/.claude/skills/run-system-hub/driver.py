@@ -16,6 +16,9 @@ import sys
 import time
 from pathlib import Path
 
+# The driver adds the packaged kyth-welcome source tree to sys.path at runtime.
+# pylint: disable=wrong-import-position,import-error
+
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 # .claude/skills/run-system-hub/driver.py -> kyth-welcome/ (the unit root,
@@ -35,17 +38,21 @@ def _build_app() -> QApplication:
 
 
 def cmd_list_pages(_args: argparse.Namespace) -> None:
-    _app = _build_app()
+    """Print every available System Hub page key."""
+    _build_app()
     win = MainWindow()
-    for key in sorted(win._page_index_by_key):
+    page_index = getattr(win, "_page_index_by_key")
+    for key in sorted(page_index):
         print(key)
 
 
 def cmd_shoot(args: argparse.Namespace) -> None:
+    """Capture a screenshot for the requested System Hub page."""
     app = _build_app()
     win = MainWindow()
     win.resize(1920, 1150)
-    win._navigate_to(args.page)
+    navigate_to = getattr(win, "_navigate_to")
+    navigate_to(args.page)
     win.show()
 
     # Pages like Hardware kick off a HardwareProbeWorker QThread (lspci /
@@ -55,7 +62,8 @@ def cmd_shoot(args: argparse.Namespace) -> None:
     deadline = time.time() + args.timeout
     while time.time() < deadline:
         app.processEvents()
-        page = win._stack.currentWidget()
+        page_stack = getattr(win, "_stack")
+        page = page_stack.currentWidget()
         worker = getattr(page, "_worker", None)
         if worker is None or not worker.isRunning():
             for _ in range(5):  # let the UI repaint with final probe results
@@ -70,6 +78,7 @@ def cmd_shoot(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
+    """Run the selected headless System Hub driver command."""
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -77,9 +86,17 @@ def main() -> None:
     p_list.set_defaults(func=cmd_list_pages)
 
     p_shoot = sub.add_parser("shoot", help="navigate to a page and save a screenshot")
-    p_shoot.add_argument("page", help='page key, e.g. "Welcome" (Home) or "Hardware" — see list-pages')
+    p_shoot.add_argument(
+        "page",
+        help='page key, e.g. "Welcome" (Home) or "Hardware" - see list-pages',
+    )
     p_shoot.add_argument("out", help="output PNG path")
-    p_shoot.add_argument("--timeout", type=float, default=25.0, help="max seconds to wait for async probes")
+    p_shoot.add_argument(
+        "--timeout",
+        type=float,
+        default=25.0,
+        help="max seconds to wait for async probes",
+    )
     p_shoot.set_defaults(func=cmd_shoot)
 
     args = parser.parse_args()

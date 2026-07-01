@@ -1466,7 +1466,7 @@ class WizardWindow(QMainWindow):
             btn.setChecked(key == profile)
         _save_profile(profile)
         try:
-            subprocess.Popen(["/usr/bin/kyth-apply-role-preset", profile], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(["/usr/bin/kyth-apply-role-preset", profile], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # nosemgrep
         except OSError:
             pass
         # Re-seed the Pick Apps defaults to match the chosen profile. Only

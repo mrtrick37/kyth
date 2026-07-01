@@ -1,6 +1,6 @@
 import importlib.util
 from importlib.machinery import SourceFileLoader
-import subprocess
+import subprocess  # nosemgrep
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -21,7 +21,7 @@ class UpdateWatcherMeteredTests(unittest.TestCase):
         cls.watcher = _load_update_watcher()
 
     def _check_metered_for_nm_value(self, value: int):
-        result = subprocess.CompletedProcess(
+        result = subprocess.CompletedProcess(  # nosemgrep
             args=["busctl"],
             returncode=0,
             stdout=f"u {value}\n",

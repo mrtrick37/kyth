@@ -581,6 +581,8 @@ dnf5 install -y --skip-unavailable \
 	python3-pyqt6-webengine \
 	python3-pip \
 	python3-devel \
+	python3-pytest \
+	curl \
 	qt6-qtwayland \
 	plymouth \
 	plymouth-plugin-script \
@@ -615,6 +617,25 @@ if ! command -v pip >/dev/null 2>&1; then
 	ln -s "${pip3_path}" /usr/local/bin/pip
 fi
 pip --version
+
+OPENGREP_VERSION="1.16.4"
+case "$(uname -m)" in
+	x86_64)
+		opengrep_asset="opengrep_manylinux_x86"
+		;;
+	aarch64)
+		opengrep_asset="opengrep_manylinux_aarch64"
+		;;
+	*)
+		echo "ERROR: unsupported OpenGrep architecture: $(uname -m)" >&2
+		exit 1
+		;;
+esac
+curl -fsSL \
+	"https://github.com/opengrep/opengrep/releases/download/v${OPENGREP_VERSION}/${opengrep_asset}" \
+	-o /usr/local/bin/opengrep
+chmod 0755 /usr/local/bin/opengrep
+opengrep --version
 
 optional_desktop_packages=(
 	jetbrains-mono-fonts
