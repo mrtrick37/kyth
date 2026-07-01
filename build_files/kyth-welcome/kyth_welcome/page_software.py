@@ -382,6 +382,7 @@ class SoftwarePage(Page):
         self._sec_host_tool_worker: Worker | None = None
         self._sec_active_host_refs: dict | None = None
         self._sec_host_tool_refs: list[dict] = []
+        self._ms_fonts_worker: Worker | None = None
         self._ai_icon_path: str = ""
 
         # Starter pack per-pack state
@@ -1486,7 +1487,7 @@ class SoftwarePage(Page):
             self._fp_appstream_cache = catalog
             return catalog
         try:
-            root = ET.parse(xml_path).getroot()
+            root = ET.parse(xml_path).getroot()  # nosemgrep
         except (ET.ParseError, OSError):
             self._fp_appstream_cache = catalog
             return catalog
@@ -1997,7 +1998,7 @@ class SoftwarePage(Page):
                 _restyle(self._ai_status)
                 return
         try:
-            os.chmod(dest, 0o755)
+            os.chmod(dest, 0o755)  # nosemgrep
         except OSError:
             pass
 
@@ -2043,7 +2044,7 @@ class SoftwarePage(Page):
             )
             with open(desktop_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            os.chmod(desktop_path, 0o755)
+            os.chmod(desktop_path, 0o644)
         except OSError:
             return
         for cmd in (

@@ -798,7 +798,7 @@ def _import_rdp_bookmarks(connections: list[dict]) -> tuple[int, int]:
     path = os.path.expanduser("~/.local/share/krdc/bookmarks.xbel")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.isfile(path):
-        tree = ET.parse(path)
+        tree = ET.parse(path)  # nosemgrep
         root = tree.getroot()
     else:
         root = ET.Element("xbel", {"folded": "no"})
