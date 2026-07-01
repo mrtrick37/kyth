@@ -582,6 +582,7 @@ dnf5 install -y --skip-unavailable \
 	python3-pip \
 	python3-devel \
 	python3-pytest \
+	python3-defusedxml \
 	curl \
 	qt6-qtwayland \
 	plymouth \

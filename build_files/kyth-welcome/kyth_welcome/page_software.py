@@ -7,7 +7,7 @@ import re
 import shlex
 import shutil
 import subprocess
-import xml.etree.ElementTree as ET
+import defusedxml.ElementTree as ET
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
@@ -1487,7 +1487,7 @@ class SoftwarePage(Page):
             self._fp_appstream_cache = catalog
             return catalog
         try:
-            root = ET.parse(xml_path).getroot()  # nosemgrep
+            root = ET.parse(xml_path).getroot()
         except (ET.ParseError, OSError):
             self._fp_appstream_cache = catalog
             return catalog

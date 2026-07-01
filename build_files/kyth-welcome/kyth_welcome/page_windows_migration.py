@@ -794,11 +794,11 @@ def _export_sticky_notes(sticky: list[dict]) -> tuple[int, str]:
 
 def _import_rdp_bookmarks(connections: list[dict]) -> tuple[int, int]:
     """Add rdp:// bookmarks to KRDC's bookmarks.xbel; returns (added, dupes)."""
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET
     path = os.path.expanduser("~/.local/share/krdc/bookmarks.xbel")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.isfile(path):
-        tree = ET.parse(path)  # nosemgrep
+        tree = ET.parse(path)
         root = tree.getroot()
     else:
         root = ET.Element("xbel", {"folded": "no"})
