@@ -2245,8 +2245,8 @@ install -m 0755 /ctx/kyth-session-snapshot /usr/bin/kyth-session-snapshot
 install -m 0755 /ctx/kyth-report-issue /usr/bin/kyth-report-issue
 install -m 0755 /ctx/kyth-ge-proton-update /usr/bin/kyth-ge-proton-update
 install -m 0755 /ctx/kyth-steam-game-export /usr/bin/kyth-steam-game-export
-install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/system/kyth-ge-proton-update.service
-install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/system/kyth-ge-proton-update.timer
+install -m 0644 /ctx/kyth-ge-proton-update.service /usr/lib/systemd/user/kyth-ge-proton-update.service
+install -m 0644 /ctx/kyth-ge-proton-update.timer /usr/lib/systemd/user/kyth-ge-proton-update.timer
 install -m 0644 /ctx/kyth-flathub-setup.service /usr/lib/systemd/system/kyth-flathub-setup.service
 install -m 0644 /ctx/kyth-default-flatpaks.service /usr/lib/systemd/system/kyth-default-flatpaks.service
 install -m 0440 /ctx/kyth-bootc-sudo /etc/sudoers.d/kyth-bootc
@@ -2930,7 +2930,7 @@ printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >>/usr/share/ublue-
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
-systemctl enable kyth-ge-proton-update.timer 2>/dev/null || true
+systemctl --global enable kyth-ge-proton-update.timer 2>/dev/null || true
 systemctl enable kyth-flathub-setup.service 2>/dev/null || true
 systemctl enable kyth-default-flatpaks.service 2>/dev/null || true
 systemctl enable kyth-hw-setup.service 2>/dev/null || true
@@ -2987,4 +2987,7 @@ done
 # every path in STEAM_EXTRA_COMPAT_TOOLS_PATHS and crash with FileNotFoundError
 # if any are missing, even before the update service has run for the first time.
 mkdir -p /var/lib/kyth/ge-proton
+chmod 1777 /var/lib/kyth/ge-proton
+mkdir -p /usr/lib/tmpfiles.d
+echo 'd /var/lib/kyth/ge-proton 1777 root root - -' >/usr/lib/tmpfiles.d/kyth-ge-proton.conf
 echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' >/etc/environment.d/ge-proton.conf

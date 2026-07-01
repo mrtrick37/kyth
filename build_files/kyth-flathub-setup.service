@@ -14,7 +14,7 @@ StartLimitIntervalSec=120
 StartLimitBurst=5
 
 [Service]
-Type=oneshot
+Type=simple
 ExecStart=flatpak remote-add --if-not-exists --system flathub https://dl.flathub.org/repo/flathub.flatpakrepo
 RemainAfterExit=yes
 # Retry on DNS-not-ready races at first boot (network-online fires before
