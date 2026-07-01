@@ -28,6 +28,8 @@ on:
         required: true
       R2_ACCOUNT_ID:
         required: true
+      R2_ENDPOINT_URL:
+        required: false
   workflow_dispatch:
     inputs:
       source_tag:
