@@ -2450,7 +2450,7 @@ class GamingPage(Page):
             return
         self._gp_update_btn.setEnabled(False)
         self._gp_log.clear()
-        self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
+        self._gp_log.append("→ /usr/bin/kyth-ge-proton-update\n")
         self._gp_log_toggle.show()
         _set_log_panel(self._gp_log_toggle, self._gp_log, False)
         self._gp_progress.show()
@@ -2458,7 +2458,7 @@ class GamingPage(Page):
         self._gp_op_status.setObjectName("subheading")
         self._gp_op_status.show()
         _restyle(self._gp_op_status)
-        self._gp_worker = Worker(["sudo", "-A", "/usr/bin/kyth-ge-proton-update"])
+        self._gp_worker = Worker(["/usr/bin/kyth-ge-proton-update"])
         self._gp_worker.line.connect(lambda ln: (
             self._gp_log.append(ln),
             self._gp_log.ensureCursorVisible(),

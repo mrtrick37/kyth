@@ -174,6 +174,65 @@ EOF
 	fi
 }
 
+append_missing_records() {
+	local source="$1"
+	local dest="$2"
+	local line name
+
+	[[ -r "$source" ]] || return 0
+	touch "$dest"
+	while IFS= read -r line || [[ -n "$line" ]]; do
+		[[ -n "$line" ]] || continue
+		name="${line%%:*}"
+		[[ -n "$name" ]] || continue
+		if ! grep -q "^${name}:" "$dest"; then
+			printf '%s\n' "$line" | tee -a "$dest" >/dev/null
+		fi
+	done < <(cat "$source")
+}
+
+ensure_line_by_name() {
+	local name="$1"
+	local line="$2"
+	local dest="$3"
+
+	if ! grep -q "^${name}:" "$dest"; then
+		printf '%s\n' "$line" | tee -a "$dest" >/dev/null
+	fi
+}
+
+ensure_system_accounts() {
+	local deploy_root="$1"
+	local passwd_path="$deploy_root/etc/passwd"
+	local group_path="$deploy_root/etc/group"
+	local shadow_path="$deploy_root/etc/shadow"
+	local name
+
+	append_missing_records "$deploy_root/usr/lib/group" "$group_path"
+	append_missing_records "$deploy_root/usr/lib/passwd" "$passwd_path"
+
+	ensure_line_by_name sddm "sddm:x:959:" "$group_path"
+	ensure_line_by_name sddm \
+		"sddm:x:959:959:SDDM Greeter Account:/var/lib/sddm:/usr/sbin/nologin" \
+		"$passwd_path"
+
+	if [[ -e "$shadow_path" ]]; then
+		while IFS=: read -r name _; do
+			[[ -n "$name" && "$name" != "root" ]] || continue
+			if ! grep -q "^${name}:" "$shadow_path"; then
+				printf '%s:!*:19700:0:99999:7:::\n' "$name" |
+					tee -a "$shadow_path" >/dev/null
+			fi
+		done < <(cat "$passwd_path")
+	fi
+
+	chmod 0644 "$passwd_path" "$group_path"
+	[[ ! -e "$shadow_path" ]] || chmod 0000 "$shadow_path" || true
+	mkdir -p "$deploy_root/var/lib/sddm"
+	chown sddm:sddm "$deploy_root/var/lib/sddm" || true
+	restorecon "$passwd_path" "$group_path" "$shadow_path" "$deploy_root/var/lib/sddm" || true
+}
+
 create_user() {
 	local root_mnt="$1"
 	local deploy_etc="$2"
@@ -377,7 +436,9 @@ if [[ -z "$DEPLOY_ETC" ]]; then
 else
 	write_target_file "$DEPLOY_ETC/hostname" "$HOSTNAME"
 	ln -snf "/usr/share/zoneinfo/$TIMEZONE" "$DEPLOY_ETC/localtime"
+	ensure_system_accounts "$(dirname "$DEPLOY_ETC")"
 	create_user "$ROOT_MNT" "$DEPLOY_ETC" "$USERNAME" "$PASSWORD"
+	ensure_system_accounts "$(dirname "$DEPLOY_ETC")"
 fi
 
 echo "Syncing and unmounting..."

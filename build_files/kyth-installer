@@ -30,6 +30,7 @@ TARGET_IMAGE = os.environ.get("KYTH_TARGET_IMAGE", SOURCE_IMAGE)
 LOG_FILE     = Path(os.environ.get("KYTH_INSTALLER_LOG", "/tmp/kyth-installer.log"))
 PORT         = 7777
 SESSION_TOKEN = secrets.token_urlsafe(32)
+_bootstrap_token: Optional[str] = None
 SKIP_FETCH_CHECK = os.environ.get("KYTH_INSTALL_SKIP_FETCH_CHECK", "0").lower() in (
     "1", "true", "yes", "on"
 )
@@ -83,9 +84,54 @@ def _running_system_disk() -> str:
     return ""
 
 
+def _get_live_usb_disk() -> Optional[str]:
+    for path in ("/run/initramfs/live", "/run/initramfs/iso"):
+        try:
+            source = subprocess.check_output(
+                ["findmnt", "-n", "-o", "SOURCE", path],
+                text=True, stderr=subprocess.DEVNULL, timeout=5,
+            ).strip()
+            if not source or not source.startswith("/dev/"):
+                continue
+            try:
+                pkname = subprocess.check_output(
+                    ["lsblk", "-n", "-o", "PKNAME", source],
+                    text=True, stderr=subprocess.DEVNULL, timeout=5,
+                ).strip().splitlines()
+                parent = next((line.strip() for line in pkname if line.strip()), "")
+                if parent:
+                    return f"/dev/{parent}"
+            except Exception:
+                pass
+            try:
+                disk = subprocess.check_output(
+                    ["lsblk", "-n", "-o", "NAME,TYPE", source],
+                    text=True, stderr=subprocess.DEVNULL, timeout=5,
+                )
+                for line in disk.splitlines():
+                    parts = line.split()
+                    if len(parts) >= 2 and parts[1] == "disk":
+                        return f"/dev/{parts[0].lstrip('└─├─')}"
+            except Exception:
+                pass
+            try:
+                devtype = subprocess.check_output(
+                    ["lsblk", "-n", "-o", "TYPE", source],
+                    text=True, stderr=subprocess.DEVNULL, timeout=5,
+                ).strip()
+                if devtype == "disk":
+                    return source
+            except Exception:
+                pass
+        except Exception:
+            pass
+    return None
+
+
 def list_disks() -> list[dict]:
     try:
         running_disk = _running_system_disk()
+        live_usb = _get_live_usb_disk()
         out = subprocess.check_output(
             ["lsblk", "--json", "--bytes", "--nodeps",
              "--output", "NAME,SIZE,MODEL,TYPE,TRAN,ROTA,RM"],
@@ -96,6 +142,9 @@ def list_disks() -> list[dict]:
             size = int(d.get("size", 0))
             name = d.get("name") or ""
             tran = (d.get("tran") or "").lower()
+            disk_path = f"/dev/{name}"
+            if disk_path == live_usb:
+                continue
             if (
                 d.get("type") == "disk"
                 and size > 0
@@ -103,14 +152,14 @@ def list_disks() -> list[dict]:
                 and not bool(d.get("rm"))
             ):
                 result.append({
-                    "name":  f"/dev/{name}",
+                    "name":  disk_path,
                     "model": (d.get("model") or "Unknown Disk").strip(),
                     "size":  _human_size(size),
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
                     "tran":  tran,
                     "usb":   tran == "usb",
-                    "current": f"/dev/{name}" == running_disk,
+                    "current": disk_path == running_disk,
                 })
         return result
     except Exception:
@@ -223,8 +272,10 @@ def _read_lines(path: Path) -> list[str]:
 def _write_lines(path: Path, lines: list[str], mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # passwd uses the literal "x" placeholder; shadow records contain hashes.
-    path.write_text("\n".join(lines) + "\n")  # lgtm[py/clear-text-storage-sensitive-data]
-    os.chmod(path, mode)
+    # Open the file with target permissions at creation time to prevent permissions race condition.
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, mode)
+    with os.fdopen(fd, 'w') as f:
+        f.write("\n".join(lines) + "\n")
 
 
 def _append_missing_records(dest: Path, sources: list[Path], fallbacks: dict[str, str]) -> bool:
@@ -782,8 +833,20 @@ def _run_install() -> None:
             log(f"Formatting {target_part} as btrfs ...")
             run_cmd(["mkfs.btrfs", "-f", target_part], 5, 10)
 
+            # Create btrfs subvolumes @ and @home
+            log("Creating Btrfs subvolumes @ and @home ...")
+            btrfs_temp_root = "/var/tmp/kyth-btrfs-root"
+            subprocess.run(_as_root(["umount", "-l", btrfs_temp_root]), check=False, capture_output=True)
+            Path(btrfs_temp_root).mkdir(parents=True, exist_ok=True)
+            subprocess.run(_as_root(["mount", target_part, btrfs_temp_root]), check=True)
+            try:
+                subprocess.run(_as_root(["btrfs", "subvolume", "create", f"{btrfs_temp_root}/@"]), check=True)
+                subprocess.run(_as_root(["btrfs", "subvolume", "create", f"{btrfs_temp_root}/@home"]), check=True)
+            finally:
+                subprocess.run(_as_root(["umount", "-l", btrfs_temp_root]), check=True)
+
             Path(alongside_mount).mkdir(parents=True, exist_ok=True)
-            subprocess.run(_as_root(["mount", target_part, alongside_mount]), check=True)
+            subprocess.run(_as_root(["mount", "-o", "subvol=@", target_part, alongside_mount]), check=True)
             progress(11)
 
             if efi_part:
@@ -855,6 +918,25 @@ def _run_install() -> None:
         try:
             etc = find_deploy_etc(config_root)
             if etc:
+                if install_mode == "alongside":
+                    target_home = Path(config_root) / "ostree/deploy/default/var/home"
+                    target_home.mkdir(parents=True, exist_ok=True)
+                    subprocess.run(_as_root(["umount", "-l", str(target_home)]), check=False, capture_output=True)
+                    subprocess.run(_as_root(["mount", "-o", "subvol=@home", target_part, str(target_home)]), check=True)
+
+                    try:
+                        uuid_out = subprocess.check_output(["blkid", "-s", "UUID", "-o", "value", target_part], text=True).strip()
+                        if uuid_out:
+                            fstab_path = Path(etc, "fstab")
+                            fstab_line = f"UUID={uuid_out} /var/home btrfs subvol=@home,compress=zstd:1 0 0\n"
+                            subprocess.run(
+                                _as_root(["/usr/bin/tee", "-a", str(fstab_path)]),
+                                input=fstab_line, text=True,
+                                stdout=subprocess.DEVNULL, check=True
+                            )
+                            log(f"Fstab updated with Btrfs subvolume @home: {fstab_line.strip()}")
+                    except Exception as fe:
+                        log(f"Warning: failed to update fstab with @home subvolume: {fe}")
                 subprocess.run(
                     _as_root(["/usr/bin/tee", str(Path(etc, "hostname"))]),
                     input=f"{_state['hostname']}\n", text=True,
@@ -958,7 +1040,9 @@ def _run_install() -> None:
             subprocess.run(_as_root(["sync"]), check=False)
             progress(99)
             if alongside_mount:
-                subprocess.run(_as_root(["umount", "-R", alongside_mount]), check=False)
+                target_home = Path(alongside_mount) / "ostree/deploy/default/var/home"
+                subprocess.run(_as_root(["umount", "-Rl", str(target_home)]), check=False, capture_output=True)
+                subprocess.run(_as_root(["umount", "-Rl", alongside_mount]), check=False, capture_output=True)
             else:
                 subprocess.run(_as_root(["umount", config_root]), check=False)
 
@@ -991,11 +1075,20 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, *_):
         pass
 
-    def _require_session_token(self) -> bool:
-        if self.headers.get("X-Kyth-Session-Token", "") != SESSION_TOKEN:
-            self.send_error(403, "Forbidden")
-            return False
-        return True
+    def _require_auth(self) -> bool:
+        # Check header
+        if self.headers.get("X-Kyth-Session-Token", "") == SESSION_TOKEN:
+            return True
+        # Check cookie
+        cookie_header = self.headers.get("Cookie", "")
+        if cookie_header:
+            for pair in cookie_header.split(";"):
+                if "=" in pair:
+                    k, v = pair.strip().split("=", 1)
+                    if k == "bootstrap_auth" and v == SESSION_TOKEN:
+                        return True
+        self.send_error(403, "Forbidden")
+        return False
 
     @staticmethod
     def _is_trusted_local_url(value: str) -> bool:
@@ -1015,23 +1108,59 @@ class Handler(BaseHTTPRequestHandler):
         return True
 
     def do_GET(self) -> None:
+        if not self._require_same_origin_context():
+            return
+
         path = urlparse(self.path).path
+        query = urlparse(self.path).query
+        from urllib.parse import parse_qs
+        qs = parse_qs(query)
+
+        # Parse cookies
+        cookies = {}
+        cookie_header = self.headers.get("Cookie", "")
+        if cookie_header:
+            for pair in cookie_header.split(";"):
+                if "=" in pair:
+                    k, v = pair.strip().split("=", 1)
+                    cookies[k.strip()] = v.strip()
+
+        global _bootstrap_token
+        is_authenticated = False
+
+        if cookies.get("bootstrap_auth") == SESSION_TOKEN:
+            is_authenticated = True
+        elif _bootstrap_token and qs.get("bootstrap_token") == [_bootstrap_token]:
+            is_authenticated = True
+            # Consume the one-time token
+            _bootstrap_token = None
+
         if path == "/":
-            body = _HTML.encode()
+            if not is_authenticated:
+                self.send_error(403, "Forbidden")
+                return
+
+            injected_html = _HTML.replace("SESSION_TOKEN_PLACEHOLDER", SESSION_TOKEN)
+            body = injected_html.encode()
             self.send_response(200)
             self.send_header("Content-Type", "text/html; charset=utf-8")
             self.send_header("Content-Length", len(body))
+            self.send_header("Set-Cookie", f"bootstrap_auth={SESSION_TOKEN}; Path=/; HttpOnly; SameSite=Strict")
             self.end_headers()
             self.wfile.write(body)
-        elif path == "/api/config":
-            self._json({"source_image": SOURCE_IMAGE, "session_token": SESSION_TOKEN, "is_live": _IS_LIVE_SESSION})
+            return
+
+        # Authenticate all other API endpoints
+        if not self._require_auth():
+            return
+
+        if path == "/api/config":
+            self._json({"source_image": SOURCE_IMAGE, "is_live": _IS_LIVE_SESSION})
         elif path == "/api/disks":
             self._json(list_disks())
         elif path == "/api/timezones":
             self._json(list_timezones())
         elif path == "/api/partitions":
-            from urllib.parse import parse_qs
-            qs = parse_qs(urlparse(self.path).query)
             disk = (qs.get("disk") or [""])[0]
             self._json(list_partitions(disk) if disk else [])
         elif path == "/api/stream":
@@ -1053,7 +1182,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self) -> None:
         if not self._require_same_origin_context():
             return
-        if not self._require_session_token():
+        if not self._require_auth():
             return
         path = urlparse(self.path).path
         if path == "/api/start":
@@ -1579,7 +1708,7 @@ label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-trans
 
 <script>
 const S = { disk: null, install_mode: 'wipe', target_partition: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
-let SESSION_TOKEN = '';
+let SESSION_TOKEN = 'SESSION_TOKEN_PLACEHOLDER';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
 const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
@@ -1619,7 +1748,7 @@ function loadDisks(attempt) {
   document.getElementById('mode-section').style.display = 'none';
   document.getElementById('partition-section').style.display = 'none';
   S.disk = null; S.install_mode = 'wipe'; S.target_partition = null;
-  fetch('/api/disks').then(r=>r.json()).then(disks => {
+  apiFetch('/api/disks').then(r=>r.json()).then(disks => {
     _disks = disks;
     const grid = document.getElementById('disk-grid');
     if (!disks.length) {
@@ -1682,7 +1811,7 @@ function loadPartitions() {
   document.getElementById('part-warn').style.display = 'none';
   document.getElementById('efi-info').style.display = 'none';
   S.target_partition = null;
-  fetch('/api/partitions?disk=' + encodeURIComponent(S.disk.name))
+  apiFetch('/api/partitions?disk=' + encodeURIComponent(S.disk.name))
     .then(r => r.json())
     .then(parts => {
       _partitions = parts;
@@ -1780,7 +1909,7 @@ function selectKernel(id) {
 function initConfig() {
   const sel = document.getElementById('sel-tz');
   if (sel.options.length === 0) {
-    fetch('/api/timezones').then(r=>r.json()).then(tzs => {
+    apiFetch('/api/timezones').then(r=>r.json()).then(tzs => {
       const local = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
       (tzs.length ? tzs : ['UTC']).forEach(tz => {
         const opt = document.createElement('option');
@@ -2045,8 +2174,7 @@ function reboot() {
 }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
-fetch('/api/config').then(r=>r.json()).then(cfg => {
-  SESSION_TOKEN = cfg.session_token;
+apiFetch('/api/config').then(r=>r.json()).then(cfg => {
   S._sourceImage = cfg.source_image;
   S.isLive = cfg.is_live !== false;
 });
@@ -2065,6 +2193,9 @@ class _Server(ThreadingHTTPServer):
 
 
 def main() -> None:
+    global _bootstrap_token
+    _bootstrap_token = secrets.token_urlsafe(32)
+
     server = _Server(("127.0.0.1", PORT), Handler)
     t = threading.Thread(target=server.serve_forever, daemon=True)
     t.start()
@@ -2086,7 +2217,7 @@ def main() -> None:
     # Mesa llvmpipe via LIBGL_ALWAYS_SOFTWARE forwarded from the live session env.
     chromium_cmd = [
         chromium_bin,
-        f"--app=http://127.0.0.1:{PORT}",
+        f"--app=http://127.0.0.1:{PORT}/?bootstrap_token={_bootstrap_token}",
         "--disable-dev-shm-usage",
         "--disable-extensions",
         "--disable-translate",

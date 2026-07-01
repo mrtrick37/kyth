@@ -258,7 +258,6 @@ jobs:
         env:
           GRYPE_VERSION: 0.88.0
         run: |
-          exec 3>>"${GITHUB_OUTPUT}"
           ARCHIVE="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
           BASE="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
           curl --fail --location --silent --show-error \
@@ -269,7 +268,7 @@ jobs:
           (cd "${RUNNER_TEMP}" && grep " ${ARCHIVE}$" grype_checksums.txt | sha256sum --check --strict -)
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" grype
           chmod +x "${RUNNER_TEMP}/grype"
-          echo "cmd=${RUNNER_TEMP}/grype" >&3
+          echo "cmd=${RUNNER_TEMP}/grype" >> "$GITHUB_OUTPUT"
 
       - name: Scan current SBOM with Grype
         id: grype_current
@@ -279,11 +278,10 @@ jobs:
           TAG: ${{ steps.meta.outputs.tag }}
           VERSION: ${{ steps.image.outputs.current_version }}
         run: |
-          exec 3>>"${GITHUB_OUTPUT}"
           OUT="grype-current-${TAG}-${VERSION}.json"
           "${GRYPE_CMD}" "sbom:${SBOM_PATH}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan failed; security section will be skipped"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
 
       - name: Pull previous image SBOM
         id: previous_sbom
@@ -292,7 +290,6 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
         run: |
-          exec 3>>"${GITHUB_OUTPUT}"
           PREV_SBOM_DIGEST="$(oras discover --format json "${IMAGE}@${PREVIOUS_DIGEST}" \
             | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
             2>/dev/null || true)"
@@ -303,7 +300,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/prev-sbom"
           oras pull "${IMAGE}@${PREV_SBOM_DIGEST}" -o "${RUNNER_TEMP}/prev-sbom/"
           PREV_SBOM="$(find "${RUNNER_TEMP}/prev-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >&3
+          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >> "$GITHUB_OUTPUT"
 
       - name: Scan previous SBOM with Grype
         id: grype_previous
@@ -313,11 +310,10 @@ jobs:
           PREV_SBOM: ${{ steps.previous_sbom.outputs.path }}
           TAG: ${{ steps.meta.outputs.tag }}
         run: |
-          exec 3>>"${GITHUB_OUTPUT}"
           OUT="grype-previous-${TAG}.json"
           "${GRYPE_CMD}" "sbom:${PREV_SBOM}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan of previous SBOM failed; CVE diff will be incomplete"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
 
       - name: Generate SBOM-powered changelog
         id: changelog
@@ -328,7 +324,7 @@ jobs:
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
           CURRENT_SHA: ${{ steps.image.outputs.source_sha }}
           CURRENT_SBOM: ${{ steps.sbom.outputs.path }}
-          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
           GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
         run: |
