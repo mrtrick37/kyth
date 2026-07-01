@@ -2,6 +2,32 @@ name: Build Live ISO
 run-name: "Build Live ISO - ${{ inputs.source_tag }}"
 
 on:
+  workflow_call:
+    inputs:
+      source_tag:
+        description: Source image tag to build ISO from
+        required: false
+        type: string
+        # Fedora variant only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy image has no Fedora kernel and would fail.
+        default: testing
+      source_digest:
+        description: Optional pinned source image digest
+        required: false
+        type: string
+        default: ""
+      source_sha:
+        description: Source commit matching source_digest
+        required: false
+        type: string
+        default: ""
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_ACCOUNT_ID:
+        required: true
   workflow_dispatch:
     inputs:
       source_tag:
@@ -9,6 +35,9 @@ on:
         required: false
         default: latest
         type: choice
+        # Fedora variants only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy images have no Fedora kernel and the ISO
+        # build will hard-fail on them by design.
         options:
           - latest
           - testing
@@ -51,9 +80,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.source_sha || (inputs.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ inputs.source_sha || (startsWith(inputs.source_tag, 'testing') && 'testing' || 'main') }}
           persist-credentials: false
 
       - name: Prepare immutable release identity
@@ -61,6 +90,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SOURCE_SHA="$(git rev-parse HEAD)"
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
           DATE="$(date -u +%Y%m%d)"
@@ -70,26 +100,51 @@ jobs:
           IMMUTABLE_TAG="iso-${SOURCE_TAG}-${RELEASE_ID}"
           ARTIFACT_NAME="kyth-live-iso-${SOURCE_TAG}-${RELEASE_ID}"
 
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
-          echo "iso_basename=${ISO_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "channel_basename=${CHANNEL_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "immutable_tag=${IMMUTABLE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "release_id=${RELEASE_ID}" >&3
+          echo "iso_basename=${ISO_BASENAME}" >&3
+          echo "channel_basename=${CHANNEL_BASENAME}" >&3
+          echo "immutable_tag=${IMMUTABLE_TAG}" >&3
+          echo "artifact_name=${ARTIFACT_NAME}" >&3
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+      - name: Prepare live ISO build space
+        run: |
+          set -euo pipefail
+
+          show_space() {
+            echo "==> Disk space: $1"
+            df -h / /mnt /var/lib/containers 2>/dev/null || true
+          }
+
+          show_space "before cleanup"
+
+          # The live ISO job uses rootful Podman writing to a btrfs image on /mnt,
+          # not Docker. Prune the large hosted-runner directories that eat root-disk
+          # space, but skip docker image prune — Docker images live on the root disk
+          # and don't affect /mnt free space, so pruning them buys nothing here
+          # and costs ~45 seconds.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+
+          show_space "after cleanup"
+
+          available_kb="$(df --output=avail /mnt | awk 'NR == 2 {print $1}')"
+          # podman-storage.img is intentionally sparse: the btrfs filesystem
+          # needs a 65G logical size, but the runner only needs enough backing
+          # space for the blocks the ISO build actually writes. GitHub's
+          # ubuntu-24.04 runners can now expose about 63 GiB free on /mnt after
+          # cleanup, so requiring the full logical size rejects otherwise usable
+          # runners before the build starts.
+          required_kb=$((58 * 1024 * 1024))
+          if (( available_kb < required_kb )); then
+            echo "::error::Need at least 58 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
+            exit 1
+          fi
 
       - name: Mount compressed Podman storage
         run: |
-          sudo truncate -s 70G /mnt/podman-storage.img
+          sudo truncate -s 65G /mnt/podman-storage.img
           sudo mkfs.btrfs -f /mnt/podman-storage.img
           sudo podman system reset --force
           sudo systemctl stop podman.service
@@ -102,6 +157,7 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           EXPECTED_DIGEST: ${{ inputs.source_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           TAGGED_IMAGE="${IMAGE}:${SOURCE_TAG}"
           if [[ -n "${EXPECTED_DIGEST}" ]]; then
@@ -114,10 +170,14 @@ jobs:
             DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${TAGGED_IMAGE}")"
           fi
           REVISION="$(sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" | jq -r '.Labels["org.opencontainers.image.revision"] // empty')"
-          test "${REVISION}" = "$(git rev-parse HEAD)"
-          echo "name=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "pinned=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          EXPECTED_REVISION="$(git rev-parse HEAD)"
+          if [[ "${REVISION}" != "${EXPECTED_REVISION}" ]]; then
+            echo "::error::Source image ${IMAGE}@${DIGEST} was built from revision '${REVISION:-<missing>}', but this ISO workflow checked out '${EXPECTED_REVISION}'. Re-run the image build for this commit, then pass its digest as source_digest."
+            exit 1
+          fi
+          echo "name=${IMAGE}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "pinned=${IMAGE}@${DIGEST}" >&3
 
       - name: Build live payload container
         env:
@@ -147,13 +207,15 @@ jobs:
       - name: Move and verify ISO
         run: |
           ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
-          mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
+          mv "${RUNNER_TEMP}/kyth-live-${SOURCE_TAG}.iso" "${ISO}"
           sudo chown "$(id -u):$(id -g)" "${ISO}"
           test -s "${ISO}"
           test -r "${ISO}"
           test -w "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
         env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
 
       - name: Generate ISO checksums
@@ -191,7 +253,7 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ needs.build.outputs.source_sha }}
           fetch-depth: 0
@@ -212,6 +274,7 @@ jobs:
         env:
           GRYPE_VERSION: 0.88.0
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           ARCHIVE="grype_${GRYPE_VERSION}_linux_amd64.tar.gz"
           BASE="https://github.com/anchore/grype/releases/download/v${GRYPE_VERSION}"
           curl --fail --location --silent --show-error \
@@ -222,7 +285,7 @@ jobs:
           (cd "${RUNNER_TEMP}" && grep " ${ARCHIVE}$" grype_checksums.txt | sha256sum --check --strict -)
           tar --extract --gzip --file "${RUNNER_TEMP}/${ARCHIVE}" --directory "${RUNNER_TEMP}" grype
           chmod +x "${RUNNER_TEMP}/grype"
-          echo "cmd=${RUNNER_TEMP}/grype" >> "$GITHUB_OUTPUT"
+          echo "cmd=${RUNNER_TEMP}/grype" >&3
 
       - name: Pull source image SBOM
         id: current_sbom
@@ -230,6 +293,7 @@ jobs:
           SOURCE_IMAGE: ${{ needs.build.outputs.source_image }}
           SOURCE_DIGEST: ${{ needs.build.outputs.source_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SBOM_DIGEST="$(oras discover --format json "${SOURCE_IMAGE}@${SOURCE_DIGEST}" \
             | jq -r '[.referrers[] | select(.artifactType | contains("syft"))] | .[0].digest // empty' \
             2>/dev/null || true)"
@@ -240,7 +304,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/current-sbom"
           oras pull "${SOURCE_IMAGE}@${SBOM_DIGEST}" -o "${RUNNER_TEMP}/current-sbom/"
           SBOM="$(find "${RUNNER_TEMP}/current-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${SBOM}" ]] && echo "path=${SBOM}" >> "$GITHUB_OUTPUT"
+          [[ -n "${SBOM}" ]] && echo "path=${SBOM}" >&3
 
       - name: Scan source image with Grype
         id: grype_current
@@ -249,10 +313,11 @@ jobs:
           GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
           SBOM_PATH: ${{ steps.current_sbom.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="${RUNNER_TEMP}/grype-current.json"
           "${GRYPE_CMD}" "sbom:${SBOM_PATH}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan failed; security section will be limited"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Pull previous ISO source image SBOM
         id: previous_sbom
@@ -263,6 +328,7 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           PREV_DIGEST=""
           PREV_TAG="$(gh release list --limit 30 --json tagName \
             -q ".[] | .tagName | select(startswith(\"iso-${SOURCE_TAG}-\"))" \
@@ -290,7 +356,7 @@ jobs:
           mkdir -p "${RUNNER_TEMP}/prev-sbom"
           oras pull "${SOURCE_IMAGE}@${PREV_SBOM_DIGEST}" -o "${RUNNER_TEMP}/prev-sbom/"
           PREV_SBOM="$(find "${RUNNER_TEMP}/prev-sbom" -name '*.json' -type f | head -1)"
-          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >> "$GITHUB_OUTPUT"
+          [[ -n "${PREV_SBOM}" ]] && echo "path=${PREV_SBOM}" >&3
 
       - name: Scan previous source image with Grype
         id: grype_previous
@@ -299,10 +365,11 @@ jobs:
           GRYPE_CMD: ${{ steps.setup_grype.outputs.cmd }}
           PREV_SBOM: ${{ steps.previous_sbom.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           OUT="${RUNNER_TEMP}/grype-previous.json"
           "${GRYPE_CMD}" "sbom:${PREV_SBOM}" -o json --file "${OUT}" || \
             echo "::warning::Grype scan of previous SBOM failed"
-          [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
+          [[ -f "${OUT}" ]] && echo "path=${OUT}" >&3
 
       - name: Generate ISO release changelog
         id: iso_changelog
@@ -315,6 +382,7 @@ jobs:
           GRYPE_CURRENT: ${{ steps.grype_current.outputs.path }}
           GRYPE_PREVIOUS: ${{ steps.grype_previous.outputs.path }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           NOTES="$(mktemp --suffix=.md)"
           IMAGE_VERSION="$(skopeo inspect --no-creds \
             "docker://${SOURCE_IMAGE}@${SOURCE_DIGEST}" 2>/dev/null \
@@ -365,7 +433,7 @@ jobs:
 
           Path(notes_path).write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
           PY
-          echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
+          echo "path=${NOTES}" >&3
 
       - name: Download built ISO
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
@@ -405,6 +473,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_iso.outputs.bundle-path }}
           ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
@@ -430,6 +499,7 @@ jobs:
               "sha256": os.environ["SHA256"],
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
+              "provenance": iso.name + ".intoto.jsonl",
               "checksum": iso.name + "-CHECKSUM",
               "attestation_url": os.environ["ATTESTATION_URL"],
               "source_image": os.environ["SOURCE_IMAGE"],
@@ -449,6 +519,7 @@ jobs:
               "iso": channel,
               "signature": channel + ".sig",
               "bundle": channel + ".bundle",
+              "provenance": channel + ".intoto.jsonl",
               "checksum": channel + "-CHECKSUM",
               "download_url": f"{base_url}/{channel}",
               "immutable_download_url": metadata["download_url"],
@@ -460,6 +531,9 @@ jobs:
 
           cp "${ISO}.sig" "output/live-iso/${CHANNEL_BASENAME}.sig"
           cp "${ISO}.bundle" "output/live-iso/${CHANNEL_BASENAME}.bundle"
+          test -s "${ATTESTATION_BUNDLE_PATH}"
+          cp "${ATTESTATION_BUNDLE_PATH}" "${ISO}.intoto.jsonl"
+          cp "${ATTESTATION_BUNDLE_PATH}" "output/live-iso/${CHANNEL_BASENAME}.intoto.jsonl"
 
       - name: Upload ISO to Cloudflare R2
         env:
@@ -472,7 +546,7 @@ jobs:
           ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
           CHANNEL="output/live-iso/${NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME}"
 
-          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -481,7 +555,7 @@ jobs:
 
           aws s3 cp "${ISO}" "s3://kyth-releases/$(basename "${CHANNEL}")" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
-          for suffix in -CHECKSUM .sig .bundle .json; do
+          for suffix in -CHECKSUM .sig .bundle .intoto.jsonl .json; do
             aws s3 cp "${CHANNEL}${suffix}" \
               "s3://kyth-releases/$(basename "${CHANNEL}${suffix}")" \
               --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
@@ -535,7 +609,7 @@ jobs:
             echo "- Workflow run: https://github.com/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
             echo "- Build provenance: ${ATTESTATION_URL}"
             echo ""
-            echo "The checksum, Cosign signature and bundle, metadata, and GitHub build provenance are attached to this release."
+            echo "The checksum, Cosign signature and bundle, SLSA provenance, metadata, and GitHub build provenance are attached to this release."
           } > "${IMMUTABLE_NOTES}"
 
           gh release create "${IMMUTABLE_TAG}" \
@@ -544,7 +618,7 @@ jobs:
             --notes-file "${IMMUTABLE_NOTES}" \
             ${PRERELEASE}
           gh release upload "${IMMUTABLE_TAG}" \
-            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"
+            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"
 
           CHANNEL_NOTES="$(mktemp)"
           {
@@ -574,4 +648,4 @@ jobs:
               ${PRERELEASE} ${LATEST}
           fi
           gh release upload "${CHANNEL_TAG}" --clobber \
-            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.json"
+            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.intoto.jsonl" "${CHANNEL}.json"

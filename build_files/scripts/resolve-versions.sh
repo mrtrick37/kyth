@@ -35,9 +35,18 @@ THIRDPARTY_REPOS=(
 gh_latest_tag() {
 	local auth=()
 	[[ -n "${GITHUB_TOKEN:-}" ]] && auth=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
-	curl "${CURL_ARGS[@]}" "${auth[@]}" "https://api.github.com/repos/$1/releases/latest" 2>/dev/null |
-		python3 -c 'import sys, json; print(json.load(sys.stdin).get("tag_name", ""))' 2>/dev/null ||
-		true
+	local tmp
+	tmp=$(mktemp)
+	if curl "${CURL_ARGS[@]}" "${auth[@]}" -o "${tmp}" "https://api.github.com/repos/$1/releases/latest" 2>/dev/null; then
+		python3 - "${tmp}" <<'PY' 2>/dev/null || true
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as fh:
+    print(json.load(fh).get("tag_name", ""))
+PY
+	fi
+	rm -f "${tmp}"
 }
 
 cmd_ge_proton() {
@@ -70,19 +79,29 @@ cmd_thirdparty_hash() {
 cmd_cachyos_kernel() {
 	# COPR api_3 returns the package object at the top level (there is no
 	# "package" wrapper key).
-	curl "${CURL_ARGS[@]}" "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" 2>/dev/null |
-		python3 -c '
+	local tmp nvr
+	tmp=$(mktemp)
+	if curl "${CURL_ARGS[@]}" -o "${tmp}" "https://copr.fedorainfracloud.org/api_3/package/?ownername=bieszczaders&projectname=kernel-cachyos&packagename=kernel-cachyos&with_latest_succeeded_build=true" 2>/dev/null; then
+		nvr=$(
+			python3 - "${tmp}" <<'PY' 2>/dev/null || true
 import datetime, json, sys
 
 try:
-    sp = json.load(sys.stdin)["builds"]["latest_succeeded"]["source_package"]
+    with open(sys.argv[1], encoding="utf-8") as fh:
+        sp = json.load(fh)["builds"]["latest_succeeded"]["source_package"]
     ver = sp.get("version") or ""
     rel = sp.get("release") or ""
     nvr = f"{ver}-{rel}".strip("-")
 except Exception:
     nvr = ""
 print(nvr or datetime.date.today().isoformat())
-' 2>/dev/null || date +%Y-%m-%d
+PY
+		)
+	else
+		nvr=$(date +%Y-%m-%d)
+	fi
+	rm -f "${tmp}"
+	printf '%s\n' "${nvr:-$(date +%Y-%m-%d)}"
 }
 
 case "${1:-}" in

@@ -7,7 +7,7 @@ set -euo pipefail
 # preferred (auto) mode.  Works for both hardware and VMs.  Removes itself
 # so it only fires once per user.
 mkdir -p /etc/skel/.config/autostart
-cat > /etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
+cat >/etc/skel/.config/autostart/kyth-set-resolution.desktop <<'RESEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: Set display resolution
@@ -17,7 +17,7 @@ Hidden=false
 NoDisplay=true
 RESEOF
 
-cat > /usr/bin/kyth-set-resolution <<'SCRIPTEOF'
+cat >/usr/bin/kyth-set-resolution <<'SCRIPTEOF'
 #!/usr/bin/env python3
 # Set every connected output to its preferred (first-listed) mode.
 # kscreen-doctor -o output format:
@@ -60,9 +60,9 @@ SCRIPTEOF
 chmod +x /usr/bin/kyth-set-resolution
 
 write_kyth_os_release() {
-    local target=$1
-    mkdir -p "$(dirname "${target}")"
-    cat > "${target}" <<'EOF'
+	local target=$1
+	mkdir -p "$(dirname "${target}")"
+	cat >"${target}" <<'EOF'
 NAME="KythOS"
 PRETTY_NAME="KythOS 44"
 ID=kythos
@@ -89,7 +89,7 @@ write_kyth_os_release /etc/os-release
 # upstream Kinoite ostree remote, not the KythOS container registry.
 # Replace it with a bootc upgrade custom step so topgrade does the right thing.
 mkdir -p /etc/skel/.config
-cat > /etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+cat >/etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
 [misc]
 # system (dnf5) is read-only on bootc — disable it; bootc upgrade is used instead.
 # distrobox: disabled because distrobox-upgrade --all fails without a PTY.
@@ -108,12 +108,167 @@ disable = ["system", "distrobox", "containers", "toolbx"]
 "KythOS rclone update" = "sudo -n /usr/bin/kyth-rclone-update"
 TOPGRADEEOF
 
+# ── Default shell environment for all new users ───────────────────────────────
+# /etc/skel/.zshrc seeds a polished zsh experience out-of-box. Every tool
+# integration is conditional so the file works identically whether the optional
+# packages were installed or not.
+# Also seeds /etc/skel/.bashrc with the same modern tool aliases for bash users.
+cat >/etc/skel/.zshrc <<'ZSHRCEOF'
+# KythOS default zsh config — edit freely, it's yours.
+
+# History: large buffer, no duplicates, shared across sessions
+HISTFILE=~/.zsh_history
+HISTSIZE=100000
+SAVEHIST=100000
+setopt HIST_IGNORE_DUPS HIST_IGNORE_SPACE SHARE_HISTORY INC_APPEND_HISTORY
+
+# Modern tool aliases — each falls back gracefully when the tool is absent
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --group-directories-first --icons=auto'
+    alias ll='eza -la --group-directories-first --icons=auto'
+    alias lt='eza --tree --group-directories-first'
+else
+    alias ll='ls -la'
+fi
+command -v bat  >/dev/null 2>&1 && alias cat='bat --paging=never'
+command -v rg   >/dev/null 2>&1 && alias search='rg'
+
+# zsh-autosuggestions (fish-like inline suggestions)
+[[ -f /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh ]] &&
+    source /usr/share/zsh-autosuggestions/zsh-autosuggestions.zsh
+
+# fzf key bindings (Ctrl+R history, Ctrl+T file picker, Alt+C cd)
+[[ -f /usr/share/fzf/shell/key-bindings.zsh ]] &&
+    source /usr/share/fzf/shell/key-bindings.zsh
+[[ -f /usr/share/fzf/shell/completion.zsh ]] &&
+    source /usr/share/fzf/shell/completion.zsh
+
+# zoxide — smarter cd with frecency-ranked jump (z foo, zi interactive)
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init zsh)"
+
+# Starship prompt — must come last to override any prompt set above
+command -v starship >/dev/null 2>&1 && eval "$(starship init zsh)"
+
+# zsh-syntax-highlighting — must be sourced after all other init (Zle hook)
+[[ -f /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh ]] &&
+    source /usr/share/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+ZSHRCEOF
+
+# Also seed a .bashrc that picks up the same modern tool aliases so bash
+# users benefit without switching shells.
+cat >/etc/skel/.bashrc <<'BASHRCEOF'
+# KythOS default bash config — edit freely, it's yours.
+
+# Source system-wide config (Fedora bash completion, PATH additions, etc.)
+[[ -f /etc/bashrc ]] && source /etc/bashrc
+
+# Sensible history defaults
+HISTSIZE=100000
+HISTFILESIZE=200000
+HISTCONTROL=ignoredups:erasedups
+shopt -s histappend
+
+# Modern tool aliases
+if command -v eza >/dev/null 2>&1; then
+    alias ls='eza --group-directories-first --icons=auto'
+    alias ll='eza -la --group-directories-first --icons=auto'
+    alias lt='eza --tree --group-directories-first'
+else
+    alias ll='ls -la'
+fi
+command -v bat  >/dev/null 2>&1 && alias cat='bat --paging=never'
+command -v rg   >/dev/null 2>&1 && alias search='rg'
+
+# fzf key bindings
+[[ -f /usr/share/fzf/shell/key-bindings.bash ]] &&
+    source /usr/share/fzf/shell/key-bindings.bash
+
+# zoxide
+command -v zoxide >/dev/null 2>&1 && eval "$(zoxide init bash)"
+
+# Starship prompt
+command -v starship >/dev/null 2>&1 && eval "$(starship init bash)"
+BASHRCEOF
+
+# System-wide git-delta pager config — makes `git diff`, `git log`, and
+# `git show` output beautiful syntax-highlighted diffs with line numbers.
+# delta is the pager; any user can override in their own ~/.gitconfig.
+cat >/etc/gitconfig <<'GITCONFIGEOF'
+[core]
+    pager = delta
+
+[interactive]
+    diffFilter = delta --color-only
+
+[delta]
+    navigate = true
+    dark = true
+    line-numbers = true
+    syntax-theme = OneHalfDark
+
+[merge]
+    conflictstyle = diff3
+
+[diff]
+    colorMoved = default
+GITCONFIGEOF
+
+# ── Fish shell default config ──────────────────────────────────────────────────
+# Fish has out-of-box syntax highlighting and autosuggestions — no plugins needed.
+# New users who choose fish (chsh -s /usr/bin/fish) get a polished experience.
+mkdir -p /etc/skel/.config/fish
+cat >/etc/skel/.config/fish/config.fish <<'FISHCONFIGEOF'
+# KythOS fish config — edit freely, it's yours.
+
+# Starship cross-shell prompt
+if command -q starship
+    starship init fish | source
+end
+
+# Smarter cd (zoxide) — tracks frecency, `z dir` jumps to most-used match
+if command -q zoxide
+    zoxide init fish | source
+end
+
+# fzf key bindings (Ctrl+R history search, Ctrl+T file search, Alt+C cd)
+if test -f /usr/share/fzf/shell/key-bindings.fish
+    source /usr/share/fzf/shell/key-bindings.fish
+end
+
+# Modern CLI aliases with graceful fallbacks
+if command -q eza
+    alias ls='eza --color=auto --group-directories-first --icons=auto'
+    alias ll='eza -la --color=auto --group-directories-first --icons=auto --git'
+    alias lt='eza --tree --color=auto --icons=auto -L 2'
+end
+if command -q bat
+    alias cat='bat --paging=never'
+end
+if command -q rg
+    alias search='rg'
+end
+
+# Abbreviations (fish's smarter alias — expands on Enter, not inline)
+abbr --add g    git
+abbr --add gst  'git status'
+abbr --add gd   'git diff'
+abbr --add gcm  'git commit -m'
+abbr --add gp   'git push'
+abbr --add gl   'git log --oneline --graph --decorate -20'
+
+# History: keep a large, deduplicated history
+set -U fish_history_size 100000
+
+# Suppress the fish greeting
+set -U fish_greeting ""
+FISHCONFIGEOF
+
 # ── KythDark color scheme ─────────────────────────────────────────────────────
-# Tokyo Night-derived palette: #1a1b26 dark slate base, #7c5cbf purple accent.
+# Tokyo Night-derived palette: #0c0e16 dark slate base, #2f9b8f Kyth teal accent.
 # All nine Color:* sections share the same palette so colors are consistent
 # across button, view, window, selection, tooltip, and header contexts.
 mkdir -p /usr/share/color-schemes
-cat > /usr/share/color-schemes/KythDark.colors <<'KYTHCOLORSEOF'
+cat >/usr/share/color-schemes/KythDark.colors <<'KYTHCOLORSEOF'
 [ColorEffects:Disabled]
 Color=56,56,56
 ColorAmount=0
@@ -135,102 +290,102 @@ IntensityAmount=0
 IntensityEffect=0
 
 [Colors:Button]
-BackgroundAlternate=36,40,59
-BackgroundNormal=31,35,53
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=22,24,36
+BackgroundNormal=18,20,31
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Complementary]
-BackgroundAlternate=36,40,59
-BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=22,24,36
+BackgroundNormal=12,14,22
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Header]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Selection]
-BackgroundAlternate=124,92,191
-BackgroundNormal=124,92,191
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=47,155,143
+BackgroundNormal=47,155,143
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=255,255,255
 ForegroundInactive=204,204,204
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=255,255,255
 ForegroundPositive=158,206,106
-ForegroundVisited=192,163,255
+ForegroundVisited=166,240,229
 
 [Colors:Tooltip]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:View]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [Colors:Window]
-BackgroundAlternate=31,35,53
-BackgroundNormal=26,27,38
-DecorationFocus=124,92,191
-DecorationHover=125,207,255
+BackgroundAlternate=18,20,31
+BackgroundNormal=12,14,22
+DecorationFocus=47,155,143
+DecorationHover=125,211,199
 ForegroundActive=192,202,245
 ForegroundInactive=86,95,137
-ForegroundLink=125,207,255
+ForegroundLink=125,211,199
 ForegroundNegative=247,118,142
 ForegroundNeutral=224,175,104
 ForegroundNormal=192,202,245
 ForegroundPositive=158,206,106
-ForegroundVisited=149,117,220
+ForegroundVisited=125,211,199
 
 [General]
 ColorScheme=KythDark
@@ -245,11 +400,11 @@ KYTHCOLORSEOF
 # Minimal theme that overrides only the panel background SVG; all other assets
 # fall back to breeze-dark via X-Plasma-Fallback-Theme.  The panel-background
 # SVG uses fill-opacity=0.82 so KWin's blur effect shines through, producing
-# a frosted glass look.  A thin purple top-edge accent line ties the panel to
-# the KythDark color accent.
+# a frosted glass look. A thin teal top-edge accent line ties the panel to
+# the KythDark color accent and System Hub visual language.
 mkdir -p /usr/share/plasma/desktoptheme/kyth-dark/widgets
 
-cat > /usr/share/plasma/desktoptheme/kyth-dark/metadata.json <<'KYTHMETAEOF'
+cat >/usr/share/plasma/desktoptheme/kyth-dark/metadata.json <<'KYTHMETAEOF'
 {
     "KPlugin": {
         "Authors": [{"Name": "KythOS"}],
@@ -268,8 +423,8 @@ KYTHMETAEOF
 # Coordinates: 100×100 canvas, 4px borders, semi-transparent dark slate fill.
 # The hint-* elements encode margin widths for the Plasma SVG renderer;
 # they are invisible (fill:none) and exist only to carry the numeric hint.
-# A 1px purple accent line runs along the top edge of the panel.
-cat > /usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KYTHPANELSVGEOF'
+# A 1px teal accent line runs along the top edge of the panel.
+cat >/usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'KYTHPANELSVGEOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
   <!-- Margin hints (invisible, encode border widths for the 9-patch renderer) -->
@@ -277,23 +432,30 @@ cat > /usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg <<'K
   <rect id="hint-right-margin"  x="96" y="49" width="4"  height="1" fill="none"/>
   <rect id="hint-top-margin"    x="49" y="0"  width="1"  height="5" fill="none"/>
   <rect id="hint-bottom-margin" x="49" y="96" width="1"  height="4" fill="none"/>
-  <!-- Purple top accent line (1px, spans the full width across the top border) -->
-  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#7c5cbf" fill-opacity="0.70"/>
+  <!-- Teal top accent line (1px, spans the full width across the top border) -->
+  <rect id="top"         x="4"  y="0"  width="92" height="1"  fill="#2f9b8f" fill-opacity="0.70"/>
   <!-- 9-patch fill regions: semi-transparent dark slate -->
-  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#1a1b26" fill-opacity="0.82"/>
-  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#1a1b26" fill-opacity="0.82"/>
+  <rect id="topleft"     x="0"  y="0"  width="4"  height="5"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="topright"    x="96" y="0"  width="4"  height="5"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="left"        x="0"  y="5"  width="4"  height="91" fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="center"      x="4"  y="1"  width="92" height="95" fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="right"       x="96" y="5"  width="4"  height="91" fill="#0c0e16" fill-opacity="0.9"/>
+<rect id="bottomleft"  x="0"  y="96" width="4"  height="4"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="bottom"      x="4"  y="96" width="92" height="4"  fill="#0c0e16" fill-opacity="0.9"/>
+  <rect id="bottomright" x="96" y="96" width="4"  height="4"  fill="#0c0e16" fill-opacity="0.9"/>
 </svg>
 KYTHPANELSVGEOF
 
 # ── Default KDE theme for all new users via /etc/skel ─────────────────────────
 mkdir -p /etc/skel/.config
-cat > /etc/skel/.config/kdeglobals <<'KDEEOF'
+mkdir -p /etc/skel/Screenshots
+cat >/etc/skel/Screenshots/.directory <<'SKELSHOTSDIREEOF'
+[Desktop Entry]
+Icon=folder-pictures
+Name=Screenshots
+SKELSHOTSDIREEOF
+
+cat >/etc/skel/.config/kdeglobals <<'KDEEOF'
 [General]
 ColorScheme=KythDark
 font=Inter,10,-1,5,400,0,0,0,0,0,Regular
@@ -311,7 +473,7 @@ KDEEOF
 
 # Keep server-side titlebars on the familiar minimize, maximize, close trio.
 # IAX is KWin's button code sequence for underscore, box, and X.
-cat > /etc/skel/.config/kwinrc <<'KWINDECORATIONEOF'
+cat >/etc/skel/.config/kwinrc <<'KWINDECORATIONEOF'
 [org.kde.kdecoration2]
 ButtonsOnLeft=
 ButtonsOnRight=IAX
@@ -326,92 +488,92 @@ window_control_src=/ctx/branding/window-controls
 window_control_css=/tmp/kyth-window-controls.css
 
 render_window_control() {
-    local source=$1
-    local output=$2
-    local size=$3
-    local background=$4
-    local foreground=$5
-    cat > "${window_control_css}" <<EOF
+	local source=$1
+	local output=$2
+	local size=$3
+	local background=$4
+	local foreground=$5
+	cat >"${window_control_css}" <<EOF
 .background { fill: ${background}; }
 .glyph { fill: ${foreground}; }
 EOF
-    rsvg-convert -w "${size}" -h "${size}" --stylesheet "${window_control_css}" \
-        "${source}" -o "${output}"
+	rsvg-convert -w "${size}" -h "${size}" --stylesheet "${window_control_css}" \
+		"${source}" -o "${output}"
 }
 
 for gtk_theme in Breeze Breeze-Dark; do
-    gtk_assets="/usr/share/themes/${gtk_theme}/assets"
-    [[ -d "${gtk_assets}" ]] || continue
+	gtk_assets="/usr/share/themes/${gtk_theme}/assets"
+	[[ -d "${gtk_assets}" ]] || continue
 
-    for state in symbolic hover-symbolic active-symbolic; do
-        install -m 0644 "${window_control_src}/minimize.svg" \
-            "${gtk_assets}/breeze-minimize-${state}.svg"
-        install -m 0644 "${window_control_src}/maximize.svg" \
-            "${gtk_assets}/breeze-maximize-${state}.svg"
-        install -m 0644 "${window_control_src}/maximize.svg" \
-            "${gtk_assets}/breeze-maximized-${state}.svg"
-    done
-    install -m 0644 "${window_control_src}/close.svg" \
-        "${gtk_assets}/breeze-close-symbolic.svg"
-    sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
-        > "${gtk_assets}/breeze-close-hover-symbolic.svg"
-    sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
-        > "${gtk_assets}/breeze-close-active-symbolic.svg"
+	for state in symbolic hover-symbolic active-symbolic; do
+		install -m 0644 "${window_control_src}/minimize.svg" \
+			"${gtk_assets}/breeze-minimize-${state}.svg"
+		install -m 0644 "${window_control_src}/maximize.svg" \
+			"${gtk_assets}/breeze-maximize-${state}.svg"
+		install -m 0644 "${window_control_src}/maximize.svg" \
+			"${gtk_assets}/breeze-maximized-${state}.svg"
+	done
+	install -m 0644 "${window_control_src}/close.svg" \
+		"${gtk_assets}/breeze-close-symbolic.svg"
+	sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
+		>"${gtk_assets}/breeze-close-hover-symbolic.svg"
+	sed 's/#ffffff/#ff0404/' "${window_control_src}/close.svg" \
+		>"${gtk_assets}/breeze-close-active-symbolic.svg"
 
-    if [[ "${gtk_theme}" == Breeze-Dark ]]; then
-        normal_fg='rgba(252,252,252,0.91)'
-        backdrop_fg='rgba(161,169,177,0.40)'
-        hover_bg='#fcfcfc'
-        hover_fg='#232629'
-    else
-        normal_fg='rgba(35,38,41,0.91)'
-        backdrop_fg='rgba(112,125,138,0.72)'
-        hover_bg='#232629'
-        hover_fg='#fcfcfc'
-    fi
+	if [[ "${gtk_theme}" == Breeze-Dark ]]; then
+		normal_fg='rgba(252,252,252,0.91)'
+		backdrop_fg='rgba(161,169,177,0.40)'
+		hover_bg='#fcfcfc'
+		hover_fg='#232629'
+	else
+		normal_fg='rgba(35,38,41,0.91)'
+		backdrop_fg='rgba(112,125,138,0.72)'
+		hover_bg='#232629'
+		hover_fg='#fcfcfc'
+	fi
 
-    for scale in 1 2; do
-        if (( scale == 1 )); then
-            size=18
-            suffix=''
-        else
-            size=36
-            suffix='@2'
-        fi
+	for scale in 1 2; do
+		if ((scale == 1)); then
+			size=18
+			suffix=''
+		else
+			size=36
+			suffix='@2'
+		fi
 
-        for control in minimize maximize; do
-            source="${window_control_src}/${control}.svg"
-            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}${suffix}.png" \
-                "${size}" none "${normal_fg}"
-            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-hover${suffix}.png" \
-                "${size}" "${hover_bg}" "${hover_fg}"
-            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-active${suffix}.png" \
-                "${size}" "${hover_bg}" "${hover_fg}"
-            render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-backdrop${suffix}.png" \
-                "${size}" none "${backdrop_fg}"
-        done
+		for control in minimize maximize; do
+			source="${window_control_src}/${control}.svg"
+			render_window_control "${source}" "${gtk_assets}/titlebutton-${control}${suffix}.png" \
+				"${size}" none "${normal_fg}"
+			render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-hover${suffix}.png" \
+				"${size}" "${hover_bg}" "${hover_fg}"
+			render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-active${suffix}.png" \
+				"${size}" "${hover_bg}" "${hover_fg}"
+			render_window_control "${source}" "${gtk_assets}/titlebutton-${control}-backdrop${suffix}.png" \
+				"${size}" none "${backdrop_fg}"
+		done
 
-        for state in '' '-hover' '-active' '-backdrop'; do
-            case "${state}" in
-                -hover) close_fg='#ff667c' ;;
-                -active) close_fg='#da4453' ;;
-                -backdrop) close_fg="${backdrop_fg}" ;;
-                *) close_fg="${normal_fg}" ;;
-            esac
-            render_window_control "${window_control_src}/close.svg" \
-                "${gtk_assets}/titlebutton-close${state}${suffix}.png" \
-                "${size}" none "${close_fg}"
-        done
+		for state in '' '-hover' '-active' '-backdrop'; do
+			case "${state}" in
+			-hover) close_fg='#ff667c' ;;
+			-active) close_fg='#da4453' ;;
+			-backdrop) close_fg="${backdrop_fg}" ;;
+			*) close_fg="${normal_fg}" ;;
+			esac
+			render_window_control "${window_control_src}/close.svg" \
+				"${gtk_assets}/titlebutton-close${state}${suffix}.png" \
+				"${size}" none "${close_fg}"
+		done
 
-        for state in '' '-hover' '-active' '-backdrop'; do
-            cp "${gtk_assets}/titlebutton-maximize${state}${suffix}.png" \
-                "${gtk_assets}/titlebutton-maximize-maximized${state}${suffix}.png"
-        done
-    done
+		for state in '' '-hover' '-active' '-backdrop'; do
+			cp "${gtk_assets}/titlebutton-maximize${state}${suffix}.png" \
+				"${gtk_assets}/titlebutton-maximize-maximized${state}${suffix}.png"
+		done
+	done
 done
 rm -f "${window_control_css}"
 
-cat > /etc/skel/.config/plasmarc <<'PLASMAEOF'
+cat >/etc/skel/.config/plasmarc <<'PLASMAEOF'
 [Theme]
 name=kyth-dark
 PLASMAEOF
@@ -422,9 +584,9 @@ PLASMAEOF
 # kyth-default-flatpaks.service at first boot — KDE silently omits entries
 # whose desktop files don't exist yet and shows them automatically once the
 # flatpak finishes installing.
-cat > /etc/skel/.config/kickoffrc <<'KICKOFFEOF'
+cat >/etc/skel/.config/kickoffrc <<'KICKOFFEOF'
 [Favorites]
-FavoriteURLs=applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:kyth-welcome.desktop,applications:org.kde.konsole.desktop
+FavoriteURLs=applications:kyth-welcome.desktop,applications:kyth-app-store.desktop,applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:org.kde.konsole.desktop
 
 [General]
 highlightNewlyInstalledApps=false
@@ -435,12 +597,15 @@ install -m 0644 /etc/skel/.config/kickoffrc /etc/xdg/kickoffrc
 # ── Screen lock timeout ───────────────────────────────────────────────────────
 # Default auto-lock after 15 minutes of inactivity. KDE's stock default is 5
 # minutes which is too aggressive for a desktop/gaming workstation.
-cat > /etc/skel/.config/kscreenlockerrc <<'SCREENLOCKEOF'
+cat >/etc/skel/.config/kscreenlockerrc <<'SCREENLOCKEOF'
 [Daemon]
 Autolock=true
 LockGracePeriod=5
 LockOnResume=true
 Timeout=15
+
+[Greeter][Wallpaper][org.kde.image][General]
+Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 SCREENLOCKEOF
 
 # ── Plasma / PowerDevil hardening ─────────────────────────────────────────────
@@ -455,15 +620,15 @@ SCREENLOCKEOF
 # consumer that does load libddcutil from starting display-watch threads, which
 # are a known source of instability on some monitor/GPU combinations.
 mkdir -p /etc/xdg/plasma-workspace/env /etc/xdg/ddcutil
-cat > /etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
+cat >/etc/environment.d/90-kyth-powerdevil.conf <<'POWERDEVILEOF'
 POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILEOF
-cat > /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh <<'POWERDEVILSHEOF'
+cat >/etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh <<'POWERDEVILSHEOF'
 #!/bin/sh
 export POWERDEVIL_NO_DDCUTIL=1
 POWERDEVILSHEOF
 chmod +x /etc/xdg/plasma-workspace/env/90-kyth-powerdevil.sh
-cat > /etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
+cat >/etc/xdg/ddcutil/ddcutilrc <<'DDCUTILRCEOF'
 [libddcutil]
 options: --disable-watch-displays
 DDCUTILRCEOF
@@ -472,26 +637,57 @@ DDCUTILRCEOF
 # Install as a proper KDE wallpaper package so the L&F lookup 'Image=kyth' works.
 mkdir -p /usr/share/wallpapers/kyth/contents/images
 cp /ctx/wallpaper/kyth-wallpaper.svg \
-    /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+	/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 printf '{"KPlugin":{"Authors":[{"Name":"KythOS"}],"Id":"kyth","Name":"KythOS","License":"CC-BY-SA-4.0"},"KPackageStructure":"Wallpaper/Images"}\n' \
-    > /usr/share/wallpapers/kyth/metadata.json
+	>/usr/share/wallpapers/kyth/metadata.json
 
 # Patch all L&F defaults (Fedora variants + Breeze) to use KythOS wallpaper.
 # Fedora Kinoite ships org.fedoraproject.fedora*.desktop themes that set
 # Image=Fedora; we replace that in every theme so no L&F can restore the
 # stock Fedora rocket wallpaper.
 find /usr/share/plasma/look-and-feel -name defaults | while read -r f; do
-    sed -i 's/^Image=.*/Image=kyth/' "$f"
-    grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >> "$f"
+	sed -i 's/^Image=.*/Image=kyth/' "$f"
+	grep -q '^Image=' "$f" || printf '\n[Wallpaper]\nImage=kyth\n' >>"$f"
 done
 
 # System-wide XDG fallback — applied to every user before their personal
 # config exists, so first-boot always shows the KythOS wallpaper.
 mkdir -p /etc/xdg
-cat > /etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
+cat >/etc/xdg/plasma-org.kde.plasma.desktop-appletsrc <<'XDGPLASMAEOF'
 [Containments][1][Wallpaper][org.kde.image][General]
 Image=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
 XDGPLASMAEOF
+
+# ── Wayland/X11 auto-detect (runs before SDDM on every boot) ─────────────────
+# kyth-configure-session detects VM vs bare metal and writes the SDDM session
+# conf before the greeter starts. Bare metal gets Wayland (VRR, HDR, lower
+# latency); VMs keep X11 so SDDM's Wayland compositor mode doesn't fail against
+# virtual GPU drivers that lack DRM/KMS backend support.
+# The script runs as SDDM's ExecStartPre — fast, idempotent, no flag file.
+cat >/usr/bin/kyth-configure-session <<'CONFIGURESESIONEOF'
+#!/bin/bash
+mkdir -p /etc/sddm.conf.d
+if systemd-detect-virt -q 2>/dev/null; then
+    cat >/etc/sddm.conf.d/11-kyth-session.conf <<'EOF'
+[General]
+DisplayServer=x11
+DefaultSession=plasmax11.desktop
+EOF
+else
+    cat >/etc/sddm.conf.d/11-kyth-session.conf <<'EOF'
+[General]
+DisplayServer=wayland
+DefaultSession=plasma.desktop
+EOF
+fi
+CONFIGURESESIONEOF
+chmod +x /usr/bin/kyth-configure-session
+
+mkdir -p /usr/lib/systemd/system/sddm.service.d
+cat >/usr/lib/systemd/system/sddm.service.d/10-kyth-detect-session.conf <<'SDDMDROPINEOF'
+[Service]
+ExecStartPre=/usr/bin/kyth-configure-session
+SDDMDROPINEOF
 
 # ── SDDM session type + login screen background ───────────────────────────────
 # Force X11 display server. Kinoite 44 / KDE 6.6 defaults to a Wayland session;
@@ -500,7 +696,7 @@ XDGPLASMAEOF
 # connection and makes the VM appear to close. X11 is stable on all hardware
 # and VM GPU drivers; users can switch to Wayland from the session picker.
 mkdir -p /etc/sddm.conf.d
-cat > /etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
+cat >/etc/sddm.conf.d/10-kyth.conf <<'SDDMCONFEOF'
 [General]
 DisplayServer=x11
 DefaultSession=plasmax11.desktop
@@ -517,7 +713,7 @@ SDDMCONFEOF
 # (systemd-detect-virt returns non-zero when not in a VM/container) and when
 # kyth.hwgl=1 is in the cmdline to force hardware GL inside a VM.
 mkdir -p /etc/skel/.config/plasma-workspace/env
-cat > /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
+cat >/etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh <<'QEMUSAFEEOF'
 #!/bin/sh
 if systemd-detect-virt -q 2>/dev/null && ! grep -qw 'kyth.hwgl=1' /proc/cmdline 2>/dev/null; then
     export LIBGL_ALWAYS_SOFTWARE=1
@@ -531,16 +727,18 @@ chmod +x /etc/skel/.config/plasma-workspace/env/10-kyth-qemu-safe.sh
 # theme.conf.user overrides the breeze SDDM theme defaults without modifying
 # the upstream theme files. The wallpaper is already installed above.
 mkdir -p /usr/share/sddm/themes/breeze
-cat > /usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
+cat >/usr/share/sddm/themes/breeze/theme.conf.user <<'SDDMEOF'
 [General]
 type=image
 background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+logo=/usr/share/pixmaps/kyth.svg
+showlogo=shown
 SDDMEOF
 
 # Make enrolled fingerprints available to the login and screen-lock PAM stack.
 # fprintd-pam provides the module; authselect activates it in Fedora's profile.
 if command -v authselect >/dev/null 2>&1 && authselect current >/dev/null 2>&1; then
-    authselect enable-feature with-fingerprint
+	authselect enable-feature with-fingerprint
 fi
 
 # ── KythOS icons ───────────────────────────────────────────────────────────────
@@ -560,37 +758,37 @@ fi
 
 # Scalable SVGs (also used by the kyth-set-kickoff-icon first-login script)
 for theme_dir in \
-    /usr/share/icons/hicolor/scalable/apps \
-    /usr/share/icons/breeze/apps/scalable \
-    /usr/share/icons/breeze-dark/apps/scalable; do
-    mkdir -p "${theme_dir}"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
-    cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
-    cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
+	/usr/share/icons/hicolor/scalable/apps \
+	/usr/share/icons/breeze/apps/scalable \
+	/usr/share/icons/breeze-dark/apps/scalable; do
+	mkdir -p "${theme_dir}"
+	cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth.svg"
+	cp /ctx/branding/kyth-logo-transparent.svg "${theme_dir}/kyth-symbol.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kythos.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/kyth-kickoff.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/distributor-logo.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/fedora-logo-icon.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde.svg"
+	cp /ctx/branding/kyth-kickoff.svg "${theme_dir}/start-here-kde-plasma.svg"
 done
 
 # PNGs at every standard size — beats inherited exact-size Fedora PNGs at lookup
 for sz in 16 22 24 32 48 64 128 256; do
-    for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
-        dir="${base}/${sz}x${sz}/apps"
-        mkdir -p "${dir}"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
-            -o "${dir}/kyth-kickoff.png"
-        rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
-            -o "${dir}/kyth.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
-        cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
-    done
+	for base in /usr/share/icons/hicolor /usr/share/icons/breeze /usr/share/icons/breeze-dark; do
+		dir="${base}/${sz}x${sz}/apps"
+		mkdir -p "${dir}"
+		rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-kickoff.svg \
+			-o "${dir}/kyth-kickoff.png"
+		rsvg-convert -w "${sz}" -h "${sz}" /ctx/branding/kyth-logo-transparent.svg \
+			-o "${dir}/kyth.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/kythos.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/distributor-logo.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/fedora-logo-icon.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/start-here.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde.png"
+		cp "${dir}/kyth-kickoff.png" "${dir}/start-here-kde-plasma.png"
+	done
 done
 
 # Extra legacy lookup locations used by boot menus, display managers, and older
@@ -608,47 +806,47 @@ cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/distributor-logo.png
 cp /usr/share/pixmaps/kythos.png /usr/share/pixmaps/fedora-logo-icon.png
 
 for grub_icon_dir in \
-    /boot/grub2/themes/system/icons \
-    /boot/grub2/themes/starfield/icons \
-    /usr/share/grub/themes/system/icons \
-    /usr/share/grub/themes/starfield/icons; do
-    mkdir -p "${grub_icon_dir}"
-    for icon in kyth kythos fedora gnu-linux linux; do
-        rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
-            -o "${grub_icon_dir}/${icon}.png"
-    done
+	/boot/grub2/themes/system/icons \
+	/boot/grub2/themes/starfield/icons \
+	/usr/share/grub/themes/system/icons \
+	/usr/share/grub/themes/starfield/icons; do
+	mkdir -p "${grub_icon_dir}"
+	for icon in kyth kythos fedora gnu-linux linux; do
+		rsvg-convert -w 32 -h 32 /ctx/branding/kyth-kickoff.svg \
+			-o "${grub_icon_dir}/${icon}.png"
+	done
 done
 
 mkdir -p /etc/default
 if [[ -f /etc/default/grub ]]; then
-    if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
-        sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
-    else
-        printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >> /etc/default/grub
-    fi
+	if grep -q '^GRUB_DISTRIBUTOR=' /etc/default/grub; then
+		sed -i 's/^GRUB_DISTRIBUTOR=.*/GRUB_DISTRIBUTOR="KythOS"/' /etc/default/grub
+	else
+		printf '\nGRUB_DISTRIBUTOR="KythOS"\n' >>/etc/default/grub
+	fi
 else
-    printf 'GRUB_DISTRIBUTOR="KythOS"\n' > /etc/default/grub
+	printf 'GRUB_DISTRIBUTOR="KythOS"\n' >/etc/default/grub
 fi
 
 # Microsoft 365 web-app shortcut icons (referenced by the .desktop entries the
 # kyth-welcome Work Setup page writes; without them Kickoff shows a generic globe).
 for app in outlook word excel powerpoint onenote teams; do
-    cp "/ctx/branding/m365/kyth-m365-${app}.svg" \
-        /usr/share/icons/hicolor/scalable/apps/
-    for sz in 16 22 24 32 48 64 128 256; do
-        dir="/usr/share/icons/hicolor/${sz}x${sz}/apps"
-        mkdir -p "${dir}"
-        rsvg-convert -w "${sz}" -h "${sz}" "/ctx/branding/m365/kyth-m365-${app}.svg" \
-            -o "${dir}/kyth-m365-${app}.png"
-    done
+	cp "/ctx/branding/m365/kyth-m365-${app}.svg" \
+		/usr/share/icons/hicolor/scalable/apps/
+	for sz in 16 22 24 32 48 64 128 256; do
+		dir="/usr/share/icons/hicolor/${sz}x${sz}/apps"
+		mkdir -p "${dir}"
+		rsvg-convert -w "${sz}" -h "${sz}" "/ctx/branding/m365/kyth-m365-${app}.svg" \
+			-o "${dir}/kyth-m365-${app}.png"
+	done
 done
 
 # Clear any stale caches so the new icons take effect immediately on first boot.
 rm -f /usr/share/icons/hicolor/icon-theme.cache
 rm -f /usr/share/icons/breeze/icon-theme.cache
 rm -f /usr/share/icons/breeze-dark/icon-theme.cache
-gtk-update-icon-cache -f /usr/share/icons/hicolor/    2>/dev/null || true
-gtk-update-icon-cache -f /usr/share/icons/breeze/      2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/hicolor/ 2>/dev/null || true
+gtk-update-icon-cache -f /usr/share/icons/breeze/ 2>/dev/null || true
 gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 
 # ── Kickoff plasmoid defaults ─────────────────────────────────────────────────
@@ -660,16 +858,16 @@ gtk-update-icon-cache -f /usr/share/icons/breeze-dark/ 2>/dev/null || true
 # named icon so the plasmoid's own default wins unconditionally.
 _kickoff_cfg=/usr/share/plasma/plasmoids/org.kde.plasma.kickoff/contents/config/main.xml
 if [[ -f "${_kickoff_cfg}" ]]; then
-    sed -i \
-        '/<entry name="icon" type="String">/,/<\/entry>/ {
+	sed -i \
+		'/<entry name="icon" type="String">/,/<\/entry>/ {
             s|<default></default>|<default>kyth-kickoff</default>|
         }' \
-        "${_kickoff_cfg}"
-    sed -i \
-        '/<entry name="highlightNewlyInstalledApps" type="Bool">/,/<\/entry>/ {
+		"${_kickoff_cfg}"
+	sed -i \
+		'/<entry name="highlightNewlyInstalledApps" type="Bool">/,/<\/entry>/ {
             s|<default>true</default>|<default>false</default>|
         }' \
-        "${_kickoff_cfg}"
+		"${_kickoff_cfg}"
 fi
 
 # ── First-login script: polish Kickoff launcher defaults ──────────────────────
@@ -678,7 +876,7 @@ fi
 # case the theme lookup is overridden by a previously cached value. It also
 # disables Plasma's newly-installed app badges so KythOS launchers land in
 # their categories without green dots or "New!" labels.
-cat > /usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
+cat >/usr/bin/kyth-set-kickoff-icon <<'KICKOFEOF'
 #!/usr/bin/env python3
 import os, re, shutil, subprocess
 
@@ -729,7 +927,7 @@ KICKOFEOF
 chmod +x /usr/bin/kyth-set-kickoff-icon
 
 mkdir -p /etc/skel/.config/autostart
-cat > /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
+cat >/etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop <<'AUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: Set Kickoff Icon
@@ -741,22 +939,414 @@ AUTOSTARTEOF
 
 mkdir -p /etc/xdg/autostart
 install -m 0644 /etc/skel/.config/autostart/kyth-set-kickoff-icon.desktop \
-    /etc/xdg/autostart/kyth-set-kickoff-icon.desktop
+	/etc/xdg/autostart/kyth-set-kickoff-icon.desktop
 
-# ── User comfort polish ───────────────────────────────────────────────────────
-# KDE stores several "Windows users expect this" preferences per-user. Bake a
-# versioned, automatic polish pass into the image so new accounts get it from
-# /etc/skel and existing accounts receive it once after an OS update.
-cat > /usr/bin/kyth-user-polish <<'POLISHEOF'
+# ── KythOS default Plasma layout preset ───────────────────────────────────────
+# Applies the distinctive KythOS desktop shape: bottom taskbar, KythOS launcher,
+# pinned everyday apps, system tray, clock, show-desktop target, wallpaper, and
+# a restore marker. Run with --initial for fresh users and --force when the user
+# explicitly clicks "Restore KythOS Layout" in System Hub.
+cat >/usr/bin/kyth-apply-desktop-layout <<'LAYOUTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="v9"
+force=0
+initial=0
+layout_version="kyth-comfort-v3"
+config_file="plasma-org.kde.plasma.desktop-appletsrc"
+
+for arg in "$@"; do
+    case "${arg}" in
+        --force)
+            force=1
+            ;;
+        --initial)
+            initial=1
+            ;;
+        -h|--help)
+            printf 'Usage: kyth-apply-desktop-layout [--initial|--force]\n'
+            exit 0
+            ;;
+    esac
+done
+
+if [[ "${force}" != "1" ]]; then
+    current=""
+    legacy_current=""
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        current="$(kreadconfig6 --file "${config_file}" --group KythOS --key KythComfortLayout 2>/dev/null || true)"
+        legacy_current="$(kreadconfig6 --file "${config_file}" --group KythOS --key WindowsFamiliarLayout 2>/dev/null || true)"
+    fi
+    if [[ "${current}" == "${layout_version}" || "${current}" == "kyth-comfort-v2" || "${legacy_current}" == "windows-familiar-v1" ]]; then
+        exit 0
+    fi
+fi
+
+if [[ "${force}" != "1" && "${initial}" != "1" ]]; then
+    echo "Refusing to change an existing layout without --initial or --force." >&2
+    exit 64
+fi
+
+qdbus_cmd=""
+for candidate in qdbus6 qdbus-qt6 qdbus; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+        qdbus_cmd="${candidate}"
+        break
+    fi
+done
+if [[ -z "${qdbus_cmd}" ]]; then
+    echo "qdbus6/qdbus-qt6/qdbus is not available; Plasma layout cannot be applied." >&2
+    exit 75
+fi
+
+runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+[[ -d "${runtime_dir}" ]] || runtime_dir="/tmp"
+script_file="$(mktemp "${runtime_dir}/kyth-layout.XXXXXX.js")"
+trap 'rm -f "${script_file}"' EXIT
+
+cat > "${script_file}" <<'JSEOF'
+var launchers = [
+    "applications:kyth-welcome.desktop",
+    "applications:kyth-app-store.desktop",
+    "applications:steam.desktop",
+    "applications:com.brave.Browser.desktop",
+    "applications:org.kde.dolphin.desktop",
+    "applications:org.kde.konsole.desktop"
+].join(",");
+
+var trayItems = [
+    "org.kde.plasma.networkmanagement",
+    "org.kde.plasma.volume",
+    "org.kde.plasma.bluetooth",
+    "org.kde.plasma.battery",
+    "org.kde.plasma.notifications",
+    "org.kde.plasma.clipboard",
+    "org.kde.plasma.devicenotifier",
+    "org.kde.plasma.printmanager",
+    "org.kde.kdeconnect"
+].join(",");
+
+var hiddenTrayItems = [
+    "org.kde.plasma.keyboardindicator",
+    "org.kde.plasma.mediacontroller"
+].join(",");
+
+function safeSet(object, key, value) {
+    try {
+        object[key] = value;
+    } catch (e) {
+    }
+}
+
+function writeConfig(object, groups, values) {
+    try {
+        object.currentConfigGroup = groups;
+        for (var key in values) {
+            object.writeConfig(key, values[key]);
+        }
+        object.reloadConfig();
+    } catch (e) {
+    }
+}
+
+function removeExistingPanels() {
+    var ids = [];
+    for (var i = 0; i < panelIds.length; ++i) {
+        ids.push(panelIds[i]);
+    }
+    for (var i = 0; i < ids.length; ++i) {
+        var panel = panelById(ids[i]);
+        if (panel) {
+            panel.remove();
+        }
+    }
+}
+
+function uniqueScreens() {
+    var seen = [];
+    var desktopsArray = desktops();
+    for (var i = 0; i < desktopsArray.length; ++i) {
+        var screen = desktopsArray[i].screen;
+        if (seen.indexOf(screen) === -1) {
+            seen.push(screen);
+        }
+    }
+    if (seen.length === 0) {
+        seen.push(0);
+    }
+    return seen;
+}
+
+function configureDesktops() {
+    var desktopsArray = desktops();
+    for (var i = 0; i < desktopsArray.length; ++i) {
+        var desktop = desktopsArray[i];
+        desktop.wallpaperPlugin = "org.kde.image";
+        writeConfig(desktop, ["Wallpaper", "org.kde.image", "General"], {
+            "Image": "/usr/share/wallpapers/kyth/contents/images/1920x1080.svg"
+        });
+        writeConfig(desktop, ["General"], {
+            "ToolBoxButtonState": "topcenter"
+        });
+    }
+}
+
+function addKythDefaultPanel(screen) {
+    var panel = new Panel;
+    safeSet(panel, "screen", screen);
+    panel.location = "bottom";
+    panel.height = 42;
+    safeSet(panel, "alignment", "center");
+    safeSet(panel, "floating", false);
+    safeSet(panel, "floatingApplets", false);
+
+    var kickoff = panel.addWidget("org.kde.plasma.kickoff");
+    writeConfig(kickoff, ["General"], {
+        "icon": "kyth-kickoff",
+        "favoritesPortedToKAstats": true,
+        "alphaSort": true,
+        "showActionButtonCaptions": true
+    });
+
+    var tasks = panel.addWidget("org.kde.plasma.icontasks");
+    writeConfig(tasks, ["General"], {
+        "launchers": launchers,
+        "showOnlyCurrentDesktop": false,
+        "showOnlyCurrentScreen": false,
+        "showOnlyCurrentActivity": false,
+        "groupingStrategy": 1,
+        "maxStripes": 1,
+        "showToolTips": true,
+        "wheelEnabled": "AllTask",
+        "indicateAudioStreams": true,
+        "highlightWindows": true,
+        "middleClickAction": "NewInstance"
+    });
+
+    panel.addWidget("org.kde.plasma.marginsseparator");
+
+    var tray = panel.addWidget("org.kde.plasma.systemtray");
+    writeConfig(tray, ["General"], {
+        "extraItems": trayItems,
+        "hiddenItems": hiddenTrayItems,
+        "knownItems": trayItems + "," + hiddenTrayItems,
+        "showAllItems": false
+    });
+
+    panel.addWidget("org.kde.plasma.panelspacer");
+
+    var clock = panel.addWidget("org.kde.plasma.digitalclock");
+    writeConfig(clock, ["Appearance"], {
+        "showDate": false,
+        "dateFormat": "shortDate",
+        "showSeconds": false
+    });
+
+    panel.addWidget("org.kde.plasma.showdesktop");
+}
+
+removeExistingPanels();
+configureDesktops();
+var screens = uniqueScreens();
+for (var i = 0; i < screens.length; ++i) {
+    addKythDefaultPanel(screens[i]);
+}
+JSEOF
+
+"${qdbus_cmd}" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "${script_file}")" >/dev/null
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file "${config_file}" --group KythOS --key KythComfortLayout "${layout_version}" >/dev/null 2>&1 || true
+fi
+LAYOUTEOF
+chmod +x /usr/bin/kyth-apply-desktop-layout
+
+# ── KythOS role presets ───────────────────────────────────────────────────────
+# Lightweight, user-controlled presets for the home page focus picker. These
+# alter prominence and pins only; they never remove apps or hide tools from
+# search.
+cat >/usr/bin/kyth-apply-role-preset <<'ROLEPRESETEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+profile="${1:-everyday}"
+case "${profile}" in
+    work|both|everyday)
+        profile="everyday"
+        launchers=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.libreoffice.LibreOffice.desktop"
+            "applications:eu.betterbird.Betterbird.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        favorites=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.libreoffice.LibreOffice.desktop"
+            "applications:eu.betterbird.Betterbird.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        ;;
+    gaming)
+        launchers=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:steam.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:dev.vencord.Vesktop.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        favorites=(
+            "applications:kyth-welcome.desktop"
+            "applications:kyth-app-store.desktop"
+            "applications:steam.desktop"
+            "applications:com.brave.Browser.desktop"
+            "applications:dev.vencord.Vesktop.desktop"
+            "applications:org.kde.dolphin.desktop"
+            "applications:org.kde.konsole.desktop"
+        )
+        ;;
+    *)
+        echo "Usage: kyth-apply-role-preset [everyday|gaming]" >&2
+        exit 64
+        ;;
+esac
+
+profile_dir="${HOME}/.local/share/kyth"
+mkdir -p "${profile_dir}"
+printf '%s\n' "${profile}" > "${profile_dir}/profile"
+
+join_by_comma() {
+    local IFS=,
+    printf '%s' "$*"
+}
+launcher_csv="$(join_by_comma "${launchers[@]}")"
+favorite_csv="$(join_by_comma "${favorites[@]}")"
+tray_csv="org.kde.plasma.networkmanagement,org.kde.plasma.volume,org.kde.plasma.bluetooth,org.kde.plasma.battery,org.kde.plasma.notifications,org.kde.plasma.clipboard,org.kde.plasma.devicenotifier,org.kde.plasma.printmanager,org.kde.kdeconnect"
+hidden_tray_csv="org.kde.plasma.keyboardindicator,org.kde.plasma.mediacontroller"
+
+if command -v kwriteconfig6 >/dev/null 2>&1; then
+    kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs "${favorite_csv}"
+    kwriteconfig6 --file plasma-discoverrc --group UpdatesNotifier --key UseNotifications --type bool false
+fi
+
+qdbus_cmd=""
+for candidate in qdbus6 qdbus-qt6 qdbus; do
+    if command -v "${candidate}" >/dev/null 2>&1; then
+        qdbus_cmd="${candidate}"
+        break
+    fi
+done
+
+if [[ -n "${qdbus_cmd}" ]]; then
+    runtime_dir="${XDG_RUNTIME_DIR:-/tmp}"
+    [[ -d "${runtime_dir}" ]] || runtime_dir="/tmp"
+    script_file="$(mktemp "${runtime_dir}/kyth-role-preset.XXXXXX.js")"
+    trap 'rm -f "${script_file}"' EXIT
+    cat > "${script_file}" <<JSEOF
+var launchers = "${launcher_csv}";
+var trayItems = "${tray_csv}";
+var hiddenTrayItems = "${hidden_tray_csv}";
+
+function writeConfig(object, groups, values) {
+    try {
+        object.currentConfigGroup = groups;
+        for (var key in values) {
+            object.writeConfig(key, values[key]);
+        }
+        object.reloadConfig();
+    } catch (e) {
+    }
+}
+
+for (var p = 0; p < panelIds.length; ++p) {
+    var panel = panelById(panelIds[p]);
+    if (!panel || !panel.widgets) {
+        continue;
+    }
+    var widgets = panel.widgets();
+    for (var i = 0; i < widgets.length; ++i) {
+        var widget = widgets[i];
+        if (widget.type === "org.kde.plasma.icontasks") {
+            writeConfig(widget, ["General"], {
+                "launchers": launchers,
+                "showOnlyCurrentDesktop": false,
+                "showOnlyCurrentScreen": false,
+                "showOnlyCurrentActivity": false,
+                "groupingStrategy": 1,
+                "maxStripes": 1,
+                "showToolTips": true,
+                "wheelEnabled": "AllTask",
+                "indicateAudioStreams": true,
+                "highlightWindows": true,
+                "middleClickAction": "NewInstance"
+            });
+        } else if (widget.type === "org.kde.plasma.systemtray") {
+            writeConfig(widget, ["General"], {
+                "extraItems": trayItems,
+                "hiddenItems": hiddenTrayItems,
+                "knownItems": trayItems + "," + hiddenTrayItems,
+                "showAllItems": false
+            });
+        } else if (widget.type === "org.kde.plasma.digitalclock") {
+            writeConfig(widget, ["Appearance"], {
+                "showDate": false,
+                "dateFormat": "shortDate",
+                "showSeconds": false
+            });
+        }
+    }
+}
+JSEOF
+    "${qdbus_cmd}" org.kde.plasmashell /PlasmaShell org.kde.PlasmaShell.evaluateScript "$(cat "${script_file}")" >/dev/null 2>&1 || true
+fi
+
+if command -v kbuildsycoca6 >/dev/null 2>&1; then
+    kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
+fi
+
+echo "Applied ${profile} preset."
+ROLEPRESETEOF
+chmod +x /usr/bin/kyth-apply-role-preset
+
+# ── User comfort polish ───────────────────────────────────────────────────────
+# KDE stores several comfort preferences per-user. Bake a versioned, automatic
+# polish pass into the image so new accounts get it from /etc/skel and existing
+# accounts receive it once after an OS update.
+cat >/usr/bin/kyth-user-polish <<'POLISHEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+version="v12"
 stamp_dir="${HOME}/.local/share/kyth"
 stamp="${stamp_dir}/user-polish-${version}"
 old_autostart="${HOME}/.config/autostart/kyth-windows-friendly-defaults.desktop"
+force=0
+had_polish_stamp=0
 
-if [[ -f "${stamp}" ]]; then
+for arg in "$@"; do
+    case "${arg}" in
+        --force)
+            force=1
+            ;;
+        -h|--help)
+            printf 'Usage: kyth-user-polish [--force]\n'
+            exit 0
+            ;;
+    esac
+done
+
+if [[ -d "${stamp_dir}" ]] && compgen -G "${stamp_dir}/user-polish-*" >/dev/null; then
+    had_polish_stamp=1
+fi
+
+if [[ -f "${stamp}" && "${force}" != "1" ]]; then
     rm -f "${old_autostart}" "${HOME}/.config/autostart/kyth-user-polish.desktop" 2>/dev/null || true
     exit 0
 fi
@@ -764,8 +1354,8 @@ fi
 mkdir -p "${stamp_dir}"
 
 # Ensure common folders exist even when xdg-user-dirs did not run yet. Games is
-# intentionally non-standard but important for a Windows-style "where do I put
-# my game stuff?" mental model.
+# intentionally non-standard, but important for a gaming-first workstation where
+# local launchers, save backups, mods, and exports need an obvious home.
 if command -v xdg-user-dirs-update >/dev/null 2>&1; then
     xdg-user-dirs-update >/dev/null 2>&1 || true
 fi
@@ -777,6 +1367,7 @@ mkdir -p \
     "${HOME}/Music" \
     "${HOME}/Pictures" \
     "${HOME}/Public" \
+    "${HOME}/Screenshots" \
     "${HOME}/Templates" \
     "${HOME}/Videos"
 
@@ -786,6 +1377,14 @@ if [[ ! -f "${HOME}/Games/.directory" ]]; then
 Icon=applications-games
 Name=Games
 GAMESDIREEOF
+fi
+
+if [[ ! -f "${HOME}/Screenshots/.directory" ]]; then
+    cat > "${HOME}/Screenshots/.directory" <<'SHOTSDIREEOF'
+[Desktop Entry]
+Icon=folder-pictures
+Name=Screenshots
+SHOTSDIREEOF
 fi
 
 if [[ ! -f "${HOME}/Templates/Plain Text.txt" ]]; then
@@ -845,10 +1444,27 @@ org.kde.dolphin.desktop|inode/directory
 MIMEDEFAULTS
 fi
 
-# Dolphin Places sidebar: seed a Windows-familiar set without depending on
-# fragile GUI state. Preserve existing customized places; add Games when absent.
+# Dolphin Places sidebar: seed a comfortable everyday set without depending on
+# fragile GUI state. Preserve existing customized places; add missing essentials.
 mkdir -p "${HOME}/.local/share"
 places_file="${HOME}/.local/share/user-places.xbel"
+ensure_place() {
+    local href=$1
+    local title=$2
+    local icon=$3
+    grep -Fq "href=\"${href}\"" "${places_file}" 2>/dev/null && return 0
+    local tmp_places="${places_file}.kyth-tmp"
+    awk -v href="${href}" -v title="${title}" -v icon="${icon}" '
+        /<\/xbel>/ && !done {
+            print " <bookmark href=\"" href "\">"
+            print "  <title>" title "</title>"
+            print "  <info><metadata owner=\"http://freedesktop.org\"><bookmark:icon name=\"" icon "\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\"/></metadata></info>"
+            print " </bookmark>"
+            done=1
+        }
+        { print }
+    ' "${places_file}" > "${tmp_places}" && mv "${tmp_places}" "${places_file}"
+}
 if [[ ! -f "${places_file}" ]]; then
     cat > "${places_file}" <<PLACESXBELEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -874,9 +1490,25 @@ if [[ ! -f "${places_file}" ]]; then
   <title>Games</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="applications-games" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
  </bookmark>
+ <bookmark href="file://${HOME}/Music">
+  <title>Music</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-music" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
  <bookmark href="file://${HOME}/Pictures">
   <title>Pictures</title>
   <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Screenshots">
+  <title>Screenshots</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-pictures" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Public">
+  <title>Public</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-publicshare" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
+ </bookmark>
+ <bookmark href="file://${HOME}/Templates">
+  <title>Templates</title>
+  <info><metadata owner="http://freedesktop.org"><bookmark:icon name="folder-templates" xmlns:bookmark="http://www.freedesktop.org/standards/desktop-bookmarks"/></metadata></info>
  </bookmark>
  <bookmark href="file://${HOME}/Videos">
   <title>Videos</title>
@@ -892,19 +1524,20 @@ if [[ ! -f "${places_file}" ]]; then
  </bookmark>
 </xbel>
 PLACESXBELEOF
-elif ! grep -Fq "file://${HOME}/Games" "${places_file}"; then
-    tmp_places="${places_file}.kyth-tmp"
-    awk -v home="${HOME}" '
-        /<\/xbel>/ && !done {
-            print " <bookmark href=\"file://" home "/Games\">"
-            print "  <title>Games</title>"
-            print "  <info><metadata owner=\"http://freedesktop.org\"><bookmark:icon name=\"applications-games\" xmlns:bookmark=\"http://www.freedesktop.org/standards/desktop-bookmarks\"/></metadata></info>"
-            print " </bookmark>"
-            done=1
-        }
-        { print }
-    ' "${places_file}" > "${tmp_places}" && mv "${tmp_places}" "${places_file}"
 fi
+ensure_place "file://${HOME}" "Home" "user-home"
+ensure_place "file://${HOME}/Desktop" "Desktop" "user-desktop"
+ensure_place "file://${HOME}/Documents" "Documents" "folder-documents"
+ensure_place "file://${HOME}/Downloads" "Downloads" "folder-download"
+ensure_place "file://${HOME}/Games" "Games" "applications-games"
+ensure_place "file://${HOME}/Music" "Music" "folder-music"
+ensure_place "file://${HOME}/Pictures" "Pictures" "folder-pictures"
+ensure_place "file://${HOME}/Screenshots" "Screenshots" "folder-pictures"
+ensure_place "file://${HOME}/Public" "Public" "folder-publicshare"
+ensure_place "file://${HOME}/Templates" "Templates" "folder-templates"
+ensure_place "file://${HOME}/Videos" "Videos" "folder-videos"
+ensure_place "trash:/" "Trash" "user-trash"
+ensure_place "network:/" "Network" "network-workgroup"
 
 if command -v kwriteconfig6 >/dev/null 2>&1; then
     # Ensure KDE apps (Discover, System Settings, etc.) always display English.
@@ -923,6 +1556,43 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwalletrc --group Wallet --key "Close on Screensaver" --type bool false
     kwriteconfig6 --file kwalletrc --group Wallet --key "Leave Open" --type bool true
 
+    # KythOS visual identity. New users receive this from /etc/skel; this
+    # keeps older or manually-created accounts aligned without repeatedly
+    # clobbering a user's custom theme. The System Hub polish button passes
+    # --force when the user explicitly asks to re-apply the KythOS look.
+    current_color=""
+    current_plasma_theme=""
+    current_favorites=""
+    if command -v kreadconfig6 >/dev/null 2>&1; then
+        current_color="$(kreadconfig6 --file kdeglobals --group General --key ColorScheme 2>/dev/null || true)"
+        current_plasma_theme="$(kreadconfig6 --file plasmarc --group Theme --key name 2>/dev/null || true)"
+        current_favorites="$(kreadconfig6 --file kickoffrc --group Favorites --key FavoriteURLs 2>/dev/null || true)"
+    fi
+    apply_kyth_visuals=0
+    if [[ "${force}" == "1" || ( -z "${current_color}" && -z "${current_plasma_theme}" ) ]]; then
+        apply_kyth_visuals=1
+    fi
+    if [[ "${apply_kyth_visuals}" == "1" ]]; then
+        kwriteconfig6 --file kdeglobals --group General --key ColorScheme KythDark
+        kwriteconfig6 --file kdeglobals --group General --key font 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key fixed 'Cascadia Code,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key smallestReadableFont 'Inter,8,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key toolBarFont 'Inter,9,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group General --key menuFont 'Inter,10,-1,5,400,0,0,0,0,0,Regular'
+        kwriteconfig6 --file kdeglobals --group Icons --key Theme Papirus-Dark
+        kwriteconfig6 --file kdeglobals --group KDE --key LookAndFeelPackage org.kde.breezedark.desktop
+        kwriteconfig6 --file plasmarc --group Theme --key name kyth-dark
+        if [[ -r /usr/share/wallpapers/kyth/contents/images/1920x1080.svg ]]; then
+            kwriteconfig6 --file plasma-org.kde.plasma.desktop-appletsrc \
+                --group Containments --group 1 --group Wallpaper --group org.kde.image --group General \
+                --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+        fi
+    fi
+    if [[ "${force}" == "1" || -z "${current_favorites}" ]]; then
+        kwriteconfig6 --file kickoffrc --group Favorites --key FavoriteURLs \
+            'applications:kyth-welcome.desktop,applications:kyth-app-store.desktop,applications:steam.desktop,applications:com.brave.Browser.desktop,applications:com.discordapp.Discord.desktop,applications:org.kde.konsole.desktop'
+    fi
+
     # Ctrl+Shift+Esc opens Mission Center when installed, with KDE System
     # Monitor as the always-available fallback.
     if flatpak info io.missioncenter.MissionCenter >/dev/null 2>&1; then
@@ -938,8 +1608,8 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
             --key _launch 'Ctrl+Shift+Esc,none,System Monitor'
     fi
 
-    # Double-click to open files — KDE defaults to single-click; Windows users
-    # expect double-click everywhere (Dolphin, desktop, file dialogs).
+    # Double-click to open files: predictable across Dolphin, desktop icons, and
+    # file dialogs for people arriving from pointer-first desktops.
     kwriteconfig6 --file kdeglobals --group KDE --key SingleClick --type bool false
 
     # Keep Kickoff categories quiet after first-boot Flatpak/app installs.
@@ -948,9 +1618,9 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key highlightNewlyInstalledApps \
         --type bool false
 
-    # Clipboard history — Meta+V (Win+V equivalent).
+    # Clipboard history on Meta+V.
     # Klipper ships enabled but history is off by default; turn it on with a
-    # 25-item buffer and bind the popup to Meta+V so Windows muscle memory works.
+    # 25-item buffer so paste history stays useful without turning into a log.
     kwriteconfig6 --file klipperrc --group General --key KeepClipboardContents --type bool true
     kwriteconfig6 --file klipperrc --group General --key MaxClipItems 25
     kwriteconfig6 --file kglobalshortcutsrc \
@@ -958,9 +1628,9 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --key show_clipboard_history \
         'Meta+V,Ctrl+Alt+V,Show Clipboard History'
 
-    # Win+E → file manager and Win+Shift+S → region screenshot, the two
-    # heaviest pieces of Windows muscle memory. Same keys the Move From Windows
-    # page applies; its "Restore KDE Defaults" button remains the opt-out.
+    # Meta+E opens the file manager and Meta+Shift+S starts a rectangular
+    # screenshot. The Move From Windows page applies the same migration shortcuts;
+    # its "Restore KDE Defaults" button remains the opt-out.
     kwriteconfig6 --file kglobalshortcutsrc \
         --group services --group org.kde.dolphin.desktop \
         --key _launch 'Meta+E'
@@ -968,8 +1638,21 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
         --group org.kde.spectacle.desktop \
         --key RectangularRegionScreenShot \
         'Meta+Shift+S,Meta+Shift+S,Capture Rectangular Region'
+    kwriteconfig6 --file spectaclerc --group General --key defaultSaveLocation "file://${HOME}/Screenshots"
+    kwriteconfig6 --file spectaclerc --group General --key lastSaveAsLocation "file://${HOME}/Screenshots"
+    kwriteconfig6 --file spectaclerc --group General --key useReleaseToCapture --type bool true
+    kwriteconfig6 --file spectaclerc --group ImageSave --key translatedScreenshotsFolder "${HOME}/Screenshots"
 
-    # Alt+Tab window switcher — Thumbnail Grid, the Windows 11-style switcher.
+    # Screen lock: keep the KythOS default calmer than upstream Plasma's stock
+    # five-minute lock while still locking on resume.
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Autolock --type bool true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockGracePeriod 5
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key LockOnResume --type bool true
+    kwriteconfig6 --file kscreenlockerrc --group Daemon --key Timeout 15
+    kwriteconfig6 --file kscreenlockerrc --group Greeter --group Wallpaper --group org.kde.image --group General \
+        --key Image /usr/share/wallpapers/kyth/contents/images/1920x1080.svg
+
+    # Alt+Tab window switcher: Thumbnail Grid gives a modern, scannable overview.
     # KWin ships it built in and made it the default in Plasma 6.4, but configs
     # carried over from earlier installs (or kyth's previous "thumbnails" strip
     # override) can still select an older layout — pin the grid explicitly.
@@ -983,13 +1666,19 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key ButtonsOnRight IAX
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key library org.kde.breeze
     kwriteconfig6 --file kwinrc --group org.kde.kdecoration2 --key theme Breeze
-    if command -v qdbus6 >/dev/null 2>&1; then
-        qdbus6 org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
+    qdbus_cmd=""
+    for candidate in qdbus6 qdbus-qt6 qdbus; do
+        if command -v "${candidate}" >/dev/null 2>&1; then
+            qdbus_cmd="${candidate}"
+            break
+        fi
+    done
+    if [[ -n "${qdbus_cmd}" ]]; then
+        "${qdbus_cmd}" org.kde.KWin /KWin reconfigure >/dev/null 2>&1 || true
     fi
 
-    # Desktop right-click menu — surface "Configure Desktop" prominently so
-    # "right-click desktop → change wallpaper" works like Windows users expect.
-    # KDE's default context menu puts display settings behind two clicks.
+    # Desktop right-click menu: keep wallpaper/display personalization easy to
+    # discover. KDE's default context menu puts display settings behind two clicks.
     kwriteconfig6 --file kwinrc --group Plugins --key desktopchangeosdEnabled --type bool false
 
     # Mixed refresh rate — compositor latency policy.
@@ -1015,7 +1704,11 @@ if command -v kwriteconfig6 >/dev/null 2>&1; then
     kwriteconfig6 --file dolphinrc --group General --key ShowFullPath --type bool true
     kwriteconfig6 --file dolphinrc --group General --key UseTabForSplitViewSwitch --type bool true
     kwriteconfig6 --file dolphinrc --group General --key ShowSpaceInfo --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key BrowseThroughArchives --type bool true
+    kwriteconfig6 --file dolphinrc --group General --key ShowToolTips --type bool true
     kwriteconfig6 --file dolphinrc --group DetailsMode --key PreviewSize 32
+    kwriteconfig6 --file dolphinrc --group PreviewSettings --key Plugins \
+        'audiothumbnail,comicbookthumbnail,cursorthumbnail,djvuthumbnail,ebookthumbnail,exrthumbnail,ffmpegthumbs,imagethumbnail,jpegthumbnail,kraorathumbnail,windowsexethumbnail'
 fi
 
 brave_desktop_src=""
@@ -1045,6 +1738,14 @@ if command -v /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1; then
     /usr/bin/kyth-set-kickoff-icon >/dev/null 2>&1 || true
 fi
 
+if command -v /usr/bin/kyth-apply-desktop-layout >/dev/null 2>&1; then
+    if [[ "${force}" == "1" ]]; then
+        /usr/bin/kyth-apply-desktop-layout --force
+    elif [[ "${had_polish_stamp}" == "0" ]]; then
+        /usr/bin/kyth-apply-desktop-layout --initial >/dev/null 2>&1 || true
+    fi
+fi
+
 if command -v kbuildsycoca6 >/dev/null 2>&1; then
     kbuildsycoca6 --noincremental >/dev/null 2>&1 || true
 fi
@@ -1061,6 +1762,21 @@ if command -v /usr/bin/kyth-vscode-wallet >/dev/null 2>&1; then
     /usr/bin/kyth-vscode-wallet >/dev/null 2>&1 || true
 fi
 
+if command -v /usr/bin/kyth-apply-role-preset >/dev/null 2>&1 \
+    && [[ "${force}" == "1" || "${had_polish_stamp}" == "0" ]]; then
+    role_profile="everyday"
+    if [[ -r "${HOME}/.local/share/kyth/profile" ]]; then
+        role_profile="$(head -n 1 "${HOME}/.local/share/kyth/profile" 2>/dev/null || printf 'everyday')"
+    fi
+    /usr/bin/kyth-apply-role-preset "${role_profile}" >/dev/null 2>&1 || true
+fi
+
+if [[ -d "${HOME}/Desktop" && ( "${force}" == "1" || "${had_polish_stamp}" == "0" ) ]] \
+    && [[ -f /usr/share/applications/kyth-welcome.desktop ]]; then
+    cp /usr/share/applications/kyth-welcome.desktop "${HOME}/Desktop/kyth-welcome.desktop" || true
+    chmod 0755 "${HOME}/Desktop/kyth-welcome.desktop" 2>/dev/null || true
+fi
+
 # Recycle Bin on the desktop for existing accounts. Seeded once per polish
 # version — deleting it afterwards is respected until the next version bump.
 if [[ -d "${HOME}/Desktop" && ! -e "${HOME}/Desktop/kyth-recycle-bin.desktop" ]] \
@@ -1075,13 +1791,13 @@ chmod +x /usr/bin/kyth-user-polish
 
 # Backward-compatible command name used by existing docs, support notes, and
 # old smoke-check output. It now runs the same build-integrated polish pass.
-cat > /usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
+cat >/usr/bin/kyth-windows-friendly-defaults <<'WINDEFAULTEOF'
 #!/usr/bin/env bash
 exec /usr/bin/kyth-user-polish "$@"
 WINDEFAULTEOF
 chmod +x /usr/bin/kyth-windows-friendly-defaults
 
-cat > /etc/skel/.config/autostart/kyth-user-polish.desktop <<'POLISHDESKTOPEOF'
+cat >/etc/skel/.config/autostart/kyth-user-polish.desktop <<'POLISHDESKTOPEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS: User Comfort Polish
@@ -1094,14 +1810,14 @@ POLISHDESKTOPEOF
 # Global autostart means existing users receive new polish migrations after an
 # OS update too; the version stamp above prevents repeated preference churn.
 install -m 0644 /etc/skel/.config/autostart/kyth-user-polish.desktop \
-    /etc/xdg/autostart/kyth-user-polish.desktop
+	/etc/xdg/autostart/kyth-user-polish.desktop
 
 # ── Web app launcher grouping ─────────────────────────────────────────────────
 # Chromium-family browsers create PWA launchers without Categories=. KDE cannot
 # classify those launchers and drops them into Lost and Found. Add a custom
 # category only when the browser did not provide one, preserving any category a
 # user assigns later with the menu editor.
-cat > /usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
+cat >/usr/bin/kyth-web-app-categorize <<'WEBAPPCATEGORIZEEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1132,7 +1848,7 @@ WEBAPPCATEGORIZEEOF
 chmod +x /usr/bin/kyth-web-app-categorize
 
 mkdir -p /etc/systemd/user/default.target.wants
-cat > /etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
+cat >/etc/systemd/user/kyth-web-app-categorize.service <<'WEBAPPSERVICEEOF'
 [Unit]
 Description=Place browser-installed web apps in the Web Apps launcher folder
 
@@ -1141,7 +1857,7 @@ Type=oneshot
 ExecStart=/usr/bin/kyth-web-app-categorize
 WEBAPPSERVICEEOF
 
-cat > /etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
+cat >/etc/systemd/user/kyth-web-app-categorize.path <<'WEBAPPPATHEOF'
 [Unit]
 Description=Watch for browser-installed web app launchers
 
@@ -1153,28 +1869,28 @@ Unit=kyth-web-app-categorize.service
 WantedBy=default.target
 WEBAPPPATHEOF
 ln -sf /etc/systemd/user/kyth-web-app-categorize.path \
-    /etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
+	/etc/systemd/user/default.target.wants/kyth-web-app-categorize.path
 
 # Seed the same familiar folder layout into fresh homes. The autostart helper
 # repairs these for existing users and for accounts created by unusual tools.
 mkdir -p \
-    /etc/skel/Desktop \
-    /etc/skel/Documents \
-    /etc/skel/Downloads \
-    /etc/skel/Games \
-    /etc/skel/Music \
-    /etc/skel/Pictures \
-    /etc/skel/Public \
-    /etc/skel/Templates \
-    /etc/skel/Videos
+	/etc/skel/Desktop \
+	/etc/skel/Documents \
+	/etc/skel/Downloads \
+	/etc/skel/Games \
+	/etc/skel/Music \
+	/etc/skel/Pictures \
+	/etc/skel/Public \
+	/etc/skel/Templates \
+	/etc/skel/Videos
 
-cat > /etc/skel/Games/.directory <<'GAMESDIREEOF'
+cat >/etc/skel/Games/.directory <<'GAMESDIREEOF'
 [Desktop Entry]
 Icon=applications-games
 Name=Games
 GAMESDIREEOF
 
-cat > /etc/skel/.config/user-dirs.dirs <<'USERDIRSEOF'
+cat >/etc/skel/.config/user-dirs.dirs <<'USERDIRSEOF'
 XDG_DESKTOP_DIR="$HOME/Desktop"
 XDG_DOWNLOAD_DIR="$HOME/Downloads"
 XDG_TEMPLATES_DIR="$HOME/Templates"
@@ -1185,7 +1901,7 @@ XDG_PICTURES_DIR="$HOME/Pictures"
 XDG_VIDEOS_DIR="$HOME/Videos"
 USERDIRSEOF
 
-cat > /etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
+cat >/etc/skel/.config/plasma-org.kde.plasma.desktop-appletsrc <<'PLASMADESKTOPEOF'
 [Containments][1]
 wallpaperplugin=org.kde.image
 
@@ -1205,7 +1921,6 @@ install -m 0644 /ctx/MangoHud.conf /etc/MangoHud/MangoHud.conf
 # Users can override with ~/.config/vkBasalt/vkBasalt.conf
 install -m 0644 /ctx/vkBasalt.conf /etc/vkBasalt.conf
 
-
 # ── KythOS Helper app — /ctx file installs ──────────────────────────────────────
 install -m 0755 /ctx/kyth-welcome/kyth-welcome /usr/bin/kyth-welcome
 # /usr/bin/kyth-welcome is a thin shim; the application package lives here.
@@ -1216,20 +1931,34 @@ find /usr/lib/kyth-welcome -type d -exec chmod 0755 {} +
 find /usr/lib/kyth-welcome -type f -exec chmod 0644 {} +
 install -m 0755 /ctx/kyth-welcome/kyth-welcome-launch /usr/bin/kyth-welcome-launch
 install -m 0644 /ctx/kyth-welcome/kyth-welcome.desktop \
-    /usr/share/applications/kyth-welcome.desktop
+	/usr/share/applications/kyth-welcome.desktop
+cat >/usr/share/applications/kyth-app-store.desktop <<'APPSTOREEOF'
+[Desktop Entry]
+Type=Application
+Name=KythOS App Store
+GenericName=App Store
+Comment=Find and install trusted apps on KythOS
+Exec=/usr/bin/kyth-welcome-launch --page "App Store"
+Icon=plasmadiscover
+Terminal=false
+Categories=Settings;PackageManager;
+Keywords=apps;store;software;flatpak;install;remove;
+StartupNotify=true
+StartupWMClass=kyth-welcome
+APPSTOREEOF
 install -m 0755 /ctx/kyth-partition-install.sh /usr/bin/kyth-partition-install
 
 # Place System Hub on the desktop for all new users. The executable bit is
 # required so KDE Plasma 6 treats it as trusted without prompting the user.
 mkdir -p /etc/skel/Desktop
 install -m 0755 /ctx/kyth-welcome/kyth-welcome.desktop \
-    /etc/skel/Desktop/kyth-welcome.desktop
+	/etc/skel/Desktop/kyth-welcome.desktop
 
-# Recycle Bin on the desktop — Windows users look for it there. Type=Link
-# entries open in Dolphin and need no executable/trust bit. Kept in
-# /usr/share/kyth so the user-polish pass can seed existing accounts too.
+# Recycle Bin on the desktop keeps deletion recovery visible. Type=Link entries
+# open in Dolphin and need no executable/trust bit. Kept in /usr/share/kyth so
+# the user-polish pass can seed existing accounts too.
 mkdir -p /usr/share/kyth
-cat > /usr/share/kyth/kyth-recycle-bin.desktop <<'TRASHEOF'
+cat >/usr/share/kyth/kyth-recycle-bin.desktop <<'TRASHEOF'
 [Desktop Entry]
 Type=Link
 URL=trash:/
@@ -1238,14 +1967,13 @@ GenericName=Trash
 Icon=user-trash
 TRASHEOF
 install -m 0644 /usr/share/kyth/kyth-recycle-bin.desktop \
-    /etc/skel/Desktop/kyth-recycle-bin.desktop
+	/etc/skel/Desktop/kyth-recycle-bin.desktop
 
 # ── Storage Sense ─────────────────────────────────────────────────────────────
-# Windows-style automatic housekeeping: empty Recycle Bin items older than 30
-# days, drop unused Flatpak runtimes, vacuum the user journal. Opt-in — the
-# timer ships disabled and System Hub → Health Report has the on/off switch,
-# matching how Storage Sense is something Windows users turn on, not fight.
-cat > /usr/bin/kyth-storage-sense <<'STORAGESENSEEOF'
+# Automatic housekeeping: empty Recycle Bin items older than 30 days, drop unused
+# Flatpak runtimes, vacuum the user journal. Opt-in: the timer ships disabled and
+# System Hub -> Health Report has the on/off switch.
+cat >/usr/bin/kyth-storage-sense <<'STORAGESENSEEOF'
 #!/usr/bin/env bash
 # KythOS Storage Sense — enable/disable from System Hub → Health Report.
 set -uo pipefail
@@ -1275,7 +2003,7 @@ journalctl --user --vacuum-time=30d >/dev/null 2>&1 || true
 STORAGESENSEEOF
 chmod +x /usr/bin/kyth-storage-sense
 
-cat > /usr/lib/systemd/user/kyth-storage-sense.service <<'STORAGESENSESVCEOF'
+cat >/usr/lib/systemd/user/kyth-storage-sense.service <<'STORAGESENSESVCEOF'
 [Unit]
 Description=KythOS Storage Sense cleanup
 
@@ -1284,7 +2012,7 @@ Type=oneshot
 ExecStart=/usr/bin/kyth-storage-sense
 STORAGESENSESVCEOF
 
-cat > /usr/lib/systemd/user/kyth-storage-sense.timer <<'STORAGESENSETIMEREOF'
+cat >/usr/lib/systemd/user/kyth-storage-sense.timer <<'STORAGESENSETIMEREOF'
 [Unit]
 Description=Weekly KythOS Storage Sense cleanup
 
@@ -1299,16 +2027,16 @@ STORAGESENSETIMEREOF
 
 install -m 0755 /ctx/kyth-welcome/kyth-update-notifier /usr/bin/kyth-update-notifier
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
-    /usr/share/applications/kyth-update-notifier.desktop
+	/usr/share/applications/kyth-update-notifier.desktop
 # Autostart the notifier for new user accounts
 mkdir -p /etc/skel/.config/autostart
 install -m 0644 /ctx/kyth-welcome/kyth-update-notifier.desktop \
-    /etc/skel/.config/autostart/kyth-update-notifier.desktop
+	/etc/skel/.config/autostart/kyth-update-notifier.desktop
 
 # User-session confidence checks. These show friendly notifications and are
 # version/deployment-gated so they do not nag on every login.
 mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEOF'
+cat >/etc/xdg/autostart/kyth-post-update-check.desktop <<'POSTUPDATEAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Post-Update Check
@@ -1317,7 +2045,7 @@ NoDisplay=true
 X-KDE-autostart-after=panel
 POSTUPDATEAUTOSTARTEOF
 
-cat > /etc/xdg/autostart/kyth-firstboot-app-status.desktop <<'APPSTATUSAUTOSTARTEOF'
+cat >/etc/xdg/autostart/kyth-firstboot-app-status.desktop <<'APPSTATUSAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS App Setup Status
@@ -1329,7 +2057,7 @@ APPSTATUSAUTOSTARTEOF
 # Steam Flatpak writes game shortcuts inside its sandbox. Refresh host menu
 # exports quietly at login so installed games appear under Games in KDE.
 mkdir -p /etc/xdg/autostart
-cat > /etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
+cat >/etc/xdg/autostart/kyth-steam-game-export.desktop <<'STEAMEXPORTAUTOSTARTEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Steam Game Menu Export
@@ -1377,11 +2105,11 @@ install -m 0755 /ctx/kyth-dynamic-lock /usr/bin/kyth-dynamic-lock
 install -m 0644 /ctx/kyth-duperemove.service /usr/lib/systemd/system/kyth-duperemove.service
 install -m 0644 /ctx/kyth-duperemove.timer /usr/lib/systemd/system/kyth-duperemove.timer
 install -m 0644 /ctx/kyth-local-bin-migrate.service /usr/lib/systemd/system/kyth-local-bin-migrate.service
-install -m 0755 /ctx/kyth-topgrade-migrate        /usr/bin/kyth-topgrade-migrate
+install -m 0755 /ctx/kyth-topgrade-migrate /usr/bin/kyth-topgrade-migrate
 install -m 0755 /ctx/kyth-vscode-wallet /usr/bin/kyth-vscode-wallet
 mkdir -p /usr/lib/systemd/user /usr/lib/systemd/user/default.target.wants
 install -m 0644 /ctx/kyth-dynamic-lock.service /usr/lib/systemd/user/kyth-dynamic-lock.service
-cat > /usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
+cat >/usr/lib/systemd/user/kyth-browser-wallet-defaults.service <<'WALLETDEFAULTSEOF'
 [Unit]
 Description=Apply quiet VS Code and Brave wallet defaults
 ConditionPathExists=!%h/.local/state/kyth/browser-wallet-defaults-v1
@@ -1394,11 +2122,11 @@ ExecStart=/usr/bin/bash -c 'set -euo pipefail; /usr/bin/kyth-vscode-wallet; mkdi
 WantedBy=default.target
 WALLETDEFAULTSEOF
 ln -sf ../kyth-browser-wallet-defaults.service \
-    /usr/lib/systemd/user/default.target.wants/kyth-browser-wallet-defaults.service
+	/usr/lib/systemd/user/default.target.wants/kyth-browser-wallet-defaults.service
 install -m 0644 /ctx/kyth-topgrade-migrate.service /usr/lib/systemd/system/kyth-topgrade-migrate.service
 install -m 0755 /ctx/kyth-vpn-connect/kyth-vpn-connect /usr/bin/kyth-vpn-connect
 install -m 0644 /ctx/kyth-vpn-connect/kyth-vpn-connect.desktop \
-    /usr/share/applications/kyth-vpn-connect.desktop
+	/usr/share/applications/kyth-vpn-connect.desktop
 install -m 0755 /ctx/kyth-vpnc-script /usr/libexec/kyth-vpnc-script
 install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 # ── Downloaded installer MIME interception ───────────────────────────────────
@@ -1409,25 +2137,25 @@ install -m 0755 /ctx/kyth-vpn-status/kyth-vpn-status /usr/bin/kyth-vpn-status
 # types; users can override per-app via Dolphin's "Open With" dialog.
 install -m 0755 /ctx/kyth-exe-handler /usr/bin/kyth-exe-handler
 install -m 0644 /ctx/kyth-exe-handler.desktop \
-    /usr/share/applications/kyth-exe-handler.desktop
+	/usr/share/applications/kyth-exe-handler.desktop
 
 # Keep expert tools installed without crowding a new user's app launcher.
 # System Hub still exposes the relevant guided actions, and every binary remains
 # available from a terminal. /usr/local/share takes precedence over RPM entries.
 mkdir -p /usr/local/share/applications
 for _hidden_desktop in \
-    com.gerbilsoft.rom-properties.rp-config.desktop \
-    htop.desktop \
-    jstest-gtk.desktop \
-    mpv.desktop \
-    nvim.desktop \
-    nvtop.desktop \
-    org.corectrl.CoreCtrl.desktop \
-    org.kde.drkonqi.coredump.gui.desktop \
-    org.kde.kdebugsettings.desktop \
-    org.kde.kjournaldbrowser.desktop \
-    remote-viewer.desktop; do
-    cat > "/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
+	com.gerbilsoft.rom-properties.rp-config.desktop \
+	htop.desktop \
+	jstest-gtk.desktop \
+	mpv.desktop \
+	nvim.desktop \
+	nvtop.desktop \
+	org.corectrl.CoreCtrl.desktop \
+	org.kde.drkonqi.coredump.gui.desktop \
+	org.kde.kdebugsettings.desktop \
+	org.kde.kjournaldbrowser.desktop \
+	remote-viewer.desktop; do
+	cat >"/usr/local/share/applications/${_hidden_desktop}" <<'HIDDENDESKTOPEOF'
 [Desktop Entry]
 Type=Application
 Name=Hidden expert tool
@@ -1441,7 +2169,7 @@ unset _hidden_desktop
 # it is read before per-user ~/.config/mimeapps.list so new users get it
 # automatically, and existing users can still override per-app.
 mkdir -p /etc/xdg
-cat >> /etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
+cat >>/etc/xdg/mimeapps.list <<'MIMEAPPSEOF'
 [Default Applications]
 application/pdf=org.kde.okular.desktop;okularApplication_pdf.desktop;
 application/epub+zip=org.kde.okular.desktop;okularApplication_epub.desktop;
@@ -1477,23 +2205,38 @@ MIMEAPPSEOF
 # Rebuild the MIME/desktop database so KDE picks up the new handler immediately.
 update-desktop-database /usr/share/applications/ 2>/dev/null || true
 
-# Add Windows-style nearby sharing to Dolphin's file context menu. KDE Connect
-# handles discovery and transfer; the helper prompts when multiple paired
-# devices are reachable.
+# Add nearby sharing to Dolphin's file context menu. KDE Connect handles
+# discovery and transfer; the helper prompts when multiple paired devices are
+# reachable.
 mkdir -p /usr/share/kio/servicemenus
 install -m 0644 /ctx/kyth-nearby-share.desktop \
-    /usr/share/kio/servicemenus/kyth-nearby-share.desktop
+	/usr/share/kio/servicemenus/kyth-nearby-share.desktop
+
+# Surface a plain "Open Terminal Here" action in Dolphin. This is a small
+# everyday comfort affordance for support notes, development, and modding.
+cat >/usr/share/kio/servicemenus/kyth-open-terminal-here.desktop <<'TERMHEREDESKTOPEOF'
+[Desktop Entry]
+Type=Service
+MimeType=inode/directory;
+Actions=kythOpenTerminalHere;
+X-KDE-Priority=TopLevel
+
+[Desktop Action kythOpenTerminalHere]
+Name=Open Terminal Here
+Icon=utilities-terminal
+Exec=konsole --workdir %f
+TERMHEREDESKTOPEOF
 
 # ── Right-click "New Document" templates for Dolphin ─────────────────────────
 # Any file placed in ~/Templates appears in Dolphin's right-click → Create New
-# → Document menu — the same behaviour as Windows Explorer's "New" submenu.
-# Seeding /etc/skel ensures every new user gets the templates on first login.
+# → Document menu. Seeding /etc/skel ensures every new user gets the templates
+# on first login.
 mkdir -p /etc/skel/Templates
-printf ''                                          > "/etc/skel/Templates/Plain Text.txt"
-printf '# Title\n\n'                               > "/etc/skel/Templates/Markdown.md"
-printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' > "/etc/skel/Templates/Shell Script.sh"
+printf '' >"/etc/skel/Templates/Plain Text.txt"
+printf '# Title\n\n' >"/etc/skel/Templates/Markdown.md"
+printf '#!/usr/bin/env bash\nset -euo pipefail\n\n' >"/etc/skel/Templates/Shell Script.sh"
 printf '#!/usr/bin/env python3\n\n\ndef main():\n    pass\n\n\nif __name__ == "__main__":\n    main()\n' \
-                                                   > "/etc/skel/Templates/Python Script.py"
+	>"/etc/skel/Templates/Python Script.py"
 chmod +x /etc/skel/Templates/"Shell Script.sh"
 chmod +x /etc/skel/Templates/"Python Script.py"
 
@@ -1522,6 +2265,10 @@ install -m 0755 /ctx/kyth-update-watcher /usr/bin/kyth-update-watcher
 install -m 0644 /ctx/kyth-update-watcher.service /usr/lib/systemd/system/kyth-update-watcher.service
 install -m 0644 /ctx/kyth-update-watcher.timer /usr/lib/systemd/system/kyth-update-watcher.timer
 
+# Zero-Python update escape hatch — works even when KythOS Hub is broken.
+install -m 0755 /ctx/kyth-apply-update /usr/bin/kyth-apply-update
+install -m 0644 /ctx/kyth-apply-update.desktop /usr/share/applications/kyth-apply-update.desktop
+
 mkdir -p /etc/kyth
 install -m 0644 /ctx/kyth-sched-profiles.toml /etc/kyth/sched-profiles.toml
 install -m 0644 /ctx/auto-update.toml /etc/kyth/auto-update.toml
@@ -1529,7 +2276,7 @@ install -m 0644 /ctx/kyth-asus-supergfxd.rules /usr/lib/udev/rules.d/98-kyth-asu
 
 # Autostart on first login — removes itself after running once (like kyth-set-resolution).
 mkdir -p /etc/skel/.config/autostart
-cat > /etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
+cat >/etc/skel/.config/autostart/kyth-welcome.desktop <<'WELCOMEEOF'
 [Desktop Entry]
 Type=Application
 Name=KythOS Helper
@@ -1542,7 +2289,7 @@ WELCOMEEOF
 # ── Bootc kernel arguments ────────────────────────────────────────────────────
 # bootc reads kargs.d entries and adds them to the BLS boot entry at install time.
 mkdir -p /usr/lib/bootc/kargs.d
-cat > /usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
+cat >/usr/lib/bootc/kargs.d/99-kyth.toml <<'KARGSEOF'
 kargs = ["quiet", "rhgb", "splash", "rd.plymouth=1", "plymouth.enable=1", "plymouth.ignore-serial-consoles", "systemd.show_status=false", "rd.systemd.show_status=false", "loglevel=3", "rd.udev.log_level=3", "vt.global_cursor_default=0", "threadirqs"]
 KARGSEOF
 
@@ -1550,27 +2297,27 @@ KARGSEOF
 # guard again here, after every package transaction, so upgraded Plymouth theme
 # packages cannot restore upstream BGRT/spinner artwork into the final image.
 install -Dm0755 /ctx/scripts/plymouth-branding-guard.sh \
-    /usr/libexec/kyth-plymouth-branding-guard
+	/usr/libexec/kyth-plymouth-branding-guard
 /usr/libexec/kyth-plymouth-branding-guard \
-    /ctx/branding/transparent-watermark.svg
+	/ctx/branding/transparent-watermark.svg
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+	grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
+		printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
 else
-    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+	cat >/etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
-grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
+	printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
 
 # Existing installs may still have older KythOS boot entries with serial/TTY
 # console arguments that make Plymouth fall back to visible boot text. This
 # one-shot migration fixes the bootloader entries after the updated image boots;
 # the freshly staged deployment gets the clean kargs above at install/update time.
-cat > /usr/lib/systemd/system/kyth-boot-splash-kargs.service <<'SPLASHKARGSEOF'
+cat >/usr/lib/systemd/system/kyth-boot-splash-kargs.service <<'SPLASHKARGSEOF'
 [Unit]
 Description=KythOS boot splash kernel argument migration
 ConditionPathExists=!/var/lib/kyth/boot-splash-kargs-v2
@@ -1590,7 +2337,7 @@ systemctl enable kyth-boot-splash-kargs.service 2>/dev/null || true
 # boot classes and theme icons repaired so stale BLS grub_class=fedora entries
 # cannot draw Fedora artwork during the handoff to Plymouth.
 mkdir -p /usr/libexec
-cat > /usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
+cat >/usr/libexec/kyth-boot-branding-guard <<'BOOTBRANDINGEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1655,7 +2402,7 @@ fi
 BOOTBRANDINGEOF
 chmod 0755 /usr/libexec/kyth-boot-branding-guard
 
-cat > /usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
+cat >/usr/lib/systemd/system/kyth-boot-branding.service <<'BOOTBRANDINGSERVICEEOF'
 [Unit]
 Description=Refresh KythOS bootloader branding
 After=local-fs.target
@@ -1669,7 +2416,7 @@ WantedBy=multi-user.target
 BOOTBRANDINGSERVICEEOF
 systemctl enable kyth-boot-branding.service 2>/dev/null || true
 
-cat > /usr/lib/systemd/system/kyth-boot-branding.path <<'BOOTBRANDINGPATHEOF'
+cat >/usr/lib/systemd/system/kyth-boot-branding.path <<'BOOTBRANDINGPATHEOF'
 [Unit]
 Description=Watch bootloader entries for KythOS branding repairs
 
@@ -1683,10 +2430,9 @@ WantedBy=multi-user.target
 BOOTBRANDINGPATHEOF
 systemctl enable kyth-boot-branding.path 2>/dev/null || true
 
-
 # Existing deployments already have an initramfs in /boot. Keep it aligned with
 # the current KythOS Plymouth module and repair any fallback-theme leaks.
-cat > /usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
+cat >/usr/libexec/kyth-refresh-boot-splash-initramfs <<'SPLASHINITRDSCRIPTEOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
@@ -1966,7 +2712,9 @@ for image in "${images[@]}"; do
         --reproducible \
         --force \
         --add "drm plymouth ostree kyth-plymouth" \
-        --include "${include_root}" / \
+        --include "${include_root}/etc/plymouth" /etc/plymouth \
+        --include "${include_root}/usr/share/plymouth" /usr/share/plymouth \
+        --include "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png \
         "${image}" \
         "${kernel}"
     verify_image "${image}"
@@ -1979,7 +2727,9 @@ if [[ "${rebuilt}" -eq 0 ]]; then
         --regenerate-all \
         --force \
         --add "drm plymouth kyth-plymouth" \
-        --include "${include_root}" /
+        --include "${include_root}/etc/plymouth" /etc/plymouth \
+        --include "${include_root}/usr/share/plymouth" /usr/share/plymouth \
+        --include "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png
     collect_images
     for image in "${images[@]}"; do
         verify_image "${image}"
@@ -1991,7 +2741,7 @@ touch "${migration_marker}"
 SPLASHINITRDSCRIPTEOF
 chmod 0755 /usr/libexec/kyth-refresh-boot-splash-initramfs
 
-cat > /usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
+cat >/usr/lib/systemd/system/kyth-boot-splash-initramfs.service <<'SPLASHINITRDEOF'
 [Unit]
 Description=Refresh KythOS boot splash initramfs
 After=local-fs.target
@@ -2007,7 +2757,7 @@ systemctl enable kyth-boot-splash-initramfs.service 2>/dev/null || true
 
 # First-boot notice: shown once via Plymouth message_callback, then sentinel
 # gates it so subsequent boots skip the message.
-cat > /usr/lib/systemd/system/kyth-firstboot-notice.service <<'FBOOTEOF'
+cat >/usr/lib/systemd/system/kyth-firstboot-notice.service <<'FBOOTEOF'
 [Unit]
 Description=KythOS first-boot Plymouth notice
 After=plymouth-start.service
@@ -2031,7 +2781,7 @@ systemctl enable kyth-firstboot-notice.service 2>/dev/null || true
 # category fall through to KDE's catch-all bucket.  X-KythSecurity is our custom
 # main category; the .menu merge file teaches KDE what group it belongs to.
 mkdir -p /usr/share/desktop-directories
-cat > /usr/share/desktop-directories/kyth-security.directory <<'SECDIREF'
+cat >/usr/share/desktop-directories/kyth-security.directory <<'SECDIREF'
 [Desktop Entry]
 Version=1.0
 Type=Directory
@@ -2041,10 +2791,10 @@ Icon=security-high
 SECDIREF
 
 install -m 0644 /ctx/kyth-web-apps.directory \
-    /usr/share/desktop-directories/kyth-web-apps.directory
+	/usr/share/desktop-directories/kyth-web-apps.directory
 
 mkdir -p /etc/xdg/menus/applications-merged
-cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
+cat >/etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -2081,14 +2831,14 @@ cat > /etc/xdg/menus/applications-merged/kyth-security.menu <<'SECMENUEOF'
 SECMENUEOF
 
 install -m 0644 /ctx/kyth-web-apps.menu \
-    /etc/xdg/menus/applications-merged/kyth-web-apps.menu
+	/etc/xdg/menus/applications-merged/kyth-web-apps.menu
 
 # ── Game Tools menu group ─────────────────────────────────────────────────────
 # Keep the Games root focused on playable titles. Flatpak launchers and gaming
 # helpers often advertise Categories=Game, so KDE otherwise mixes them with
 # exported Steam game shortcuts. Match desktop IDs explicitly so optional tools
 # move into this submenu whenever the user installs them.
-cat > /usr/share/desktop-directories/kyth-game-tools.directory <<'GAMETOOLSDIREF'
+cat >/usr/share/desktop-directories/kyth-game-tools.directory <<'GAMETOOLSDIREF'
 [Desktop Entry]
 Version=1.0
 Type=Directory
@@ -2097,7 +2847,7 @@ Comment=Game launchers, compatibility helpers, and save tools
 Icon=applications-utilities
 GAMETOOLSDIREF
 
-cat > /etc/xdg/menus/applications-merged/kyth-game-tools.menu <<'GAMETOOLSMENUEOF'
+cat >/etc/xdg/menus/applications-merged/kyth-game-tools.menu <<'GAMETOOLSMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -2139,7 +2889,7 @@ GAMETOOLSMENUEOF
 # LibreOffice Flatpak launchers intentionally advertise multiple freedesktop
 # categories. Keep the suite together under Office instead of repeating Draw in
 # Graphics and Math throughout KDE's Education submenus.
-cat > /etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
+cat >/etc/xdg/menus/applications-merged/kyth-libreoffice.menu <<'LIBREOFFICEMENUEOF'
 <!DOCTYPE Menu PUBLIC "-//freedesktop//DTD Menu 1.0//EN"
   "http://www.freedesktop.org/standards/menu-spec/menu-1.0.dtd">
 <Menu>
@@ -2176,7 +2926,7 @@ LIBREOFFICEMENUEOF
 mkdir -p /usr/share/ublue-os/just
 cp /ctx/just/kyth.just /usr/share/ublue-os/just/75-kyth.just
 # The upstream justfile only imports up to 60-custom.just; wire in our file.
-printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >> /usr/share/ublue-os/justfile
+printf '\nimport? "/usr/share/ublue-os/just/75-kyth.just"\n' >>/usr/share/ublue-os/justfile
 systemctl enable kyth-local-bin-migrate.service 2>/dev/null || true
 systemctl enable kyth-topgrade-migrate.service 2>/dev/null || true
 systemctl enable kyth-duperemove.timer 2>/dev/null || true
@@ -2194,7 +2944,7 @@ systemctl --global enable kyth-telem.service 2>/dev/null || true
 # written only after the notification attempt completes so a silent failure
 # doesn't permanently suppress the message on the next launch attempt.
 # To reset: rm ~/.local/share/kyth-steam-initialized
-cat > /usr/bin/kyth-steam <<'STEAMEOF'
+cat >/usr/bin/kyth-steam <<'STEAMEOF'
 #!/bin/bash
 FLAG="${HOME}/.local/share/kyth-steam-initialized"
 if [[ ! -f "${FLAG}" ]]; then
@@ -2222,11 +2972,11 @@ chmod +x /usr/bin/kyth-steam
 # so that copy is what KDE and launchers actually see — patch both to ensure the
 # kyth-steam wrapper takes effect regardless of which path wins.
 for desktop in \
-    /usr/share/applications/steam.desktop \
-    /usr/local/share/applications/steam.desktop; do
-    if [[ -f "${desktop}" ]]; then
-        sed -i 's|^Exec=/usr/bin/steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
-    fi
+	/usr/share/applications/steam.desktop \
+	/usr/local/share/applications/steam.desktop; do
+	if [[ -f "${desktop}" ]]; then
+		sed -i 's|^Exec=/usr/bin/steam|Exec=/usr/bin/kyth-steam|g' "${desktop}"
+	fi
 done
 
 # ── GE-Proton runtime update path ─────────────────────────────────────────────
@@ -2237,4 +2987,4 @@ done
 # every path in STEAM_EXTRA_COMPAT_TOOLS_PATHS and crash with FileNotFoundError
 # if any are missing, even before the update service has run for the first time.
 mkdir -p /var/lib/kyth/ge-proton
-echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' > /etc/environment.d/ge-proton.conf
+echo 'STEAM_EXTRA_COMPAT_TOOLS_PATHS=/var/lib/kyth/ge-proton' >/etc/environment.d/ge-proton.conf

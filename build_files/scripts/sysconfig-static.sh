@@ -117,6 +117,15 @@ net.core.netdev_max_backlog = 16384
 # cause silent packet loss on burst-heavy UDP game protocols.
 net.ipv4.udp_rmem_min = 8192
 net.ipv4.udp_wmem_min = 8192
+
+# Network Hardening: disable source routing, disable ICMP redirect acceptance, ignore broadcast ICMP echo
+net.ipv4.conf.all.accept_source_route = 0
+net.ipv4.conf.default.accept_source_route = 0
+net.ipv4.conf.all.accept_redirects = 0
+net.ipv4.conf.default.accept_redirects = 0
+net.ipv6.conf.all.accept_redirects = 0
+net.ipv6.conf.default.accept_redirects = 0
+net.ipv4.icmp_echo_ignore_broadcasts = 1
 SYSCTLEOF
 
 # Load tcp_bbr module at boot so the BBRv3 sysctl takes effect
@@ -820,44 +829,11 @@ monitor.bluez.rules = [
 ]
 WPEOF
 
-# ── Proton / RADV environment variables ───────────────────────────────────────
-# PROTON_FORCE_LARGE_ADDRESS_AWARE / WINE_LARGE_ADDRESS_AWARE:
-#   Forces 32-bit Windows games to use the full 4 GB address space, reducing
-#   OOM crashes in memory-heavy titles (e.g. Skyrim modded, DayZ).
-# mesa_glthread=true:
-#   Offloads OpenGL command submission to a second thread, improving CPU-bound
-#   framerate in OpenGL games (Minecraft, older Source titles, etc.). Safe
-#   system-wide; Vulkan/DXVK games are unaffected.
-mkdir -p /etc/environment.d
-cat >/etc/environment.d/proton-radv.conf <<'PROTONEOF'
-PROTON_FORCE_LARGE_ADDRESS_AWARE=1
-WINE_LARGE_ADDRESS_AWARE=1
-PROTON_USE_NTSYNC=1
-# esync/fsync: fallback sync primitives used when NTSYNC is unavailable (module
-# not loaded, older kernel, or non-kyth install). Proton checks in priority order:
-# NTSYNC → fsync → esync → default. Having both enabled costs nothing when NTSYNC
-# is active, and keeps Wine/Proton fast on any system this image runs on.
-WINEFSYNC=1
-WINEESYNC=1
-mesa_glthread=true
-# FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
-# run at native resolution get AMD FidelityFX Super Resolution upscaling.
-# Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
-# Suppress the Windows-style crash/error dialog that pops up when a game
-# exits unexpectedly via Wine's built-in error handler. On Linux the crash is
-# already captured by the kernel and Proton's own logging; the dialog just
-# forces the user to click through a meaningless "Application Error" popup.
-PROTON_NO_WINDOWS_CRASH_DIALOG=1
-# Silence DXVK verbose debug output. The default "info" level writes to disk
-# on every DX9/10/11 draw call setup, adding measurable I/O overhead on
-# titles with high draw call counts. "none" keeps only fatal errors.
-DXVK_LOG_LEVEL=none
-PROTONEOF
-
 # obs-vkcapture is available, but do not inject it into every desktop process by
 # default. Global capture hooks are convenient for streamers, but they can become
 # another compatibility variable for games and GPU apps. `ujust install-obs`
 # enables OBS_VKCAPTURE for the OBS Flatpak specifically.
+mkdir -p /etc/environment.d
 cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
 # OBS_VKCAPTURE intentionally left unset globally.
 OBSVKCAPTUREEOF
@@ -872,10 +848,25 @@ install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-
 #!/bin/bash
 if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
    lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
+    # VKD3D-Proton (DX12) NVAPI: enables DLSS, Reflex, and NV-specific rendering
+    # paths in DX12 games. Proton checks this before its own NVAPI detection.
     echo "PROTON_ENABLE_NVAPI=1"
+    # DXVK (DX9/10/11) NVAPI: complementary to PROTON_ENABLE_NVAPI — DXVK has
+    # its own NVAPI implementation used for DX11 games with NVAPI dependencies.
+    echo "DXVK_ENABLE_NVAPI=1"
     # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
     # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
     echo "__GL_THREADED_OPTIMIZATIONS=1"
+    # Keep the NVIDIA OpenGL shader disk cache and prevent automatic pruning.
+    # Without these, NVIDIA deletes cached shaders when the cache grows beyond
+    # a threshold, forcing recompilation stutter every N launches.
+    echo "__GL_SHADER_DISK_CACHE=1"
+    echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
+    # nvidia-vaapi-driver: libva will not auto-detect the NVIDIA backend without
+    # an explicit driver name. NVD_BACKEND=direct uses the NvDecode API directly
+    # (avoids the deprecated CUDA path; works on Turing/Ampere/Ada without CUDA).
+    echo "LIBVA_DRIVER_NAME=nvidia"
+    echo "NVD_BACKEND=direct"
 fi
 NVAPIEOF
 
@@ -923,7 +914,7 @@ KWALLETRCEOF
 # by a system-context process (sddm-helper runs as xdm_t; SELinux denies
 # xdm_t→default_t getattr, so pam_kwallet5 cannot read the salt file and
 # silently fails to unlock the wallet on every login).
-cat > /usr/libexec/kyth-kwallet-relabel <<'RELABELEOF'
+cat >/usr/libexec/kyth-kwallet-relabel <<'RELABELEOF'
 #!/bin/bash
 [[ -n "${PAM_USER:-}" && -d "/var/home/${PAM_USER}/.local/share/kwalletd" ]] && \
     restorecon -RF "/var/home/${PAM_USER}/.local/share/kwalletd" &>/dev/null
@@ -933,18 +924,18 @@ chmod 0755 /usr/libexec/kyth-kwallet-relabel
 
 SDDM_PAM=/etc/pam.d/sddm
 if [ -f "${SDDM_PAM}" ]; then
-    if ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
-        # Fedora SDDM package didn't include kwallet5 lines — add them with relabeler.
-        printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_exec.so /usr/libexec/kyth-kwallet-relabel\nsession  optional     pam_kwallet5.so auto_start\n' >> "${SDDM_PAM}"
-    elif ! grep -q kyth-kwallet-relabel "${SDDM_PAM}"; then
-        # kwallet5 lines already present (standard Fedora path) — insert relabeler
-        # immediately before the first pam_kwallet5 session line so restorecon
-        # corrects the label before pam_kwallet5 tries to open the salt file.
-        awk '!done && /pam_kwallet5.*auto_start/ {
+	if ! grep -q pam_kwallet5 "${SDDM_PAM}"; then
+		# Fedora SDDM package didn't include kwallet5 lines — add them with relabeler.
+		printf '\nauth     optional     pam_kwallet5.so\nsession  optional     pam_exec.so /usr/libexec/kyth-kwallet-relabel\nsession  optional     pam_kwallet5.so auto_start\n' >>"${SDDM_PAM}"
+	elif ! grep -q kyth-kwallet-relabel "${SDDM_PAM}"; then
+		# kwallet5 lines already present (standard Fedora path) — insert relabeler
+		# immediately before the first pam_kwallet5 session line so restorecon
+		# corrects the label before pam_kwallet5 tries to open the salt file.
+		awk '!done && /pam_kwallet5.*auto_start/ {
             print "session  optional  pam_exec.so /usr/libexec/kyth-kwallet-relabel"
             done=1
-        } { print }' "${SDDM_PAM}" > /tmp/kyth-sddm.tmp && mv /tmp/kyth-sddm.tmp "${SDDM_PAM}"
-    fi
+        } { print }' "${SDDM_PAM}" >/tmp/kyth-sddm.tmp && mv /tmp/kyth-sddm.tmp "${SDDM_PAM}"
+	fi
 fi
 
 # ── Baloo file indexer — disabled by default ─────────────────────────────────
@@ -1033,11 +1024,11 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
-# ── Font rendering — Windows ClearType-compatible defaults ────────────────────
-# Linux freetype defaults vary by distro; Fedora's are conservative. Tuning
-# toward "hintslight" + RGB subpixel + lcddefault matches what Windows ClearType
-# produces: horizontal stems snap to pixel boundaries while vertical letterforms
-# are preserved, and colour fringing is suppressed by the LCD filter.
+# ── Font rendering — sharp LCD defaults ──────────────────────────────────────
+# Linux freetype defaults vary by distro; Fedora's are conservative. hintfull
+# snaps stems to pixel boundaries for maximum on-screen crispness (matches the
+# sharpness of Windows ClearType on typical 1080p panels). autohint=false keeps
+# FreeType using the font's own hinting tables rather than its generic engine.
 # Users who prefer a different look can drop a file in ~/.config/fontconfig/.
 mkdir -p /etc/fonts/conf.d
 cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
@@ -1047,13 +1038,13 @@ cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
   <match target="font">
     <edit name="antialias"  mode="assign"><bool>true</bool></edit>
     <edit name="hinting"    mode="assign"><bool>true</bool></edit>
-    <edit name="hintstyle"  mode="assign"><const>hintslight</const></edit>
+    <edit name="autohint"   mode="assign"><bool>false</bool></edit>
+    <edit name="hintstyle"  mode="assign"><const>hintfull</const></edit>
     <edit name="rgba"       mode="assign"><const>rgb</const></edit>
     <edit name="lcdfilter"  mode="assign"><const>lcddefault</const></edit>
   </match>
 </fontconfig>
 FONTCONFIGEOF
-
 
 # ── SELinux: relabel /var/home after each new deployment ──────────────────────
 # bootc/ostree relabels the OS tree (/usr, /etc) on every deployment, but /var
@@ -1328,3 +1319,23 @@ KERNEL=="hidraw*", ATTRS{idVendor}=="28bd", TAG+="uaccess"
 # Gaomon tablets
 KERNEL=="hidraw*", ATTRS{idVendor}=="201a", TAG+="uaccess"
 TABLETEOF
+
+# ── Polkit: systemd flatpak service authorization for wheel group ──────────────
+mkdir -p /usr/share/polkit-1/rules.d
+cat >/usr/share/polkit-1/rules.d/99-kyth-systemd.rules <<'POLKITEOF'
+/* Allow users in the wheel group to manage specific KythOS systemd services without password authentication */
+polkit.addRule(function(action, subject) {
+    if (action.id == "org.freedesktop.systemd1.manage-units" &&
+        subject.isInGroup("wheel")) {
+        var unit = action.lookup("unit");
+        if (unit == "kyth-default-flatpaks.service" ||
+            unit == "kyth-flathub-setup.service") {
+            var verb = action.lookup("verb");
+            if (verb == "start" || verb == "stop" || verb == "restart") {
+                return polkit.Result.YES;
+            }
+        }
+    }
+});
+POLKITEOF
+chmod 0644 /usr/share/polkit-1/rules.d/99-kyth-systemd.rules

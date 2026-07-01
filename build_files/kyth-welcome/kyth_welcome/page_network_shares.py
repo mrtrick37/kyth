@@ -14,7 +14,7 @@ from .widgets import (  # noqa: E501
 
 # ── Page: Network Shares ──────────────────────────────────────────────────────
 class NetworkSharesPage(Page):
-    """Mount and manage Windows network shares (SMB/CIFS)."""
+    """Mount and manage network shares (SMB/CIFS)."""
 
     def __init__(self):
         super().__init__()
@@ -25,7 +25,7 @@ class NetworkSharesPage(Page):
         self._page_header(
             "Network & Internet",
             "Network Shares",
-            "Mount Windows file shares (SMB/CIFS) and access them as local folders. "
+            "Mount network file shares (SMB/CIFS) and access them as local folders. "
             "Shares can auto-mount at boot so they are always available.",
         )
 
@@ -93,13 +93,13 @@ class NetworkSharesPage(Page):
         # Right column
         right.addWidget(_field_label("Username"))
         self._f_user = QLineEdit()
-        self._f_user.setPlaceholderText("Windows / Samba username")
+        self._f_user.setPlaceholderText("Network share username")
         right.addWidget(self._f_user)
 
         right.addWidget(_field_label("Password"))
         self._f_pass = QLineEdit()
         self._f_pass.setEchoMode(QLineEdit.EchoMode.Password)
-        self._f_pass.setPlaceholderText("Windows / Samba password")
+        self._f_pass.setPlaceholderText("Network share password")
         right.addWidget(self._f_pass)
 
         right.addWidget(_field_label("Domain (optional)"))

@@ -145,6 +145,8 @@ dnf5 install -y --skip-unavailable \
 	kwallet-pam \
 	fprintd \
 	fprintd-pam \
+	pcsc-lite \
+	opensc \
 	krdc \
 	bubblewrap \
 	skopeo \
@@ -155,6 +157,7 @@ dnf5 install -y --skip-unavailable \
 	irqbalance \
 	p7zip \
 	p7zip-plugins \
+	plocate \
 	cabextract \
 	ntfs-3g \
 	ntfsprogs \
@@ -164,6 +167,7 @@ dnf5 install -y --skip-unavailable \
 	xorriso \
 	squashfs-tools \
 	fuse \
+	fuse-libs \
 	fuse3 \
 	mtools \
 	dosfstools \
@@ -235,7 +239,8 @@ dnf5 install -y --skip-unavailable --exclude=libde265.i686 \
 	nss.i686 \
 	steam-devices \
 	kdeplasma-addons \
-	input-remapper
+	input-remapper \
+	libxcrypt-compat
 
 # ── Optional PC gaming peripheral stack ──────────────────────────────────────
 # Keep these out of the core gaming transaction. They come from a mix of Fedora,
@@ -258,12 +263,24 @@ optional_gaming_packages=(
 	corectrl
 	akmod-v4l2loopback
 	v4l2loopback
+	v4l-utils
 	joycond
 	gamescope-session-plus
 	openrgb
 	libwacom
 	libwacom-data
 	hplip
+	ryzenadj
+	i2c-tools
+	lm_sensors
+	sunshine
+	extest
+	extest.i686
+	# Vulkan / GL debugging: vulkaninfo, glxinfo, glxgears
+	vulkan-tools
+	mesa-demos
+	# Logitech Unifying/Bolt receiver and device manager
+	solaar
 )
 
 install_available_optional_packages() {
@@ -430,6 +447,7 @@ dnf5 install -y --skip-unavailable \
 	xorg-x11-drv-amdgpu \
 	xorg-x11-drv-ati \
 	radeontop \
+	nvtop \
 	libclc \
 	qemu-guest-agent
 
@@ -474,7 +492,8 @@ echo "Intel iwlwifi firmware present: ${iwlwifi_firmware_probe}"
 dnf5 install -y --skip-unavailable \
 	intel-media-driver \
 	libva-intel-driver \
-	intel-gpu-tools || true
+	intel-gpu-tools \
+	intel-compute-runtime || true
 
 # ── NVIDIA GPU ────────────────────────────────────────────────────────────────
 # Bundle akmod-nvidia so kyth-hw-setup can build the kernel module at first
@@ -493,14 +512,34 @@ if [[ "${KERNEL_FLAVOR}" == "fedora" ]]; then
 	KERNEL_VR=$(rpm -q kernel-core --qf '%{VERSION}-%{RELEASE}.%{ARCH}\n' | sort -V | tail -n 1)
 	dnf5 install -y --setopt=excludepkgs= \
 		"kernel-devel-${KERNEL_VR}" \
-		akmod-nvidia
-	rpm -q akmod-nvidia akmods "kernel-devel-${KERNEL_VR}"
+		akmod-nvidia \
+		xorg-x11-drv-nvidia \
+		xorg-x11-drv-nvidia-libs \
+		xorg-x11-drv-nvidia-libs.i686 \
+		xorg-x11-drv-nvidia-cuda-libs \
+		egl-wayland
+	rpm -q akmod-nvidia akmods "kernel-devel-${KERNEL_VR}" \
+		xorg-x11-drv-nvidia egl-wayland
 else
 	# CachyOS flavor: matching headers (kernel-cachyos-devel-matched) come from
 	# the COPR in build_base; only the akmod machinery is needed here.
-	dnf5 install -y --setopt=excludepkgs= akmod-nvidia
-	rpm -q akmod-nvidia akmods
+	dnf5 install -y --setopt=excludepkgs= \
+		akmod-nvidia \
+		xorg-x11-drv-nvidia \
+		xorg-x11-drv-nvidia-libs \
+		xorg-x11-drv-nvidia-libs.i686 \
+		xorg-x11-drv-nvidia-cuda-libs \
+		egl-wayland
+	rpm -q akmod-nvidia akmods \
+		xorg-x11-drv-nvidia egl-wayland
 fi
+# nvidia-vaapi-driver and 32-bit CUDA libs: best-effort — not yet consistently
+# published for Fedora 44 in RPM Fusion nonfree. Install when available;
+# LIBVA_DRIVER_NAME=nvidia + NVD_BACKEND=direct (set in the NVIDIA runtime env
+# generator) will activate it automatically once the package lands.
+dnf5 install -y --skip-unavailable --setopt=excludepkgs= \
+	nvidia-vaapi-driver \
+	xorg-x11-drv-nvidia-cuda-libs.i686 || true
 
 # Fedora 44's Mesa split makes `rpm -q mesa-va-drivers` look absent even when
 # the VA-API driver is installed. Verify the capability and file ownership
@@ -540,6 +579,8 @@ dnf5 remove -y firefox || true
 dnf5 install -y --skip-unavailable \
 	python3-pyqt6 \
 	python3-pyqt6-webengine \
+	python3-pip \
+	python3-devel \
 	qt6-qtwayland \
 	plymouth \
 	plymouth-plugin-script \
@@ -559,7 +600,21 @@ dnf5 install -y --skip-unavailable \
 	openconnect \
 	vpnc \
 	kde-connect \
+	plasma-browser-integration \
 	cups-browsed
+
+# Fedora has historically moved between versioned and unversioned Python tool
+# entrypoints. Keep the familiar `pip` command present on PATH for users while
+# leaving the RPM-owned pip3 binary untouched.
+if ! command -v pip >/dev/null 2>&1; then
+	pip3_path="$(command -v pip3 || true)"
+	if [[ -z "${pip3_path}" ]]; then
+		echo "ERROR: python3-pip installed without pip3 on PATH." >&2
+		exit 1
+	fi
+	ln -s "${pip3_path}" /usr/local/bin/pip
+fi
+pip --version
 
 optional_desktop_packages=(
 	jetbrains-mono-fonts
@@ -567,11 +622,53 @@ optional_desktop_packages=(
 	liberation-fonts-all
 	inter-fonts
 	papirus-icon-theme
+	# Calibri/Cambria-compatible fonts: fix Office document rendering for Windows migrants.
+	# Arial/Times are covered by liberation-fonts; Calibri (default since Office 2007)
+	# needs Carlito, and Cambria needs Caladea, for correct line-break and pagination matching.
+	google-carlito-fonts
+	google-caladea-fonts
+	# Emoji rendering — without this, emoji in browsers and terminals render as
+	# empty boxes on systems that only have the liberation/inter font set.
+	google-noto-emoji-fonts
+	# Modern CLI tools loved by Linux veterans (all gracefully absent if unavailable).
+	bat
+	eza
+	fd-find
+	ripgrep
+	fzf
+	zoxide
+	git-delta
+	starship
+	helix
+	# zsh enhancements — sourced automatically by the /etc/skel/.zshrc below.
+	zsh-autosuggestions
+	zsh-syntax-highlighting
+	# fish shell — out-of-box syntax highlighting and autosuggestions with no config.
+	# Good first shell for Windows migrants; veterans can chsh -s /usr/bin/fish.
+	fish
+	# zellij — modern terminal multiplexer; tmux-compatible with a friendlier UI.
+	zellij
+	# btop — interactive resource/process monitor (better htop).
+	btop
+	# fastfetch — system info display (neofetch replacement, actively maintained).
+	fastfetch
+	# gum — Charm CLI beautification library; used by ujust scripts for interactive menus.
+	gum
+	# ydotool — Wayland-compatible xdotool; required for Wayland automation scripts.
+	ydotool
+	# ddcutil — DDC/CI monitor brightness/contrast control via I²C.
+	ddcutil
+	ddcutil-service
+	# iio-sensor-proxy — exposes orientation sensors (accelerometer) over D-Bus
+	# for auto-rotation on convertibles and handhelds.
+	iio-sensor-proxy
 )
 
 install_available_optional_packages desktop "${optional_desktop_packages[@]}"
 # spice-vdagentd is socket/udev-activated — no systemctl enable needed.
 # kde-connect: Phone Link equivalent for Android — pairs over LAN/Bluetooth.
+# plasma-browser-integration: native host for browser media controls, download
+#   progress, and desktop integration once the browser extension is enabled.
 # cups-browsed: auto-discovers printers on the LAN without manual config.
 # liberation-fonts-all: metric-compatible substitutes for Arial/Times/Courier.
 #   mscore-fonts-all (RPM Fusion) was removed — its %post downloads from
@@ -605,6 +702,74 @@ dnf5 install -y code
 # Disable so the Microsoft repo is not active in the running OS;
 # VS Code self-updates are not meaningful in an immutable image.
 dnf5 config-manager setopt code.enabled=0
+
+# ── Windows environment management tools ─────────────────────────────────────
+# Tools for users who manage Windows hosts, Azure, or Active Directory from
+# KythOS. Reuses the already-vendored Microsoft signing key from the VS Code
+# block above.
+
+# Azure CLI — same Microsoft key, different repo.
+cat >/etc/yum.repos.d/azure-cli.repo <<'AZUREREPOEOF'
+[azure-cli]
+name=Azure CLI
+baseurl=https://packages.microsoft.com/yumrepos/azure-cli
+enabled=1
+gpgcheck=1
+gpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-microsoft
+AZUREREPOEOF
+
+dnf5 install -y azure-cli
+rpm -q azure-cli
+
+# Disable update checks — same reason as VS Code: immutable image.
+dnf5 config-manager setopt azure-cli.enabled=0
+
+# RDP, Active Directory, Kerberos, and SMB tooling — all in standard Fedora repos.
+# freerdp: best-in-class RDP client; powers Remmina's RDP backend.
+# realmd/sssd/adcli: domain join, AD auth, and LDAP/Kerberos enrollment.
+# krb5-workstation: kinit, klist, kdestroy — Kerberos ticket management.
+# samba-client: smbclient + net ads + wbinfo for SMB share browsing and AD queries.
+#   (cifs-utils for mounting is already installed in the baseline block above.)
+dnf5 install -y --skip-unavailable \
+	freerdp \
+	realmd \
+	sssd \
+	sssd-ad \
+	sssd-tools \
+	adcli \
+	krb5-workstation \
+	samba-client \
+	openldap-clients
+
+# ── greenboot boot-time health checks ────────────────────────────────────────
+# greenboot marks each boot good/bad and triggers automatic rollback to the
+# previous bootc deployment if health checks fail across three consecutive boots.
+# greenboot-default-health-checks adds basic required/wanted service checks out
+# of the box. Installed last so a transient package issue here cannot gate the
+# full image build — the core gaming stack lands regardless.
+dnf5 install -y greenboot greenboot-default-health-checks
+systemctl enable greenboot-healthcheck.service greenboot-set-rollback-trigger.service
+
+# ── Tailscale zero-config VPN ─────────────────────────────────────────────────
+# WireGuard-based mesh VPN with no port forwarding required. Useful for LAN party
+# gaming over the internet and remote desktop access.
+# Disabled by default — opt-in via `ujust setup-tailscale`.
+# Vendor the repo config inline rather than fetching from Tailscale's CDN at
+# build time — a transient CDN blip would otherwise fail the entire build.
+mkdir -p /etc/yum.repos.d
+cat >/etc/yum.repos.d/tailscale-stable.repo <<'TAILSCALEREPOEOF'
+[tailscale-stable]
+name=Tailscale stable
+baseurl=https://pkgs.tailscale.com/stable/fedora/$releasever/$basearch
+enabled=1
+type=rpm
+repo_gpgcheck=1
+gpgcheck=0
+gpgkey=https://pkgs.tailscale.com/stable/fedora/repo.gpg
+TAILSCALEREPOEOF
+dnf5 install -y tailscale
+systemctl disable tailscaled.service 2>/dev/null || true
+dnf5 config-manager setopt tailscale-stable.enabled=0
 
 # Keep downloaded metadata and RPMs in Docker's /var/cache mount. The cache is
 # excluded from the image layer automatically and speeds up later rebuilds.

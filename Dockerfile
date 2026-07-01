@@ -30,6 +30,19 @@ RUN --mount=type=bind,source=build_files/scripts/packages.sh,target=/ctx/package
     ENABLE_ANANICY=${ENABLE_ANANICY} \
     bash /ctx/packages.sh
 
+# Headroom context compression CLI/proxy for AI coding workflows.
+# Installed into its own virtualenv so PyPI dependencies do not modify Fedora's
+# system Python. Bump HEADROOM_VERSION when KythOS intentionally updates it.
+ARG HEADROOM_VERSION=0.26.0
+ARG HEADROOM_EXTRAS=proxy,code,relevance
+RUN --mount=type=bind,source=build_files/scripts/headroom.sh,target=/ctx/headroom.sh \
+    --mount=type=cache,id=kyth-var-cache,target=/var/cache \
+    --mount=type=cache,id=kyth-pip-cache,target=/root/.cache/pip \
+    --mount=type=tmpfs,dst=/tmp \
+    HEADROOM_VERSION=${HEADROOM_VERSION} \
+    HEADROOM_EXTRAS=${HEADROOM_EXTRAS} \
+    bash /ctx/headroom.sh
+
 # Layer 2: GE-Proton (~700 MB).
 # Placed before the daily upgrade layer so its cache is only busted when
 # ge-proton.sh changes or GE_PROTON_VER changes — not on every daily dnf
@@ -197,22 +210,16 @@ RUN --mount=type=bind,source=build_files,target=/ctx \
     mkdir -p /etc/plymouth /usr/share/plymouth && \
     printf '[Daemon]\nTheme=kyth\nShowDelay=0\nDeviceTimeout=8\nUseFirmwareBackground=false\n' > /etc/plymouth/plymouthd.conf && \
     install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults && \
-    KYTH_PLYMOUTH_INCLUDE_ROOT="$(mktemp -d)" && \
-    mkdir -p "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth" "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/pixmaps" && \
-    install -m 0644 /usr/share/plymouth/plymouthd.defaults "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/plymouth/plymouthd.defaults" && \
-    install -m 0644 /usr/share/kyth/branding/transparent-watermark.png "${KYTH_PLYMOUTH_INCLUDE_ROOT}/usr/share/pixmaps/system-logo-white.png" && \
     TMPDIR=/var/tmp dracut \
         --no-hostonly \
         --compress "zstd -3" \
         --kver "${KVER}" \
         --force \
         --add kyth-plymouth \
-        --include "${KYTH_PLYMOUTH_INCLUDE_ROOT}" / \
         "/usr/lib/modules/${KVER}/initramfs" \
         2> >(grep -Ev 'xattr|fail to copy' >&2) && \
     echo "=== POST-DRACUT: plymouthd.defaults from initramfs ===" >&2 && \
     (lsinitrd -f /usr/share/plymouth/plymouthd.defaults "/usr/lib/modules/${KVER}/initramfs" 2>/dev/null || echo "MISSING") >&2 && \
-    rm -rf "${KYTH_PLYMOUTH_INCLUDE_ROOT}" && \
     if command -v lsinitrd >/dev/null 2>&1; then \
         _initrd_listing="$(mktemp)" && \
         lsinitrd "/usr/lib/modules/${KVER}/initramfs" > "${_initrd_listing}" && \

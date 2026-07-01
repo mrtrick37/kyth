@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": ".."
+		}
+	],
+	"settings": {
+		"claudeCode.initialPermissionMode": "default",
+		"claudeCode.preferredLocation": "sidebar"
+	}
+}

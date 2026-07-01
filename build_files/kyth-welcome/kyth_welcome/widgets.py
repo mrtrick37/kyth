@@ -5,7 +5,7 @@ from .core import (  # noqa: E501
     HardwareProbe, _restyle,
 )
 from .qt import (  # noqa: E501
-    QFrame, QHBoxLayout, QIcon, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QVBoxLayout, QWidget, Qt,
+    QApplication, QFrame, QHBoxLayout, QIcon, QLabel, QPushButton, QScrollArea, QSizePolicy, QTextEdit, QTimer, QVBoxLayout, QWidget, Qt,
 )
 
 def _theme_icon(*names: str) -> QIcon:
@@ -29,9 +29,175 @@ def _make_card(name: str = "card") -> tuple[QFrame, QVBoxLayout]:
     card = QFrame()
     card.setObjectName(name)
     layout = QVBoxLayout(card)
-    layout.setContentsMargins(22, 20, 22, 20)
-    layout.setSpacing(14)
+    layout.setContentsMargins(24, 22, 24, 22)
+    layout.setSpacing(12)
     return card, layout
+
+
+class StatusBadge(QLabel):
+    """Compact shared status label for page and task feedback."""
+    _STATE_NAMES = {
+        "idle": "task-status-idle",
+        "running": "task-status-running",
+        "ok": "task-status-ok",
+        "warn": "task-status-warn",
+        "err": "task-status-err",
+    }
+
+    def __init__(self, text: str = "", state: str = "idle"):
+        super().__init__()
+        self.setWordWrap(True)
+        self.setMinimumWidth(220)
+        self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
+        self.set_state(state, text)
+
+    def set_state(self, state: str, text: str) -> None:
+        self.setText(text)
+        self.setObjectName(self._STATE_NAMES.get(state, "task-status-idle"))
+        _restyle(self)
+
+
+class ActionRow(QFrame):
+    """Shared horizontal command row with a trailing status badge."""
+    def __init__(self, status_text: str = "", status_state: str = "idle"):
+        super().__init__()
+        self.setObjectName("action-row")
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(10)
+        self.status = StatusBadge(status_text, status_state)
+
+    def add_button(self, text: str, callback=None, *, primary: bool = False) -> QPushButton:
+        button = QPushButton(text)
+        if primary:
+            button.setObjectName("primary")
+        if callback is not None:
+            button.clicked.connect(callback)
+        self._layout.addWidget(button)
+        return button
+
+    def finish(self) -> None:
+        self._layout.addStretch()
+        self._layout.addWidget(self.status, 1)
+
+
+class EmptyState(QFrame):
+    """Shared empty state panel for quiet, actionable blank states."""
+    def __init__(self, title: str, copy: str, action_text: str = "", action=None):
+        super().__init__()
+        self.setObjectName("empty-state")
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(22, 20, 22, 20)
+        layout.setSpacing(10)
+
+        title_lbl = QLabel(title)
+        title_lbl.setObjectName("empty-state-title")
+        title_lbl.setWordWrap(True)
+        layout.addWidget(title_lbl)
+
+        copy_lbl = QLabel(copy)
+        copy_lbl.setObjectName("empty-state-copy")
+        copy_lbl.setWordWrap(True)
+        layout.addWidget(copy_lbl)
+
+        if action_text and action is not None:
+            row = QHBoxLayout()
+            row.setContentsMargins(0, 4, 0, 0)
+            button = QPushButton(action_text)
+            button.setObjectName("primary")
+            button.clicked.connect(action)
+            row.addWidget(button)
+            row.addStretch()
+            layout.addLayout(row)
+
+
+class CommandResultPanel(QFrame):
+    """Shared command feedback panel with copyable details."""
+    def __init__(self, idle_text: str = ""):
+        super().__init__()
+        self.setObjectName("command-result-panel")
+        self._details_text = ""
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+
+        self.status = StatusBadge(idle_text, "idle")
+        layout.addWidget(self.status)
+
+        row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
+        self._details_btn = QPushButton("Show details")
+        self._details_btn.setCheckable(True)
+        self._details_btn.toggled.connect(self._toggle_details)
+        self._details_btn.hide()
+        row.addWidget(self._details_btn)
+
+        self._copy_btn = QPushButton("Copy details")
+        self._copy_btn.clicked.connect(self._copy_details)
+        self._copy_btn.hide()
+        row.addWidget(self._copy_btn)
+        row.addStretch()
+        layout.addLayout(row)
+
+        self._details = QTextEdit()
+        self._details.setReadOnly(True)
+        self._details.setMaximumHeight(120)
+        self._details.hide()
+        layout.addWidget(self._details)
+
+    def set_result(self, state: str, text: str, details: str = "") -> None:
+        self.status.set_state(state, text)
+        self._details_text = details.strip()
+        self._details.setPlainText(self._details_text)
+        has_details = bool(self._details_text)
+        self._details_btn.setVisible(has_details)
+        self._copy_btn.setVisible(has_details)
+        if not has_details:
+            self._details.hide()
+            self._details_btn.setChecked(False)
+        self._copy_btn.setText("Copy details")
+        self.show()
+
+    def set_running(self, text: str, details: str = "") -> None:
+        self.set_result("running", text, details)
+
+    def _toggle_details(self, expanded: bool) -> None:
+        self._details_btn.setText("Hide details" if expanded else "Show details")
+        self._details.setVisible(expanded)
+
+    def _copy_details(self) -> None:
+        QApplication.clipboard().setText(self._details_text)
+        self._copy_btn.setText("Copied")
+        QTimer.singleShot(1200, lambda: self._copy_btn.setText("Copy details"))
+
+
+def _make_flow_step(number: int, title: str, copy: str) -> QFrame:
+    step = QFrame()
+    step.setObjectName("flow-step")
+    layout = QHBoxLayout(step)
+    layout.setContentsMargins(12, 10, 12, 10)
+    layout.setSpacing(12)
+
+    num = QLabel(str(number))
+    num.setObjectName("flow-step-num")
+    num.setFixedSize(22, 22)
+    num.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    layout.addWidget(num, 0, Qt.AlignmentFlag.AlignTop)
+
+    text_col = QVBoxLayout()
+    text_col.setSpacing(2)
+    title_lbl = QLabel(title)
+    title_lbl.setObjectName("flow-step-title")
+    title_lbl.setWordWrap(True)
+    text_col.addWidget(title_lbl)
+    copy_lbl = QLabel(copy)
+    copy_lbl.setObjectName("flow-step-copy")
+    copy_lbl.setWordWrap(True)
+    text_col.addWidget(copy_lbl)
+    layout.addLayout(text_col, 1)
+    return step
 
 
 class AppImageDropCard(QFrame):
@@ -111,20 +277,23 @@ class HardwareCard(QFrame):
         "dim":  "hw-card-dim",
     }
     _BADGE_STYLE = {
-        "ok":   ("background: #283028; color: #6ccb5f; border: 1px solid #3e573c;",  "OK"),
-        "warn": ("background: #322d20; color: #d9b54a; border: 1px solid #5c5126;",  "Warning"),
-        "err":  ("background: #332527; color: #ff99a4; border: 1px solid #5e3338;",  "Issue"),
+        "ok":   ("background: #1e2b24; color: #5fb88a; border: 1px solid #3f7a5c;",  "OK"),
+        "warn": ("background: #2e2417; color: #d6a35c; border: 1px solid #8a6534;",  "Warning"),
+        "err":  ("background: #35262a; color: #ff99a4; border: 1px solid #5e3338;",  "Issue"),
         "dim":  ("background: #2b2b2b; color: #a6a6a6; border: 1px solid #3a3a3a;",  "Info"),
     }
 
     def __init__(self, probe: HardwareProbe):
         super().__init__()
         self.setObjectName("hw-card-dim")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._expanded = False
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(18, 14, 18, 14)
-        layout.setSpacing(8)
+        layout.setSpacing(0)
 
+        # Always-visible summary row: title + badge
         top = QHBoxLayout()
         top.setSpacing(10)
         self._title = QLabel()
@@ -133,32 +302,53 @@ class HardwareCard(QFrame):
         top.addStretch()
         self._badge = QLabel()
         self._badge.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._badge.setStyleSheet("border-radius: 3px; padding: 3px 9px; font-size: 11px; font-weight: 700;")
         top.addWidget(self._badge)
         layout.addLayout(top)
 
+        layout.addSpacing(6)
+
+        # Always-visible one-line summary
         self._summary = QLabel()
-        self._summary.setWordWrap(True)
-        self._summary.setObjectName("card-summary")
+        self._summary.setWordWrap(False)
+        self._summary.setObjectName("card-copy")
         layout.addWidget(self._summary)
+
+        # Detail section — hidden until user clicks
+        self._detail_block = QWidget()
+        detail_layout = QVBoxLayout(self._detail_block)
+        detail_layout.setContentsMargins(0, 10, 0, 0)
+        detail_layout.setSpacing(8)
 
         self._details = QLabel()
         self._details.setObjectName("card-copy")
         self._details.setWordWrap(True)
         self._details.setTextInteractionFlags(Qt.TextInteractionFlag.TextSelectableByMouse)
-        layout.addWidget(self._details)
+        detail_layout.addWidget(self._details)
 
         self._action = QLabel()
         self._action.setWordWrap(True)
         self._action.setObjectName("card-action")
-        layout.addWidget(self._action)
+        detail_layout.addWidget(self._action)
 
         self._action_btn = QPushButton()
         self._action_btn.setObjectName("primary")
         self._action_btn.hide()
-        layout.addWidget(self._action_btn)
+        detail_layout.addWidget(self._action_btn)
+
+        self._detail_block.hide()
+        layout.addWidget(self._detail_block)
 
         self.update_probe(probe)
+
+    def mousePressEvent(self, event):
+        self._expanded = not self._expanded
+        self._detail_block.setVisible(self._expanded)
+        super().mousePressEvent(event)
+
+    def expand(self):
+        if not self._expanded:
+            self._expanded = True
+            self._detail_block.setVisible(True)
 
     def update_probe(self, probe: HardwareProbe):
         self._title.setText(probe.title)
@@ -199,13 +389,13 @@ class StatTile(QFrame):
     def __init__(self, label: str, value: str, value_style: str = "stat-value"):
         super().__init__()
         self.setObjectName("stat-tile")
-        self.setMinimumHeight(76)
+        self.setMinimumHeight(68)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         self.setCursor(Qt.CursorShape.ArrowCursor)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(16, 14, 16, 14)
-        layout.setSpacing(5)
+        layout.setContentsMargins(14, 10, 14, 10)
+        layout.setSpacing(4)
 
         self._label = QLabel(label.upper())
         self._label.setObjectName("stat-label")
@@ -255,16 +445,16 @@ class Page(QWidget):
 
         self._layout = QVBoxLayout(container)
         # Right padding accounts for the 8 px vertical scrollbar overlap
-        self._layout.setContentsMargins(56, 44, 64, 48)
-        self._layout.setSpacing(24)
+        self._layout.setContentsMargins(48, 34, 56, 42)
+        self._layout.setSpacing(18)
 
     def _page_header(self, eyebrow: str, title: str, subtitle: str = "") -> None:
         """Insert a styled header band at the top of the page (above scroll)."""
         hdr = QWidget()
         hdr.setObjectName("page-header")
         hdr_layout = QVBoxLayout(hdr)
-        hdr_layout.setContentsMargins(56, 24, 56, 20)
-        hdr_layout.setSpacing(5)
+        hdr_layout.setContentsMargins(48, 26, 56, 18)
+        hdr_layout.setSpacing(7)
 
         ew = QLabel(eyebrow.upper())
         ew.setObjectName("eyebrow")

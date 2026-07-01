@@ -59,6 +59,8 @@ def _available_device_ids() -> set[str] | None:
 def _lock_session() -> bool:
     commands = (
         ["qdbus6", "org.freedesktop.ScreenSaver", "/ScreenSaver", "Lock"],
+        ["qdbus-qt6", "org.freedesktop.ScreenSaver", "/ScreenSaver", "Lock"],
+        ["qdbus", "org.freedesktop.ScreenSaver", "/ScreenSaver", "Lock"],
         ["loginctl", "lock-session"],
     )
     for cmd in commands:

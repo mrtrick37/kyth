@@ -522,8 +522,8 @@ class RcloneSetupWizard(QDialog):
             if sid == svc_id:
                 btn.setChecked(True)
                 btn.setStyleSheet(
-                    "QPushButton { background: rgba(0, 120, 212, 0.16); "
-                    "border: 2px solid #0078d4; "
+                    "QPushButton { background: rgba(47, 155, 143, 0.18); "
+                    "border: 2px solid #2f9b8f; "
                     "border-radius: 6px; text-align: left; }"
                 )
             else:

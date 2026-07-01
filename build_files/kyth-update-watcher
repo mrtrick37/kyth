@@ -22,6 +22,7 @@ import pwd
 import re
 import subprocess
 import sys
+import threading
 import time
 import tomllib
 from datetime import datetime, time as dtime
@@ -199,10 +200,11 @@ def check_metered(cfg: dict) -> str | None:
              "Metered"],
             capture_output=True, text=True, timeout=5,
         )
-        # "u 2" = yes metered, "u 4" = guessed metered; "u 1" or "u 3" = unmetered or guessed
+        # NetworkManager NMMetered:
+        # 0 unknown, 1 yes, 2 no, 3 guessed yes, 4 guessed no.
         if r.returncode == 0:
             val = r.stdout.strip().split()[-1]
-            if val in ("2", "4"):
+            if val in ("1", "3"):
                 return "network connection is metered"
     except Exception:
         pass
@@ -213,8 +215,36 @@ def check_metered(cfg: dict) -> str | None:
 # User notifications
 # ---------------------------------------------------------------------------
 
-def _notify_staged_update() -> None:
-    """Send a desktop notification to each logged-in user session after staging."""
+def check_flatpak_updates() -> int:
+    """Return count of pending system-wide Flatpak updates, 0 on error."""
+    try:
+        r = subprocess.run(
+            ["flatpak", "remote-ls", "--updates", "--system", "--columns=application"],
+            capture_output=True, text=True, timeout=60, check=False,
+        )
+        return len([ln for ln in r.stdout.splitlines() if ln.strip()])
+    except Exception:
+        return 0
+
+
+def _notify_updates(os_staged: bool, flatpak_count: int) -> None:
+    """Send an actionable desktop notification to each logged-in user.
+
+    Clicking the notification opens System Hub on the Updates page.
+    """
+    if os_staged and flatpak_count > 0:
+        title = "KythOS update ready"
+        noun = "update" if flatpak_count == 1 else "updates"
+        body = f"New OS image staged · {flatpak_count} Flatpak {noun} pending. Click to open System Hub."
+    elif os_staged:
+        title = "KythOS update ready"
+        body = "New OS image staged. Restart when you are ready to apply it. Click to open System Hub."
+    else:
+        title = "App updates available"
+        noun = "update is" if flatpak_count == 1 else "updates are"
+        body = f"{flatpak_count} Flatpak app {noun} available. Click to open System Hub."
+
+    threads: list[threading.Thread] = []
     for uid in _active_uids():
         try:
             pw = pwd.getpwuid(uid)
@@ -228,27 +258,51 @@ def _notify_staged_update() -> None:
             "LOGNAME": pw.pw_name,
             "PATH": "/usr/bin:/bin",
         }
+
         def _drop_privs(uid: int = uid, gid: int = pw.pw_gid) -> None:
             os.setgroups([])
             os.setgid(gid)
             os.setuid(uid)
-        try:
-            subprocess.Popen(
-                [
-                    "notify-send",
-                    "--app-name=KythOS",
-                    "--icon=software-update-available",
-                    "--urgency=normal",
-                    "KythOS update ready",
-                    "New OS image staged. Restart when you are ready to apply it.",
-                ],
-                env=env,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                preexec_fn=_drop_privs,
-            )
-        except Exception as exc:
-            LOG.debug("Could not notify uid %d: %s", uid, exc)
+
+        def _notify_user(env: dict = env, drop: object = _drop_privs) -> None:
+            try:
+                r = subprocess.run(
+                    [
+                        "notify-send",
+                        "--app-name=KythOS",
+                        "--icon=software-update-available",
+                        "--urgency=normal",
+                        "--action=default=View Updates",
+                        "--wait",
+                        title,
+                        body,
+                    ],
+                    env=env,
+                    capture_output=True, text=True,
+                    preexec_fn=drop,
+                    timeout=65,
+                )
+                if r.stdout.strip() == "default":
+                    subprocess.Popen(
+                        ["kyth-welcome", "--page", "updates"],
+                        env=env,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.DEVNULL,
+                        preexec_fn=drop,
+                    )
+            except Exception as exc:
+                LOG.debug("Could not notify uid: %s", exc)
+
+        t = threading.Thread(target=_notify_user, daemon=True)
+        t.start()
+        threads.append(t)
+
+    deadline = time.monotonic() + 70
+    for t in threads:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        t.join(timeout=remaining)
 
 
 # ---------------------------------------------------------------------------
@@ -274,14 +328,21 @@ def run_bootc_upgrade(timeout: int) -> tuple[bool, str]:
 # Status
 # ---------------------------------------------------------------------------
 
-def write_status(result: str, reason: str | None, output: str = "", ts: int | None = None) -> None:
+def write_status(
+    result: str,
+    reason: str | None,
+    output: str = "",
+    ts: int | None = None,
+    flatpak_updates: int = 0,
+) -> None:
     STATUS_PATH.parent.mkdir(parents=True, exist_ok=True)
     try:
         STATUS_PATH.write_text(json.dumps({
-            "result":     result,   # "skipped" | "upgraded" | "error" | "no_change"
-            "reason":     reason,
-            "output":     output[-2000:],  # last 2k chars of bootc output
-            "ts":         ts or int(time.time()),
+            "result":          result,   # "skipped" | "upgraded" | "error" | "no_change"
+            "reason":          reason,
+            "output":          output[-2000:],
+            "ts":              ts or int(time.time()),
+            "flatpak_updates": flatpak_updates,
         }))
     except OSError as exc:
         LOG.warning("Could not write status: %s", exc)
@@ -328,19 +389,23 @@ def main() -> None:
 
     LOG.info("All checks passed — running bootc upgrade")
     start_ts = int(time.time())
+    flatpak_count = check_flatpak_updates()
+    LOG.info("Flatpak updates pending: %d", flatpak_count)
     ok, output = run_bootc_upgrade(cfg["bootc_timeout"])
 
     if ok:
         if "No update available" in output or "already up to date" in output.lower():
             LOG.info("System already up to date")
-            write_status("no_change", None, output, start_ts)
+            write_status("no_change", None, output, start_ts, flatpak_count)
+            if flatpak_count > 0:
+                _notify_updates(os_staged=False, flatpak_count=flatpak_count)
         else:
             LOG.info("Upgrade staged successfully")
-            write_status("upgraded", None, output, start_ts)
-            _notify_staged_update()
+            write_status("upgraded", None, output, start_ts, flatpak_count)
+            _notify_updates(os_staged=True, flatpak_count=flatpak_count)
     else:
         LOG.error("bootc upgrade failed: %s", output[:500])
-        write_status("error", output[:500], output, start_ts)
+        write_status("error", output[:500], output, start_ts, flatpak_count)
         sys.exit(1)
 
 

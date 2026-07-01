@@ -48,7 +48,7 @@ find_efi_partition() {
 	local disk="$1"
 	lsblk -lnpo NAME,FSTYPE,SIZE,PARTTYPE "$disk" |
 		awk '
-			tolower($2) == "vfat" && ($4 == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" || $3 ~ /M|G/) {
+			tolower($2) == "vfat" && $4 == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" {
 				print $1
 				exit
 			}

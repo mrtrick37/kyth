@@ -5,10 +5,10 @@ from datetime import datetime
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
-    ChangelogWorker, DownloadMonitor, REGISTRY, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_digest, _bootc_image_timestamp, _bootc_proxy_running, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _image_tag_for_channel, _open_terminal_with_cmd, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
+    DownloadMonitor, FirmwareCheckWorker, UpdateCheckWorker, Worker, _active_bootc_operation, _bootc_cancel_block_reason, _bootc_image_timestamp, _bootc_proxy_running, _branch_display_name, _current_branch, _finish_worker, _get_disk_write_bytes, _get_rx_bytes, _has_rollback_deployment, _has_staged_update, _human_bytes, _human_bytes_pair, _parse_size_bytes, _parse_update_phase, _restyle, _set_session_inhibit, _with_idle_inhibit,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QDesktopServices, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, Qt,
+    QCheckBox, QHBoxLayout, QLabel, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QVBoxLayout, Qt,
 )
 from .widgets import (  # noqa: E501
     Page, _make_card, _set_log_panel,
@@ -40,38 +40,9 @@ class UpdatePage(Page):
 
         self._page_header(
             "System",
-            "Update",
-            "Keep the OS image, Flatpaks, and system tools current. "
-            "Updates download in the background — reboot when you are ready.",
+            "Updates",
+            "Check update status, stage new images, and restart when you are ready.",
         )
-
-        # Status summary
-        self._summary_card, summary_layout = _make_card()
-        summary_layout.setSpacing(6)
-        summary_title = QLabel("System state")
-        summary_title.setObjectName("card-title")
-        summary_layout.addWidget(summary_title)
-
-        def _state_row(label_text: str) -> tuple[QHBoxLayout, QLabel]:
-            row = QHBoxLayout()
-            row.setSpacing(12)
-            key = QLabel(label_text)
-            key.setObjectName("card-copy")
-            key.setStyleSheet("color: #b0bccf; min-width: 72px;")
-            row.addWidget(key)
-            val = QLabel()
-            val.setObjectName("card-copy")
-            val.setStyleSheet("color: #dde6f5;")
-            val.setWordWrap(False)
-            row.addWidget(val, 1)
-            return row, val
-
-        booted_row, self._booted_val   = _state_row("Running:")
-        staged_row, self._staged_val   = _state_row("Staged:")
-        rollback_row, self._rollback_val = _state_row("Rollback:")
-
-        for row in (booted_row, staged_row, rollback_row):
-            summary_layout.addLayout(row)
 
         # ── Update availability ───────────────────────────────────────────────
         avail_card, avail_layout = _make_card()
@@ -125,26 +96,47 @@ class UpdatePage(Page):
         self._avail_card = avail_card
         self._add(self._avail_card)
 
-        rollback_help, rollback_help_layout = _make_card("card-accent-warn")
-        rollback_help_title = QLabel("Bad update? Roll back before reinstalling")
-        rollback_help_title.setObjectName("card-title")
-        rollback_help_layout.addWidget(rollback_help_title)
-        self._rollback_help_lbl = QLabel()
-        self._rollback_help_lbl.setObjectName("card-copy")
-        self._rollback_help_lbl.setWordWrap(True)
-        rollback_help_layout.addWidget(self._rollback_help_lbl)
-        rollback_help_btns = QHBoxLayout()
-        rollback_help_btns.setSpacing(8)
-        self._quick_rollback_btn = QPushButton("Roll Back to Previous Image")
-        self._quick_rollback_btn.setObjectName("primary")
-        self._quick_rollback_btn.setToolTip("Stage the previous deployment for the next boot. Your home folder stays in place.")
-        self._quick_rollback_btn.clicked.connect(self._run_rollback)
-        rollback_help_btns.addWidget(self._quick_rollback_btn)
-        rollback_help_btns.addStretch()
-        rollback_help_layout.addLayout(rollback_help_btns)
-        self._add(rollback_help)
+        # Status summary
+        self._summary_card, summary_layout = _make_card()
+        summary_layout.setSpacing(6)
+        summary_title = QLabel("Image status")
+        summary_title.setObjectName("card-title")
+        summary_layout.addWidget(summary_title)
 
-        # Action buttons
+        def _state_row(label_text: str) -> tuple[QHBoxLayout, QLabel]:
+            row = QHBoxLayout()
+            row.setSpacing(12)
+            key = QLabel(label_text)
+            key.setObjectName("card-copy")
+            key.setStyleSheet("color: #b0bccf; min-width: 76px;")
+            row.addWidget(key)
+            val = QLabel()
+            val.setObjectName("card-copy")
+            val.setStyleSheet("color: #dde6f5;")
+            val.setWordWrap(False)
+            row.addWidget(val, 1)
+            return row, val
+
+        booted_row, self._booted_val = _state_row("Running:")
+        staged_row, self._staged_val = _state_row("Staged:")
+        rollback_row, self._rollback_val = _state_row("Rollback:")
+        for row in (booted_row, staged_row, rollback_row):
+            summary_layout.addLayout(row)
+        self._add(self._summary_card)
+
+        # Manual actions
+        action_card, action_layout = _make_card()
+        action_title = QLabel("Manual actions")
+        action_title.setObjectName("card-title")
+        action_layout.addWidget(action_title)
+        action_body = QLabel(
+            "Full Update handles the OS image, Flatpaks, and managed tools. "
+            "OS Image Only stages just the next bootable image."
+        )
+        action_body.setObjectName("card-copy")
+        action_body.setWordWrap(True)
+        action_layout.addWidget(action_body)
+
         btn_row = QHBoxLayout()
         btn_row.setSpacing(10)
 
@@ -164,11 +156,8 @@ class UpdatePage(Page):
         self._rollback_btn.clicked.connect(self._run_rollback)
         btn_row.addWidget(self._rollback_btn)
         btn_row.addStretch()
-        self._add_layout(btn_row)
-
-        self._divider()
-
-        self._add(self._summary_card)
+        action_layout.addLayout(btn_row)
+        self._add(action_card)
 
         # Status + activity
         self._status_lbl = QLabel()
@@ -221,111 +210,41 @@ class UpdatePage(Page):
         self._reboot_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
         self._add(self._reboot_btn)
 
-        # Explainer card
-        explainer, ex_layout = _make_card()
-        ex_title = QLabel("How it works")
-        ex_title.setObjectName("card-title")
-        ex_layout.addWidget(ex_title)
-        ex_body = QLabel(
-            "Full Update runs topgrade, which handles the KythOS OS image, Flatpaks, and any other "
-            "configured tools in one pass.\n\n"
-            "OS Image Only runs bootc upgrade directly — useful if you want to update the system "
-            "image without touching your installed apps.\n\n"
-            "Either way, updates apply on the next reboot. Roll Back reverts to the previous "
-            "deployment without affecting your files in /home."
-        )
-        ex_body.setObjectName("card-copy")
-        ex_body.setWordWrap(True)
-        ex_layout.addWidget(ex_body)
-        self._add(explainer)
-
-        # What's new card
-        changelog_card, cl_layout = _make_card()
-        cl_title = QLabel("What changed?")
-        cl_title.setObjectName("card-title")
-        cl_layout.addWidget(cl_title)
-        self._changelog_body = QLabel(
-            "KythOS rebuilds daily from the latest packages. "
-            "See the full commit history on GitHub for a detailed log of recent changes."
-        )
-        self._changelog_body.setObjectName("card-copy")
-        self._changelog_body.setWordWrap(True)
-        cl_layout.addWidget(self._changelog_body)
-        cl_btn_row = QHBoxLayout()
-        cl_btn_row.setSpacing(10)
-        self._changelog_btn = QPushButton("View Commit History")
-        self._changelog_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
-        )
-        cl_btn_row.addWidget(self._changelog_btn)
-        cl_btn_row.addStretch()
-        cl_layout.addLayout(cl_btn_row)
-        self._changelog_worker: ChangelogWorker | None = None
-        self._add(changelog_card)
-
-        # ── Reboot plan + update story (detail cards, shown below the fold) ───
-        reboot_card, reboot_layout = _make_card("card-accent-ok")
-        reboot_title = QLabel("Before you restart")
-        reboot_title.setObjectName("card-title")
-        reboot_layout.addWidget(reboot_title)
-        self._reboot_plan_lbl = QLabel()
-        self._reboot_plan_lbl.setObjectName("card-copy")
-        self._reboot_plan_lbl.setWordWrap(True)
-        reboot_layout.addWidget(self._reboot_plan_lbl)
-        reboot_btns = QHBoxLayout()
-        reboot_btns.setSpacing(8)
-        self._reboot_plan_btn = QPushButton("Restart to Apply")
-        self._reboot_plan_btn.setObjectName("primary")
-        self._reboot_plan_btn.clicked.connect(lambda: subprocess.Popen(["systemctl", "reboot"]))
-        reboot_btns.addWidget(self._reboot_plan_btn)
-        history_btn2 = QPushButton("View Commit History")
-        history_btn2.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
-        )
-        reboot_btns.addWidget(history_btn2)
-        reboot_btns.addStretch()
-        reboot_layout.addLayout(reboot_btns)
-        self._reboot_plan_card = reboot_card
-        self._add(reboot_card)
-
-        story_card, story_layout = _make_card()
-        story_title = QLabel("Update history")
-        story_title.setObjectName("card-title")
-        story_layout.addWidget(story_title)
-        self._update_story_lbl = QLabel()
-        self._update_story_lbl.setObjectName("card-copy")
-        self._update_story_lbl.setWordWrap(True)
-        story_layout.addWidget(self._update_story_lbl)
-        story_btns = QHBoxLayout()
-        story_btns.setSpacing(8)
-        story_history_btn = QPushButton("View Commit History")
-        story_history_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl("https://github.com/mrtrick37/kyth/commits/main"))
-        )
-        story_btns.addWidget(story_history_btn)
-        story_snapshot_btn = QPushButton("Snapshot Before Update")
-        story_snapshot_btn.clicked.connect(lambda _=False: _open_terminal_with_cmd(["kyth-session-snapshot"], "KythOS Session Snapshot"))
-        story_btns.addWidget(story_snapshot_btn)
-        story_btns.addStretch()
-        story_layout.addLayout(story_btns)
-        self._add(story_card)
+        # ── Firmware updates ──────────────────────────────────────────────────
+        fw_card, fw_layout = _make_card()
+        fw_header = QHBoxLayout()
+        fw_header.setSpacing(12)
+        self._fw_icon = QLabel("↻")
+        self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+        self._fw_icon.setFixedWidth(32)
+        fw_text_col = QVBoxLayout()
+        fw_text_col.setSpacing(2)
+        fw_title = QLabel("Firmware updates")
+        fw_title.setObjectName("card-title")
+        self._fw_status_lbl = QLabel("Checking for firmware updates…")
+        self._fw_status_lbl.setObjectName("card-copy")
+        self._fw_status_lbl.setWordWrap(True)
+        fw_text_col.addWidget(fw_title)
+        fw_text_col.addWidget(self._fw_status_lbl)
+        self._fw_btn = QPushButton("Update Firmware")
+        self._fw_btn.setObjectName("primary")
+        self._fw_btn.setMinimumWidth(150)
+        self._fw_btn.hide()
+        self._fw_btn.clicked.connect(self._run_firmware_update)
+        fw_btn_col = QVBoxLayout()
+        fw_btn_col.addWidget(self._fw_btn)
+        fw_btn_col.addStretch()
+        fw_header.addLayout(fw_text_col, 1)
+        fw_header.addLayout(fw_btn_col)
+        fw_layout.addLayout(fw_header)
+        self._fw_check_worker = None
+        self._add(fw_card)
 
         # ── Automatic update schedule ─────────────────────────────────────────
-        self._divider()
-        auto_head = QLabel("Automatic Updates")
-        auto_head.setObjectName("heading")
-        auto_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
-        self._add(auto_head)
-        auto_sub = QLabel(
-            "kyth-update-watcher periodically stages new images in the background — "
-            "it starts after a boot grace period, runs at low priority, and skips "
-            "automatically when gaming, when on a metered connection, and during quiet hours."
-        )
-        auto_sub.setObjectName("card-copy")
-        auto_sub.setWordWrap(True)
-        self._add(auto_sub)
-
         auto_card, auto_layout = _make_card()
+        auto_title = QLabel("Automatic updates")
+        auto_title.setObjectName("card-title")
+        auto_layout.addWidget(auto_title)
         auto_status_row = QHBoxLayout()
         auto_status_row.setSpacing(24)
 
@@ -344,10 +263,11 @@ class UpdatePage(Page):
             row.addWidget(v, 1)
             return row, v
 
-        last_row, self._au_last_lbl   = _au_row("Last check:")
-        result_row, self._au_result_lbl = _au_row("Result:")
-        reason_row, self._au_reason_lbl = _au_row("Reason:")
-        for row in (last_row, result_row, reason_row):
+        last_row, self._au_last_lbl      = _au_row("Last check:")
+        result_row, self._au_result_lbl  = _au_row("Result:")
+        reason_row, self._au_reason_lbl  = _au_row("Reason:")
+        flatpak_row, self._au_flatpak_lbl = _au_row("Flatpak:")
+        for row in (last_row, result_row, reason_row, flatpak_row):
             auto_state_col.addLayout(row)
         auto_status_row.addLayout(auto_state_col, 1)
 
@@ -368,67 +288,6 @@ class UpdatePage(Page):
         self._add(auto_card)
         QTimer.singleShot(300, self._refresh_auto_update_status)
 
-        # ── Channel ───────────────────────────────────────────────────────────
-        self._divider()
-        channel_head = QLabel("Channel")
-        channel_head.setObjectName("heading")
-        channel_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
-        self._add(channel_head)
-        channel_sub = QLabel(
-            "Choose which KythOS image stream this system follows. "
-            "Switching downloads the new branch image and stages it for the next reboot."
-        )
-        channel_sub.setObjectName("card-copy")
-        channel_sub.setWordWrap(True)
-        self._add(channel_sub)
-
-        channel_row = QHBoxLayout()
-        channel_row.setSpacing(14)
-
-        stable_card, stable_layout = _make_card()
-        stable_title = QLabel("Stable")
-        stable_title.setObjectName("card-title")
-        stable_layout.addWidget(stable_title)
-        stable_desc = QLabel(
-            "Daily rebuilds from the main branch. Thoroughly tested before tagging.\n"
-            "Recommended for most users."
-        )
-        stable_desc.setObjectName("card-copy")
-        stable_desc.setWordWrap(True)
-        stable_layout.addWidget(stable_desc)
-        self._stable_build_lbl = QLabel()
-        self._stable_build_lbl.setObjectName("card-copy")
-        self._stable_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
-        self._stable_build_lbl.hide()
-        stable_layout.addWidget(self._stable_build_lbl)
-        self._stable_btn = QPushButton("Switch to Stable")
-        self._stable_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("latest")))
-        stable_layout.addWidget(self._stable_btn)
-        channel_row.addWidget(stable_card, 1)
-
-        testing_card, testing_layout = _make_card()
-        testing_title = QLabel("Testing")
-        testing_title.setObjectName("card-title")
-        testing_layout.addWidget(testing_title)
-        testing_desc = QLabel(
-            "Tracks the testing branch — latest features and changes as they land.\n"
-            "May occasionally be unstable."
-        )
-        testing_desc.setObjectName("card-copy")
-        testing_desc.setWordWrap(True)
-        testing_layout.addWidget(testing_desc)
-        self._testing_build_lbl = QLabel()
-        self._testing_build_lbl.setObjectName("card-copy")
-        self._testing_build_lbl.setStyleSheet("color: #888888; font-size: 12px;")
-        self._testing_build_lbl.hide()
-        testing_layout.addWidget(self._testing_build_lbl)
-        self._testing_btn = QPushButton("Switch to Testing")
-        self._testing_btn.clicked.connect(lambda: self._run_branch_switch(_image_tag_for_channel("testing")))
-        testing_layout.addWidget(self._testing_btn)
-        channel_row.addWidget(testing_card, 1)
-
-        self._add_layout(channel_row)
-
         self._stretch()
 
         self._refresh_summary()
@@ -436,14 +295,9 @@ class UpdatePage(Page):
     def _set_buttons_enabled(self, enabled: bool):
         self._topgrade_btn.setEnabled(enabled)
         self._os_btn.setEnabled(enabled)
+        self._fw_btn.setEnabled(enabled)
         rollback_ok = enabled and _has_rollback_deployment()
         self._rollback_btn.setEnabled(rollback_ok)
-        self._quick_rollback_btn.setEnabled(rollback_ok)
-        # Branch buttons: disable everything during any operation;
-        # _refresh_summary re-enables the non-current one when done.
-        if not enabled:
-            self._stable_btn.setEnabled(False)
-            self._testing_btn.setEnabled(False)
 
     def _set_log_expanded(self, expanded: bool):
         _set_log_panel(self._log_toggle, self._log, expanded)
@@ -531,6 +385,8 @@ class UpdatePage(Page):
         )
         if reply != QMessageBox.StandardButton.Yes:
             return
+        if self._worker is None:
+            return
         self._cancel_btn.setEnabled(False)
         self._cancel_btn.setText("Cancelling…")
         self._cancel_note.setText("Cancel requested. Waiting for the update process to stop cleanly…")
@@ -561,15 +417,6 @@ class UpdatePage(Page):
             "Staging the previous deployment for next boot…",
             ["sudo", "bootc", "rollback"],
             "KythOS is staging a system rollback",
-        )
-
-    def _run_branch_switch(self, tag: str):
-        ref = f"{REGISTRY}:{tag}"
-        self._start_operation(
-            "switch",
-            f"Switching to {_branch_display_name(tag)}…",
-            ["sudo", "bootc", "switch", ref],
-            "KythOS is switching the system branch",
         )
 
     def _on_line(self, text: str):
@@ -731,6 +578,16 @@ class UpdatePage(Page):
             self._log.append("\nCancelled. You can start the update again when ready.")
             self._check_for_update()
         elif code == 0:
+            if self._mode == "firmware":
+                self._status_lbl.setText("Firmware updates queued — reboot to flash.")
+                self._status_lbl.setObjectName("status-ok")
+                self._log.append("\nDone. Firmware will be applied during the next reboot (EFI capsule).")
+                self._reboot_btn.show()
+                self._fw_btn.hide()
+                self._fw_status_lbl.setText("Firmware update queued — reboot to apply.")
+                self._fw_icon.setText("✓")
+                self._fw_icon.setStyleSheet("font-size: 22px; color: #4fc1ff;")
+                return
             if self._mode == "rollback":
                 self._status_lbl.setText("Rollback staged — restart to return to the previous system.")
                 self._status_lbl.setObjectName("status-warn")
@@ -763,6 +620,7 @@ class UpdatePage(Page):
             label = {
                 "topgrade": "topgrade", "update": "bootc upgrade",
                 "rollback": "bootc rollback", "switch": "bootc switch",
+                "firmware": "fwupdmgr upgrade",
             }.get(self._mode, "operation")
             self._status_lbl.setText(f"{label} failed (exit code {code}).")
             self._status_lbl.setObjectName("status-err")
@@ -787,12 +645,7 @@ class UpdatePage(Page):
             self._rollback_val.setText("—")
             self._rollback_btn.setEnabled(False)
             self._rollback_btn.setText("Roll Back")
-            self._quick_rollback_btn.setEnabled(False)
-            self._rollback_help_lbl.setText(
-                "An update operation is running. Let it finish before changing rollback state."
-            )
-            self._reboot_plan_lbl.setText("An update operation is running. The reboot plan will update when staging finishes.")
-            self._reboot_plan_btn.hide()
+            self._reboot_btn.hide()
             return
 
         staged = _has_staged_update()
@@ -815,140 +668,23 @@ class UpdatePage(Page):
             self._rollback_val.setText(rb_text)
             self._rollback_val.setStyleSheet("")
             self._rollback_btn.setText(f"Roll Back  ({rollback_ts})" if rollback_ts else "Roll Back")
-            self._rollback_help_lbl.setText(
-                "If a driver, Mesa, game launcher, or desktop update suddenly feels worse, "
-                "roll back first. This stages the previous OS image for the next boot and "
-                "keeps your files, saves, Flatpaks, and home folder in place."
-                + (f"\n\nPrevious image built: {rollback_ts}" if rollback_ts else "")
-            )
         else:
             self._rollback_val.setText("None")
             self._rollback_val.setStyleSheet("color: #888888;")
             self._rollback_btn.setText("Roll Back")
-            self._rollback_help_lbl.setText(
-                "No previous OS image is available yet. After your next OS update, KythOS "
-                "will keep the current image here as a one-click recovery target."
-            )
 
         self._rollback_btn.setEnabled(rollback and self._worker is None)
-        self._quick_rollback_btn.setEnabled(rollback and self._worker is None)
-
-        digest = _bootc_image_digest("booted")
-        digest_hint = f" Running digest: {digest[0]}." if digest else ""
-        staged_digest = _bootc_image_digest("staged") if staged else None
-        rollback_digest = _bootc_image_digest("rollback") if rollback else None
-        if staged:
-            staged_bits = []
-            if staged_ts:
-                staged_bits.append(f"new image built {staged_ts}")
-            if staged_digest:
-                staged_bits.append(f"sha256:{staged_digest[0]}")
-            rollback_bits = []
-            if rollback_ts:
-                rollback_bits.append(f"rollback built {rollback_ts}")
-            if rollback_digest:
-                rollback_bits.append(f"sha256:{rollback_digest[0]}")
-            self._reboot_plan_lbl.setText(
-                "Ready when you are. Reboot will apply "
-                f"{', '.join(staged_bits) if staged_bits else 'the staged KythOS image'}. "
-                f"Your current system remains available as {', '.join(rollback_bits) if rollback_bits else 'a rollback target'}. "
-                "Personal files and apps in your home folder are not erased by the reboot."
-            )
-            self._reboot_plan_btn.show()
-        else:
-            current_bits = []
-            if booted_ts:
-                current_bits.append(f"running image built {booted_ts}")
-            if digest:
-                current_bits.append(f"sha256:{digest[0]}")
-            self._reboot_plan_lbl.setText(
-                f"No OS image is waiting for reboot. {', '.join(current_bits) if current_bits else 'You are running the current booted image.'} "
-                "After your next update, this panel will show exactly what reboot will apply and what rollback will preserve."
-            )
-            self._reboot_plan_btn.hide()
 
         if staged:
-            self._update_story_lbl.setText(
-                "A new KythOS image is staged. Reboot when convenient; your current "
-                f"system remains available as rollback.{digest_hint}"
-            )
-        elif rollback:
-            self._update_story_lbl.setText(
-                "You are running the active KythOS image and a previous image is saved. "
-                f"If something feels worse after an update, rollback is one click away.{digest_hint}"
-            )
+            self._reboot_btn.show()
         else:
-            self._update_story_lbl.setText(
-                "You are running the active KythOS image. After your next OS update, "
-                f"the previous image will appear here as a rollback target.{digest_hint}"
-            )
-
-        # Branch channel cards
-        is_idle = self._worker is None
-        if tag in ("latest", "latest-cachy"):
-            self._stable_btn.setObjectName("branch-active")
-            self._stable_btn.setText("On Stable  (current)")
-            self._stable_btn.setEnabled(False)
-            self._stable_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
-            self._stable_build_lbl.setVisible(bool(booted_ts))
-            self._testing_btn.setObjectName("branch-inactive")
-            self._testing_btn.setText("Switch to Testing")
-            self._testing_btn.setEnabled(is_idle)
-            self._testing_build_lbl.hide()
-        elif tag in ("testing", "testing-cachy"):
-            self._stable_btn.setObjectName("branch-inactive")
-            self._stable_btn.setText("Switch to Stable")
-            self._stable_btn.setEnabled(is_idle)
-            self._stable_build_lbl.hide()
-            self._testing_btn.setObjectName("branch-active")
-            self._testing_btn.setText("On Testing  (current)")
-            self._testing_btn.setEnabled(False)
-            self._testing_build_lbl.setText(f"Running: built {booted_ts}" if booted_ts else "")
-            self._testing_build_lbl.setVisible(bool(booted_ts))
-        else:
-            self._stable_btn.setObjectName("branch-inactive")
-            self._stable_btn.setText("Switch to Stable")
-            self._stable_btn.setEnabled(is_idle)
-            self._stable_build_lbl.hide()
-            self._testing_btn.setObjectName("branch-inactive")
-            self._testing_btn.setText("Switch to Testing")
-            self._testing_btn.setEnabled(is_idle)
-            self._testing_build_lbl.hide()
-        _restyle(self._stable_btn)
-        _restyle(self._testing_btn)
+            self._reboot_btn.hide()
 
     def showEvent(self, event):
         super().showEvent(event)
         if self._check_state == "idle":
             self._check_for_update()
-        if self._changelog_worker is None or not self._changelog_worker.isRunning():
-            self._changelog_worker = ChangelogWorker()
-            self._changelog_worker.result.connect(self._on_changelog_result)
-            self._changelog_worker.start()
-
-    def _on_changelog_result(self, booted_rev: str, remote_rev: str):
-        tag = _current_branch() or "main"
-        if booted_rev and remote_rev and booted_rev != remote_rev:
-            compare_url = f"https://github.com/mrtrick37/kyth/compare/{booted_rev}...{remote_rev}"
-            self._changelog_body.setText(
-                f"Running:  {booted_rev}\n"
-                f"Available: {remote_rev}\n\n"
-                "Click 'View Changes' to see exactly what this update adds."
-            )
-            try:
-                self._changelog_btn.clicked.disconnect()
-            except Exception:
-                pass
-            self._changelog_btn.setText("View Changes")
-            self._changelog_btn.clicked.connect(
-                lambda: QDesktopServices.openUrl(QUrl(compare_url))
-            )
-        elif booted_rev:
-            self._changelog_body.setText(
-                f"Running: {booted_rev}\n\n"
-                "KythOS rebuilds daily — see commit history for recent changes."
-            )
-        # else: leave the default static text in place
+        self._check_firmware()
 
     def _check_for_update(self):
         if self._check_worker and self._check_worker.isRunning():
@@ -1047,6 +783,15 @@ class UpdatePage(Page):
         self._au_result_lbl.setStyleSheet(f"color: {_colors.get(result, '#b0bccf')};")
         self._au_reason_lbl.setText(status.get("reason") or "—")
 
+        flatpak_count = status.get("flatpak_updates", 0)
+        if flatpak_count > 0:
+            noun = "update" if flatpak_count == 1 else "updates"
+            self._au_flatpak_lbl.setText(f"{flatpak_count} {noun} pending")
+            self._au_flatpak_lbl.setStyleSheet("color: #ffa726;")
+        else:
+            self._au_flatpak_lbl.setText("Up to date")
+            self._au_flatpak_lbl.setStyleSheet("color: #4caf50;")
+
         # Reflect timer enabled state
         try:
             r = subprocess.run(
@@ -1078,3 +823,50 @@ class UpdatePage(Page):
             )
         except Exception:
             pass
+
+    # ── Firmware update ───────────────────────────────────────────────────────
+
+    def _check_firmware(self) -> None:
+        if self._fw_check_worker is not None and self._fw_check_worker.isRunning():
+            return
+        if self._worker is not None:
+            return
+        self._fw_icon.setText("↻")
+        self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+        self._fw_status_lbl.setText("Checking for firmware updates…")
+        self._fw_btn.hide()
+        self._fw_check_worker = FirmwareCheckWorker()
+        self._fw_check_worker.result.connect(self._on_firmware_check_result)
+        self._fw_check_worker.finished.connect(self._fw_check_worker.deleteLater)
+        self._fw_check_worker.start()
+
+    def _on_firmware_check_result(self, count: int, summary: str) -> None:
+        self._fw_check_worker = None
+        if count < 0:
+            self._fw_icon.setText("—")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #555555;")
+            self._fw_status_lbl.setText("fwupd not available.")
+            self._fw_btn.hide()
+        elif count == 0:
+            self._fw_icon.setText("✓")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #4caf50;")
+            self._fw_status_lbl.setText("Firmware up to date.")
+            self._fw_btn.hide()
+        else:
+            noun = "update" if count == 1 else "updates"
+            self._fw_icon.setText("↓")
+            self._fw_icon.setStyleSheet("font-size: 22px; color: #d4a843;")
+            self._fw_status_lbl.setText(
+                f"{count} firmware {noun} available. "
+                "Updates download now and are flashed during the next reboot."
+            )
+            if self._worker is None:
+                self._fw_btn.show()
+
+    def _run_firmware_update(self) -> None:
+        self._start_operation(
+            "firmware",
+            "Updating firmware…",
+            ["fwupdmgr", "upgrade", "--no-reboot-check"],
+            "Firmware Update",
+        )

@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """
-kyth-installer — KythOS installer (erase mode only)
+kyth-installer — KythOS installer
 
-Serves a local web UI, launches Chromium in kiosk mode, and runs:
-  bootc install to-disk --wipe  →  configure hostname / timezone / user
+Serves a local web UI, launches Chromium in kiosk mode, and runs either:
+  bootc install to-disk --wipe          (erase full disk)
+  bootc install to-filesystem           (install alongside / dual-boot)
+then configures hostname / timezone / user.
 """
 
 import glob
@@ -98,7 +100,6 @@ def list_disks() -> list[dict]:
                 d.get("type") == "disk"
                 and size > 0
                 and not name.startswith("zram")
-                and tran != "usb"
                 and not bool(d.get("rm"))
             ):
                 result.append({
@@ -108,11 +109,64 @@ def list_disks() -> list[dict]:
                     "bytes": size,
                     "rota":  bool(d.get("rota")),
                     "tran":  tran,
+                    "usb":   tran == "usb",
                     "current": f"/dev/{name}" == running_disk,
                 })
         return result
     except Exception:
         return []
+
+
+EFI_PART_GUID = "c12a7328-f81f-11d2-ba4b-00a0c93ec93b"
+
+
+def list_partitions(disk: str) -> list[dict]:
+    """Return partitions on disk with metadata for alongside-install picker."""
+    try:
+        out = subprocess.check_output(
+            ["lsblk", "--json", "--bytes", "--paths",
+             "--output", "NAME,SIZE,TYPE,FSTYPE,PARTTYPE,LABEL,MOUNTPOINT",
+             disk],
+            text=True, stderr=subprocess.DEVNULL,
+        )
+        result = []
+        for d in json.loads(out).get("blockdevices", []):
+            for child in d.get("children", []):
+                if child.get("type") == "part":
+                    size = int(child.get("size", 0))
+                    parttype = (child.get("parttype") or "").lower()
+                    fstype = child.get("fstype") or ""
+                    result.append({
+                        "name":       child["name"],
+                        "size":       _human_size(size),
+                        "bytes":      size,
+                        "fstype":     fstype,
+                        "parttype":   parttype,
+                        "label":      child.get("label") or "",
+                        "mountpoint": child.get("mountpoint") or "",
+                        "is_efi":     parttype == EFI_PART_GUID,
+                    })
+        return result
+    except Exception:
+        return []
+
+
+def find_efi_partition(disk: str) -> str:
+    """Return the EFI partition path on disk, or '' if not found."""
+    for part in list_partitions(disk):
+        if part["is_efi"]:
+            return part["name"]
+    for mount in ("/boot/efi", "/efi"):
+        try:
+            out = subprocess.check_output(
+                ["findmnt", "-n", "-o", "SOURCE", mount],
+                text=True, stderr=subprocess.DEVNULL, timeout=5,
+            ).strip()
+            if out and out.startswith("/dev/"):
+                return out
+        except Exception:
+            pass
+    return ""
 
 
 def list_timezones() -> list[str]:
@@ -128,7 +182,7 @@ def list_timezones() -> list[str]:
     # timedatectl unavailable or returned nothing — read zone.tab directly.
     for tab in ("/usr/share/zoneinfo/zone1970.tab", "/usr/share/zoneinfo/zone.tab"):
         try:
-            zones = []
+            zones = ["UTC"]
             with open(tab) as f:
                 for line in f:
                     line = line.strip()
@@ -147,7 +201,7 @@ def find_deploy_etc(root_mount: str) -> Optional[str]:
     candidates = glob.glob(f"{root_mount}/ostree/deploy/default/deploy/*/etc")
     if not candidates:
         return None
-    return max(candidates, key=lambda p: os.path.getmtime(p))
+    return sorted(candidates)[-1]
 
 
 SYSTEM_GROUP_FALLBACKS = {
@@ -358,7 +412,7 @@ def _as_root(cmd: list[str]) -> list[str]:
     return cmd if os.geteuid() == 0 else ["sudo", "-n", *cmd]
 
 
-def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
+def _try_stage_mok_enrollment(log, kernel: str = "fedora", mok_password: str = "") -> str:
     """Stage Kyth Secure Boot MOK enrollment via mokutil.
 
     Returns one of: skipped, enrolled, pending, staged, failed.
@@ -416,7 +470,7 @@ def _try_stage_mok_enrollment(log, kernel: str = "fedora") -> str:
     try:
         result = subprocess.run(
             _as_root([mokutil, "--import", str(cert_der), "--stdin-passwd"]),
-            input="kyth\n", text=True, capture_output=True, timeout=15,
+            input=f"{mok_password}\n", text=True, capture_output=True, timeout=15,
         )
         if result.returncode == 0:
             log("Secure Boot: enrollment staged — confirm it on first boot before the KythOS performance kernel starts")
@@ -521,13 +575,19 @@ def _install_images(kernel: str) -> tuple[str, str]:
 # ── Install state ─────────────────────────────────────────────────────────────
 
 _state: dict = {
-    "disk": "", "hostname": "kyth", "timezone": "UTC",
+    "disk": "",
+    "install_mode": "wipe",       # "wipe" or "alongside"
+    "target_partition": "",       # alongside only
+    "efi_partition": "",          # alongside only (may be auto-detected)
+    "hostname": "kyth", "timezone": "UTC",
     "username": "", "password_hash": "", "kernel": "fedora",
+    "mok_password": "",
 }
 
 _events: list[dict] = []
 _events_lock = threading.Lock()
 _new_event = threading.Condition(_events_lock)
+_install_lock = threading.Lock()
 
 
 def _push(event: dict) -> None:
@@ -695,41 +755,105 @@ def _run_install() -> None:
     try:
         disk = _state["disk"]
         kernel = _state.get("kernel", "fedora")
+        install_mode = _state.get("install_mode", "wipe")
         src_ref, tgt_ref = _install_images(kernel)
+        log(f"Mode         : {install_mode}")
         log(f"Kernel       : {kernel}")
         log(f"Source imgref: {src_ref}")
         log(f"Target image : {tgt_ref}")
         log(f"Disk         : {disk}")
         log("")
 
-        unmount_target_disk(disk, log)
+        alongside_mount = ""
 
         log("── Phase 1: Writing OS image to disk ─────────────────────────────")
-        install_cmd = [
-            "bootc", "install", "to-disk",
-            "--source-imgref", src_ref,
-            "--target-imgref", tgt_ref,
-            "--filesystem", "btrfs",
-            "--generic-image",
-            "--wipe",
-            disk,
-        ]
-        if SKIP_FETCH_CHECK:
-            install_cmd.insert(-2, "--skip-fetch-check")
-        run_cmd(install_cmd, 5, 90)
+
+        if install_mode == "alongside":
+            target_part = _state.get("target_partition", "")
+            efi_part    = _state.get("efi_partition", "")
+            alongside_mount = "/var/tmp/kyth-alongside-target"
+
+            log(f"Target partition : {target_part}")
+            log(f"EFI partition    : {efi_part or '(none detected)'}")
+
+            subprocess.run(_as_root(["umount", "-l", target_part]), check=False, capture_output=True)
+            subprocess.run(_as_root(["umount", "-Rl", alongside_mount]), check=False, capture_output=True)
+
+            log(f"Formatting {target_part} as btrfs ...")
+            run_cmd(["mkfs.btrfs", "-f", target_part], 5, 10)
+
+            Path(alongside_mount).mkdir(parents=True, exist_ok=True)
+            subprocess.run(_as_root(["mount", target_part, alongside_mount]), check=True)
+            progress(11)
+
+            if efi_part:
+                efi_mountpoint = Path(alongside_mount) / "boot" / "efi"
+                efi_mountpoint.mkdir(parents=True, exist_ok=True)
+                try:
+                    current_efi_mnt = subprocess.check_output(
+                        ["findmnt", "-n", "-o", "MOUNTPOINT", efi_part],
+                        text=True, stderr=subprocess.DEVNULL, timeout=5,
+                    ).strip()
+                except Exception:
+                    current_efi_mnt = ""
+                if current_efi_mnt:
+                    subprocess.run(
+                        _as_root(["mount", "--bind", current_efi_mnt, str(efi_mountpoint)]),
+                        check=True,
+                    )
+                    log(f"EFI bind-mounted from {current_efi_mnt}")
+                else:
+                    subprocess.run(
+                        _as_root(["mount", efi_part, str(efi_mountpoint)]),
+                        check=True,
+                    )
+                    log(f"EFI mounted from {efi_part}")
+
+            install_cmd = [
+                "bootc", "install", "to-filesystem",
+                "--source-imgref", src_ref,
+                "--target-imgref", tgt_ref,
+                "--generic-image",
+                alongside_mount,
+            ]
+            if SKIP_FETCH_CHECK:
+                install_cmd.insert(-1, "--skip-fetch-check")
+            run_cmd(install_cmd, 12, 90)
+
+            root_part = target_part
+
+        else:
+            unmount_target_disk(disk, log)
+            install_cmd = [
+                "bootc", "install", "to-disk",
+                "--source-imgref", src_ref,
+                "--target-imgref", tgt_ref,
+                "--filesystem", "btrfs",
+                "--generic-image",
+                "--wipe",
+                disk,
+            ]
+            if SKIP_FETCH_CHECK:
+                install_cmd.insert(-2, "--skip-fetch-check")
+            run_cmd(install_cmd, 5, 90)
+            root_part = get_root_partition(disk)
 
         log("── Phase 2: Configuring installed system ─────────────────────────")
         progress(91)
-        root_part = get_root_partition(disk)
-        mount     = "/var/tmp/kyth-install-root"
-        Path(mount).mkdir(parents=True, exist_ok=True)
-        # Detach any stale mount left by a previously crashed install attempt.
-        subprocess.run(_as_root(["umount", "-l", mount]), check=False, capture_output=True)
-        subprocess.run(_as_root(["mount", root_part, mount]), check=True)
+
+        if alongside_mount:
+            config_root = alongside_mount
+        else:
+            config_root = "/var/tmp/kyth-install-root"
+            Path(config_root).mkdir(parents=True, exist_ok=True)
+            # Detach any stale mount left by a previously crashed install attempt.
+            subprocess.run(_as_root(["umount", "-l", config_root]), check=False, capture_output=True)
+            subprocess.run(_as_root(["mount", root_part, config_root]), check=True)
+
         progress(93)
 
         try:
-            etc = find_deploy_etc(mount)
+            etc = find_deploy_etc(config_root)
             if etc:
                 subprocess.run(
                     _as_root(["/usr/bin/tee", str(Path(etc, "hostname"))]),
@@ -801,7 +925,7 @@ def _run_install() -> None:
                                 break
 
                         var_home = (
-                            Path(mount) / "ostree/deploy/default/var/home" / username
+                            Path(config_root) / "ostree/deploy/default/var/home" / username
                         )
                         subprocess.run(_as_root(["mkdir", "-p", str(var_home)]), check=True)
                         subprocess.run(_as_root(["chown", f"{uid}:{gid}", str(var_home)]), check=True)
@@ -833,10 +957,13 @@ def _run_install() -> None:
         finally:
             subprocess.run(_as_root(["sync"]), check=False)
             progress(99)
-            subprocess.run(_as_root(["umount", mount]), check=False)
+            if alongside_mount:
+                subprocess.run(_as_root(["umount", "-R", alongside_mount]), check=False)
+            else:
+                subprocess.run(_as_root(["umount", config_root]), check=False)
 
         log("── Phase 3: Staging Secure Boot enrollment ───────────────────────")
-        mok_state = _try_stage_mok_enrollment(log, kernel)
+        mok_state = _try_stage_mok_enrollment(log, kernel, _state["mok_password"])
 
         progress(100)
         _push({"type": "done", "mok_state": mok_state})
@@ -850,6 +977,12 @@ def _run_install() -> None:
         _push({"type": "error", "message": str(exc)})
     finally:
         _state["password_hash"] = ""
+        _state["mok_password"] = ""
+        # Guard against orphaned mounts when Phase 1 fails before the inner
+        # try/finally (which holds the normal umount) is ever entered.
+        if alongside_mount:
+            subprocess.run(_as_root(["umount", "-Rl", alongside_mount]), check=False, capture_output=True)
+        _install_lock.release()
 
 
 # ── HTTP handler ──────────────────────────────────────────────────────────────
@@ -896,6 +1029,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json(list_disks())
         elif path == "/api/timezones":
             self._json(list_timezones())
+        elif path == "/api/partitions":
+            from urllib.parse import parse_qs
+            qs = parse_qs(urlparse(self.path).query)
+            disk = (qs.get("disk") or [""])[0]
+            self._json(list_partitions(disk) if disk else [])
         elif path == "/api/stream":
             self._sse()
         elif path == "/api/log":
@@ -944,27 +1082,52 @@ class Handler(BaseHTTPRequestHandler):
             if not body.get("confirm_backup") or not body.get("confirm_erase"):
                 self._json({
                     "started": False,
-                    "message": "Please confirm that your files are backed up and that the selected disk will be erased.",
+                    "message": "Please confirm that your files are backed up and that the selected target will be erased.",
                 }, status=409)
                 return
-            if disks[disk].get("current") and not _IS_LIVE_SESSION:
-                self._json({
-                    "started": False,
-                    "message": (
-                        "This is the disk running the current KythOS session.\n\n"
-                        "The running root filesystem cannot be unmounted, so reinstalling "
-                        "onto this disk requires the KythOS live ISO.\n\n"
-                        "Boot from the live ISO to reinstall onto this disk. "
-                        "You can download it from the Repair page in kyth-welcome."
-                    ),
-                }, status=409)
-                return
-            if disks[disk].get("current") and not body.get("confirm_current"):
-                self._json({
-                    "started": False,
-                    "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
-                }, status=409)
-                return
+            install_mode = body.get("install_mode", "wipe")
+            if install_mode not in ("wipe", "alongside"):
+                install_mode = "wipe"
+
+            target_partition = ""
+            efi_partition = ""
+            if install_mode == "alongside":
+                target_partition = body.get("target_partition", "")
+                partitions = {p["name"]: p for p in list_partitions(disk)}
+                if target_partition not in partitions:
+                    self.send_error(400, "Invalid target partition")
+                    return
+                if partitions[target_partition].get("is_efi"):
+                    self._json({"started": False, "message": "Cannot install to an EFI partition."}, status=409)
+                    return
+                if partitions[target_partition].get("mountpoint"):
+                    self._json({
+                        "started": False,
+                        "message": f"Target partition {target_partition} is currently mounted at "
+                                   f"{partitions[target_partition]['mountpoint']}. Unmount it first.",
+                    }, status=409)
+                    return
+                efi_partition = body.get("efi_partition", "") or find_efi_partition(disk)
+            else:
+                if disks[disk].get("current") and not _IS_LIVE_SESSION:
+                    self._json({
+                        "started": False,
+                        "message": (
+                            "This is the disk running the current KythOS session.\n\n"
+                            "The running root filesystem cannot be unmounted, so reinstalling "
+                            "onto this disk requires the KythOS live ISO.\n\n"
+                            "Boot from the live ISO to reinstall onto this disk. "
+                            "You can download it from the Repair page in kyth-welcome."
+                        ),
+                    }, status=409)
+                    return
+                if disks[disk].get("current") and not body.get("confirm_current"):
+                    self._json({
+                        "started": False,
+                        "message": "This appears to be the currently running system disk. Confirm reinstalling the current KythOS disk before continuing.",
+                    }, status=409)
+                    return
+
             kernel = body.get("kernel", "fedora")
             if kernel not in ("fedora", "cachy"):
                 kernel = "fedora"
@@ -984,14 +1147,21 @@ class Handler(BaseHTTPRequestHandler):
             if network_error:
                 self._json({"started": False, "message": network_error}, status=409)
                 return
+            if not _install_lock.acquire(blocking=False):
+                self._json({"started": False, "message": "Install already in progress"}, status=409)
+                return
             _state.update({
-                "disk":     disk,
-                "hostname": hostname,
-                "timezone": timezone,
-                "username": username,
-                "password_hash": password_hash,
-                "kernel":   kernel,
+                "disk":              disk,
+                "install_mode":      install_mode,
+                "target_partition":  target_partition,
+                "efi_partition":     efi_partition,
+                "hostname":          hostname,
+                "timezone":          timezone,
+                "username":          username,
+                "password_hash":     password_hash,
+                "kernel":            kernel,
             })
+            _state["mok_password"] = secrets.token_urlsafe(8)
             with _events_lock:
                 _events.clear()
             threading.Thread(target=_run_install, daemon=True).start()
@@ -1052,135 +1222,114 @@ _HTML = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>KythOS Installer</title>
 <style>
-*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#0d1117;--surface:#1f242b;--surface2:#24292f;--border:#30363d;
-  --accent:#007acc;--accent-hi:#65b0ff;--text:#d4d4dc;--muted:#8b93a8;
-  --green:#56d5b6;--red:#ff6a82;--amber:#f4b955;
-  --sidebar-w:200px;--radius:10px;
-  --font:'Segoe UI',Roboto,Arial,sans-serif;
-  --mono:'JetBrains Mono','Liberation Mono',monospace;
+  --bg:#090d12;--surface:#121820;--surface2:#18212b;--surface3:#1f2a35;
+  --border:#2d3a48;--border-strong:#3d5365;--accent:#35d0aa;--accent-hi:#8fffe2;
+  --blue:#5aa8ff;--green:#56d5b6;--red:#ff6f86;--amber:#f4bd61;
+  --text:#eef5f7;--muted:#98a7b4;--muted2:#748492;--font:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:"JetBrains Mono","SFMono-Regular",Consolas,monospace;--sidebar-w:216px;--radius:8px;
 }
-html,body{height:100%;background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;overflow:hidden}
-#app{display:flex;height:100vh;width:100vw}
-
-/* sidebar */
-#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:linear-gradient(180deg,#11161e,#0b0f16);border-right:1px solid var(--border);display:flex;flex-direction:column;padding:28px 0 20px;z-index:10}
-.logo{padding:0 20px 24px;font-size:20px;font-weight:800;background:linear-gradient(135deg,#8b8f98,#c6cbd4);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text}
-.steps{flex:1;padding:0 10px}
-.step{display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:8px;margin-bottom:2px}
-.step-num{width:24px;height:24px;border-radius:50%;background:var(--surface2);border:1.5px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:var(--muted);flex-shrink:0;transition:all .2s}
-.step-label{font-size:13px;color:var(--muted);font-weight:500;transition:color .2s}
-.step.active .step-num{background:var(--accent);border-color:var(--accent-hi);color:#fff}
-.step.active .step-label{color:var(--text)}
-.step.done .step-num{background:#1a3a1a;border-color:var(--green);color:var(--green)}
-.step.done .step-label{color:var(--muted)}
-.sidebar-footer{padding:0 20px;font-size:11px;color:#3a4a5a;letter-spacing:.05em}
-
-/* content */
-#content{flex:1;overflow-y:auto;display:flex;align-items:flex-start;justify-content:center;padding:32px 24px}
-.page{display:none;width:100%;max-width:640px}
-.page.active{display:block}
-
-/* card */
-.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:32px 36px;margin-bottom:20px}
-.card-title{font-size:22px;font-weight:700;margin-bottom:6px}
-.card-sub{color:var(--muted);font-size:14px;margin-bottom:20px}
-.divider{border:none;border-top:1px solid var(--border);margin:0 0 24px}
-
-/* status */
-.status-box{padding:14px 18px;border-radius:8px;font-size:13px;white-space:pre-line;line-height:1.6}
-.status-info{background:#181f28;border:1px solid #2c3a46;color:#9ec8ff}
-.status-ok{background:#0a1f14;border:1px solid #1a4a2a;color:var(--green)}
-.status-err{background:#1a080f;border:1px solid #4a1020;color:var(--red)}
-
-/* buttons */
-.btn-row{display:flex;gap:10px;margin-top:24px;justify-content:flex-end}
-button{padding:9px 20px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:13px;font-weight:500;cursor:pointer;transition:all .15s}
-button:hover:not(:disabled){border-color:var(--accent);color:var(--accent-hi)}
-button:disabled{opacity:.4;cursor:not-allowed}
-button.primary{background:var(--accent);border-color:var(--accent);color:#fff}
-button.primary:hover:not(:disabled){background:var(--accent-hi);border-color:var(--accent-hi);color:#fff}
-button.danger{border-color:#4a1020;color:var(--red)}
-button.danger:hover:not(:disabled){background:#1a080f;border-color:var(--red)}
-
-/* disk grid */
-.disk-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
-.disk-card{display:flex;align-items:center;gap:14px;padding:14px 16px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
-.disk-card:hover{border-color:var(--accent)}
-.disk-card.selected{border-color:var(--accent);background:#0d1e3a}
-.disk-icon{font-size:22px;flex-shrink:0}
-.disk-info{flex:1;min-width:0}
-.disk-name{font-weight:600;font-size:14px}
-.disk-detail{color:var(--muted);font-size:12px;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.disk-size{font-size:13px;color:var(--accent-hi);font-weight:600;flex-shrink:0}
-.disk-tools{display:flex;gap:8px;margin-top:8px}
-.warn-box{background:#1a110a;border:1px solid #5a3000;border-radius:8px;padding:10px 14px;font-size:13px;color:var(--amber);margin:12px 0}
-
-/* form fields */
-.field-label{font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:16px 0 6px}
-input[type=text],input[type=password],select{width:100%;padding:9px 12px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);color:var(--text);font-size:14px;font-family:var(--font);outline:none;transition:border-color .15s}
-input:focus,select:focus{border-color:var(--accent)}
-select{cursor:pointer}
-
-/* review table */
-.review-table{width:100%;border-collapse:collapse;font-size:14px}
-.review-table tr{border-bottom:1px solid var(--border)}
-.review-table tr:last-child{border:none}
-.review-table td{padding:10px 0}
-.review-table td:first-child{color:var(--muted);width:40%;font-size:13px}
-.review-table td:last-child{font-weight:500;padding-left:16px}
-.review-wipe{background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px 16px;font-size:13px;color:var(--red);margin:16px 0}
-.review-confirm{display:flex;gap:10px;align-items:flex-start;background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 12px;margin:8px 0;color:var(--text);font-size:13px;line-height:1.5}
-.review-confirm input{margin-top:3px}
-.review-current{background:#241609;border-color:#6b4514;color:var(--amber)}
-.mini-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
-
-/* progress */
-.progress-wrap{margin:20px 0}
-.progress-label{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:13px}
-.progress-bar{height:8px;background:var(--surface2);border-radius:4px;overflow:hidden}
-.progress-fill{height:100%;background:var(--accent);border-radius:4px;transition:width .4s}
-.progress-fill.pulsing{animation:pulse 1.5s ease-in-out infinite}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
-.stats-row{display:flex;gap:16px;font-size:12px;color:var(--muted);margin-top:6px}
-
-/* log */
-.log-toggle{background:none;border:none;color:var(--muted);font-size:12px;padding:6px 0;cursor:pointer;display:flex;align-items:center;gap:4px}
-.log-toggle:hover{color:var(--text)}
-.log-arrow{transition:transform .2s;display:inline-block}
-.log-arrow.open{transform:rotate(90deg)}
-.log-wrap{display:none;background:#080808;border:1px solid var(--border);border-radius:8px;padding:12px 14px;font-family:var(--mono);font-size:12px;color:#888;line-height:1.7;max-height:280px;overflow-y:auto;margin-top:4px}
-.log-wrap.open{display:block}
-.log-cmd{color:#b8b8e8}
-.log-sep{color:#243754}
-
-/* done / error */
-.hero-icon{font-size:48px;display:block;margin-bottom:14px}
-.done-title{font-size:26px;font-weight:700;color:var(--green);margin-bottom:8px}
-.err-title{font-size:26px;font-weight:700;color:var(--red);margin-bottom:8px}
-.hero-body{font-size:14px;color:var(--muted);line-height:1.7}
-.err-pre{font-size:12px;font-family:var(--mono);color:var(--red);background:#1a080f;border:1px solid #4a1020;border-radius:8px;padding:12px;margin:14px 0;white-space:pre-wrap;word-break:break-all}
-
-/* kernel cards */
-.kernel-grid{display:flex;flex-direction:column;gap:8px;margin-bottom:16px}
-.kernel-card{display:flex;align-items:flex-start;gap:16px;padding:16px 18px;border-radius:8px;border:1.5px solid var(--border);background:var(--surface2);cursor:pointer;transition:all .15s}
-.kernel-card:hover{border-color:var(--accent)}
-.kernel-card.selected{border-color:var(--accent);background:#0d1e3a}
-.kernel-icon{font-size:26px;flex-shrink:0;padding-top:1px}
-.kernel-body{flex:1}
-.kernel-name{font-weight:700;font-size:15px;margin-bottom:4px;display:flex;align-items:center;gap:8px}
-.kernel-badge{display:inline-block;background:#0d3a1e;border:1px solid #1a5a2e;color:var(--green);font-size:10px;font-weight:600;padding:1px 7px;border-radius:4px;letter-spacing:.05em}
-.kernel-desc{color:var(--muted);font-size:12px;line-height:1.6}
-.kernel-note{margin-top:6px;font-size:11px;color:var(--amber)}
-
-::-webkit-scrollbar{width:5px}
-::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+*{box-sizing:border-box}html,body{height:100%;margin:0;background:radial-gradient(circle at 18% 0%,rgba(53,208,170,.11),transparent 34%),linear-gradient(135deg,#090d12,#0d1219 42%,#090d12);color:var(--text);font-family:var(--font);font-size:14px;line-height:1.55;overflow:hidden;letter-spacing:0}
+body{display:flex}button,input,select{font:inherit}#sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);background:rgba(10,15,22,.9);border-right:1px solid rgba(61,83,101,.72);display:flex;flex-direction:column;padding:24px 18px;z-index:10;backdrop-filter:blur(18px)}
+.logo{display:flex;align-items:center;gap:12px;margin-bottom:28px}.logo-mark{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--accent),#4aa3ff);display:grid;place-items:center;color:#06110f;font-weight:900;box-shadow:0 12px 28px rgba(53,208,170,.22)}.logo-text{font-size:18px;font-weight:800}.logo-sub{font-size:12px;color:var(--muted);margin-top:-2px}
+.step{display:flex;align-items:center;gap:11px;padding:10px 10px;border-radius:8px;color:var(--muted);margin-bottom:5px;transition:background .16s ease,color .16s ease,border-color .16s ease}.step-num{width:25px;height:25px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:grid;place-items:center;font-size:12px;font-weight:800}.step.active{background:rgba(53,208,170,.12);color:var(--text);box-shadow:inset 3px 0 0 var(--accent)}.step.active .step-num{background:var(--accent);border-color:var(--accent);color:#06110f}.step.done .step-num{background:rgba(86,213,182,.18);border-color:rgba(86,213,182,.45);color:var(--green)}
+#main{flex:1;min-width:0;overflow:auto;padding:34px 40px 44px}.screen{max-width:980px;margin:0 auto;animation:fadeIn .18s ease}.screen.wide{max-width:1120px}@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+h1{font-size:32px;line-height:1.15;margin:0 0 8px;font-weight:850;letter-spacing:0}h2{font-size:22px;margin:0 0 10px;letter-spacing:0}p.lead{color:var(--muted);font-size:15px;margin:0 0 24px;max-width:680px}.eyebrow{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--accent-hi);font-weight:800;margin-bottom:8px}
+.card{background:linear-gradient(180deg,rgba(24,33,43,.96),rgba(17,24,32,.96));border:1px solid rgba(61,83,101,.82);border-radius:8px;padding:20px;box-shadow:0 18px 48px rgba(0,0,0,.24)}.card + .card{margin-top:14px}.status-box{border:1px solid var(--border);border-radius:8px;padding:13px 15px;margin:14px 0;background:rgba(24,33,43,.82);color:var(--muted)}.status-info{border-color:rgba(90,168,255,.35);background:rgba(90,168,255,.08);color:#b8d8ff}.warn-box,.status-warn{border-color:rgba(244,189,97,.45);background:rgba(244,189,97,.09);color:#ffd990}.status-error{border-color:rgba(255,111,134,.5);background:rgba(255,111,134,.09);color:#ffb5c1}.status-ok{border-color:rgba(86,213,182,.45);background:rgba(86,213,182,.1);color:#a5f2df}
+.mode-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0}.mode-card{display:flex;align-items:flex-start;gap:14px;padding:16px;border:1px solid var(--border);border-radius:8px;background:rgba(18,24,32,.88);cursor:pointer;transition:transform .16s ease,border-color .16s ease,background .16s ease,box-shadow .16s ease}.mode-card:hover{transform:translateY(-1px);border-color:var(--border-strong);background:rgba(31,42,53,.9)}.mode-card.selected{border-color:rgba(53,208,170,.85);background:linear-gradient(180deg,rgba(53,208,170,.16),rgba(18,24,32,.94));box-shadow:0 0 0 1px rgba(53,208,170,.18),0 14px 32px rgba(53,208,170,.09)}.mode-icon{width:36px;height:36px;border-radius:8px;background:rgba(53,208,170,.12);display:grid;place-items:center;font-size:19px;flex:0 0 auto}.mode-name{font-weight:800;font-size:14px;margin-bottom:3px;display:flex;align-items:center;gap:8px}.mode-desc{color:var(--muted);font-size:13px;line-height:1.42}.mode-badge{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:#08110f;background:var(--accent);border-radius:999px;padding:2px 7px;font-weight:850}
+.disk-card,.part-card{display:flex;align-items:center;gap:13px;padding:13px 15px;border:1px solid var(--border);border-radius:8px;background:rgba(18,24,32,.86);cursor:pointer;transition:all .16s ease}.disk-card:hover,.part-card:hover{border-color:var(--border-strong);background:rgba(31,42,53,.88);transform:translateY(-1px)}.disk-card.selected,.part-card.selected{border-color:rgba(53,208,170,.88);background:rgba(53,208,170,.12);box-shadow:0 0 0 1px rgba(53,208,170,.16)}.disk-icon,.part-icon{width:34px;height:34px;border-radius:8px;background:rgba(90,168,255,.12);display:grid;place-items:center;color:#b8d8ff}.disk-info,.part-info{min-width:0;flex:1}.disk-name,.part-name{font-weight:800}.disk-detail,.part-detail{color:var(--muted);font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.part-grid{display:flex;flex-direction:column;gap:8px;margin:12px 0}
+label{display:block;color:var(--muted);font-size:12px;font-weight:750;text-transform:uppercase;letter-spacing:.06em;margin:14px 0 7px}input,select{width:100%;background:#0e141b;border:1px solid var(--border);border-radius:8px;color:var(--text);padding:11px 12px;outline:none;transition:border-color .14s ease,box-shadow .14s ease}input:focus,select:focus{border-color:rgba(53,208,170,.8);box-shadow:0 0 0 3px rgba(53,208,170,.12)}.form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.btn-row{display:flex;gap:10px;justify-content:flex-end;margin-top:24px}.btn{border:1px solid var(--border);border-radius:8px;background:rgba(31,42,53,.92);color:var(--text);padding:10px 16px;font-weight:800;cursor:pointer;transition:transform .14s ease,background .14s ease,border-color .14s ease}.btn:hover:not(:disabled){transform:translateY(-1px);border-color:var(--border-strong)}.btn.primary{background:linear-gradient(135deg,var(--accent),#59b6ff);border-color:transparent;color:#06110f}.btn.danger{background:rgba(255,111,134,.12);border-color:rgba(255,111,134,.45);color:#ffc2cb}.btn:disabled{opacity:.45;cursor:not-allowed;transform:none}
+.review-table{width:100%;border-collapse:collapse;margin-top:12px}.review-table tr{border-bottom:1px solid rgba(45,58,72,.75)}.review-table td{padding:11px 10px}.review-table td:first-child{color:var(--muted);width:38%;font-size:13px}.review-table td:last-child{font-weight:650}.review-confirm{display:flex;gap:10px;align-items:flex-start;background:rgba(244,189,97,.08);border:1px solid rgba(244,189,97,.38);border-radius:8px;padding:12px;margin-top:15px;color:#ffe0a6;font-size:13px;line-height:1.45}.review-current{background:rgba(244,189,97,.1);border-color:rgba(244,189,97,.42);color:var(--amber)}
+.confidence-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:14px 0}.confidence-chip{border:1px solid var(--border);background:rgba(14,20,27,.84);border-radius:8px;padding:11px}.confidence-chip strong{display:block;font-size:12px;color:var(--text);margin-bottom:2px}.confidence-chip span{font-size:11px;color:var(--muted)}.confidence-chip.ok{border-color:rgba(86,213,182,.42);background:rgba(86,213,182,.08)}.confidence-chip.warn{border-color:rgba(244,189,97,.4);background:rgba(244,189,97,.08)}
+.progress-bar{height:10px;background:#0e141b;border:1px solid var(--border);border-radius:999px;overflow:hidden;margin:18px 0}.progress-fill{height:100%;background:linear-gradient(90deg,var(--accent),#59b6ff);width:0%;transition:width .25s ease;box-shadow:0 0 18px rgba(53,208,170,.35)}.phase-rail{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin:16px 0 8px}.phase-pill{border:1px solid var(--border);border-radius:8px;padding:9px 10px;background:rgba(18,24,32,.86);color:var(--muted);font-size:12px;font-weight:700}.phase-pill::before{content:"";display:inline-block;width:7px;height:7px;border-radius:50%;background:var(--border-strong);margin-right:7px}.phase-pill.active{color:var(--text);border-color:rgba(53,208,170,.5);background:rgba(53,208,170,.1)}.phase-pill.active::before{background:var(--accent)}pre.log{background:#070b10;border:1px solid var(--border);border-radius:8px;padding:14px;color:#c7d1da;font-family:var(--mono);font-size:12px;max-height:260px;overflow:auto;white-space:pre-wrap}
+.success-mark{width:62px;height:62px;border-radius:16px;background:linear-gradient(135deg,var(--accent),#59b6ff);display:grid;place-items:center;color:#06110f;font-size:32px;margin:0 auto 18px;box-shadow:0 16px 38px rgba(53,208,170,.22)}.error-mark{width:62px;height:62px;border-radius:16px;background:rgba(255,111,134,.14);border:1px solid rgba(255,111,134,.45);display:grid;place-items:center;color:var(--red);font-size:32px;margin:0 auto 18px}
+.page{display:none}.page.active{display:block}
+@media (max-width:860px){body{display:block;overflow:auto}#sidebar{width:100%;min-width:0;position:static;padding:16px;flex-direction:row;overflow:auto}.logo{display:none}.step{min-width:max-content}#main{padding:22px 16px}.mode-grid,.form-grid,.confidence-grid,.phase-rail{grid-template-columns:1fr}h1{font-size:27px}.btn-row{flex-direction:column-reverse}.btn{width:100%}}
+</style>
+<style>
+#kernel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin: 18px 0 14px;
+}
+.kernel-card {
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  gap: 12px;
+  width: 100%;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(18,24,32,.86);
+  color: var(--text);
+  cursor: pointer;
+  text-align: left;
+  transition: border-color .16s ease, background .16s ease, transform .16s ease;
+}
+.kernel-card:hover,
+.kernel-card:focus-visible {
+  border-color: var(--border-strong);
+  background: rgba(31,42,53,.9);
+  outline: none;
+  transform: translateY(-1px);
+}
+.kernel-card.selected {
+  border-color: rgba(53,208,170,.85);
+  background: linear-gradient(180deg,rgba(53,208,170,.16),rgba(18,24,32,.94));
+  box-shadow: 0 0 0 1px rgba(53,208,170,.22), 0 16px 34px rgba(0,0,0,.24);
+}
+.kernel-icon {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  background: rgba(53,208,170,.12);
+  border: 1px solid rgba(53,208,170,.28);
+  font-size: 24px;
+}
+.kernel-name {
+  font-size: 17px;
+  font-weight: 800;
+  margin-bottom: 6px;
+}
+.kernel-desc,
+.kernel-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.kernel-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(53,208,170,.18);
+  color: #9af1e6;
+  font-size: 11px;
+  vertical-align: 2px;
+}
+.kernel-note {
+  grid-column: 2;
+  margin-top: 8px;
+}
+.log-wrap {
+  display: none;
+}
+.log-wrap.open,
+.log-wrap.expanded {
+  display: block;
+}
+@media (max-width: 860px) {
+  #kernel-grid {
+    grid-template-columns: 1fr;
+  }
+}
 </style>
 </head>
 <body>
-<div id="app">
 
 <nav id="sidebar">
   <div class="logo">KythOS</div>
@@ -1195,7 +1344,7 @@ select{cursor:pointer}
   <div class="sidebar-footer">kyth installer</div>
 </nav>
 
-<div id="content">
+<div id="main">
 
   <!-- Welcome -->
   <div class="page active" id="page-welcome">
@@ -1209,10 +1358,11 @@ select{cursor:pointer}
         Connect using the network icon in the bottom-right panel before clicking Start Install. Your disk, account, timezone, and kernel selections will remain if you need to reconnect.<br><br>
         <span style="color:var(--text)">What happens:</span><br>
         &nbsp; 1. Select a target disk<br>
-        &nbsp; 2. Choose your kernel<br>
-        &nbsp; 3. Set hostname, timezone, and user account<br>
-        &nbsp; 4. Download and write KythOS to disk<br><br>
-        <span style="color:var(--amber)">⚠ The selected disk will be completely erased.</span><br>
+        &nbsp; 2. Choose install mode — erase full disk or install alongside existing OS<br>
+        &nbsp; 3. Choose your kernel<br>
+        &nbsp; 4. Set hostname, timezone, and user account<br>
+        &nbsp; 5. Download and write KythOS to disk<br><br>
+        <span style="color:var(--amber)">⚠ The selected disk or partition will be erased.</span><br>
         Back up any data you need before continuing.
       </p>
       <div class="btn-row">
@@ -1225,15 +1375,48 @@ select{cursor:pointer}
   <div class="page" id="page-disk">
     <div class="card">
       <div class="card-title">Select Disk</div>
-      <div class="card-sub">KythOS will be installed on the selected disk. All existing data will be erased.</div>
+      <div class="card-sub">Choose a target disk, then select how KythOS should be installed.</div>
       <hr class="divider">
       <div class="disk-grid" id="disk-grid">
         <div class="status-box status-info">Loading disks…</div>
       </div>
-      <div class="warn-box" id="disk-warn" style="display:none">⚠ All data on this disk will be permanently destroyed.</div>
+      <div class="warn-box" id="disk-warn" style="display:none"></div>
       <div class="disk-tools">
         <button onclick="loadDisks()">Refresh</button>
       </div>
+
+      <!-- Install mode (revealed after disk is selected) -->
+      <div id="mode-section" style="display:none">
+        <hr class="divider" style="margin:22px 0 18px">
+        <div style="font-size:15px;font-weight:700;margin-bottom:12px">Installation Mode</div>
+        <div class="mode-grid">
+          <div class="mode-card selected" id="mcard-wipe" onclick="selectMode('wipe')">
+            <div class="mode-icon">💥</div>
+            <div>
+              <div class="mode-name">Erase Full Disk <span class="kernel-badge">Recommended</span></div>
+              <div class="mode-desc">Install KythOS on the entire disk. All existing data will be erased. Simplest option.</div>
+            </div>
+          </div>
+          <div class="mode-card" id="mcard-alongside" onclick="selectMode('alongside')">
+            <div class="mode-icon">🔀</div>
+            <div>
+              <div class="mode-name">Install Alongside</div>
+              <div class="mode-desc">Install KythOS to a specific partition. Keep Windows, Linux, or other systems.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Partition picker (alongside only) -->
+        <div id="partition-section" style="display:none">
+          <div style="font-size:12px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:14px 0 8px">Select Target Partition</div>
+          <div id="part-grid" class="part-grid">
+            <div class="status-box status-info">Loading partitions…</div>
+          </div>
+          <div class="warn-box" id="part-warn" style="display:none"></div>
+          <div id="efi-info" style="display:none;font-size:12px;color:var(--muted);margin-top:8px;padding:8px 12px;background:var(--surface2);border-radius:6px;border:1px solid var(--border)"></div>
+        </div>
+      </div>
+
       <div class="btn-row">
         <button onclick="goto('welcome')">← Back</button>
         <button id="disk-next" class="primary" onclick="goto('kernel')" disabled>Continue →</button>
@@ -1285,6 +1468,12 @@ select{cursor:pointer}
       <div class="card-title">Review &amp; Install</div>
       <div class="card-sub">Confirm settings — installation begins immediately after you click Install</div>
       <hr class="divider">
+      <div class="confidence-grid">
+        <div class="confidence-chip ok"><strong>Image Source</strong><span>Reachability checked before install</span></div>
+        <div class="confidence-chip ok"><strong>Boot Target</strong><span>EFI path verified when needed</span></div>
+        <div class="confidence-chip ok"><strong>Disk Safety</strong><span>Unmounted targets are enforced</span></div>
+        <div class="confidence-chip warn"><strong>Rollback</strong><span>bootc history remains available after first boot</span></div>
+      </div>
       <table class="review-table" id="review-table"></table>
       <div class="review-wipe" id="review-wipe">⚠ Everything on the selected disk will be permanently erased.</div>
       <label class="review-confirm">
@@ -1293,7 +1482,7 @@ select{cursor:pointer}
       </label>
       <label class="review-confirm">
         <input type="checkbox" id="confirm-erase" onchange="updateInstallReady()">
-        <span>I understand KythOS will erase the selected disk and install a fresh system.</span>
+        <span id="confirm-erase-label">I understand KythOS will erase the selected disk and install a fresh system.</span>
       </label>
       <label class="review-confirm review-current" id="confirm-current-wrap" style="display:none">
         <input type="checkbox" id="confirm-current" onchange="updateInstallReady()">
@@ -1323,7 +1512,14 @@ select{cursor:pointer}
           <span id="install-elapsed" style="font-size:12px;color:var(--muted)"></span>
           <span id="install-pct">0%</span>
         </div>
-        <div class="progress-bar"><div class="progress-fill pulsing" id="progress-fill" style="width:0%"></div></div>
+        <div class="phase-rail">
+        <div class="phase-pill active">Prepare Disk</div>
+        <div class="phase-pill">Install Image</div>
+        <div class="phase-pill">Configure Boot</div>
+        <div class="phase-pill">Apply Region</div>
+        <div class="phase-pill">Final Checks</div>
+      </div>
+      <div class="progress-bar"><div class="progress-fill pulsing" id="progress-fill" style="width:0%"></div></div>
         <div class="stats-row" id="stats-row"></div>
       </div>
       <button class="log-toggle" onclick="toggleLog()">
@@ -1379,13 +1575,13 @@ select{cursor:pointer}
     </div>
   </div>
 
-</div><!-- #content -->
-</div><!-- #app -->
+</div><!-- #main -->
 
 <script>
-const S = { disk: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
+const S = { disk: null, install_mode: 'wipe', target_partition: null, hostname: 'kyth', timezone: 'UTC', username: '', password: '', kernel: 'fedora', isLive: true };
 let SESSION_TOKEN = '';
 const STEPS = ['welcome','disk','kernel','config','review','install'];
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
 function apiFetch(url, opts={}) {
   const o = {...opts, credentials:'same-origin'};
@@ -1420,7 +1616,9 @@ function loadDisks(attempt) {
   document.getElementById('disk-grid').innerHTML = '<div class="status-box status-info">Scanning for disks…</div>';
   document.getElementById('disk-next').disabled  = true;
   document.getElementById('disk-warn').style.display = 'none';
-  S.disk = null;
+  document.getElementById('mode-section').style.display = 'none';
+  document.getElementById('partition-section').style.display = 'none';
+  S.disk = null; S.install_mode = 'wipe'; S.target_partition = null;
   fetch('/api/disks').then(r=>r.json()).then(disks => {
     _disks = disks;
     const grid = document.getElementById('disk-grid');
@@ -1436,26 +1634,111 @@ function loadDisks(attempt) {
       <div class="disk-card" id="dcard-${i}" onclick="selectDisk(${i})">
         <div class="disk-icon">${d.rota ? '💿' : '💾'}</div>
         <div class="disk-info">
-          <div class="disk-name">${d.name}</div>
-          <div class="disk-detail">${d.model}${d.tran ? ' · '+d.tran.toUpperCase() : ''}${d.current ? ' · current system disk' : ''}</div>
+          <div class="disk-name">${esc(d.name)}</div>
+          <div class="disk-detail">${esc(d.model)}${d.tran ? ' · '+esc(d.tran.toUpperCase()) : ''}${d.usb ? ' · USB storage' : ''}${d.current ? ' · current system disk' : ''}</div>
         </div>
-        <div class="disk-size">${d.size}</div>
+        <div class="disk-size">${esc(d.size)}</div>
       </div>`).join('');
   }).catch(() => {
     document.getElementById('disk-grid').innerHTML = '<div class="status-box status-err">Failed to load disk list.</div>';
   });
 }
+
 function selectDisk(idx) {
   document.querySelectorAll('.disk-card').forEach(c => c.classList.remove('selected'));
   document.getElementById('dcard-' + idx).classList.add('selected');
   S.disk = _disks[idx];
-  document.getElementById('disk-next').disabled = false;
-  document.getElementById('disk-warn').style.display = 'block';
-  document.getElementById('disk-warn').textContent = S.disk.current
+  S.install_mode = 'wipe'; S.target_partition = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('mcard-wipe').classList.add('selected');
+  document.getElementById('partition-section').style.display = 'none';
+  document.getElementById('mode-section').style.display = '';
+  const warn = document.getElementById('disk-warn');
+  warn.style.display = 'block';
+  warn.textContent = S.disk.current
     ? (S.isLive
         ? '⚠ This appears to be the disk currently running this session. Reinstalling will replace it.'
         : '⚠ This is the running system disk. To reinstall this disk, boot from the KythOS live ISO.')
-    : '⚠ All data on this disk will be permanently destroyed.';
+    : S.disk.usb
+        ? '⚠ This is a USB storage device. Make sure you have the right disk selected.'
+        : '⚠ All data on this disk will be permanently destroyed (Erase mode) or a partition will be erased (Alongside mode).';
+  updateDiskNext();
+}
+
+function selectMode(id) {
+  S.install_mode = id; S.target_partition = null;
+  document.querySelectorAll('.mode-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('mcard-' + id).classList.add('selected');
+  const ps = document.getElementById('partition-section');
+  ps.style.display = id === 'alongside' ? '' : 'none';
+  if (id === 'alongside') loadPartitions();
+  updateDiskNext();
+}
+
+let _partitions = [];
+function loadPartitions() {
+  if (!S.disk) return;
+  document.getElementById('part-grid').innerHTML = '<div class="status-box status-info">Loading partitions…</div>';
+  document.getElementById('part-warn').style.display = 'none';
+  document.getElementById('efi-info').style.display = 'none';
+  S.target_partition = null;
+  fetch('/api/partitions?disk=' + encodeURIComponent(S.disk.name))
+    .then(r => r.json())
+    .then(parts => {
+      _partitions = parts;
+      const efi = parts.find(p => p.is_efi);
+      const grid = document.getElementById('part-grid');
+      if (!parts.length) {
+        grid.innerHTML = '<div class="status-box status-err">No partitions found. This disk may be unpartitioned — use Erase Full Disk mode instead.</div>';
+        return;
+      }
+      grid.innerHTML = parts.map((p, i) => {
+        const locked = p.is_efi || !!p.mountpoint;
+        const classes = ['part-card', locked ? 'part-locked' : ''].filter(Boolean).join(' ');
+        const badge = p.is_efi ? '<span class="efi-badge">EFI</span>' : '';
+        const reason = p.is_efi ? ' · EFI System' : p.mountpoint ? ` · mounted at ${esc(p.mountpoint)}` : '';
+        const detail = [p.fstype && esc(p.fstype), p.label && esc(p.label), reason].filter(Boolean).join(' · ') || 'unformatted';
+        const icon = p.is_efi ? '🔒' : p.fstype ? '📁' : '📄';
+        const onclick = locked ? '' : `onclick="selectPartition(${i})"`;
+        return `<div class="${classes}" id="pcard-${i}" ${onclick}>
+          <div class="disk-icon">${icon}</div>
+          <div class="part-info">
+            <div class="part-name">${esc(p.name)}${badge}</div>
+            <div class="part-detail">${detail}</div>
+          </div>
+          <div class="part-size">${esc(p.size)}</div>
+        </div>`;
+      }).join('');
+      if (efi) {
+        const el = document.getElementById('efi-info');
+        el.style.display = '';
+        el.textContent = `EFI partition detected: ${efi.name} — KythOS will add a boot entry here for dual-boot.`;
+      }
+    })
+    .catch(() => {
+      document.getElementById('part-grid').innerHTML = '<div class="status-box status-err">Failed to load partitions.</div>';
+    });
+}
+
+function selectPartition(idx) {
+  const p = _partitions[idx];
+  if (!p || p.is_efi || p.mountpoint) return;
+  document.querySelectorAll('.part-card').forEach(c => c.classList.remove('selected'));
+  document.getElementById('pcard-' + idx).classList.add('selected');
+  S.target_partition = p;
+  const warn = document.getElementById('part-warn');
+  if (p.fstype && p.fstype !== 'swap') {
+    warn.style.display = 'block';
+    warn.textContent = `⚠ ${p.name} contains a ${p.fstype} filesystem${p.label ? ' ("' + p.label + '")' : ''}. It will be erased and replaced with KythOS.`;
+  } else {
+    warn.style.display = 'none';
+  }
+  updateDiskNext();
+}
+
+function updateDiskNext() {
+  const ok = !!S.disk && (S.install_mode === 'wipe' || (S.install_mode === 'alongside' && !!S.target_partition));
+  document.getElementById('disk-next').disabled = !ok;
 }
 
 // ── Kernel ────────────────────────────────────────────────────────────────────
@@ -1472,7 +1755,7 @@ function initKernel() {
   const grid = document.getElementById('kernel-grid');
   if (grid.children.length) return;
   grid.innerHTML = KERNELS.map(k => `
-    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" onclick="selectKernel('${k.id}')">
+    <div class="kernel-card${k.id === S.kernel ? ' selected' : ''}" id="kcard-${k.id}" role="button" tabindex="0" aria-pressed="${k.id === S.kernel ? 'true' : 'false'}" onclick="selectKernel('${k.id}')" onkeydown="if(event.key === 'Enter' || event.key === ' '){event.preventDefault();selectKernel('${k.id}')}">
       <div class="kernel-icon">${k.icon}</div>
       <div class="kernel-body">
         <div class="kernel-name">${k.name}${k.badge ? ` <span class="kernel-badge">${k.badge}</span>` : ''}</div>
@@ -1485,7 +1768,12 @@ function initKernel() {
 function selectKernel(id) {
   S.kernel = id;
   document.querySelectorAll('.kernel-card').forEach(c => c.classList.remove('selected'));
-  document.getElementById('kcard-' + id).classList.add('selected');
+  document.querySelectorAll('.kernel-card').forEach(c => c.setAttribute('aria-pressed', 'false'));
+  const card = document.getElementById('kcard-' + id);
+  if (card) {
+    card.classList.add('selected');
+    card.setAttribute('aria-pressed', 'true');
+  }
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
@@ -1535,6 +1823,7 @@ function saveConfig() {
 // ── Review ────────────────────────────────────────────────────────────────────
 function buildReview() {
   const kernelLabels = { fedora: 'KythOS Standard', cachy: 'KythOS Performance' };
+  const modeLabels   = { wipe: 'Erase Full Disk', alongside: 'Install Alongside' };
   const targetImage = (() => {
     const base = S._sourceImage || '';
     if (!base || S.kernel === 'fedora') return base || '—';
@@ -1545,40 +1834,60 @@ function buildReview() {
     return base.slice(0, colon + 1) + tag + '-cachy';
   })();
   const rows = [
-    ['Disk',     S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
-    ['Model',    S.disk ? S.disk.model : '—'],
+    ['Disk',          S.disk ? `${S.disk.name}  (${S.disk.size})` : '—'],
+    ['Model',         S.disk ? S.disk.model : '—'],
+    ['Install Mode',  modeLabels[S.install_mode] || S.install_mode],
+  ];
+  if (S.install_mode === 'alongside' && S.target_partition) {
+    rows.push(['Target Partition', `${S.target_partition.name}  (${S.target_partition.size})`]);
+    if (S.target_partition.fstype) rows.push(['Partition FS', S.target_partition.fstype]);
+  }
+  rows.push(
     ['Hostname', S.hostname],
     ['Timezone', S.timezone],
     ['Username', S.username],
     ['Password', '••••••••'],
     ['Kernel',   kernelLabels[S.kernel] || S.kernel],
     ['Image',    targetImage],
-  ];
+  );
   document.getElementById('review-table').innerHTML =
-    rows.map(([k,v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join('');
+    rows.map(([k,v]) => `<tr><td>${k}</td><td>${esc(v)}</td></tr>`).join('');
   document.getElementById('confirm-backup').checked = false;
   document.getElementById('confirm-erase').checked = false;
   document.getElementById('confirm-current').checked = false;
-  const isCurrentNonLive = S.disk && S.disk.current && !S.isLive;
-  const isCurrentLive    = S.disk && S.disk.current && S.isLive;
+
+  const isAlongside    = S.install_mode === 'alongside';
+  const isCurrentNonLive = !isAlongside && S.disk && S.disk.current && !S.isLive;
+  const isCurrentLive    = !isAlongside && S.disk && S.disk.current && S.isLive;
+
   document.getElementById('confirm-current-wrap').style.display = isCurrentLive ? 'flex' : 'none';
   document.getElementById('live-iso-required').style.display    = isCurrentNonLive ? 'block' : 'none';
+
+  const partName = isAlongside && S.target_partition ? S.target_partition.name : '';
   document.getElementById('review-wipe').textContent = isCurrentNonLive
     ? '⚠ This is the running system disk — see notice below.'
-    : (S.disk && S.disk.current
-        ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
-        : '⚠ Everything on the selected disk will be permanently erased.');
+    : isAlongside
+        ? `⚠ Partition ${partName || '?'} will be erased and replaced with KythOS.`
+        : (S.disk && S.disk.current
+            ? '⚠ Reinstall target: this appears to be the disk currently running KythOS. The selected disk will be erased and replaced.'
+            : '⚠ Everything on the selected disk will be permanently erased.');
+
+  document.getElementById('confirm-erase-label').textContent = isAlongside
+    ? `I understand partition ${partName || '?'} will be erased and replaced with KythOS.`
+    : 'I understand KythOS will erase the selected disk and install a fresh system.';
+
   updateInstallReady();
 }
 
 function updateInstallReady() {
-  if (S.disk && S.disk.current && !S.isLive) {
+  const isAlongside = S.install_mode === 'alongside';
+  if (!isAlongside && S.disk && S.disk.current && !S.isLive) {
     document.getElementById('install-now').disabled = true;
     return;
   }
   const backup    = document.getElementById('confirm-backup').checked;
   const erase     = document.getElementById('confirm-erase').checked;
-  const currentOk = !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
+  const currentOk = isAlongside || !(S.disk && S.disk.current) || document.getElementById('confirm-current').checked;
   document.getElementById('install-now').disabled = !(backup && erase && currentOk);
 }
 
@@ -1599,9 +1908,11 @@ function startInstall() {
       disk: S.disk.name, hostname: S.hostname,
       timezone: S.timezone, username: S.username, password: S.password,
       kernel: S.kernel,
-      confirm_backup: document.getElementById('confirm-backup').checked,
-      confirm_erase: document.getElementById('confirm-erase').checked,
-      confirm_current: document.getElementById('confirm-current').checked,
+      install_mode:      S.install_mode,
+      target_partition:  S.target_partition ? S.target_partition.name : '',
+      confirm_backup:    document.getElementById('confirm-backup').checked,
+      confirm_erase:     document.getElementById('confirm-erase').checked,
+      confirm_current:   document.getElementById('confirm-current').checked,
     }),
   }).then(r => {
     if (!r.ok) {
@@ -1729,7 +2040,7 @@ function showError(msg) {
 }
 
 function reboot() {
-  document.body.innerHTML = '<div id="app"><div id="content" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div></div>';
+  document.body.innerHTML = '<div id="main" style="display:flex;align-items:center;justify-content:center"><div class="card" style="text-align:center;padding:48px 40px"><div class="done-title">Restarting</div><p class="hero-body">Remove the installation media when your computer begins to restart.</p></div></div>';
   apiFetch('/api/reboot', {method:'POST'}).catch(()=>{});
 }
 

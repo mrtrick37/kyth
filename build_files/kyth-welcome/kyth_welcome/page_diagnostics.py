@@ -13,10 +13,10 @@ from .core import (  # noqa: E501
     DataWorker, HardwareProbe, HardwareProbeWorker, _command_stdout, _diagnostics_report, _finish_worker, _has_rollback_deployment, _has_staged_update, _health_command_report, _health_recommendations, _release_worker_when_finished, _restyle,
 )
 from .qt import (  # noqa: E501
-    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QApplication, QFileDialog, QFrame, QHBoxLayout, QLabel, QProgressBar, QPushButton, QTextEdit, QTimer, QVBoxLayout, QWidget,
 )
 from .widgets import (  # noqa: E501
-    HardwareCard, Page, _make_card,
+    ActionRow, EmptyState, HardwareCard, Page, _make_card, _make_flow_step,
 )
 
 
@@ -34,7 +34,7 @@ def _storage_sense_enabled() -> bool:
 
 
 def _collect_security_status() -> list[tuple[str, str, str]]:
-    """Windows Security-style overview rows: (status, area, text)."""
+    """Security overview rows: (status, area, text)."""
     rows: list[tuple[str, str, str]] = []
 
     try:
@@ -91,7 +91,7 @@ def _collect_security_status() -> list[tuple[str, str, str]]:
 
 
 def _collect_signin_status() -> list[tuple[str, str, str]]:
-    """Windows Hello-style account and sign-in overview."""
+    """Account and sign-in overview."""
     rows: list[tuple[str, str, str]] = []
     user = getpass.getuser()
 
@@ -165,6 +165,7 @@ class DiagnosticsPage(Page):
         super().__init__()
         self._worker = None
         self._health_worker = None
+        self._initial_refresh_started = False
         self._last_probes: list[HardwareProbe] = []
         self._base_report = ""
         self._health_report = ""
@@ -176,33 +177,29 @@ class DiagnosticsPage(Page):
             "A quick look at how your hardware and system stack are doing.",
         )
 
-        btn_row = QHBoxLayout()
-        btn_row.setSpacing(10)
-        self._refresh_btn = QPushButton("Run Health Report")
-        self._refresh_btn.setObjectName("primary")
-        self._refresh_btn.clicked.connect(self.refresh)
-        btn_row.addWidget(self._refresh_btn)
+        triage_card, triage_layout = _make_card()
+        triage_title = QLabel("Health report triage")
+        triage_title.setObjectName("card-title")
+        triage_layout.addWidget(triage_title)
+        for i, (title, copy) in enumerate((
+            ("Summary first", "The banner tells you whether the system looks healthy, needs attention, or has a blocking issue."),
+            ("Cards next", "Hardware and security rows point at the specific area: graphics, display, audio, network, storage, recovery, or sign-in."),
+            ("Details last", "Technical logs stay collapsed until you need to copy, save, or attach them to an issue."),
+        ), 1):
+            triage_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(triage_card)
 
-        self._copy_btn = QPushButton("Copy Report")
+        self._actions = ActionRow("Ready to run a fresh health report.", "idle")
+        self._refresh_btn = self._actions.add_button("Run Health Report", self.refresh, primary=True)
+        self._copy_btn = self._actions.add_button("Copy Report", self._copy_report)
+        self._save_btn = self._actions.add_button("Save Report…", self._save_report)
+        self._issue_btn = self._actions.add_button("Report Issue", self._report_issue)
+        self._actions.finish()
         self._copy_btn.setEnabled(False)
-        self._copy_btn.clicked.connect(self._copy_report)
-        btn_row.addWidget(self._copy_btn)
-
-        self._save_btn = QPushButton("Save Report…")
         self._save_btn.setEnabled(False)
-        self._save_btn.clicked.connect(self._save_report)
-        btn_row.addWidget(self._save_btn)
-
-        self._issue_btn = QPushButton("Report Issue")
         self._issue_btn.setEnabled(False)
-        self._issue_btn.clicked.connect(self._report_issue)
-        btn_row.addWidget(self._issue_btn)
-        btn_row.addStretch()
-
-        self._status_lbl = QLabel()
-        self._status_lbl.setObjectName("subheading")
-        btn_row.addWidget(self._status_lbl)
-        self._add_layout(btn_row)
+        self._status_lbl = self._actions.status
+        self._add(self._actions)
 
         self._progress = QProgressBar()
         self._progress.setRange(0, 0)
@@ -226,6 +223,14 @@ class DiagnosticsPage(Page):
         self._cards_layout.setContentsMargins(0, 0, 0, 0)
         self._cards_layout.setSpacing(8)
         self._add(self._cards_widget)
+        self._empty_state = EmptyState(
+            "No checks to show yet",
+            "Run a health report to populate hardware, security, and recovery checks.",
+            "Run Health Report",
+            self.refresh,
+        )
+        self._empty_state.hide()
+        self._add(self._empty_state)
 
         # Raw report (hidden; surfaced via toggle for support use)
         self._raw_toggle = QPushButton("Show technical details")
@@ -246,7 +251,16 @@ class DiagnosticsPage(Page):
         self._add(self._make_storage_sense_card())
 
         self._stretch()
-        self.refresh()
+    def showEvent(self, event):
+        super().showEvent(event)
+        if self._initial_refresh_started:
+            return
+        self._initial_refresh_started = True
+        QTimer.singleShot(0, self.refresh)
+
+
+    def _set_status(self, state: str, text: str) -> None:
+        self._status_lbl.set_state(state, text)
 
     # ── Security at a glance ────────────────────────────────────────────────
     def _make_security_card(self) -> QFrame:
@@ -255,7 +269,7 @@ class DiagnosticsPage(Page):
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
-            "The Windows Security checklist, KythOS edition — what protects this "
+            "The Security checklist, KythOS edition — what protects this "
             "PC and whether it's active right now."
         )
         body.setObjectName("card-copy")
@@ -295,7 +309,7 @@ class DiagnosticsPage(Page):
     # ── Sign-in options ─────────────────────────────────────────────────────
     def _make_signin_card(self) -> QFrame:
         card, layout = _make_card()
-        title = QLabel("Sign-in options — Windows Hello style")
+        title = QLabel("Sign-in options")
         title.setObjectName("card-title")
         layout.addWidget(title)
         body = QLabel(
@@ -548,13 +562,12 @@ class DiagnosticsPage(Page):
         self._copy_btn.setEnabled(False)
         self._save_btn.setEnabled(False)
         self._issue_btn.setEnabled(False)
-        self._status_lbl.setText("Gathering system information…")
-        self._status_lbl.setObjectName("subheading")
-        _restyle(self._status_lbl)
+        self._set_status("running", "Gathering system information…")
         self._progress.show()
         self._base_report = ""
         self._health_report = ""
         self._banner_card.hide()
+        self._empty_state.hide()
         self._raw_toggle.hide()
         self._report.hide()
         self._report.setPlainText("")
@@ -574,22 +587,22 @@ class DiagnosticsPage(Page):
 
         self._build_summary_banner(probes)
         self._clear_cards()
-        for probe in probes:
-            card = HardwareCard(probe)
-            self._probe_cards[probe.title] = card
-            self._cards_layout.addWidget(card)
+        if probes:
+            self._empty_state.hide()
+            for probe in probes:
+                card = HardwareCard(probe)
+                self._probe_cards[probe.title] = card
+                self._cards_layout.addWidget(card)
+        else:
+            self._empty_state.show()
 
         levels = {p.status for p in probes}
         if "err" in levels:
-            self._status_lbl.setText("Issues found — running extended checks…")
-            self._status_lbl.setObjectName("status-err")
+            self._set_status("err", "Issues found — running extended checks…")
         elif "warn" in levels:
-            self._status_lbl.setText("Warnings found — running extended checks…")
-            self._status_lbl.setObjectName("status-warn")
+            self._set_status("warn", "Warnings found — running extended checks…")
         else:
-            self._status_lbl.setText("Hardware checks passed — running extended checks…")
-            self._status_lbl.setObjectName("status-ok")
-        _restyle(self._status_lbl)
+            self._set_status("ok", "Hardware checks passed — running extended checks…")
 
         self._health_worker = DataWorker("health", _health_command_report)
         self._health_worker.result.connect(self._on_health_done)
@@ -618,15 +631,11 @@ class DiagnosticsPage(Page):
             or "Result: resume readiness has warnings" in self._health_report
         )
         if has_failures:
-            self._status_lbl.setText("Issues found — check the details above.")
-            self._status_lbl.setObjectName("status-err")
+            self._set_status("err", "Issues found — check the details above.")
         elif has_warnings:
-            self._status_lbl.setText("Warnings found — review the items above.")
-            self._status_lbl.setObjectName("status-warn")
+            self._set_status("warn", "Warnings found — review the items above.")
         else:
-            self._status_lbl.setText("All checks completed successfully.")
-            self._status_lbl.setObjectName("status-ok")
-        _restyle(self._status_lbl)
+            self._set_status("ok", "All checks completed successfully.")
 
     def _on_health_failed(self, _key: str, message: str):
         _finish_worker(self, "_health_worker")
@@ -636,17 +645,13 @@ class DiagnosticsPage(Page):
         self._save_btn.setEnabled(True)
         self._issue_btn.setEnabled(True)
         self._raw_toggle.show()
-        self._status_lbl.setText(f"Extended checks failed: {message}")
-        self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
+        self._set_status("err", f"Extended checks failed: {message}")
 
     def _on_failed(self, message: str):
         self._progress.hide()
         self._refresh_btn.setEnabled(True)
         _finish_worker(self)
-        self._status_lbl.setText(f"Failed: {message}")
-        self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
+        self._set_status("err", f"Failed: {message}")
 
     def _toggle_raw(self, checked: bool):
         self._raw_toggle.setText(
@@ -656,9 +661,7 @@ class DiagnosticsPage(Page):
 
     def _copy_report(self):
         QApplication.clipboard().setText(self._report.toPlainText())
-        self._status_lbl.setText("Report copied to clipboard.")
-        self._status_lbl.setObjectName("status-ok")
-        _restyle(self._status_lbl)
+        self._set_status("ok", "Report copied to clipboard.")
 
     def _save_report(self):
         default = os.path.expanduser(f"~/Documents/kyth-health-report-{datetime.now().strftime('%Y%m%d-%H%M%S')}.txt")
@@ -668,19 +671,14 @@ class DiagnosticsPage(Page):
         try:
             with open(path, "w", encoding="utf-8") as fh:
                 fh.write(self._report.toPlainText())
-            self._status_lbl.setText(f"Saved to {path}.")
-            self._status_lbl.setObjectName("status-ok")
+            self._set_status("ok", f"Saved to {path}.")
         except OSError as exc:
-            self._status_lbl.setText(f"Could not save: {exc}")
-            self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
+            self._set_status("err", f"Could not save: {exc}")
 
     def _report_issue(self):
         report = self._report.toPlainText().strip()
         if not report:
-            self._status_lbl.setText("Run a health report first.")
-            self._status_lbl.setObjectName("status-warn")
-            _restyle(self._status_lbl)
+            self._set_status("warn", "Run a health report first.")
             return
         report_dir = os.path.expanduser("~/.local/state/kyth")
         body_path = os.path.join(report_dir, f"health-report-issue-{datetime.now().strftime('%Y%m%d-%H%M%S')}.md")
@@ -702,9 +700,6 @@ class DiagnosticsPage(Page):
                 "--body-file", body_path,
                 "--label", "bug",
             ])
-            self._status_lbl.setText("Opening a prefilled GitHub issue.")
-            self._status_lbl.setObjectName("status-ok")
+            self._set_status("ok", "Opening a prefilled GitHub issue.")
         except OSError as exc:
-            self._status_lbl.setText(f"Could not prepare issue: {exc}")
-            self._status_lbl.setObjectName("status-err")
-        _restyle(self._status_lbl)
+            self._set_status("err", f"Could not prepare issue: {exc}")

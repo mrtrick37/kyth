@@ -1,0 +1,10 @@
+[Desktop Entry]
+Version=1.0
+Name=Apply KythOS Update
+Comment=Download and stage the latest KythOS image — works independently of KythOS Hub
+Exec=konsole -e /usr/bin/kyth-apply-update
+Icon=system-software-update
+Terminal=false
+Type=Application
+Categories=System;
+Keywords=update;upgrade;bootc;kyth;os;system;
