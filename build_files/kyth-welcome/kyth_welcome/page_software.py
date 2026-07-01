@@ -1998,7 +1998,7 @@ class SoftwarePage(Page):
                 _restyle(self._ai_status)
                 return
         try:
-            os.chmod(dest, 0o755)  # nosemgrep
+            os.chmod(dest, 0o700)  # nosemgrep
         except OSError:
             pass
 
@@ -2044,7 +2044,7 @@ class SoftwarePage(Page):
             )
             with open(desktop_path, "w", encoding="utf-8") as f:
                 f.write(content)
-            os.chmod(desktop_path, 0o644)
+            os.chmod(desktop_path, 0o600)
         except OSError:
             return
         for cmd in (
