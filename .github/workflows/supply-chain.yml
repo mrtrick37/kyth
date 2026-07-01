@@ -315,6 +315,7 @@ jobs:
             echo "::warning::Grype scan of previous SBOM failed; CVE diff will be incomplete"
           [[ -f "${OUT}" ]] && echo "path=${OUT}" >> "$GITHUB_OUTPUT"
 
+
       - name: Generate SBOM-powered changelog
         id: changelog
         env:
