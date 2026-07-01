@@ -611,8 +611,11 @@ WINEFSYNC=1
 WINEESYNC=1
 mesa_glthread=true
 # FSR upscaling in fullscreen Wine/Proton games — lets older titles that don't
-# run at native resolution get AMD FidelityFX Super Resolution upscaling.
-# Strength 0 = sharpest, 5 = most blur; 2 is a good balance.
+# run at native resolution get FidelityFX Super Resolution upscaling via Wine's
+# built-in FSR pass. Works on AMD, NVIDIA, and Intel — it's a shader effect, not
+# hardware. Strength 0 = sharpest, 5 = most blur; 2 is a good default balance.
+WINE_FULLSCREEN_FSR=1
+WINE_FULLSCREEN_FSR_STRENGTH=2
 # Suppress the Windows-style crash/error dialog that pops up when a game
 # exits unexpectedly via Wine's built-in error handler. On Linux the crash is
 # already captured by the kernel and Proton's own logging; the dialog just
@@ -622,14 +625,22 @@ PROTON_NO_WINDOWS_CRASH_DIALOG=1
 # on every DX9/10/11 draw call setup, adding measurable I/O overhead on
 # titles with high draw call counts. "none" keeps only fatal errors.
 DXVK_LOG_LEVEL=none
+# Enable DirectX 12 ray tracing in VKD3D-Proton. dxr advertises Tier 1 RT;
+# dxr11 adds DX11-style conservative RT fallback used by some titles. VKD3D
+# won't expose RT to the game unless the GPU Vulkan driver actually supports the
+# VK_KHR_ray_tracing_pipeline extension, so this is safe to set globally.
+VKD3D_CONFIG=dxr11,dxr
+# VKD3D-Proton logs at "warn" level by default — noisy in the journal.
+# Matches DXVK_LOG_LEVEL=none above.
+VKD3D_LOG_LEVEL=none
+# MangoHud: fall back to dlsym hooking for older OpenGL games that dlopen libGL
+# rather than linking it at load time. Safe to set globally; no-op for Vulkan.
+MANGOHUD_DLSYM=1
+# Prevent Steam from spawning a renderer subprocess for the built-in browser
+# when it is not in use — saves ~100 MB of resident memory.
+STEAM_DISABLE_BROWSER_SUBPROCESS=1
 PROTONEOF
 
-# obs-vkcapture: make game capture available by default for OBS users. The layer
-# is lightweight and only matters to Vulkan/OpenGL capture paths, giving streamers
-# a Nobara-like "works without launch-option archaeology" setup.
-cat >/etc/environment.d/obs-vkcapture.conf <<'OBSVKCAPTUREEOF'
-OBS_VKCAPTURE=1
-OBSVKCAPTUREEOF
 
 # ── NVIDIA NVAPI: detect at login, not at build time ─────────────────────────
 # PROTON_ENABLE_NVAPI tells Proton to emulate NVIDIA's API layer.  It is only
@@ -641,10 +652,25 @@ install -m 0755 /dev/stdin /usr/lib/systemd/user-environment-generators/80-kyth-
 #!/bin/bash
 if lspci -d ::0300 2>/dev/null | grep -qi nvidia || \
    lspci -d ::0302 2>/dev/null | grep -qi nvidia; then
+    # VKD3D-Proton (DX12) NVAPI: enables DLSS, Reflex, and NV-specific rendering
+    # paths in DX12 games. Proton checks this before its own NVAPI detection.
     echo "PROTON_ENABLE_NVAPI=1"
+    # DXVK (DX9/10/11) NVAPI: complementary to PROTON_ENABLE_NVAPI — DXVK has
+    # its own NVAPI implementation used for DX11 games with NVAPI dependencies.
+    echo "DXVK_ENABLE_NVAPI=1"
     # NVIDIA equivalent of mesa_glthread: offloads OpenGL command submission to
     # a second thread. Only meaningful on NVIDIA + OpenGL; Vulkan/DXVK unaffected.
     echo "__GL_THREADED_OPTIMIZATIONS=1"
+    # Keep the NVIDIA OpenGL shader disk cache and prevent automatic pruning.
+    # Without these, NVIDIA deletes cached shaders when the cache grows beyond
+    # a threshold, forcing recompilation stutter every N launches.
+    echo "__GL_SHADER_DISK_CACHE=1"
+    echo "__GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1"
+    # nvidia-vaapi-driver: libva will not auto-detect the NVIDIA backend without
+    # an explicit driver name. NVD_BACKEND=direct uses the NvDecode API directly
+    # (avoids the deprecated CUDA path; works on Turing/Ampere/Ada without CUDA).
+    echo "LIBVA_DRIVER_NAME=nvidia"
+    echo "NVD_BACKEND=direct"
 fi
 NVAPIEOF
 
@@ -713,6 +739,7 @@ frametime=1
 frame_timing=1
 
 # GPU
+gpu_name
 gpu_stats
 gpu_temp
 gpu_core_clock
@@ -720,6 +747,8 @@ gpu_mem_clock
 vram
 # GPU power draw — a sustained drop toward TDP indicates thermal throttling
 gpu_power
+# Active Vulkan driver (RADV, AMDVLK, ANV, etc.)
+vulkan_driver
 
 # CPU
 cpu_stats
@@ -734,8 +763,12 @@ ram
 # Battery (shown only on systems where a battery is present)
 battery
 
-# Show Wine/Proton version when running Windows games
+# Presentation mode (FIFO=vsync, Immediate=tearing, Mailbox=triple-buffer)
+present_mode
+
+# Wine/Proton layer: show version and translation layer (DXVK/VKD3D) version
 wine
+engine_version
 MANGOHUDEOF
 
 # ── vkBasalt default config ───────────────────────────────────────────────────
@@ -749,11 +782,22 @@ casSharpness = 0.4
 toggleKey = Home
 VKBASALTEOF
 
-# ── Font rendering — Windows ClearType-compatible defaults ────────────────────
-# Linux freetype defaults vary by distro; Fedora's are conservative. Tuning
-# toward "hintslight" + RGB subpixel + lcddefault matches what Windows ClearType
-# produces: horizontal stems snap to pixel boundaries while vertical letterforms
-# are preserved, and colour fringing is suppressed by the LCD filter.
+# ── topgrade defaults — disable steps that don't apply or cause noise ─────────
+# helix: grammar fetch fails when git picks up a stale VS Code credential-helper
+#   socket (GIT_ASKPASS), producing spurious auth errors; Helix ships grammars
+#   bundled with the binary so grammar fetching is not needed during routine updates.
+# system/distrobox/containers/toolbx: managed separately by KythOS tooling.
+mkdir -p /etc/skel/.config
+cat >/etc/skel/.config/topgrade.toml <<'TOPGRADEEOF'
+[misc]
+disable = ["system", "distrobox", "containers", "toolbx", "helix"]
+TOPGRADEEOF
+
+# ── Font rendering — sharp LCD defaults ──────────────────────────────────────
+# Linux freetype defaults vary by distro; Fedora's are conservative. hintfull
+# snaps stems to pixel boundaries for maximum on-screen crispness (matches the
+# sharpness of Windows ClearType on typical 1080p panels). autohint=false keeps
+# FreeType using the font's own hinting tables rather than its generic engine.
 # Users who prefer a different look can drop a file in ~/.config/fontconfig/.
 mkdir -p /etc/fonts/conf.d
 cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
@@ -763,7 +807,8 @@ cat >/etc/fonts/local.conf <<'FONTCONFIGEOF'
   <match target="font">
     <edit name="antialias"  mode="assign"><bool>true</bool></edit>
     <edit name="hinting"    mode="assign"><bool>true</bool></edit>
-    <edit name="hintstyle"  mode="assign"><const>hintslight</const></edit>
+    <edit name="autohint"   mode="assign"><bool>false</bool></edit>
+    <edit name="hintstyle"  mode="assign"><const>hintfull</const></edit>
     <edit name="rgba"       mode="assign"><const>rgb</const></edit>
     <edit name="lcdfilter"  mode="assign"><const>lcddefault</const></edit>
   </match>
@@ -787,7 +832,6 @@ ln -sf /etc/systemd/system/display-manager.service \
 ln -sf /usr/lib/systemd/system/graphical.target \
 	/etc/systemd/system/default.target
 
-
 systemctl enable rtkit-daemon.service 2>/dev/null || true
 systemctl enable input-remapper.service 2>/dev/null || true
 # joycond: pairs left + right Joy-Cons into a single virtual controller.
@@ -810,6 +854,7 @@ else
 fi
 systemctl enable docker.socket 2>/dev/null || true
 systemctl enable fwupd 2>/dev/null || true
+systemctl enable pcscd.socket 2>/dev/null || true
 
 # ── Automatic updates: use bootc, not rpm-ostree ──────────────────────────────
 # rpm-ostreed-automatic conflicts with bootc over the sysroot lock.
@@ -827,9 +872,14 @@ if systemctl list-unit-files --type=timer --no-legend 2>/dev/null | grep -q '^rp
 fi
 # Mask packagekitd so Plasma Discover cannot query it for RPM-level updates.
 # plasma-discover-rpm-ostree is removed in packages.sh; this masks the generic
-# DNF/PackageKit backend as a belt-and-suspenders measure. Discover's Flatpak
-# backend does not use PackageKit and is unaffected.
+# DNF/PackageKit backend as a belt-and-suspenders measure.
 systemctl mask packagekit.service 2>/dev/null || true
+
+# Mask the Discover update notifier for all users. Discover's Flatpak backend
+# bypasses PackageKit and would still surface its own update prompts.
+# System Hub owns the update notification flow via kyth-update-watcher.
+mkdir -p /etc/systemd/user
+ln -sf /dev/null /etc/systemd/user/plasma-discover-notifier.service
 
 # ── Boot-time noise reduction ─────────────────────────────────────────────────
 # NetworkManager-wait-online blocks network-online.target (and thus multi-user

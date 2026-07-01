@@ -2,6 +2,7 @@ import os
 import shlex
 import shutil
 import subprocess
+from pathlib import Path
 
 # __KYTH_GENERATED_IMPORTS__
 from .core import (  # noqa: E501
@@ -11,8 +12,15 @@ from .qt import (  # noqa: E501
     QDesktopServices, QFileDialog, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card, _set_log_panel,
+    Page, _make_card, _make_flow_step, _set_log_panel,
 )
+
+
+def _read_sys_text(path: str) -> str:
+    try:
+        return Path(path).read_text(encoding="utf-8").strip()
+    except OSError:
+        return ""
 
 # ── Page: Repair ──────────────────────────────────────────────────────────────
 class RepairPage(Page):
@@ -22,6 +30,7 @@ class RepairPage(Page):
         self._snapshot_worker = None
         self._assist_worker = None
         self._setup_worker = None
+        self._has_rollback = _has_rollback_deployment()
         self._setup_operation = ""
         self._navigate = navigate or (lambda _key: None)
 
@@ -46,6 +55,18 @@ class RepairPage(Page):
         info_body.setWordWrap(True)
         info_layout.addWidget(info_body)
         self._add(info)
+
+        order_card, order_layout = _make_card("card-accent-ok")
+        order_title = QLabel("Best repair order")
+        order_title.setObjectName("card-title")
+        order_layout.addWidget(order_title)
+        for i, (title, copy) in enumerate((
+            ("Quick fixes", "Refresh menus, repair Flatpaks, restart audio or Bluetooth, and collect a snapshot first."),
+            ("Roll back", "If trouble started after an update, stage the previous image before changing anything else."),
+            ("Repair install", "Use the destructive OS reset only after quick fixes and rollback do not match the problem."),
+        ), 1):
+            order_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(order_card)
 
         immutable, immutable_layout = _make_card("card-accent-ok")
         immutable_title = QLabel("Why system files are read-only")
@@ -76,7 +97,7 @@ class RepairPage(Page):
         self._add(immutable)
 
         # Undo last update
-        rollback, rollback_layout = _make_card("card-accent-warn" if _has_rollback_deployment() else None)
+        rollback, rollback_layout = _make_card("card-accent-warn" if self._has_rollback else None)
         rollback_title = QLabel("Undo last update")
         rollback_title.setObjectName("card-title")
         rollback_layout.addWidget(rollback_title)
@@ -87,7 +108,7 @@ class RepairPage(Page):
                 "your files, saves, and projects in /home stay in place."
                 + (f"\n\nPrevious image built: {rollback_ts}" if rollback_ts else "")
             )
-            if _has_rollback_deployment()
+            if self._has_rollback
             else (
                 "No previous system image is available right now. After the next OS update, "
                 "KythOS will keep a rollback target here so you can undo a bad update."
@@ -101,7 +122,7 @@ class RepairPage(Page):
         self._rollback_repair_btn = QPushButton("Rollback and Reboot")
         self._rollback_repair_btn.setObjectName("primary")
         self._rollback_repair_btn.setToolTip("Activate the previous OS image on the next boot. Your files in /home stay untouched.")
-        self._rollback_repair_btn.setEnabled(_has_rollback_deployment())
+        self._rollback_repair_btn.setEnabled(self._has_rollback)
         self._rollback_repair_btn.clicked.connect(self._run_rollback)
         rollback_btns.addWidget(self._rollback_repair_btn)
         update_btn = QPushButton("Open Update Page")
@@ -119,7 +140,7 @@ class RepairPage(Page):
         quick_layout.addWidget(quick_title)
         quick_body = QLabel(
             "Try these first. They are non-destructive and aimed at the common "
-            "Windows-switcher moments: app menu entries missing, Flatpaks acting odd, "
+            "new-desktop moments: app menu entries missing, Flatpaks acting odd, "
             "audio disappearing, or needing a familiar Task Manager."
         )
         quick_body.setObjectName("card-copy")
@@ -180,7 +201,7 @@ class RepairPage(Page):
         printer_btn.clicked.connect(self._open_printer_setup)
         quick_btns.addWidget(printer_btn)
         mixer_btn = QPushButton("Open Volume Mixer")
-        mixer_btn.setToolTip("Open per-app volume controls — equivalent to Windows Volume Mixer.")
+        mixer_btn.setToolTip("Open per-app volume controls — for familiar per-app mixing.")
         mixer_btn.clicked.connect(self._open_volume_mixer)
         quick_btns.addWidget(mixer_btn)
         defaults_btn = QPushButton("Manage Default Apps")
@@ -189,13 +210,13 @@ class RepairPage(Page):
             if shutil.which("kcmshell6") else QDesktopServices.openUrl(QUrl("settings://filetypes")))
         quick_btns.addWidget(defaults_btn)
         startup_btn = QPushButton("Manage Startup Apps")
-        startup_btn.setToolTip("Control which apps launch at login — equivalent to Task Manager → Startup tab on Windows.")
+        startup_btn.setToolTip("Control which apps launch at login — for familiar startup-app management.")
         startup_btn.clicked.connect(lambda _=False: subprocess.Popen(["kcmshell6", "autostart"])
             if shutil.which("kcmshell6") else None)
         quick_btns.addWidget(startup_btn)
         exe_fix_btn = QPushButton("Fix .exe Files")
         exe_fix_btn.setToolTip(
-            "Set Bottles as the default handler for Windows .exe and .msi files, "
+            "Set Bottles as the default handler for .exe and .msi files, "
             "so double-clicking them opens Bottles instead of the archive manager."
         )
         exe_fix_btn.clicked.connect(self._fix_exe_association)
@@ -203,7 +224,7 @@ class RepairPage(Page):
         clipboard_btn = QPushButton("Enable Clipboard History")
         clipboard_btn.setToolTip(
             "Turn on KDE clipboard history (Klipper) so you can access recently copied text "
-            "— equivalent to Windows PowerToys clipboard history."
+            "— equivalent to a familiar clipboard history tool."
         )
         clipboard_btn.clicked.connect(self._enable_clipboard_history)
         quick_btns.addWidget(clipboard_btn)
@@ -290,7 +311,7 @@ class RepairPage(Page):
         backup_title.setObjectName("card-title")
         backup_layout.addWidget(backup_title)
         backup_body = QLabel(
-            "Like File History on Windows: pick a backup drive (or network location), "
+            "Like File History-style backup: pick a backup drive (or network location), "
             "and Pika Backup keeps scheduled snapshots of your files. Restore any "
             "earlier version of a file from the same app. Snapshots are deduplicated, "
             "so keeping months of history costs little space."
@@ -460,8 +481,8 @@ class RepairPage(Page):
         sleep_title.setObjectName("card-title")
         sleep_layout.addWidget(sleep_title)
 
-        mem_sleep = _command_stdout(["cat", "/sys/power/mem_sleep"], timeout=3)
-        sleep_state = _command_stdout(["cat", "/sys/power/state"], timeout=3)
+        mem_sleep = _read_sys_text("/sys/power/mem_sleep")
+        sleep_state = _read_sys_text("/sys/power/state")
         current_mode = "unknown"
         if "[deep]" in mem_sleep:
             current_mode = "S3 deep (good)"
@@ -781,7 +802,7 @@ class RepairPage(Page):
             QMessageBox.information(
                 self, "Clipboard History",
                 "Clipboard history enabled (25 items).\n"
-                "Press Meta+V (Windows key + V) to open the clipboard history popup."
+                "Press Meta+V (Meta+V) to open the clipboard history popup."
             )
         except Exception as exc:
             QMessageBox.warning(self, "Clipboard History", f"Could not enable clipboard history: {exc}")

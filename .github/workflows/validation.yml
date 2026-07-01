@@ -34,71 +34,77 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
+      - name: Cache validation tools
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .cache/kyth-ci-tools
+          key: validation-tools-${{ runner.os }}-${{ env.ACTIONLINT_VERSION }}-${{ env.HADOLINT_VERSION }}-${{ env.JUST_VERSION }}-${{ env.ZIZMOR_VERSION }}
       - name: Install pinned validators
         run: |
+          exec 5>>"${GITHUB_PATH}"
           set -euo pipefail
-          bin_dir="${RUNNER_TEMP}/bin"
-          download_dir="${RUNNER_TEMP}/validator-downloads"
-          mkdir -p "${bin_dir}" "${download_dir}"
+          cache_dir="${KYTH_CI_TOOL_CACHE:-${GITHUB_WORKSPACE}/.cache/kyth-ci-tools}"
+          bin_dir="${HOME}/.local/bin"
+          mkdir -p "${cache_dir}" "${bin_dir}"
+          echo "${bin_dir}" >&5
 
-          actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-          actionlint_base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/${actionlint_archive}" \
-            "${actionlint_base}/${actionlint_archive}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/actionlint_checksums.txt" \
-            "${actionlint_base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
-          (
-            cd "${download_dir}"
-            grep " ${actionlint_archive}$" actionlint_checksums.txt | sha256sum --check --strict -
-            tar -xzf "${actionlint_archive}" actionlint
-          )
-          install -m 0755 "${download_dir}/actionlint" "${bin_dir}/actionlint"
+          actionlint_bin="${cache_dir}/actionlint-${ACTIONLINT_VERSION}"
+          if [[ ! -x "${actionlint_bin}" ]]; then
+            work="$(mktemp -d)"
+            actionlint_archive="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+            actionlint_base="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}"
+            curl -fsSL -o "${work}/${actionlint_archive}" "${actionlint_base}/${actionlint_archive}"
+          curl -fsSL -o "${work}/checksums.txt" "${actionlint_base}/actionlint_${ACTIONLINT_VERSION}_checksums.txt"
+            (cd "${work}" && grep " ${actionlint_archive}$" checksums.txt | sha256sum -c -)
+            tar -xzf "${work}/${actionlint_archive}" -C "${work}" actionlint
+            install -m 0755 "${work}/actionlint" "${actionlint_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${actionlint_bin}" "${bin_dir}/actionlint"
 
-          hadolint_binary="hadolint-linux-x86_64"
-          hadolint_base="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/${hadolint_binary}" \
-            "${hadolint_base}/${hadolint_binary}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/${hadolint_binary}.sha256" \
-            "${hadolint_base}/${hadolint_binary}.sha256"
-          (
-            cd "${download_dir}"
-            sha256sum --check --strict "${hadolint_binary}.sha256"
-          )
-          install -m 0755 "${download_dir}/${hadolint_binary}" "${bin_dir}/hadolint"
+          hadolint_bin="${cache_dir}/hadolint-${HADOLINT_VERSION}"
+          if [[ ! -x "${hadolint_bin}" ]]; then
+            work="$(mktemp -d)"
+            hadolint_binary="hadolint-linux-x86_64"
+            hadolint_base="https://github.com/hadolint/hadolint/releases/download/v${HADOLINT_VERSION}"
+            curl -fsSL -o "${work}/${hadolint_binary}" "${hadolint_base}/${hadolint_binary}"
+            curl -fsSL -o "${work}/${hadolint_binary}.sha256" "${hadolint_base}/${hadolint_binary}.sha256"
+            (cd "${work}" && sha256sum -c "${hadolint_binary}.sha256")
+            install -m 0755 "${work}/${hadolint_binary}" "${hadolint_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${hadolint_bin}" "${bin_dir}/hadolint"
 
-          just_archive="just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
-          just_base="https://github.com/casey/just/releases/download/${JUST_VERSION}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/${just_archive}" \
-            "${just_base}/${just_archive}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/just_checksums.txt" \
-            "${just_base}/SHA256SUMS"
-          (
-            cd "${download_dir}"
-            grep " ${just_archive}$" just_checksums.txt | sha256sum --check --strict -
-            tar -xzf "${just_archive}" just
-          )
-          install -m 0755 "${download_dir}/just" "${bin_dir}/just"
+          just_bin="${cache_dir}/just-${JUST_VERSION}"
+          if [[ ! -x "${just_bin}" ]]; then
+            work="$(mktemp -d)"
+            just_archive="just-${JUST_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+            just_base="https://github.com/casey/just/releases/download/${JUST_VERSION}"
+            curl -fsSL -o "${work}/${just_archive}" "${just_base}/${just_archive}"
+            curl -fsSL -o "${work}/SHA256SUMS" "${just_base}/SHA256SUMS"
+            (cd "${work}" && grep " ${just_archive}$" SHA256SUMS | sha256sum -c -)
+            tar -xzf "${work}/${just_archive}" -C "${work}" just
+            install -m 0755 "${work}/just" "${just_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${just_bin}" "${bin_dir}/just"
 
-          zizmor_archive="zizmor-x86_64-unknown-linux-gnu.tar.gz"
-          zizmor_url="https://github.com/zizmorcore/zizmor/releases/download/v${ZIZMOR_VERSION}/${zizmor_archive}"
-          curl --fail --location --silent --show-error \
-            --output "${download_dir}/${zizmor_archive}" \
-            "${zizmor_url}"
-          echo "${ZIZMOR_SHA256}  ${download_dir}/${zizmor_archive}" | sha256sum --check --strict
-          tar -xzf "${download_dir}/${zizmor_archive}" -C "${download_dir}" zizmor
-          install -m 0755 "${download_dir}/zizmor" "${bin_dir}/zizmor"
-          echo "${bin_dir}" >> "${GITHUB_PATH}"
-
+          zizmor_bin="${cache_dir}/zizmor-${ZIZMOR_VERSION}"
+          if [[ ! -x "${zizmor_bin}" ]]; then
+            work="$(mktemp -d)"
+            zizmor_archive="zizmor-x86_64-unknown-linux-gnu.tar.gz"
+            zizmor_base="https://github.com/woodruffw/zizmor/releases/download/v${ZIZMOR_VERSION}"
+            curl -fsSL -o "${work}/${zizmor_archive}" "${zizmor_base}/${zizmor_archive}"
+            echo "${ZIZMOR_SHA256}  ${work}/${zizmor_archive}" | sha256sum -c -
+            tar -xzf "${work}/${zizmor_archive}" -C "${work}" zizmor
+            install -m 0755 "${work}/zizmor" "${zizmor_bin}"
+            rm -rf "${work}"
+          fi
+          install -m 0755 "${zizmor_bin}" "${bin_dir}/zizmor"
       - name: Validate GitHub Actions workflows
         run: |
           actionlint -color -shellcheck=""

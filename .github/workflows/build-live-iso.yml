@@ -2,6 +2,34 @@ name: Build Live ISO
 run-name: "Build Live ISO - ${{ inputs.source_tag }}"
 
 on:
+  workflow_call:
+    inputs:
+      source_tag:
+        description: Source image tag to build ISO from
+        required: false
+        type: string
+        # Fedora variant only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy image has no Fedora kernel and would fail.
+        default: testing
+      source_digest:
+        description: Optional pinned source image digest
+        required: false
+        type: string
+        default: ""
+      source_sha:
+        description: Source commit matching source_digest
+        required: false
+        type: string
+        default: ""
+    secrets:
+      R2_ACCESS_KEY_ID:
+        required: true
+      R2_SECRET_ACCESS_KEY:
+        required: true
+      R2_ACCOUNT_ID:
+        required: true
+      R2_ENDPOINT_URL:
+        required: false
   workflow_dispatch:
     inputs:
       source_tag:
@@ -9,6 +37,9 @@ on:
         required: false
         default: latest
         type: choice
+        # Fedora variants only — the live ISO must boot the signed Fedora kernel
+        # for Secure Boot. The -cachy images have no Fedora kernel and the ISO
+        # build will hard-fail on them by design.
         options:
           - latest
           - testing
@@ -51,9 +82,9 @@ jobs:
 
     steps:
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ inputs.source_sha || (inputs.source_tag == 'testing' && 'testing' || 'main') }}
+          ref: ${{ inputs.source_sha || (startsWith(inputs.source_tag, 'testing') && 'testing' || 'main') }}
           persist-credentials: false
 
       - name: Prepare immutable release identity
@@ -61,6 +92,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           SOURCE_SHA="$(git rev-parse HEAD)"
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
           DATE="$(date -u +%Y%m%d)"
@@ -70,26 +102,51 @@ jobs:
           IMMUTABLE_TAG="iso-${SOURCE_TAG}-${RELEASE_ID}"
           ARTIFACT_NAME="kyth-live-iso-${SOURCE_TAG}-${RELEASE_ID}"
 
-          echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
-          echo "release_id=${RELEASE_ID}" >> "$GITHUB_OUTPUT"
-          echo "iso_basename=${ISO_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "channel_basename=${CHANNEL_BASENAME}" >> "$GITHUB_OUTPUT"
-          echo "immutable_tag=${IMMUTABLE_TAG}" >> "$GITHUB_OUTPUT"
-          echo "artifact_name=${ARTIFACT_NAME}" >> "$GITHUB_OUTPUT"
+          echo "source_sha=${SOURCE_SHA}" >&3
+          echo "release_id=${RELEASE_ID}" >&3
+          echo "iso_basename=${ISO_BASENAME}" >&3
+          echo "channel_basename=${CHANNEL_BASENAME}" >&3
+          echo "immutable_tag=${IMMUTABLE_TAG}" >&3
+          echo "artifact_name=${ARTIFACT_NAME}" >&3
 
-      - name: Free disk space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: true
-          docker-images: true
-          swap-storage: true
+      - name: Prepare live ISO build space
+        run: |
+          set -euo pipefail
+
+          show_space() {
+            echo "==> Disk space: $1"
+            df -h / /mnt /var/lib/containers 2>/dev/null || true
+          }
+
+          show_space "before cleanup"
+
+          # The live ISO job uses rootful Podman writing to a btrfs image on /mnt,
+          # not Docker. Prune the large hosted-runner directories that eat root-disk
+          # space, but skip docker image prune — Docker images live on the root disk
+          # and don't affect /mnt free space, so pruning them buys nothing here
+          # and costs ~45 seconds.
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          sudo swapoff -a || true
+          sudo rm -f /mnt/swapfile || true
+
+          show_space "after cleanup"
+
+          available_kb="$(df --output=avail /mnt | awk 'NR == 2 {print $1}')"
+          # podman-storage.img is intentionally sparse: the btrfs filesystem
+          # needs a 65G logical size, but the runner only needs enough backing
+          # space for the blocks the ISO build actually writes. GitHub's
+          # ubuntu-24.04 runners can now expose about 63 GiB free on /mnt after
+          # cleanup, so requiring the full logical size rejects otherwise usable
+          # runners before the build starts.
+          required_kb=$((58 * 1024 * 1024))
+          if (( available_kb < required_kb )); then
+            echo "::error::Need at least 58 GiB free on /mnt for the live ISO build; found $((available_kb / 1024 / 1024)) GiB."
+            exit 1
+          fi
 
       - name: Mount compressed Podman storage
         run: |
-          sudo truncate -s 70G /mnt/podman-storage.img
+          sudo truncate -s 65G /mnt/podman-storage.img
           sudo mkfs.btrfs -f /mnt/podman-storage.img
           sudo podman system reset --force
           sudo systemctl stop podman.service
@@ -102,6 +159,7 @@ jobs:
           SOURCE_TAG: ${{ inputs.source_tag }}
           EXPECTED_DIGEST: ${{ inputs.source_digest }}
         run: |
+          exec 3>>"${GITHUB_OUTPUT}"
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           TAGGED_IMAGE="${IMAGE}:${SOURCE_TAG}"
           if [[ -n "${EXPECTED_DIGEST}" ]]; then
@@ -114,10 +172,14 @@ jobs:
             DIGEST="$(sudo skopeo inspect --format '{{.Digest}}' "docker://${TAGGED_IMAGE}")"
           fi
           REVISION="$(sudo skopeo inspect "docker://${IMAGE}@${DIGEST}" | jq -r '.Labels["org.opencontainers.image.revision"] // empty')"
-          test "${REVISION}" = "$(git rev-parse HEAD)"
-          echo "name=${IMAGE}" >> "$GITHUB_OUTPUT"
-          echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
-          echo "pinned=${IMAGE}@${DIGEST}" >> "$GITHUB_OUTPUT"
+          EXPECTED_REVISION="$(git rev-parse HEAD)"
+          if [[ "${REVISION}" != "${EXPECTED_REVISION}" ]]; then
+            echo "::error::Source image ${IMAGE}@${DIGEST} was built from revision '${REVISION:-<missing>}', but this ISO workflow checked out '${EXPECTED_REVISION}'. Re-run the image build for this commit, then pass its digest as source_digest."
+            exit 1
+          fi
+          echo "name=${IMAGE}" >&3
+          echo "digest=${DIGEST}" >&3
+          echo "pinned=${IMAGE}@${DIGEST}" >&3
 
       - name: Build live payload container
         env:
@@ -147,13 +209,15 @@ jobs:
       - name: Move and verify ISO
         run: |
           ISO="output/live-iso/${STEPS_RELEASE_OUTPUTS_ISO_BASENAME}"
-          mv "${{ runner.temp }}/kyth-live-${{ inputs.source_tag }}.iso" "${ISO}"
+          mv "${RUNNER_TEMP}/kyth-live-${SOURCE_TAG}.iso" "${ISO}"
           sudo chown "$(id -u):$(id -g)" "${ISO}"
           test -s "${ISO}"
           test -r "${ISO}"
           test -w "${ISO}"
           echo "==> Built $(du -h "${ISO}" | cut -f1) ISO: ${ISO}"
         env:
+          RUNNER_TEMP: ${{ runner.temp }}
+          SOURCE_TAG: ${{ inputs.source_tag }}
           STEPS_RELEASE_OUTPUTS_ISO_BASENAME: ${{ steps.release.outputs.iso_basename }}
 
       - name: Generate ISO checksums
@@ -397,7 +461,7 @@ jobs:
 
       - name: Attest ISO build provenance
         id: attest_iso
-        uses: actions/attest-build-provenance@a2bbfa25375fe432b6a289bc6b6cd05ecd0c4c32 # v4
+        uses: actions/attest-build-provenance@0f67c3f4856b2e3261c31976d6725780e5e4c373 # v4
         with:
           subject-path: output/live-iso/${{ needs.build.outputs.iso_basename }}
 
@@ -405,6 +469,7 @@ jobs:
         env:
           SOURCE_TAG: ${{ inputs.source_tag }}
           ATTESTATION_URL: ${{ steps.attest_iso.outputs.attestation-url }}
+          ATTESTATION_BUNDLE_PATH: ${{ steps.attest_iso.outputs.bundle-path }}
           ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
           IMMUTABLE_TAG: ${{ needs.build.outputs.immutable_tag }}
@@ -430,6 +495,7 @@ jobs:
               "sha256": os.environ["SHA256"],
               "signature": iso.name + ".sig",
               "bundle": iso.name + ".bundle",
+              "provenance": iso.name + ".intoto.jsonl",
               "checksum": iso.name + "-CHECKSUM",
               "attestation_url": os.environ["ATTESTATION_URL"],
               "source_image": os.environ["SOURCE_IMAGE"],
@@ -449,6 +515,7 @@ jobs:
               "iso": channel,
               "signature": channel + ".sig",
               "bundle": channel + ".bundle",
+              "provenance": channel + ".intoto.jsonl",
               "checksum": channel + "-CHECKSUM",
               "download_url": f"{base_url}/{channel}",
               "immutable_download_url": metadata["download_url"],
@@ -460,31 +527,54 @@ jobs:
 
           cp "${ISO}.sig" "output/live-iso/${CHANNEL_BASENAME}.sig"
           cp "${ISO}.bundle" "output/live-iso/${CHANNEL_BASENAME}.bundle"
+          test -s "${ATTESTATION_BUNDLE_PATH}"
+          cp "${ATTESTATION_BUNDLE_PATH}" "${ISO}.intoto.jsonl"
+          cp "${ATTESTATION_BUNDLE_PATH}" "output/live-iso/${CHANNEL_BASENAME}.intoto.jsonl"
 
       - name: Upload ISO to Cloudflare R2
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_ENDPOINT_URL: ${{ secrets.R2_ENDPOINT_URL }}
           R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
           NEEDS_BUILD_OUTPUTS_ISO_BASENAME: ${{ needs.build.outputs.iso_basename }}
           NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME: ${{ needs.build.outputs.channel_basename }}
         run: |
+          set -euo pipefail
+
+          if [[ -n "${R2_ENDPOINT_URL:-}" ]]; then
+            R2_ENDPOINT="${R2_ENDPOINT_URL%/}"
+          elif [[ "${R2_ACCOUNT_ID:-}" == https://* ]]; then
+            R2_ENDPOINT="${R2_ACCOUNT_ID%/}"
+          elif [[ -n "${R2_ACCOUNT_ID:-}" ]]; then
+            R2_ENDPOINT="https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+          else
+            echo "::error::Set R2_ENDPOINT_URL to the Cloudflare R2 S3 endpoint URL or set R2_ACCOUNT_ID."
+            exit 1
+          fi
+
+          if [[ ! "${R2_ENDPOINT}" =~ ^https://[A-Za-z0-9.-]+\.r2\.cloudflarestorage\.com$ ]]; then
+            echo "::error::Invalid R2 endpoint URL: ${R2_ENDPOINT}"
+            echo "::error::Expected a value like https://<account-id>.r2.cloudflarestorage.com"
+            exit 1
+          fi
+
           ISO="output/live-iso/${NEEDS_BUILD_OUTPUTS_ISO_BASENAME}"
           CHANNEL="output/live-iso/${NEEDS_BUILD_OUTPUTS_CHANNEL_BASENAME}"
 
-          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"; do
+          for artifact in "${ISO}" "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"; do
             aws s3 cp "${artifact}" \
               "s3://kyth-releases/$(basename "${artifact}")" \
-              --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+              --endpoint-url "${R2_ENDPOINT}" \
               --no-progress
           done
 
           aws s3 cp "${ISO}" "s3://kyth-releases/$(basename "${CHANNEL}")" \
             --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" --no-progress
-          for suffix in -CHECKSUM .sig .bundle .json; do
+          for suffix in -CHECKSUM .sig .bundle .intoto.jsonl .json; do
             aws s3 cp "${CHANNEL}${suffix}" \
               "s3://kyth-releases/$(basename "${CHANNEL}${suffix}")" \
-              --endpoint-url "https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com" \
+              --endpoint-url "${R2_ENDPOINT}" \
               --no-progress
           done
 
@@ -544,7 +634,7 @@ jobs:
             --notes-file "${IMMUTABLE_NOTES}" \
             ${PRERELEASE}
           gh release upload "${IMMUTABLE_TAG}" \
-            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.json"
+            "${ISO}-CHECKSUM" "${ISO}.sig" "${ISO}.bundle" "${ISO}.intoto.jsonl" "${ISO}.json"
 
           CHANNEL_NOTES="$(mktemp)"
           {
@@ -574,4 +664,4 @@ jobs:
               ${PRERELEASE} ${LATEST}
           fi
           gh release upload "${CHANNEL_TAG}" --clobber \
-            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.json"
+            "${CHANNEL}-CHECKSUM" "${CHANNEL}.sig" "${CHANNEL}.bundle" "${CHANNEL}.intoto.jsonl" "${CHANNEL}.json"

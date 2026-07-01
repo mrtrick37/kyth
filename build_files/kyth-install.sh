@@ -76,6 +76,15 @@ else
 	}
 fi
 
+if [[ ! -b "${SELECTED}" ]]; then
+	if command -v kdialog &>/dev/null; then
+		kdialog --title "Install KythOS" --error "${SELECTED} is not a valid block device."
+	else
+		echo "ERROR: ${SELECTED} is not a valid block device." >&2
+	fi
+	exit 1
+fi
+
 # ── Unmount ───────────────────────────────────────────────────────────────────
 echo "Unmounting any existing mounts on ${SELECTED} ..."
 umount -R /mnt 2>/dev/null || true

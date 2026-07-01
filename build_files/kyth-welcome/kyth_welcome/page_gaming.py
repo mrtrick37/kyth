@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 from datetime import datetime
+from pathlib import Path
 from urllib.parse import urlencode
 
 # __KYTH_GENERATED_IMPORTS__
@@ -20,14 +21,87 @@ from .page_windows_migration import (  # noqa: E501
     WindowsLibraryWorker,
 )
 from .qt import (  # noqa: E501
-    QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, Qt,
+    QApplication, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QProgressBar, QPushButton, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card, _set_log_panel,
+    ActionRow, CommandResultPanel, Page, StatusBadge, _make_card, _set_log_panel,
 )
 
 # ── Page: Gaming ─────────────────────────────────────────────────────────────
 class GamingPage(Page):
+    _SECTION_LABELS = {
+        "all": "All",
+        "setup": "Setup",
+        "library": "Library",
+        "migration": "Migration",
+        "tuning": "Tuning",
+        "fixes": "Fixes",
+    }
+
+    def _add(self, widget: QWidget) -> QWidget:
+        added = super()._add(widget)
+        section = getattr(self, "_active_gaming_section", None)
+        if section and widget.isVisible():
+            self._gaming_section_widgets.setdefault(section, []).append(widget)
+        return added
+
+    def _add_layout(self, layout) -> None:
+        wrapper = QWidget()
+        wrapper.setObjectName("gaming-section-row")
+        wrapper.setLayout(layout)
+        self._add(wrapper)
+
+    def _make_section_switcher(self) -> QFrame:
+        bar = QFrame()
+        bar.setObjectName("gaming-section-switcher")
+        layout = QHBoxLayout(bar)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(8)
+        for key, label in self._SECTION_LABELS.items():
+            btn = QPushButton(label)
+            btn.setObjectName("gaming-section-active" if key == "all" else "gaming-section")
+            btn.setCheckable(True)
+            btn.setChecked(key == "all")
+            btn.clicked.connect(lambda _=False, k=key: self._switch_gaming_section(k))
+            self._gaming_section_buttons[key] = btn
+            layout.addWidget(btn)
+        layout.addStretch()
+        return bar
+
+    def _switch_gaming_section(self, active: str) -> None:
+        self._current_gaming_section = active
+        for key, btn in self._gaming_section_buttons.items():
+            selected = key == active
+            btn.setChecked(selected)
+            btn.setObjectName("gaming-section-active" if selected else "gaming-section")
+            _restyle(btn)
+        for section, widgets in self._gaming_section_widgets.items():
+            visible = active == "all" or active == section
+            for widget in widgets:
+                widget.setVisible(visible)
+
+    @staticmethod
+    def _set_status_badge(badge: StatusBadge, state: str, text: str) -> None:
+        badge.set_state(state, text)
+        badge.show()
+
+    @staticmethod
+    def _command_details(cmd: list[str], result=None, exc: Exception | None = None) -> str:
+        lines = ["Command:", "  " + " ".join(cmd)]
+        if exc is not None:
+            lines.extend(["", "Error:", str(exc)])
+            return "\n".join(lines)
+        if result is None:
+            return "\n".join(lines)
+        lines.extend(["", f"Exit code: {result.returncode}"])
+        stdout = result.stdout.decode("utf-8", errors="replace").strip() if result.stdout else ""
+        stderr = result.stderr.decode("utf-8", errors="replace").strip() if result.stderr else ""
+        if stdout:
+            lines.extend(["", "stdout:", stdout])
+        if stderr:
+            lines.extend(["", "stderr:", stderr])
+        return "\n".join(lines)
+
     def __init__(self, wizard_mode: bool = False):
         super().__init__()
         self._wizard_mode = wizard_mode
@@ -38,6 +112,10 @@ class GamingPage(Page):
         self._dashboard_loaded = False
         self._protondb_worker: _ProtonDbBatchWorker | None = None
         self._last_detected_games: list[dict] = []
+        self._gaming_section_widgets: dict[str, list[QWidget]] = {}
+        self._gaming_section_buttons: dict[str, QPushButton] = {}
+        self._current_gaming_section = "all"
+        self._active_gaming_section: str | None = None
 
         self._page_header(
             "Gaming",
@@ -46,6 +124,10 @@ class GamingPage(Page):
             "Install your preferred launchers below.",
         )
 
+        if not wizard_mode:
+            self._add(self._make_section_switcher())
+
+        self._active_gaming_section = "setup"
         self._add(self._make_gaming_ready_panel())
 
         # ── Xbox Game Bar parity ─────────────────────────────────────────────
@@ -62,18 +144,17 @@ class GamingPage(Page):
         game_bar_body.setObjectName("card-copy")
         game_bar_body.setWordWrap(True)
         game_bar_layout.addWidget(game_bar_body)
-        game_bar_btns = QHBoxLayout()
-        game_bar_btns.setSpacing(8)
-        self._game_bar_btn = QPushButton()
-        self._game_bar_btn.setObjectName("primary")
-        self._game_bar_btn.clicked.connect(self._open_or_install_game_bar)
-        game_bar_btns.addWidget(self._game_bar_btn)
-        game_bar_btns.addStretch()
-        game_bar_layout.addLayout(game_bar_btns)
+        game_bar_actions = ActionRow("Ready to configure capture.", "idle")
+        self._game_bar_btn = game_bar_actions.add_button(
+            "", self._open_or_install_game_bar, primary=True
+        )
+        game_bar_actions.finish()
+        self._game_bar_status = game_bar_actions.status
+        game_bar_layout.addWidget(game_bar_actions)
         self._refresh_game_bar_btn()
         self._add(game_bar_card)
 
-        # ── Windows Game Library ──────────────────────────────────────────────
+        # ── PC Game Library ──────────────────────────────────────────────
         self._win_lib_card, self._win_lib_layout = _make_card("card-accent-ok")
         self._win_lib_card.hide()
         self._add(self._win_lib_card)
@@ -91,29 +172,21 @@ class GamingPage(Page):
         night_body.setObjectName("card-copy")
         night_body.setWordWrap(True)
         night_layout.addWidget(night_body)
-        night_btns = QHBoxLayout()
-        night_btns.setSpacing(8)
-        self._game_night_start_btn = QPushButton("Start Game Night")
-        self._game_night_start_btn.setObjectName("primary")
-        self._game_night_start_btn.clicked.connect(self._start_game_night)
-        night_btns.addWidget(self._game_night_start_btn)
-        self._game_night_stop_btn = QPushButton("End Game Night")
+        night_actions = ActionRow("Ready when you are.", "idle")
+        self._game_night_start_btn = night_actions.add_button(
+            "Start Game Night", self._start_game_night, primary=True
+        )
+        self._game_night_stop_btn = night_actions.add_button("End Game Night", self._stop_game_night)
         self._game_night_stop_btn.setEnabled(False)
-        self._game_night_stop_btn.clicked.connect(self._stop_game_night)
-        night_btns.addWidget(self._game_night_stop_btn)
         for label, cmd in (
             ("Open Steam", ["flatpak", "run", "com.valvesoftware.Steam"]),
             ("Open Discord", ["flatpak", "run", "com.discordapp.Discord"]),
             ("Open OBS", ["flatpak", "run", "com.obsproject.Studio"]),
         ):
-            btn = QPushButton(label)
-            btn.clicked.connect(lambda _=False, c=cmd: subprocess.Popen(c))
-            night_btns.addWidget(btn)
-        night_btns.addStretch()
-        night_layout.addLayout(night_btns)
-        self._game_night_status = QLabel("Ready when you are.")
-        self._game_night_status.setObjectName("card-copy")
-        night_layout.addWidget(self._game_night_status)
+            night_actions.add_button(label, lambda _=False, c=cmd: subprocess.Popen(c))  # nosemgrep
+        night_actions.finish()
+        self._game_night_status = night_actions.status
+        night_layout.addWidget(night_actions)
         self._game_night_inhibit = None
         self._add(night_card)
 
@@ -129,9 +202,9 @@ class GamingPage(Page):
         health_top.addWidget(health_refresh)
         health_layout.addLayout(health_top)
         health_desc = QLabel(
-            "Fast checks for the pieces that make Windows games feel plug-and-play: "
+            "Fast checks for the pieces that make PC games feel plug-and-play: "
             "Steam, Proton runners, Vulkan, NTSYNC, launchers, overlays, controllers, "
-            "Windows game drives, and staged OS updates."
+            "PC game drives, and staged OS updates."
         )
         health_desc.setObjectName("card-copy")
         health_desc.setWordWrap(True)
@@ -141,10 +214,10 @@ class GamingPage(Page):
         health_layout.addLayout(self._health_rows_layout)
         self._add(health_card)
 
-        # ── Windows gamer migration checklist ───────────────────────────────
+        # ── PC gamer migration checklist ───────────────────────────────
         checklist_card, checklist_layout = _make_card("card-accent-ok")
         checklist_top = QHBoxLayout()
-        checklist_title = QLabel("Windows Gamer Migration Checklist")
+        checklist_title = QLabel("PC Game Migration Checklist")
         checklist_title.setObjectName("card-title")
         checklist_top.addWidget(checklist_title)
         checklist_top.addStretch()
@@ -164,6 +237,7 @@ class GamingPage(Page):
         checklist_layout.addLayout(self._checklist_rows_layout)
         self._add(checklist_card)
 
+        self._active_gaming_section = "library"
         # ── Game readiness scanner ───────────────────────────────────────────
         scanner_card, scanner_layout = _make_card()
         scanner_title = QLabel("Game Readiness Scanner")
@@ -232,6 +306,7 @@ class GamingPage(Page):
         my_games_layout.addLayout(self._my_games_rows_layout)
         self._add(my_games_card)
 
+        self._active_gaming_section = "fixes"
         # ── First-failure playbook ────────────────────────────────────────────
         playbook_card, playbook_layout = _make_card()
         playbook_title = QLabel("Game will not launch")
@@ -277,24 +352,21 @@ class GamingPage(Page):
         fix_desc.setObjectName("card-copy")
         fix_desc.setWordWrap(True)
         fix_layout.addWidget(fix_desc)
-        fix_btns = QHBoxLayout()
-        fix_btns.setSpacing(8)
+        fix_actions = ActionRow("", "idle")
         for label, action in (
             ("Open Steam compatdata", lambda: self._open_user_path("~/.local/share/Steam/steamapps/compatdata")),
             ("Open shadercache", lambda: self._open_user_path("~/.local/share/Steam/steamapps/shadercache")),
             ("Copy reset-prefix command", self._copy_prefix_reset_hint),
             ("Copy support snapshot", self._copy_support_snapshot_command),
         ):
-            btn = QPushButton(label)
-            btn.clicked.connect(action)
-            fix_btns.addWidget(btn)
-        fix_btns.addStretch()
-        fix_layout.addLayout(fix_btns)
-        self._fix_status_lbl = QLabel("")
-        self._fix_status_lbl.setObjectName("card-copy")
-        fix_layout.addWidget(self._fix_status_lbl)
+            fix_actions.add_button(label, action)
+        fix_actions.finish()
+        self._fix_status_lbl = fix_actions.status
+        self._fix_status_lbl.hide()
+        fix_layout.addWidget(fix_actions)
         self._add(fix_card)
 
+        self._active_gaming_section = "setup"
         # ── Gaming Tools ──────────────────────────────────────────────────────
         tools_head = QLabel("Gaming Tools")
         tools_head.setObjectName("heading")
@@ -302,7 +374,7 @@ class GamingPage(Page):
         self._add(tools_head)
         tools_sub = QLabel(
             "Install the launchers and tools you want. "
-            "Bottles is the easiest option for standalone Windows `.exe` and `.msi` installers. "
+            "Bottles is the easiest option for standalone `.exe` and `.msi` installers. "
             "Additional launchers and device tools are available here or via the corresponding ujust recipe."
         )
         tools_sub.setObjectName("card-copy")
@@ -313,14 +385,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.valvesoftware.Steam",
                 "name": "Steam",
-                "desc": "Valve's gaming platform plus Windows games via Proton.",
+                "desc": "Valve's gaming platform plus PC games through Proton.",
                 "ujust": "install-steam",
                 "launch": ["flatpak", "run", "com.valvesoftware.Steam"],
             },
             {
                 "flatpak": "net.lutris.Lutris",
                 "name": "Lutris",
-                "desc": "Battle.net, EA App, Ubisoft Connect, and other Windows launchers.",
+                "desc": "Battle.net, EA App, Ubisoft Connect, and other compatibility launchers.",
                 "ujust": "install-lutris",
                 "launch": ["flatpak", "run", "net.lutris.Lutris"],
             },
@@ -334,14 +406,14 @@ class GamingPage(Page):
             {
                 "flatpak": "com.usebottles.bottles",
                 "name": "Bottles",
-                "desc": "Best for running standalone Windows .exe and .msi installers in isolated app environments.",
+                "desc": "Best for running standalone .exe and .msi installers in isolated app environments.",
                 "ujust": "install-bottles",
                 "launch": ["flatpak", "run", "com.usebottles.bottles"],
             },
             {
                 "flatpak": "com.github.mtkennerly.ludusavi",
                 "name": "Ludusavi",
-                "desc": "Back up and restore game saves across Steam, Heroic, Lutris, and Windows migrations.",
+                "desc": "Back up and restore game saves across Steam, Heroic, Lutris, and PC migrations.",
                 "ujust": "install-ludusavi",
                 "launch": ["flatpak", "run", "com.github.mtkennerly.ludusavi"],
             },
@@ -383,7 +455,7 @@ class GamingPage(Page):
             {
                 "flatpak": "io.github.benjamimgois.goverlay",
                 "name": "GOverlay",
-                "desc": "Graphical tuning for MangoHud, vkBasalt, and OptiScaler presets.",
+                "desc": "Graphical tuning for MangoHud and vkBasalt overlays — adjust metrics, colors, and presets without editing config files.",
                 "ujust": "install-goverlay",
                 "launch": ["flatpak", "run", "io.github.benjamimgois.goverlay"],
             },
@@ -451,6 +523,48 @@ class GamingPage(Page):
         tuning_layout.addLayout(tuning_btns)
         self._add(tuning_card)
 
+        # ── OptiScaler card ──────────────────────────────────────────────────
+        opti_card, opti_layout = _make_card()
+        opti_title = QLabel("OptiScaler — Universal Upscaling")
+        opti_title.setObjectName("card-title")
+        opti_layout.addWidget(opti_title)
+        opti_desc = QLabel(
+            "Enables FSR2/3, XeSS, and DLSS-translation in any DirectX 11/12 game through "
+            "Proton's DLL override — including games that ship without upscaling support. "
+            "Works on all AMD and Intel GPUs. Deploy to a game folder, then set the Steam "
+            "launch option: <code>WINEDLLOVERRIDES=\"nvngx=n,b\" %command%</code>"
+        )
+        opti_desc.setObjectName("card-copy")
+        opti_desc.setWordWrap(True)
+        opti_desc.setTextFormat(Qt.RichText)
+        opti_layout.addWidget(opti_desc)
+        opti_btns = QHBoxLayout()
+        opti_btns.setSpacing(8)
+        opti_deploy_btn = QPushButton("Deploy to Game Folder…")
+        opti_deploy_btn.clicked.connect(
+            lambda _=False, b=opti_deploy_btn: self._deploy_opticscaler(b)
+        )
+        opti_btns.addWidget(opti_deploy_btn)
+        self._opti_deploy_btn = opti_deploy_btn
+        opti_copy_btn = QPushButton("Copy Launch Option")
+        opti_copy_btn.setToolTip('Copies: WINEDLLOVERRIDES="nvngx=n,b" %command%')
+        opti_copy_btn.clicked.connect(lambda _=False: self._copy_opticscaler_launch_opt(opti_copy_btn))
+        opti_btns.addWidget(opti_copy_btn)
+        self._opti_copy_btn = opti_copy_btn
+        opti_btns.addStretch()
+        opti_layout.addLayout(opti_btns)
+        self._opti_status_lbl = QLabel("")
+        self._opti_status_lbl.setObjectName("subheading")
+        self._opti_status_lbl.hide()
+        opti_layout.addWidget(self._opti_status_lbl)
+        self._opti_log = QTextEdit()
+        self._opti_log.setReadOnly(True)
+        self._opti_log.setMaximumHeight(140)
+        self._opti_log.hide()
+        opti_layout.addWidget(self._opti_log)
+        self._opticscaler_worker: Worker | None = None
+        self._add(opti_card)
+
         streaming_card, streaming_layout = _make_card()
         streaming_top = QHBoxLayout()
         streaming_title = QLabel("Streaming and Discord Readiness")
@@ -462,7 +576,7 @@ class GamingPage(Page):
         streaming_top.addWidget(streaming_refresh)
         streaming_layout.addLayout(streaming_top)
         streaming_desc = QLabel(
-            "Windows gamers bring Discord, OBS, capture, microphones, and screen share "
+            "PC gamers bring Discord, OBS, capture, microphones, and screen share "
             "expectations with them. This checks the pieces that make that feel normal."
         )
         streaming_desc.setObjectName("card-copy")
@@ -497,16 +611,17 @@ class GamingPage(Page):
         discord_fix_body.setObjectName("card-copy")
         discord_fix_body.setWordWrap(True)
         discord_fix_layout.addWidget(discord_fix_body)
-        discord_fix_btns = QHBoxLayout()
-        discord_fix_btns.setSpacing(8)
-        self._discord_fix_btn = QPushButton("Fix Discord Screen Share")
-        self._discord_fix_btn.setObjectName("primary")
-        self._discord_fix_btn.clicked.connect(self._fix_discord_screenshare)
-        discord_fix_btns.addWidget(self._discord_fix_btn)
-        self._discord_fix_status = QLabel()
-        self._discord_fix_status.setObjectName("card-copy")
-        discord_fix_btns.addWidget(self._discord_fix_status, 1)
-        discord_fix_layout.addLayout(discord_fix_btns)
+        discord_fix_actions = ActionRow("", "idle")
+        self._discord_fix_btn = discord_fix_actions.add_button(
+            "Fix Discord Screen Share", self._fix_discord_screenshare, primary=True
+        )
+        discord_fix_actions.finish()
+        self._discord_fix_status = discord_fix_actions.status
+        self._discord_fix_status.hide()
+        discord_fix_layout.addWidget(discord_fix_actions)
+        self._discord_fix_result = CommandResultPanel()
+        self._discord_fix_result.hide()
+        discord_fix_layout.addWidget(self._discord_fix_result)
 
         # OBS PipeWire setup
         obs_fix_note = QLabel("Fix OBS audio capture (apply PipeWire/Wayland Flatpak permissions)")
@@ -520,15 +635,15 @@ class GamingPage(Page):
         obs_fix_body.setObjectName("card-copy")
         obs_fix_body.setWordWrap(True)
         discord_fix_layout.addWidget(obs_fix_body)
-        obs_fix_btns = QHBoxLayout()
-        obs_fix_btns.setSpacing(8)
-        self._obs_fix_btn = QPushButton("Fix OBS Audio + Display")
-        self._obs_fix_btn.clicked.connect(self._fix_obs_pipewire)
-        obs_fix_btns.addWidget(self._obs_fix_btn)
-        self._obs_fix_status = QLabel()
-        self._obs_fix_status.setObjectName("card-copy")
-        obs_fix_btns.addWidget(self._obs_fix_status, 1)
-        discord_fix_layout.addLayout(obs_fix_btns)
+        obs_fix_actions = ActionRow("", "idle")
+        self._obs_fix_btn = obs_fix_actions.add_button("Fix OBS Audio + Display", self._fix_obs_pipewire)
+        obs_fix_actions.finish()
+        self._obs_fix_status = obs_fix_actions.status
+        self._obs_fix_status.hide()
+        discord_fix_layout.addWidget(obs_fix_actions)
+        self._obs_fix_result = CommandResultPanel()
+        self._obs_fix_result.hide()
+        discord_fix_layout.addWidget(self._obs_fix_result)
         self._add(discord_fix_card)
 
         self._add(streaming_card)
@@ -609,6 +724,7 @@ class GamingPage(Page):
         self._tool_worker = None
         self._active_tool_refs = None
 
+        self._active_gaming_section = "tuning"
         self._divider()
 
         # ── MangoHud ──────────────────────────────────────────────────────────
@@ -931,25 +1047,26 @@ class GamingPage(Page):
             )
             self._add(combo_txt)
 
+        self._active_gaming_section = "migration"
         # ── Steam Library Migration ────────────────────────────────────────────
         self._divider()
-        migrate_head = QLabel("Steam Library — Migrate from Windows")
+        migrate_head = QLabel("Steam Library — Migrate from another system")
         migrate_head.setObjectName("heading")
         migrate_head.setStyleSheet("font-size: 18px; font-weight: 700; color: #ffffff;")
         self._add(migrate_head)
         migrate_sub = QLabel(
-            "Dual-booting? Use this tool to copy your Steam library from a Windows "
+            "Dual-booting? Use this tool to copy your Steam library from a other system "
             "NTFS partition directly into Steam on KythOS. The drive is mounted "
-            "read-only — your Windows install is never modified."
+            "read-only — your original install is never modified."
         )
         migrate_sub.setObjectName("card-copy")
         migrate_sub.setWordWrap(True)
         self._add(migrate_sub)
 
         hibernate_warn = QLabel(
-            "⚠  Before scanning: boot Windows and do a full Shut Down (not Restart). "
-            "Windows Fast Startup leaves NTFS volumes in a hibernated state — Linux "
-            "can read them safely read-only, but Windows may report errors on resume "
+            "⚠  Before scanning: boot the other system and do a full Shut Down (not Restart). "
+            "other system Fast Startup leaves NTFS volumes in a hibernated state — Linux "
+            "can read them safely read-only, but other system may report errors on resume "
             "if any other tool writes to the partition. This tool never writes to it."
         )
         hibernate_warn.setObjectName("card-copy")
@@ -962,7 +1079,7 @@ class GamingPage(Page):
         # Drive selection
         drive_row = QHBoxLayout()
         drive_row.setSpacing(8)
-        drive_lbl = QLabel("Windows drive:")
+        drive_lbl = QLabel("PC drive:")
         drive_lbl.setObjectName("card-copy")
         drive_row.addWidget(drive_lbl)
         self._drive_combo = QComboBox()
@@ -988,7 +1105,7 @@ class GamingPage(Page):
         self._lib_combo.hide()
         migrate_layout.addWidget(self._lib_combo)
 
-        # Per-game readiness for the scanned Windows library — answers
+        # Per-game readiness for the scanned game library — answers
         # "can I play *my* games?" before any copying happens.
         check_row = QHBoxLayout()
         check_row.setSpacing(8)
@@ -1075,7 +1192,7 @@ class GamingPage(Page):
         saves_layout.addWidget(saves_title)
         saves_desc = QLabel(
             "KythOS recommends Ludusavi for game save backup and restore. Run it "
-            "before a Windows migration, after importing a library, and before "
+            "before a other system migration, after importing a library, and before "
             "large modding sessions."
         )
         saves_desc.setObjectName("card-copy")
@@ -1133,7 +1250,9 @@ class GamingPage(Page):
         mods_layout.addLayout(mods_btns)
         self._add(mods_card)
 
+        self._active_gaming_section = None
         self._stretch()
+        self._switch_gaming_section("all")
         self._update_profile_builder()
         self._set_rows_loading(self._checklist_rows_layout, "Checking first-week setup items…")
         self._set_rows_loading(self._health_rows_layout, "Checking launchers, Vulkan, Proton, controllers, and game drives…")
@@ -1168,7 +1287,11 @@ class GamingPage(Page):
             )
         self._game_night_start_btn.setEnabled(False)
         self._game_night_stop_btn.setEnabled(True)
-        self._game_night_status.setText("Game Night Mode is on for up to 4 hours. Sleep is blocked and gaming performance mode is active.")
+        self._set_status_badge(
+            self._game_night_status,
+            "ok",
+            "Game Night Mode is on for up to 4 hours. Sleep is blocked and gaming performance mode is active.",
+        )
 
     def _stop_game_night(self):
         if self._game_night_inhibit and self._game_night_inhibit.poll() is None:
@@ -1176,7 +1299,11 @@ class GamingPage(Page):
         subprocess.Popen(["kyth-performance-mode", "restore"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self._game_night_start_btn.setEnabled(True)
         self._game_night_stop_btn.setEnabled(False)
-        self._game_night_status.setText("Game Night Mode ended. Normal desktop behavior restored.")
+        self._set_status_badge(
+            self._game_night_status,
+            "idle",
+            "Game Night Mode ended. Normal desktop behavior restored.",
+        )
 
     def _update_profile_builder(self):
         if not hasattr(self, "_profile_launch_value"):
@@ -1330,7 +1457,6 @@ class GamingPage(Page):
 
     def _fix_discord_screenshare(self):
         self._discord_fix_btn.setEnabled(False)
-        self._discord_fix_status.setText("Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.discordapp.Discord "
@@ -1339,46 +1465,65 @@ class GamingPage(Page):
             "--talk-name=org.freedesktop.portal.Desktop "
             "--talk-name=org.kde.StatusNotifierWatcher",
         ]
+        self._discord_fix_status.hide()
+        self._discord_fix_result.set_running("Applying Discord screen share repair…", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._discord_fix_status.setText("Applied. Restart Discord to take effect.")
-                self._discord_fix_status.setObjectName("status-ok")
+                self._discord_fix_result.set_result(
+                    "ok",
+                    "Applied. Restart Discord to take effect.",
+                    self._command_details(cmd, result),
+                )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._discord_fix_status.setText(f"Failed: {err or 'unknown error'}")
-                self._discord_fix_status.setObjectName("status-err")
+                self._discord_fix_result.set_result(
+                    "err",
+                    f"Could not repair Discord screen share: {err or 'unknown error'}.",
+                    self._command_details(cmd, result),
+                )
         except Exception as exc:
-            self._discord_fix_status.setText(f"Error: {exc}")
-            self._discord_fix_status.setObjectName("status-err")
+            self._discord_fix_result.set_result(
+                "err",
+                f"Could not repair Discord screen share: {exc}.",
+                self._command_details(cmd, exc=exc),
+            )
         finally:
             self._discord_fix_btn.setEnabled(True)
-            _restyle(self._discord_fix_status)
 
     def _fix_obs_pipewire(self):
         self._obs_fix_btn.setEnabled(False)
-        self._obs_fix_status.setText("Applying…")
         cmd = [
             "bash", "-c",
             "flatpak override --user com.obsproject.Studio "
             "--socket=wayland --socket=pulseaudio --device=dri "
             "--talk-name=org.freedesktop.portal.Desktop",
         ]
+        self._obs_fix_status.hide()
+        self._obs_fix_result.set_running("Applying OBS capture repair…", self._command_details(cmd))
         try:
             result = subprocess.run(cmd, timeout=10, capture_output=True)
             if result.returncode == 0:
-                self._obs_fix_status.setText("Applied. Restart OBS to take effect.")
-                self._obs_fix_status.setObjectName("status-ok")
+                self._obs_fix_result.set_result(
+                    "ok",
+                    "Applied. Restart OBS to take effect.",
+                    self._command_details(cmd, result),
+                )
             else:
                 err = result.stderr.decode("utf-8", errors="replace").strip()
-                self._obs_fix_status.setText(f"Failed: {err or 'unknown error'}")
-                self._obs_fix_status.setObjectName("status-err")
+                self._obs_fix_result.set_result(
+                    "err",
+                    f"Could not repair OBS capture: {err or 'unknown error'}.",
+                    self._command_details(cmd, result),
+                )
         except Exception as exc:
-            self._obs_fix_status.setText(f"Error: {exc}")
-            self._obs_fix_status.setObjectName("status-err")
+            self._obs_fix_result.set_result(
+                "err",
+                f"Could not repair OBS capture: {exc}.",
+                self._command_details(cmd, exc=exc),
+            )
         finally:
             self._obs_fix_btn.setEnabled(True)
-            _restyle(self._obs_fix_status)
 
     def _refresh_save_status(self):
         if not hasattr(self, "_saves_status_lbl"):
@@ -1444,7 +1589,7 @@ class GamingPage(Page):
             ac_badge = QLabel(f"  ⛔ {compat.anticheat}  ")
             ac_badge.setToolTip(
                 f"Blocked by {compat.anticheat} anti-cheat — not supported on Linux. "
-                "No workaround exists; this game requires Windows."
+                "No workaround exists; this game requires other system."
             )
             ac_badge.setStyleSheet(
                 "background:#3a1010; color:#f48771; border:1px solid #f48771;"
@@ -1567,7 +1712,7 @@ class GamingPage(Page):
 
     def _recommended_profile_for_game(self, game) -> str:
         if game.status == "blocked":
-            return "Do not try bypass launch options; use Windows or wait for publisher support."
+            return "Do not try bypass launch options; use other system or wait for publisher support."
         if any(token in game.name.lower() for token in ("cyberpunk", "red dead", "hogwarts")):
             return "kyth-gamescope quality -- %command%"
         if game.anticheat in ("EAC", "BattlEye", "VAC", "Warden"):
@@ -1597,7 +1742,7 @@ class GamingPage(Page):
             else "Do not migrate saves until the game has a supported Linux path."
         )
         mod_note = (
-            "Use the Modding guide before applying Windows mod managers."
+            "Use the Modding guide before applying other system mod managers."
             if game.status != "blocked"
             else "Modding is irrelevant while the game is blocked."
         )
@@ -1622,10 +1767,10 @@ class GamingPage(Page):
     def _open_user_path(self, path: str):
         expanded = os.path.abspath(os.path.expanduser(path))
         if not os.path.exists(expanded):
-            self._fix_status_lbl.setText(f"Folder not found yet: {expanded}")
+            self._set_status_badge(self._fix_status_lbl, "warn", f"Folder not found yet: {expanded}")
             return
         QDesktopServices.openUrl(QUrl.fromLocalFile(expanded))
-        self._fix_status_lbl.setText(f"Opened {expanded}")
+        self._set_status_badge(self._fix_status_lbl, "ok", f"Opened {expanded}")
 
     def _copy_prefix_reset_hint(self):
         text = (
@@ -1634,12 +1779,16 @@ class GamingPage(Page):
             "~/.local/share/Steam/steamapps/compatdata/APPID.bak-$(date +%Y%m%d-%H%M%S)"
         )
         _copy_text(text)
-        self._fix_status_lbl.setText("Copied a safe Proton prefix reset command with an APPID placeholder.")
+        self._set_status_badge(
+            self._fix_status_lbl,
+            "ok",
+            "Copied a safe Proton prefix reset command with an APPID placeholder.",
+        )
 
     def _copy_support_snapshot_command(self):
         text = "kyth-device-info | tee ~/kyth-device-info.txt"
         _copy_text(text)
-        self._fix_status_lbl.setText("Copied support snapshot command.")
+        self._set_status_badge(self._fix_status_lbl, "ok", "Copied support snapshot command.")
 
     def _install_obs_inline(self, btn: QPushButton):
         # ujust install-obs also enables obs-vkcapture; mirror that here.
@@ -1787,7 +1936,7 @@ class GamingPage(Page):
         any_dirty = any(p["is_dirty"] or p["is_hibernated"] for p in partitions)
         any_clean = any(not p["is_dirty"] and not p["is_hibernated"] for p in partitions)
 
-        title_lbl = QLabel("Windows Drive Detected")
+        title_lbl = QLabel("other system Drive Detected")
         title_lbl.setObjectName("card-title")
         self._win_lib_layout.addWidget(title_lbl)
 
@@ -1795,10 +1944,10 @@ class GamingPage(Page):
             self._win_lib_card.setObjectName("card-accent-err")
             _restyle(self._win_lib_card)
             warn = QLabel(
-                "⚠  Your Windows partition is in a hibernated or dirty state — "
-                "this means Windows used Fast Startup or wasn't shut down cleanly.\n\n"
+                "⚠  Your system partition is in a hibernated or dirty state — "
+                "this means other system used Fast Startup or wasn't shut down cleanly.\n\n"
                 "To safely import your games:\n"
-                "  1.  Boot into Windows\n"
+                "  1.  Boot into other system\n"
                 "  2.  Open Start → Settings → System → Power & Sleep → Additional power settings\n"
                 "  3.  Click \"Choose what the power buttons do\" → \"Turn on fast startup\" — disable it\n"
                 "  4.  Do a full Shut Down (not Restart)\n"
@@ -1815,13 +1964,13 @@ class GamingPage(Page):
             found_any_steam = any(p["steam_paths"] for p in partitions if not p["is_dirty"])
             if found_any_steam:
                 msg = QLabel(
-                    "✓  Your Windows Steam library was found on this drive.\n"
+                    "✓  Your Steam library was found on this drive.\n"
                     "Use the Steam Library tool below to copy your games to KythOS — "
-                    "the drive is accessed read-only, your Windows install is never touched."
+                    "the drive is accessed read-only, your original install is never touched."
                 )
             else:
                 msg = QLabel(
-                    "✓  A clean Windows drive is available.\n"
+                    "✓  A clean PC drive is available.\n"
                     "Use the Steam Library tool below to scan it and copy games to KythOS."
                 )
             msg.setObjectName("card-copy")
@@ -1857,6 +2006,51 @@ class GamingPage(Page):
             "CoreCtrl",
             "CoreCtrl is not installed in this image. Use LACT for AMD GPU tuning, or rebuild with CoreCtrl available in the package repos.",
         )
+
+    def _copy_opticscaler_launch_opt(self, btn: QPushButton):
+        _copy_text('WINEDLLOVERRIDES="nvngx=n,b" %command%')
+        btn.setText("Copied!")
+        QTimer.singleShot(2000, lambda: btn.setText("Copy Launch Option"))
+
+    def _deploy_opticscaler(self, btn: QPushButton):
+        if self._opticscaler_worker and self._opticscaler_worker.isRunning():
+            return
+        game_dir = QFileDialog.getExistingDirectory(
+            self,
+            "Select Game Directory",
+            str(Path.home() / ".local/share/Steam/steamapps/common"),
+        )
+        if not game_dir:
+            return
+        btn.setEnabled(False)
+        self._opti_log.clear()
+        self._opti_log.append(f"→ ujust deploy-opticscaler '{game_dir}'\n")
+        self._opti_log.show()
+        self._opti_status_lbl.setText("Deploying OptiScaler…")
+        self._opti_status_lbl.setObjectName("subheading")
+        self._opti_status_lbl.show()
+        _restyle(self._opti_status_lbl)
+        cmd = ["ujust", "deploy-opticscaler", game_dir]
+        self._opticscaler_worker = Worker(cmd)
+        self._opticscaler_worker.line.connect(lambda ln: (
+            self._opti_log.append(ln),
+            self._opti_log.ensureCursorVisible(),
+        ))
+        self._opticscaler_worker.done.connect(lambda code: self._on_opticscaler_done(code, btn))
+        self._opticscaler_worker.start()
+
+    def _on_opticscaler_done(self, code: int, btn: QPushButton):
+        btn.setEnabled(True)
+        _finish_worker(self, attr="_opticscaler_worker")
+        if code == 0:
+            self._opti_status_lbl.setText(
+                "Deployed. Set Steam launch option: WINEDLLOVERRIDES=\"nvngx=n,b\" %command%"
+            )
+            self._opti_status_lbl.setObjectName("status-ok")
+        else:
+            self._opti_status_lbl.setText(f"Deploy failed (exit {code}). See output above.")
+            self._opti_status_lbl.setObjectName("status-err")
+        _restyle(self._opti_status_lbl)
 
     def _set_scx_scheduler(self, scheduler: str):
         if self._scx_worker and self._scx_worker.isRunning():
@@ -2256,7 +2450,7 @@ class GamingPage(Page):
             return
         self._gp_update_btn.setEnabled(False)
         self._gp_log.clear()
-        self._gp_log.append("→ sudo /usr/bin/kyth-ge-proton-update\n")
+        self._gp_log.append("→ /usr/bin/kyth-ge-proton-update\n")
         self._gp_log_toggle.show()
         _set_log_panel(self._gp_log_toggle, self._gp_log, False)
         self._gp_progress.show()
@@ -2264,7 +2458,7 @@ class GamingPage(Page):
         self._gp_op_status.setObjectName("subheading")
         self._gp_op_status.show()
         _restyle(self._gp_op_status)
-        self._gp_worker = Worker(["sudo", "-A", "/usr/bin/kyth-ge-proton-update"])
+        self._gp_worker = Worker(["/usr/bin/kyth-ge-proton-update"])
         self._gp_worker.line.connect(lambda ln: (
             self._gp_log.append(ln),
             self._gp_log.ensureCursorVisible(),
@@ -2291,13 +2485,20 @@ class GamingPage(Page):
         self._game_bar_btn.setText(
             "Open GPU Screen Recorder" if installed else "Install Game Bar Alternative"
         )
+        self._set_status_badge(
+            self._game_bar_status,
+            "ok" if installed else "idle",
+            "GPU Screen Recorder is installed." if installed else "Install GPU Screen Recorder for capture and instant replay.",
+        )
 
     def _open_or_install_game_bar(self):
         app_id = "com.dec05eba.gpu_screen_recorder"
         if _is_flatpak_installed(app_id):
             try:
                 subprocess.Popen(["flatpak", "run", app_id])
+                self._set_status_badge(self._game_bar_status, "ok", "Opening GPU Screen Recorder.")
             except OSError as exc:
+                self._set_status_badge(self._game_bar_status, "err", f"Could not open GPU Screen Recorder: {exc}")
                 QMessageBox.warning(self, "Could not open GPU Screen Recorder", str(exc))
             return
 
@@ -2305,7 +2506,10 @@ class GamingPage(Page):
             if code == 0:
                 self._game_bar_btn.setEnabled(True)
                 self._refresh_game_bar_btn()
+            else:
+                self._set_status_badge(self._game_bar_status, "err", "GPU Screen Recorder installation failed.")
 
+        self._set_status_badge(self._game_bar_status, "running", "Installing GPU Screen Recorder…")
         _install_flatpak_inline(
             self, self._game_bar_btn, app_id, "GPU Screen Recorder",
             done_cb=_installed,
@@ -2358,8 +2562,8 @@ class GamingPage(Page):
                     err = r.stderr.strip()
                     if "hibernate" in err.lower() or "windows" in err.lower():
                         self._migrate_status.setText(
-                            "Mount blocked: Windows did not shut down cleanly (Fast Startup / hibernate). "
-                            "Boot Windows and do a full Shut Down, then try again."
+                            "Mount blocked: The other system did not shut down cleanly (Fast Startup / hibernate). "
+                            "Boot the other system and do a full shut down, then try again."
                         )
                     else:
                         self._migrate_status.setText(f"Mount failed: {err}")
@@ -2579,7 +2783,7 @@ class GamingPage(Page):
         ntsync_ok = os.path.exists("/dev/ntsync")
         items = [
             ("ok" if steam_ok else "warn", "Steam", "Installed." if steam_ok else "Install Steam for your library."),
-            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing Windows games."),
+            ("ok" if ge_ver else "err", "GE-Proton", ge_ver or "Update GE-Proton before testing PC games."),
             ("ok" if vulkan_hint else "err", "Vulkan", "Render device found." if vulkan_hint else "No Vulkan render device found."),
             ("ok" if ntsync_ok else "warn", "NTSYNC", "Ready." if ntsync_ok else "Not active; Proton can fall back safely."),
             ("ok" if _gamescope_installed() else "warn", "Gamescope", "Ready." if _gamescope_installed() else "Install for scaling, HDR, and frame pacing presets."),
@@ -2613,7 +2817,7 @@ class GamingPage(Page):
         title.setObjectName("card-title")
         copy_col.addWidget(title)
         if issue_count:
-            summary = "A couple of core pieces need attention before Windows games will feel smooth."
+            summary = "A couple of core pieces need attention before PC games will feel smooth."
         elif warn_count:
             summary = "The core stack is close. Review the yellow items before benchmarking or migrating."
         else:

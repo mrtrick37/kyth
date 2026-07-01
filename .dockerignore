@@ -1,0 +1,22 @@
+# VCS metadata is not needed in the image build context.
+.git/
+
+# Local agent/editor state.
+.agents/
+.claude/
+.codex/
+
+# Generated build artifacts. These can be huge locally and are recreated by
+# their own workflows, not consumed by Dockerfile builds.
+output/
+tmp/
+
+# Python/test caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local signing material must never enter a container build context.
+cosign.key

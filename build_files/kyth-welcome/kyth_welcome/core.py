@@ -15,7 +15,7 @@ from urllib.request import Request, urlopen
 
 # __KYTH_GENERATED_IMPORTS__
 from .qt import (  # noqa: E501
-    QLabel, QLibraryInfo, QPushButton, QTextEdit, QThread, QWidget, Signal,
+    QLabel, QPushButton, QTextEdit, QThread, QWidget, Signal,
 )
 
 # ── Constants ──────────────────────────────────────────────────────────────────
@@ -56,17 +56,25 @@ def _prefer_xwayland_if_wayland_plugin_missing() -> None:
     if not os.environ.get("WAYLAND_DISPLAY") or not os.environ.get("DISPLAY"):
         return
 
-    plugins_dir = QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath)
-    platform_dir = os.path.join(plugins_dir, "platforms")
-    if not os.path.isdir(platform_dir):
+    # Use filesystem scan so this runs safely before QApplication is created
+    # (QLibraryInfo.path() can initialize Qt internals that produce ghost windows).
+    _QT6_PLATFORM_DIRS = [
+        "/usr/lib64/qt6/plugins/platforms",
+        "/usr/lib/qt6/plugins/platforms",
+        "/usr/lib/x86_64-linux-gnu/qt6/plugins/platforms",
+        "/usr/lib/aarch64-linux-gnu/qt6/plugins/platforms",
+    ]
+    for platform_dir in _QT6_PLATFORM_DIRS:
+        if not os.path.isdir(platform_dir):
+            continue
+        if any(
+            name.startswith("libqwayland-") or name == "libqwayland-generic.so"
+            for name in os.listdir(platform_dir)
+        ):
+            return  # wayland platform plugin present — use it
         os.environ["QT_QPA_PLATFORM"] = "xcb"
         return
-
-    if not any(
-        name.startswith("libqwayland-") or name == "libqwayland-generic.so"
-        for name in os.listdir(platform_dir)
-    ):
-        os.environ["QT_QPA_PLATFORM"] = "xcb"
+    os.environ["QT_QPA_PLATFORM"] = "xcb"
 
 
 def _apply_install_badge(lbl: QLabel, ok: bool, ok_text: str = "Installed",
@@ -268,6 +276,34 @@ class UpdateCheckWorker(QThread):
             self.result.emit("uptodate", remote_ts)
         else:
             self.result.emit("available", remote_ts)
+
+
+# ── Firmware check worker ──────────────────────────────────────────────────────
+class FirmwareCheckWorker(QThread):
+    """Query fwupd for pending firmware updates (non-blocking background check).
+
+    Emits result(count, summary) where count is:
+      -1  fwupd unavailable or hard error
+       0  up to date
+       n  number of devices with pending updates
+    """
+    result = Signal(int, str)
+
+    def run(self):
+        _run_command(["fwupdmgr", "refresh", "--force"], timeout=30)
+        updates = _run_command(["fwupdmgr", "get-updates"], timeout=20)
+        if updates is None:
+            self.result.emit(-1, "fwupd not available.")
+            return
+        if updates.returncode == 2 or not updates.stdout.strip():
+            # exit code 2 = nothing to update
+            self.result.emit(0, "")
+            return
+        if updates.returncode != 0:
+            self.result.emit(-1, updates.stdout.strip() or "fwupdmgr get-updates failed.")
+            return
+        count = max(1, updates.stdout.count("Device ID:"))
+        self.result.emit(count, updates.stdout.strip())
 
 
 # ── Changelog worker ───────────────────────────────────────────────────────────
@@ -1040,7 +1076,8 @@ def _load_smb_config() -> list[dict]:
 
 def _save_smb_config(shares: list[dict]) -> None:
     os.makedirs(os.path.dirname(_SMB_CONFIG), exist_ok=True)
-    with open(_SMB_CONFIG, "w") as f:
+    fd = os.open(_SMB_CONFIG, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
         json.dump(shares, f, indent=2)
 
 
@@ -1272,7 +1309,7 @@ def _vulkan_state() -> tuple[str, str]:
 
 
 def _gaming_health_items() -> list[tuple[str, str, str]]:
-    """Small, fast checks aimed at Windows gamers before they launch a title."""
+    """Small, fast checks aimed at PC gamers before they launch a title."""
     ge_ver = _ge_proton_version()
     cachy_ver = _compat_tool_version("proton-cachyos")
     vulkan_status, vulkan_summary = _vulkan_state()
@@ -1304,7 +1341,7 @@ def _gaming_health_items() -> list[tuple[str, str, str]]:
         ("ok" if _mangohud_installed() else "warn", "MangoHud", "Installed." if _mangohud_installed() else "Missing performance overlay."),
         ("ok" if controller_count else "dim", "Controllers", f"{controller_count} controller input(s) detected." if controller_count else "Connect one and press Refresh."),
         ("ok" if heroic_ok or lutris_ok else "dim", "Non-Steam launchers", "Heroic or Lutris installed." if heroic_ok or lutris_ok else "Install Heroic or Lutris for Epic, GOG, Battle.net, EA, and Ubisoft."),
-        ("warn" if windows_drives else "ok", "Windows game drives", windows_drive_summary if windows_drives else "No Windows game drives detected."),
+        ("warn" if windows_drives else "ok", "PC game drives", windows_drive_summary if windows_drives else "No PC game drives detected."),
         ("warn" if _has_staged_update() else "ok", "OS update", "Update staged; reboot before benchmarking." if _has_staged_update() else "No staged OS update."),
     ]
 
@@ -1324,17 +1361,17 @@ def _gaming_migration_checklist_items() -> list[tuple[str, str, str]]:
     if bitlocker_count:
         migration_summary = (
             f"{ntfs_count} readable NTFS and {bitlocker_count} locked BitLocker "
-            "partition(s) detected; unlock them on Move From Windows first."
+            "partition(s) detected; unlock them on Move Files first."
         )
     else:
         migration_summary = f"{ntfs_count} NTFS partition(s) detected; copy games read-only below."
     ge_ver = _ge_proton_version()
     return [
         ("ok" if steam_ok else "warn", "Steam installed", "Ready." if steam_ok else "Install Steam, then enable Steam Play for all titles."),
-        ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing Windows games."),
+        ("ok" if ge_ver else "err", "GE-Proton ready", ge_ver or "Missing; update GE-Proton before testing PC games."),
         ("ok" if heroic_ok and lutris_ok else "warn", "Non-Steam launchers", "Heroic and Lutris installed." if heroic_ok and lutris_ok else "Install Heroic for Epic/GOG and Lutris for Battle.net/EA/Ubisoft."),
         (ludusavi_status, "Saves backed up", ludusavi_summary),
-        ("warn" if windows_drives else "dim", "Windows library migration", migration_summary if windows_drives else "No Windows game drive detected."),
+        ("warn" if windows_drives else "dim", "Game library migration", migration_summary if windows_drives else "No PC game drive detected."),
         ("ok" if controller_count else "dim", "Controller tested", f"{controller_count} controller input(s) detected." if controller_count else "Connect a controller and use the Controllers page to verify input."),
         ("ok" if discord_ok and obs_ok else "warn", "Social and capture", "Discord and OBS installed." if discord_ok and obs_ok else "Install Discord and OBS if this player streams, records, or joins voice chat."),
         ("ok", "Blocked games explained", "Compatibility page uses dated source checks for anti-cheat blockers."),
@@ -1423,9 +1460,9 @@ def _decode_proc_mount_field(value: str) -> str:
 
 
 def _steam_libraries_on_ntfs() -> list[str]:
-    """Steam library roots that sit on an NTFS/Windows filesystem.
+    """Steam library roots that sit on an NTFS/other system filesystem.
 
-    Reusing the old Windows game drive as a Steam library is the first thing
+    Reusing the old PC game drive as a Steam library is the first thing
     most switchers try, and Proton breaks on NTFS in ways that look like
     "Linux gaming is broken" rather than "wrong filesystem" — so detect it
     proactively instead of waiting for the support request.
@@ -2470,6 +2507,45 @@ def _peripheral_probe(usb_text: str) -> HardwareProbe:
     return HardwareProbe("Peripherals", "ok", summary, "\n\n".join(details_parts))
 
 
+def _displaylink_probe(usb_text: str, lsmod_text: str) -> HardwareProbe:
+    found_desc: str | None = None
+    for line in usb_text.splitlines():
+        m = re.search(r"ID\s+([0-9a-fA-F]{4}):([0-9a-fA-F]{4})\s*(.*)", line)
+        if not m:
+            continue
+        vid, _pid, desc = m.group(1).lower(), m.group(2).lower(), m.group(3).strip()
+        if vid == "17e9":
+            found_desc = desc or "DisplayLink dock/adapter"
+            break
+
+    if not found_desc:
+        return HardwareProbe(
+            "DisplayLink dock", "dim",
+            "No DisplayLink dock or adapter detected.",
+            (
+                "DisplayLink USB/USB-C docks let you drive extra monitors from a "
+                "single port. Connect one and press Refresh."
+            ),
+        )
+
+    if re.search(r"^evdi\s", lsmod_text, re.MULTILINE):
+        return HardwareProbe(
+            "DisplayLink dock", "ok",
+            f"{found_desc} connected — driver active.",
+            "The evdi kernel module is loaded; extra displays through this dock should work.",
+        )
+
+    return HardwareProbe(
+        "DisplayLink dock", "warn",
+        f"{found_desc} detected, but the driver is not installed.",
+        (
+            "The evdi kernel module isn't loaded, so extra monitors on this dock "
+            "won't show video.\n\nRun `ujust install-displaylink` in a terminal to "
+            "install and sign the evdi driver, then reboot."
+        ),
+    )
+
+
 def _storage_probe() -> HardwareProbe:
     usage = shutil.disk_usage("/home")
     free_pct = (usage.free / usage.total) * 100 if usage.total else 0
@@ -2869,6 +2945,7 @@ def _collect_hardware_probes() -> list[HardwareProbe]:
         # Input devices
         _controller_probe(usb_text, lsmod_text),
         _peripheral_probe(usb_text),
+        _displaylink_probe(usb_text, lsmod_text),
         # System health
         _audio_probe(),
         _thermal_probe(),
@@ -2983,7 +3060,7 @@ def _health_recommendations(report: str) -> str:
         ("Controller readiness has warnings", "Controller support is partially unverified. Open Controllers, pair or plug in a gamepad, then run ujust controller-check."),
         ("resume readiness has warnings", "Suspend/resume has warnings. Test Wi-Fi, Bluetooth, audio, display, and Vulkan after waking."),
         ("not daily-driver ready", "Daily-driver smoke check found a blocker. Review the FAIL lines below first."),
-        ("Windows drives", "A Windows drive needs care. Use Move From Windows and fully shut down Windows before copying files."),
+        ("PC drives", "A PC drive needs care. Use Move Files and fully shut down the other system before copying files."),
     ]
     recs: list[str] = []
     lower_report = report.lower()
@@ -3020,25 +3097,31 @@ def _mark_wizard_done():
         pass
 
 
-# ── Usage profile (gaming / work / both) ──────────────────────────────────────
+# ── Usage profile (everyday / gaming) ─────────────────────────────────────────
 # Chosen on the first-run wizard's welcome step; drives which app defaults the
-# wizard pre-selects and whether work-oriented setup is surfaced afterwards.
+# wizard pre-selects and which System Hub sections get the most prominence.
+# Older installs used work/both; both are treated as the Everyday preset.
 _PROFILE_PATH = os.path.expanduser("~/.local/share/kyth/profile")
-_VALID_PROFILES = ("gaming", "work", "both")
+_VALID_PROFILES = ("everyday", "gaming")
+_PROFILE_ALIASES = {"work": "everyday", "both": "everyday"}
+
+
+def _normalize_profile(profile: str) -> str:
+    value = profile.strip().lower()
+    value = _PROFILE_ALIASES.get(value, value)
+    return value if value in _VALID_PROFILES else "everyday"
 
 
 def _load_profile() -> str:
     try:
         with open(_PROFILE_PATH, encoding="utf-8") as fh:
-            value = fh.read().strip().lower()
-        return value if value in _VALID_PROFILES else "both"
+            return _normalize_profile(fh.read())
     except OSError:
-        return "both"
+        return "everyday"
 
 
 def _save_profile(profile: str) -> None:
-    if profile not in _VALID_PROFILES:
-        return
+    profile = _normalize_profile(profile)
     try:
         os.makedirs(os.path.dirname(_PROFILE_PATH), exist_ok=True)
         with open(_PROFILE_PATH, "w", encoding="utf-8") as fh:
@@ -3068,7 +3151,7 @@ def _restyle(widget: QWidget):
 # ── NTFS / Steam migration helpers ───────────────────────────────────────────
 
 def _find_ntfs_drives() -> list[dict]:
-    """Return Windows NTFS and locked BitLocker partitions visible to lsblk."""
+    """Return other system NTFS and locked BitLocker partitions visible to lsblk."""
     try:
         r = subprocess.run(
             ["lsblk", "--json", "--output", "NAME,FSTYPE,SIZE,LABEL,MOUNTPOINT,PATH"],
@@ -3107,7 +3190,7 @@ def _find_ntfs_drives() -> list[dict]:
 def _find_steam_libraries(mount_point: str) -> list[str]:
     """Scan a mounted NTFS drive for steamapps directories."""
     found: list[str] = []
-    # Known Windows Steam install locations
+    # Known other system Steam install locations
     candidates = [
         os.path.join(mount_point, "Program Files (x86)", "Steam", "steamapps"),
         os.path.join(mount_point, "Program Files", "Steam", "steamapps"),

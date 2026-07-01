@@ -17,9 +17,9 @@ UseFirmwareBackground=false'
 
 mkdir -p "${asset_dir}"
 if [[ -n "${source_svg}" && -r "${source_svg}" ]]; then
-    install -m 0644 "${source_svg}" "${transparent_svg}"
+	install -m 0644 "${source_svg}" "${transparent_svg}"
 elif [[ ! -r "${transparent_svg}" ]]; then
-    cat > "${transparent_svg}" <<'SVEOF'
+	cat >"${transparent_svg}" <<'SVEOF'
 <svg xmlns="http://www.w3.org/2000/svg" width="1" height="1" viewBox="0 0 1 1">
   <rect width="1" height="1" fill="none"/>
 </svg>
@@ -27,50 +27,50 @@ SVEOF
 fi
 
 if command -v rsvg-convert >/dev/null 2>&1; then
-    rsvg-convert "${transparent_svg}" -o "${transparent_png}"
+	rsvg-convert "${transparent_svg}" -o "${transparent_png}"
 elif [[ ! -r "${transparent_png}" ]]; then
-    printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
-        | base64 -d > "${transparent_png}"
+	printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' |
+		base64 -d >"${transparent_png}"
 fi
 
 mkdir -p "${pixmaps_dir}"
 install -m 0644 "${transparent_png}" "${pixmaps_dir}/system-logo-white.png"
 
 for theme_dir in \
-    /usr/share/plymouth/themes/spinner \
-    /usr/share/plymouth/themes/bgrt \
-    /usr/share/plymouth/themes/bgrt-fedora; do
-    [[ -d "${theme_dir}" ]] || continue
+	/usr/share/plymouth/themes/spinner \
+	/usr/share/plymouth/themes/bgrt \
+	/usr/share/plymouth/themes/bgrt-fedora; do
+	[[ -d "${theme_dir}" ]] || continue
 
-    for asset in watermark.png watermark@2x.png logo.png; do
-        install -m 0644 "${transparent_png}" "${theme_dir}/${asset}"
-    done
-    for asset in watermark.svg logo.svg; do
-        install -m 0644 "${transparent_svg}" "${theme_dir}/${asset}"
-    done
+	for asset in watermark.png watermark@2x.png logo.png; do
+		install -m 0644 "${transparent_png}" "${theme_dir}/${asset}"
+	done
+	for asset in watermark.svg logo.svg; do
+		install -m 0644 "${transparent_svg}" "${theme_dir}/${asset}"
+	done
 
-    for branded_asset in "${theme_dir}"/*fedora* "${theme_dir}"/*Fedora* "${theme_dir}"/*FEDORA*; do
-        [[ -e "${branded_asset}" ]] || continue
-        case "${branded_asset}" in
-            *.svg|*.svgz)
-                install -m 0644 "${transparent_svg}" "${branded_asset}"
-                ;;
-            *.png)
-                install -m 0644 "${transparent_png}" "${branded_asset}"
-                ;;
-            *)
-                rm -f "${branded_asset}"
-                ;;
-        esac
-    done
+	for branded_asset in "${theme_dir}"/*fedora* "${theme_dir}"/*Fedora* "${theme_dir}"/*FEDORA*; do
+		[[ -e "${branded_asset}" ]] || continue
+		case "${branded_asset}" in
+		*.svg | *.svgz)
+			install -m 0644 "${transparent_svg}" "${branded_asset}"
+			;;
+		*.png)
+			install -m 0644 "${transparent_png}" "${branded_asset}"
+			;;
+		*)
+			rm -f "${branded_asset}"
+			;;
+		esac
+	done
 done
 
 install_kyth_plymouth_dracut_module() {
-    rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
+	rm -rf /usr/lib/dracut/modules.d/46kyth-plymouth
 
-    local kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth
-    mkdir -p "${kyth_plymouth_dracut_dir}"
-    cat > "${kyth_plymouth_dracut_dir}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
+	local kyth_plymouth_dracut_dir=/usr/lib/dracut/modules.d/99kyth-plymouth
+	mkdir -p "${kyth_plymouth_dracut_dir}"
+	cat >"${kyth_plymouth_dracut_dir}/module-setup.sh" <<'KYTHPLYMOUTHEOF'
 #!/usr/bin/bash
 
 check() {
@@ -130,20 +130,20 @@ PLYMOUTHDEFAULTS
         "${initdir}/usr/share/plymouth/themes/spinner"
 }
 KYTHPLYMOUTHEOF
-    chmod 0755 "${kyth_plymouth_dracut_dir}/module-setup.sh"
+	chmod 0755 "${kyth_plymouth_dracut_dir}/module-setup.sh"
 }
 
 mkdir -p /etc/dracut.conf.d
 if [[ -f /etc/dracut.conf.d/99-kyth.conf ]]; then
-    grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-        printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+	grep -q 'add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
+		printf '\nadd_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
 else
-    cat > /etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
+	cat >/etc/dracut.conf.d/99-kyth.conf <<'DRACUTEOF'
 add_dracutmodules+=" ostree drm plymouth kyth-plymouth "
 DRACUTEOF
 fi
-grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf || \
-    printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >> /etc/dracut.conf.d/99-kyth.conf
+grep -q 'force_add_dracutmodules=.*kyth-plymouth' /etc/dracut.conf.d/99-kyth.conf ||
+	printf 'force_add_dracutmodules+=" kyth-plymouth "\n' >>/etc/dracut.conf.d/99-kyth.conf
 
 # Remove both Fedora-branded and plain bgrt themes from the system filesystem.
 # The bgrt theme can render the firmware BGRT image, which may still be Fedora
@@ -155,7 +155,7 @@ plymouth-set-default-theme kyth
 # Keep host-side Plymouth config explicit too. Fedora's dracut Plymouth module
 # reads these files before our late kyth-plymouth module reinforces the initramfs.
 mkdir -p /etc/plymouth /usr/share/plymouth
-printf '%s\n' "${plymouth_conf}" > /etc/plymouth/plymouthd.conf
+printf '%s\n' "${plymouth_conf}" >/etc/plymouth/plymouthd.conf
 install -m 0644 /etc/plymouth/plymouthd.conf /usr/share/plymouth/plymouthd.defaults
 
 install_kyth_plymouth_dracut_module

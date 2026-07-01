@@ -45,8 +45,8 @@ if [[ -r /usr/share/kyth/branding/transparent-watermark.png ]]; then
 	install -m 0644 /usr/share/kyth/branding/transparent-watermark.png \
 		"${include_root}/usr/share/pixmaps/system-logo-white.png"
 else
-	printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' \
-		| base64 -d >"${include_root}/usr/share/pixmaps/system-logo-white.png"
+	printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=' |
+		base64 -d >"${include_root}/usr/share/pixmaps/system-logo-white.png"
 fi
 
 cp -a /usr/share/plymouth/themes/kyth "${include_root}/usr/share/plymouth/themes/kyth"
@@ -90,7 +90,9 @@ for image in "${images[@]}"; do
 		--kver "${kernel}" \
 		--force \
 		--add "drm plymouth ostree kyth-plymouth" \
-		--include "${include_root}" / \
+		--include "${include_root}/etc/plymouth" /etc/plymouth \
+		--include "${include_root}/usr/share/plymouth" /usr/share/plymouth \
+		--include "${include_root}/usr/share/pixmaps/system-logo-white.png" /usr/share/pixmaps/system-logo-white.png \
 		"${image}" \
 		"${kernel}"
 
@@ -107,10 +109,16 @@ for image in "${images[@]}"; do
 	grep -q '^Theme=kyth$' "${defaults}"
 	grep -q '^ShowDelay=0$' "${defaults}"
 	grep -q '^DeviceTimeout=8$' "${defaults}"
-	grep -q '^UseFirmwareBackground=false$' "${defaults}" \
-		|| { echo "ERROR: repaired initramfs Plymouth defaults do not suppress BGRT firmware background" >&2; exit 1; }
-	grep -Eq 'usr/(lib64|lib)/plymouth/script\.so' "${listing}" \
-		|| { echo "ERROR: repaired initramfs does not contain plymouth/script.so — kyth theme will silently fail and fall back to BGRT firmware logo" >&2; exit 1; }
+	grep -q '^UseFirmwareBackground=false$' "${defaults}" ||
+		{
+			echo "ERROR: repaired initramfs Plymouth defaults do not suppress BGRT firmware background" >&2
+			exit 1
+		}
+	grep -Eq 'usr/(lib64|lib)/plymouth/script\.so' "${listing}" ||
+		{
+			echo "ERROR: repaired initramfs does not contain plymouth/script.so — kyth theme will silently fail and fall back to BGRT firmware logo" >&2
+			exit 1
+		}
 	if grep -Ei 'usr/share/plymouth/themes/(bgrt-fedora|bgrt|spinner)(/|$)' "${listing}" >&2; then
 		echo "ERROR: Plymouth fallback theme leaked into repaired initramfs" >&2
 		exit 1

@@ -2,6 +2,10 @@
 name: Supply Chain Metadata
 
 on:
+  workflow_run: # zizmor: ignore[dangerous-triggers] consumes completed internal image-build workflows only
+    workflows: ["Build container image"]
+    types: [completed]
+    branches: [latest, testing]
   workflow_dispatch:
     inputs:
       source_tag:
@@ -20,6 +24,10 @@ on:
         description: Source commit recorded in the image (required for manual runs)
         required: true
         type: string
+      source_github_sha:
+        description: Triggering GITHUB_SHA from the build workflow. May differ from source_sha for schedule-triggered builds of non-default branches.
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -29,45 +37,47 @@ env:
 
 jobs:
   prepare:
-    name: Prepare metadata (${{ inputs.source_tag }})
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    name: Prepare metadata (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }})
     runs-on: ubuntu-24.04
     timeout-minutes: 90
     permissions:
       contents: read
       packages: read
     concurrency:
-      group: supply-chain-prepare-${{ inputs.source_tag }}
+      group: supply-chain-prepare-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
       - name: Validate dispatch inputs
         env:
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
           SOURCE_SHA: ${{ inputs.source_sha }}
+          SOURCE_GITHUB_SHA: ${{ inputs.source_github_sha }}
         run: |
           [[ "${SOURCE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ -z "${SOURCE_GITHUB_SHA}" || "${SOURCE_GITHUB_SHA}" =~ ^[0-9a-f]{40}$ ]]
 
       - name: Checkout repository
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           ref: ${{ inputs.source_sha }}
           persist-credentials: false
 
-      - name: Maximize build space
-        uses: jlumbroso/free-disk-space@54081f138730dfa15788a46383842cd2f914a1be # v1.3.1
-        with:
-          android: true
-          dotnet: true
-          haskell: true
-          large-packages: false
-          docker-images: false
-          swap-storage: true
-
+      - name: Preflight source image
+        run: |
+          set -euo pipefail
+          tag="${SOURCE_TAG}"
+          image="ghcr.io/${GITHUB_REPOSITORY,,}:${tag}"
+          echo "Checking ${image} before preparing supply-chain metadata"
+          docker manifest inspect "${image}" >/dev/null
+        env:
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       - name: Prepare metadata variables
         id: meta
         env:
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
           IMAGE="ghcr.io/${GITHUB_REPOSITORY,,}"
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
@@ -84,7 +94,7 @@ jobs:
       - name: Wait for image to be available in registry
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
         run: |
           for attempt in $(seq 1 10); do
             if docker buildx imagetools inspect "${IMAGE}@${SOURCE_DIGEST}" >/dev/null 2>&1; then
@@ -102,20 +112,21 @@ jobs:
         env:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
-          SOURCE_DIGEST: ${{ inputs.source_digest }}
+          SOURCE_DIGEST: ${{ github.event_name == 'workflow_run' && '' || inputs.source_digest }}
           SOURCE_SHA: ${{ inputs.source_sha }}
         run: |
           CURRENT_DIGEST="${SOURCE_DIGEST}"
           [[ "${CURRENT_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
-          CURRENT_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}')"
-          ACTUAL_REVISION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.revision" }}')"
-          BASE_NAME="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.name" }}')"
-          BASE_DIGEST="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.opencontainers.image.base.digest" }}')"
-          UPSTREAM_BASE="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.upstream-base" }}')"
-          GE_PROTON_VERSION="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.ge-proton-version" }}')"
-          THIRDPARTY_HASH="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.thirdparty-versions-hash" }}')"
-          KERNEL_FLAVOR="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ index .Image.Config.Labels "org.kyth.build.kernel-flavor" }}')"
+          LABELS_JSON="$(docker buildx imagetools inspect "${IMAGE}@${CURRENT_DIGEST}" --format '{{ json .Image.Config.Labels }}')"
+          CURRENT_VERSION="$(jq -r '."org.opencontainers.image.version"' <<< "${LABELS_JSON}")"
+          ACTUAL_REVISION="$(jq -r '."org.opencontainers.image.revision"' <<< "${LABELS_JSON}")"
+          BASE_NAME="$(jq -r '."org.opencontainers.image.base.name"' <<< "${LABELS_JSON}")"
+          BASE_DIGEST="$(jq -r '."org.opencontainers.image.base.digest"' <<< "${LABELS_JSON}")"
+          UPSTREAM_BASE="$(jq -r '."org.kyth.build.upstream-base"' <<< "${LABELS_JSON}")"
+          GE_PROTON_VERSION="$(jq -r '."org.kyth.build.ge-proton-version"' <<< "${LABELS_JSON}")"
+          THIRDPARTY_HASH="$(jq -r '."org.kyth.build.thirdparty-versions-hash"' <<< "${LABELS_JSON}")"
+          KERNEL_FLAVOR="$(jq -r '."org.kyth.build.kernel-flavor"' <<< "${LABELS_JSON}")"
           test "${ACTUAL_REVISION}" = "${SOURCE_SHA}"
           test "${SOURCE_SHA}" = "$(git rev-parse HEAD)"
           [[ "${CURRENT_VERSION}" =~ ^${TAG}\.[0-9]{8}\.[0-9]+\.[0-9]+\.[0-9a-f]{8}$ ]]
@@ -336,6 +347,7 @@ jobs:
           IMAGE: ${{ steps.meta.outputs.image }}
           TAG: ${{ steps.meta.outputs.tag }}
           SOURCE_SHA: ${{ steps.image.outputs.source_sha }}
+          SOURCE_GITHUB_SHA: ${{ inputs.source_github_sha }}
           CURRENT_DIGEST: ${{ steps.image.outputs.current_digest }}
           CURRENT_VERSION: ${{ steps.image.outputs.current_version }}
           PREVIOUS_DIGEST: ${{ steps.image.outputs.previous_digest }}
@@ -356,10 +368,15 @@ jobs:
           import os
           from pathlib import Path
 
+          source_sha = os.environ["SOURCE_SHA"]
           metadata = {
               "image": os.environ["IMAGE"],
               "tag": os.environ["TAG"],
-              "source_sha": os.environ["SOURCE_SHA"],
+              "source_sha": source_sha,
+              # github_sha is the GITHUB_SHA from the triggering build workflow run.
+              # For schedule runs building a non-default branch, it equals the default
+              # branch HEAD rather than the checked-out branch commit (source_sha).
+              "github_sha": os.environ.get("SOURCE_GITHUB_SHA") or source_sha,
               "current_digest": os.environ["CURRENT_DIGEST"],
               "current_version": os.environ["CURRENT_VERSION"],
               "previous_digest": os.environ["PREVIOUS_DIGEST"],
@@ -382,13 +399,13 @@ jobs:
       - name: Upload prepared metadata
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain/*
           if-no-files-found: error
           retention-days: 7
 
   publish:
-    name: Publish metadata (${{ inputs.source_tag }})
+    name: Publish metadata (${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }})
     needs: prepare
     runs-on: ubuntu-24.04
     timeout-minutes: 30
@@ -399,14 +416,14 @@ jobs:
       packages: write
       id-token: write
     concurrency:
-      group: supply-chain-publish-${{ inputs.source_tag }}
+      group: supply-chain-publish-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
       cancel-in-progress: false
 
     steps:
       - name: Download prepared metadata
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: supply-chain-input-${{ inputs.source_tag }}-${{ github.run_id }}
+          name: supply-chain-input-${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}-${{ github.run_id }}
           path: output/supply-chain
 
       - name: Validate publish inputs
@@ -417,6 +434,7 @@ jobs:
           IMAGE="$(jq -r .image "${METADATA}")"
           TAG="$(jq -r .tag "${METADATA}")"
           SOURCE_SHA="$(jq -r .source_sha "${METADATA}")"
+          GITHUB_SHA_META="$(jq -r '.github_sha // .source_sha' "${METADATA}")"
           DIGEST="$(jq -r .current_digest "${METADATA}")"
           VERSION="$(jq -r .current_version "${METADATA}")"
           BUILD_BASE="$(jq -r .materials.build_base "${METADATA}")"
@@ -431,6 +449,7 @@ jobs:
           [[ "${TAG}" == "latest" || "${TAG}" == "testing" ]]
           [[ "${TAG}" == "${MATRIX_SOURCE_TAG}" ]]
           [[ "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]
+          [[ "${GITHUB_SHA_META}" =~ ^[0-9a-f]{40}$ ]]
           [[ "${DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]
           [[ "${VERSION}" =~ ^[a-z0-9._-]+$ ]]
           [[ "${BUILD_BASE}" =~ ^ghcr\.io/[a-z0-9._/-]+:[a-z0-9._-]+@sha256:[0-9a-f]{64}$ ]]
@@ -444,12 +463,13 @@ jobs:
           echo "image=${IMAGE}" >> "$GITHUB_OUTPUT"
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${SOURCE_SHA}" >> "$GITHUB_OUTPUT"
+          echo "github_sha=${GITHUB_SHA_META}" >> "$GITHUB_OUTPUT"
           echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
           echo "sbom=${SBOM}" >> "$GITHUB_OUTPUT"
           echo "notes=${NOTES}" >> "$GITHUB_OUTPUT"
         env:
-          MATRIX_SOURCE_TAG: ${{ inputs.source_tag }}
+          MATRIX_SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
 
       - name: Install ORAS
         uses: oras-project/setup-oras@38de303aac69abb66f3e6255b7198bff35f323e3 # v2.0.0
@@ -500,6 +520,7 @@ jobs:
           DIGEST: ${{ steps.meta.outputs.digest }}
           SBOM_DIGEST: ${{ steps.attach_sbom.outputs.digest }}
           SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
+          GITHUB_SHA_META: ${{ steps.meta.outputs.github_sha }}
         run: |
           IDENTITY="^https://github.com/${GITHUB_REPOSITORY}/.github/workflows/supply-chain\\.yml@refs/heads/(main|testing)$"
           ISSUER="https://token.actions.githubusercontent.com"
@@ -517,7 +538,7 @@ jobs:
             if gh attestation verify "oci://${IMAGE}@${DIGEST}" \
               --repo "${GITHUB_REPOSITORY}" \
               --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/build.yml" \
-              --source-digest "${SOURCE_SHA}" \
+              --source-digest "${GITHUB_SHA_META}" \
               --deny-self-hosted-runners; then
               exit 0
             fi
@@ -534,7 +555,7 @@ jobs:
           VERSION: ${{ steps.meta.outputs.version }}
           SOURCE_SHA: ${{ steps.meta.outputs.source_sha }}
           NOTES: output/supply-chain/${{ steps.meta.outputs.notes }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
           RELEASE_TAG="image-${VERSION//./-}"
           TITLE="Kyth Image - ${VERSION}"
@@ -557,7 +578,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
-          SOURCE_TAG: ${{ inputs.source_tag }}
+          SOURCE_TAG: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || inputs.source_tag }}
         run: |
           gh workflow run cve-scan.yml \
             --ref "${GITHUB_REF_NAME}" \

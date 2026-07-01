@@ -41,6 +41,9 @@ from .page_nvidia import (  # noqa: E501
 from .page_performance import (  # noqa: E501
     PerformancePage,
 )
+from .page_plasma_wayland import (  # noqa: E501
+    PlasmaWaylandPage,
+)
 from .page_repair import (  # noqa: E501
     RepairPage,
 )
@@ -63,7 +66,7 @@ from .page_work import (  # noqa: E501
     WorkSetupPage,
 )
 from .qt import (  # noqa: E501
-    QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
+    QCheckBox, QCompleter, QDesktopServices, QFrame, QHBoxLayout, QIcon, QKeySequence, QLabel, QLineEdit, QMainWindow, QMessageBox, QProgressBar, QPushButton, QScrollArea, QShortcut, QSize, QSizePolicy, QStackedWidget, QTextEdit, QTimer, QUrl, QVBoxLayout, QWidget, Qt,
 )
 from .widgets import (  # noqa: E501
     _divider, _make_card, _set_log_panel, _theme_icon,
@@ -191,6 +194,27 @@ class MainWindow(QMainWindow):
 
         central_layout.addWidget(topbar)
 
+        self._search_panel = QFrame()
+        self._search_panel.setObjectName("search-results-panel")
+        self._search_panel.hide()
+        self._search_panel_layout = QVBoxLayout(self._search_panel)
+        self._search_panel_layout.setContentsMargins(266, 12, 24, 14)
+        self._search_panel_layout.setSpacing(8)
+
+        self._search_results_title = QLabel("Search results")
+        self._search_results_title.setObjectName("search-results-title")
+        self._search_panel_layout.addWidget(self._search_results_title)
+
+        self._search_results_body = QVBoxLayout()
+        self._search_results_body.setSpacing(6)
+        self._search_panel_layout.addLayout(self._search_results_body)
+
+        self._search_results_hint = QLabel("")
+        self._search_results_hint.setObjectName("search-results-hint")
+        self._search_results_hint.setWordWrap(True)
+        self._search_panel_layout.addWidget(self._search_results_hint)
+        central_layout.addWidget(self._search_panel)
+
         root = QWidget()
         root.setObjectName("content-area")
         root_layout = QHBoxLayout(root)
@@ -217,13 +241,10 @@ class MainWindow(QMainWindow):
         logo_lbl.setObjectName("sidebar-logo")
         logo_layout.addWidget(logo_lbl)
 
-        _branch = _current_branch()
-        _branch_text = {"latest": "Stable Channel", "testing": "Testing Channel"}.get(
-            _branch or "", "System Hub"
-        )
-        ver_lbl = QLabel(_branch_text)
-        ver_lbl.setObjectName("sidebar-ver")
-        logo_layout.addWidget(ver_lbl)
+        self._sidebar_ver_lbl = QLabel("System Hub")
+        self._sidebar_ver_lbl.setObjectName("sidebar-ver")
+        logo_layout.addWidget(self._sidebar_ver_lbl)
+        QTimer.singleShot(0, self._refresh_sidebar_channel)
         sidebar_layout.addWidget(logo_area)
         sidebar_layout.addWidget(_divider())
 
@@ -245,11 +266,12 @@ class MainWindow(QMainWindow):
             ("Apps", [
                 (("plasmadiscover", "applications-all"), "⬡", "Discover Apps", "App Store", lambda: SoftwarePage(initial_tab=4, store_landing=True)),
                 (("x-office-document", "applications-office"), "▤", "Work Setup", "Work Setup", lambda: WorkSetupPage(navigate=self._navigate_to)),
-                (("document-import", "drive-harddisk"), "⇄", "Windows Migration", "Move From Windows", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
+                (("document-import", "drive-harddisk"), "⇄", "Move Files", "Move Files", lambda: WindowsMigrationPage(navigate=self._navigate_to)),
             ]),
             ("System", [
                 (("system-software-update", "update-none"), "↻", "Updates", "Update", UpdatePage),
                 (("computer", "computer-laptop"), "◈", "Hardware", "Hardware", lambda: HardwarePage(navigate=self._navigate_to)),
+                (("preferences-desktop-display", "video-display"), "▣", "Plasma & Wayland", "Plasma Wayland", PlasmaWaylandPage),
                 (("view-statistics", "office-chart-bar"), "◌", "Health Report", "Diagnostics", DiagnosticsPage),
                 (("tools-wizard", "configure"), "⚠", "Repair", "Repair", lambda: RepairPage(navigate=self._navigate_to)),
             ]),
@@ -308,39 +330,68 @@ class MainWindow(QMainWindow):
         # ── Page stack ───────────────────────────────────────────────────────
         self._stack = QStackedWidget()
         self._stack.setObjectName("content-area")
-        self._pages = [factory() for _, factory in page_specs]
-        for page in self._pages:
-            self._stack.addWidget(page)
+        self._page_factories = [factory for _, factory in page_specs]
+        self._pages: list[QWidget | None] = [None] * len(page_specs)
+        for _ in page_specs:
+            self._stack.addWidget(QWidget())  # cheap placeholder; replaced on first visit
         root_layout.addWidget(self._stack)
 
-        # The home page's focus card re-uses the wizard's gaming/work/both
-        # choice; reflect changes in the sidebar immediately.
-        welcome_page = self._pages[self._page_index_by_key["Welcome"]]
+        # Build Welcome page eagerly so its profile_changed signal is available.
+        welcome_idx = self._page_index_by_key["Welcome"]
+        welcome_page = self._ensure_page(welcome_idx)
         welcome_page.profile_changed.connect(self._apply_profile_visibility)
         self._apply_profile_visibility(_load_profile())
 
         self._history: list[int] = []
         self._history_pos: int = -1
         self._setup_search()
+        self._search_shortcut = QShortcut(QKeySequence("Ctrl+F"), self)
+        self._search_shortcut.activated.connect(self._focus_search)
+        self._home_shortcut = QShortcut(QKeySequence("Alt+Home"), self)
+        self._home_shortcut.activated.connect(lambda: self._navigate_to("Welcome"))
         self._switch_page(0)
 
     # ── Search ("Find a setting") ─────────────────────────────────────────────
 
-    # Windows-familiar phrasings mapped to page keys, so converts can search
-    # for what they knew the task as on Windows.
+    # Familiar phrasings mapped to page keys, including migration/search terms
+    # people bring with them from another desktop.
+    _SEARCH_ITEMS: dict[str, tuple[str, str, list[str]]] = {
+        "Welcome": ("Home", "Review this PC, pick a preset, and jump into common setup tasks.", ["Control Panel", "PC focus", "Switch focus", "Everyday preset", "Gaming preset"]),
+        "Gaming": ("Gaming", "Install launchers, scan game libraries, set up capture, saves, and migration helpers.", ["Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game capture", "Instant replay", "Battle.net", "screen record", "record gameplay"]),
+        "Performance": ("Performance", "Tune power, scheduler, and desktop performance behavior.", ["Task Manager", "Mission Center", "Performance mode", "slow game", "low FPS", "stutter", "lag", "fan noise", "battery life"]),
+        "Compatibility": ("Compatibility", "Check known game support, ProtonDB context, and blocked anti-cheat titles.", ["Will my games work", "ProtonDB", "Anti-cheat", "game crashes", "game won't launch", "blocked game"]),
+        "Controllers": ("Controllers", "Pair, test, and troubleshoot game controllers.", ["Xbox controller", "PlayStation controller", "Game controllers", "controller not working", "gamepad not detected"]),
+        "App Store": ("App Store", "Install trusted Flatpaks, find familiar app alternatives, and manage AppImages.", ["Add or remove programs", "Apps & features", "Install apps", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"]),
+        "Work Setup": ("Work Setup", "Set up office, mail, focus sessions, and workday conveniences.", ["Microsoft 365", "Office", "Outlook", "Focus Assist", "Pomodoro"]),
+        "Move Files": ("Move Files", "Copy files, saves, libraries, bookmarks, fonts, and familiar workflows.", ["Transfer my files", "Copy game saves", "Snipping Tool", "PowerToys", "Phone Link", "Nearby Sharing", "LocalSend", "Remote Desktop", "WSL"]),
+        "Update": ("Updates", "Check OS updates, staged images, rollback status, and auto-update settings.", ["System Update", "Check for updates", "Restart pending", "rollback", "undo update", "bad update"]),
+        "Hardware": ("Hardware", "Inspect graphics, displays, audio, Bluetooth, storage, and device health.", ["Device Manager", "Display", "Sound", "Bluetooth", "no audio", "no sound", "speaker", "microphone", "wifi", "wi-fi", "printer", "monitor", "black screen"]),
+        "Plasma Wayland": ("Plasma & Wayland", "Check portals, PipeWire capture, display settings, shortcuts, and Plasma session repair.", ["Wayland", "Plasma", "KDE", "Screen sharing", "PipeWire", "Portal", "Display settings", "Window rules", "Shortcuts", "screenshot", "screen shot", "screen capture", "blank screen share", "black screen", "display scale"]),
+        "Diagnostics": ("Health Report", "Run system checks and gather useful troubleshooting information.", ["System information", "Diagnostics", "Security", "Sign-in options", "Fingerprint"]),
+        "Repair": ("Repair", "Rollback, restore, collect logs, and open recovery tools when something feels off.", ["Troubleshoot", "Recovery", "Reset this PC", "terminal", "PowerShell", "Quick Assist", "Remote Assistance", "broken", "restore layout", "missing apps", "remote help"]),
+        "VPN": ("VPN", "Connect to VPN profiles, including GlobalProtect-style work VPNs.", ["VPN settings", "GlobalProtect"]),
+        "Network Shares": ("Network Shares", "Map SMB/CIFS shares and configure mount behavior.", ["Map network drive", "Shared folders"]),
+        "Cloud Storage": ("Cloud Storage", "Set up cloud sync and copy workflows for common providers.", ["OneDrive", "Google Drive", "Dropbox"]),
+        "NVIDIA": ("NVIDIA Drivers", "Check NVIDIA driver state and open driver actions.", ["Graphics drivers", "GeForce"]),
+        "Kernel": ("Kernel", "Choose installed kernels and understand advanced boot options.", ["Advanced system settings"]),
+        "Channels": ("Channels", "Choose stable or testing update channels.", ["Update channel", "Insider program"]),
+        "Feedback": ("Feedback", "Send feedback or report a problem with optional system details.", ["Feedback Hub", "Send feedback"]),
+    }
+
     _SEARCH_ALIASES: dict[str, list[str]] = {
-        "Welcome": ["Home", "Control Panel", "PC focus", "Gaming or work focus", "Switch focus"],
-        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net"],
-        "Performance": ["Performance", "Task Manager", "Mission Center"],
-        "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB"],
-        "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller"],
+        "Welcome": ["Home", "Control Panel", "PC focus", "Everyday preset", "Gaming preset", "Switch focus"],
+        "Gaming": ["Gaming", "Game launchers", "Steam", "Epic Games", "GOG", "Game Pass", "Xbox app", "Xbox Game Bar", "Game Bar", "Game capture", "Instant replay", "Battle.net", "Screen record", "Record gameplay"],
+        "Performance": ["Performance", "Task Manager", "Mission Center", "Slow game", "Low FPS", "Stutter", "Lag", "Fan noise", "Battery life"],
+        "Compatibility": ["Game compatibility", "Will my games work", "ProtonDB", "Game crashes", "Game won't launch", "Blocked game"],
+        "Controllers": ["Controllers", "Game controllers", "Xbox controller", "PlayStation controller", "Controller not working", "Gamepad not detected"],
         "App Store": ["Add or remove programs", "Apps & features", "Install apps", "App store", "Uninstall a program", "dnf install", "rpm", "exe installer", "downloaded installer", "Flathub"],
         "Work Setup": ["Work setup", "Microsoft 365", "Office", "Outlook", "PST import", "Focus Assist", "Focus Sessions", "Do Not Disturb", "Pomodoro"],
-        "Move From Windows": ["Move from Windows", "Transfer my files", "Windows migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "Windows shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "Windows fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Windows Subsystem for Linux", "Ubuntu", "Distrobox"],
-        "Update": ["Check for updates", "Windows Update", "Updates"],
-        "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth"],
-        "Diagnostics": ["Health report", "System information", "Diagnostics", "Windows Hello", "Sign-in options", "Fingerprint", "Passkeys", "Windows Security"],
-        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup"],
+        "Move Files": ["Move files", "Transfer my files", "PC migration", "Copy game saves", "Keyboard shortcuts", "Snipping Tool", "familiar shortcuts", "PowerToys", "PowerToys Run", "FancyZones", "PowerRename", "Always on Top", "Keyboard Manager", "Awake", "Color Picker", "Copy my files", "Import bookmarks", "Bookmarks", "Phone Link", "Connected Devices", "KDE Connect", "Dynamic Lock", "trusted phone", "cross-device clipboard", "ring phone", "SMS", "send text", "text messages", "Nearby Sharing", "Nearby Share", "Quick Share", "LocalSend", "Send to device", "Wallpaper", "Desktop background", "system fonts", "Segoe UI", "Calibri", "Rescue game saves", "Sticky Notes", "Remote Desktop connections", "RDP", "mstsc", "KRDC", "WSL", "Linux subsystem", "Ubuntu", "Distrobox"],
+        "Update": ["Check for updates", "System Update", "Updates", "Rollback", "Undo update", "Bad update"],
+        "Hardware": ["Hardware", "Device Manager", "Display", "Sound", "Bluetooth", "No audio", "No sound", "Speaker", "Microphone", "Wi-Fi", "Wifi", "Printer", "Monitor", "Black screen"],
+        "Plasma Wayland": ["Plasma", "Wayland", "KDE", "Screen sharing", "PipeWire", "Portal", "xdg desktop portal", "Display settings", "VRR", "HDR", "Scale", "Shortcuts", "Window rules", "Restart Plasma", "Screenshot", "Screen shot", "Screen capture", "Blank screen share", "Display scale"],
+        "Diagnostics": ["Health report", "System information", "Diagnostics", "Sign-in options", "Fingerprint", "Passkeys", "Security"],
+        "Repair": ["Repair", "Troubleshoot", "Recovery", "Reset this PC", "Rollback", "terminal", "command prompt", "PowerShell", "Quick Assist", "Remote Assistance", "RustDesk", "Remote Desktop", "Restore my apps", "Restore my setup", "PC backup", "Restore layout", "Missing apps", "Remote help"],
         "VPN": ["VPN", "VPN settings"],
         "Network Shares": ["Network shares", "Map network drive", "Shared folders"],
         "Cloud Storage": ["Cloud storage", "OneDrive", "Google Drive", "Dropbox"],
@@ -350,12 +401,35 @@ class MainWindow(QMainWindow):
         "Feedback": ["Feedback", "Send feedback", "Feedback Hub"],
     }
 
+    _PROBLEM_ROUTES: dict[str, str] = {
+        "no audio": "Hardware",
+        "no sound": "Hardware",
+        "microphone not working": "Hardware",
+        "bluetooth not working": "Hardware",
+        "wifi not working": "Hardware",
+        "printer setup": "Hardware",
+        "slow game": "Performance",
+        "low fps": "Performance",
+        "game stutter": "Performance",
+        "game won't launch": "Compatibility",
+        "game crashes": "Compatibility",
+        "controller not working": "Controllers",
+        "black screen": "Plasma Wayland",
+        "screen sharing is blank": "Plasma Wayland",
+        "take screenshot": "Plasma Wayland",
+        "restore layout": "Repair",
+        "missing apps": "Repair",
+        "rollback update": "Update",
+        "undo update": "Update",
+    }
+
     def _setup_search(self):
         self._search_key_by_entry: dict[str, str] = {}
         for key, aliases in self._SEARCH_ALIASES.items():
             if key not in self._page_index_by_key:
                 continue
-            for alias in aliases:
+            title, _description, extra_terms = self._SEARCH_ITEMS.get(key, (key, "", []))
+            for alias in [title, key, *aliases, *extra_terms]:
                 self._search_key_by_entry.setdefault(alias, key)
 
         entries = sorted(self._search_key_by_entry)
@@ -364,35 +438,111 @@ class MainWindow(QMainWindow):
         completer.setFilterMode(Qt.MatchFlag.MatchContains)
         completer.activated.connect(self._on_search_pick)
         self._search_box.setCompleter(completer)
+        self._search_box.textChanged.connect(self._update_search_results)
         self._search_box.returnPressed.connect(self._on_search_return)
+
+    def _focus_search(self):
+        self._search_box.setFocus()
+        self._search_box.selectAll()
 
     def _on_search_pick(self, entry: str):
         key = self._search_key_by_entry.get(entry)
         if key is not None:
             self._navigate_to(key)
         self._search_box.clear()
+        self._search_panel.hide()
 
     def _on_search_return(self):
-        text = self._search_box.text().strip().lower()
+        text = self._search_box.text().strip()
         if not text:
             return
-        for entry, key in sorted(self._search_key_by_entry.items()):
-            if text in entry.lower():
-                self._navigate_to(key)
-                self._search_box.clear()
-                return
+        matches = self._rank_search_results(text)
+        if matches:
+            self._navigate_to(matches[0][0])
+            self._search_box.clear()
+            self._search_panel.hide()
+
+    def _clear_search_results(self):
+        while self._search_results_body.count():
+            item = self._search_results_body.takeAt(0)
+            widget = item.widget()
+            if widget is not None:
+                widget.deleteLater()
+
+    def _rank_search_results(self, text: str) -> list[tuple[str, int]]:
+        query = text.strip().lower()
+        if not query:
+            return []
+        ranked: list[tuple[str, int]] = []
+        for key, (title, description, extra_terms) in self._SEARCH_ITEMS.items():
+            if key not in self._page_index_by_key:
+                continue
+            aliases = self._SEARCH_ALIASES.get(key, [])
+            terms = [key, title, description, *aliases, *extra_terms]
+            score = 0
+            for term in terms:
+                lower = term.lower()
+                if query == lower:
+                    score = max(score, 120)
+                elif lower.startswith(query):
+                    score = max(score, 90)
+                elif query in lower:
+                    score = max(score, 60)
+            haystack = " ".join(terms).lower()
+            words = [part for part in query.split() if part]
+            if words and all(word in haystack for word in words):
+                score = max(score, 45 + len(words))
+            for phrase, target_key in self._PROBLEM_ROUTES.items():
+                if key == target_key and (query in phrase or phrase in query):
+                    score = max(score, 130)
+            if score:
+                ranked.append((key, score))
+        return sorted(ranked, key=lambda item: (-item[1], self._SEARCH_ITEMS[item[0]][0]))[:5]
+
+    def _update_search_results(self, text: str):
+        self._clear_search_results()
+        query = text.strip()
+        if not query:
+            self._search_panel.hide()
+            return
+
+        matches = self._rank_search_results(query)
+        self._search_panel.show()
+        if not matches:
+            self._search_results_title.setText("No matching settings")
+            self._search_results_hint.setText(
+                "Try a task name like Device Manager, game capture, map network drive, or add or remove programs."
+            )
+            return
+
+        self._search_results_title.setText("Search results")
+        self._search_results_hint.setText("Matched System Hub tools.")
+        for key, _score in matches:
+            title, description, _terms = self._SEARCH_ITEMS[key]
+            section, label = self._page_crumbs[self._page_index_by_key[key]]
+            crumb = label if not section or section == label else f"{section} / {label}"
+            btn = QPushButton(f"{title}\n{description}\n{crumb}")
+            btn.setObjectName("search-result")
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.clicked.connect(lambda _=False, k=key: self._open_search_result(k))
+            self._search_results_body.addWidget(btn)
+
+    def _open_search_result(self, key: str):
+        self._navigate_to(key)
+        self._search_box.clear()
+        self._search_panel.hide()
 
     # ── Usage focus ────────────────────────────────────────────────────────────
 
     _GAMING_PAGE_KEYS = ("Gaming", "Performance", "Compatibility", "Controllers")
 
     def _apply_profile_visibility(self, profile: str):
-        """Tailor the sidebar to the gaming/work/both focus.
+        """Tailor the sidebar to the Everyday/Gaming focus.
 
         Hidden pages stay in the stack and reachable through search — the
         focus only de-emphasizes, it never removes.
         """
-        gaming_visible = profile != "work"
+        gaming_visible = profile == "gaming"
         work_visible = profile != "gaming"
         self._nav_section_labels["Gaming"].setVisible(gaming_visible)
         for key in self._GAMING_PAGE_KEYS:
@@ -400,6 +550,20 @@ class MainWindow(QMainWindow):
         self._nav_button_by_key["Work Setup"].setVisible(work_visible)
 
     # ── Navigation ────────────────────────────────────────────────────────────
+
+    def _refresh_sidebar_channel(self):
+        branch = _current_branch()
+        text = {"latest": "Stable Channel", "testing": "Testing Channel"}.get(branch or "", "System Hub")
+        self._sidebar_ver_lbl.setText(text)
+
+    def _ensure_page(self, index: int) -> QWidget:
+        if self._pages[index] is None:
+            page = self._page_factories[index]()
+            self._pages[index] = page
+            placeholder = self._stack.widget(index)
+            self._stack.insertWidget(index, page)
+            self._stack.removeWidget(placeholder)
+        return self._pages[index]  # type: ignore[return-value]
 
     def _make_nav_handler(self, index: int):
         return lambda: self._switch_page(index)
@@ -424,6 +588,7 @@ class MainWindow(QMainWindow):
             self._switch_page(self._history[self._history_pos], record=False)
 
     def _switch_page(self, index: int, record: bool = True):
+        self._ensure_page(index)
         for i, btn in enumerate(self._nav_buttons):
             btn.set_active(i == index)
         self._stack.setCurrentIndex(index)
@@ -536,7 +701,7 @@ class WizardWindow(QMainWindow):
         # Accent line
         accent = QFrame()
         accent.setFixedHeight(2)
-        accent.setStyleSheet("background: #0078d4; border: none;")
+        accent.setStyleSheet("background: #2f9b8f; border: none;")
         root_layout.addWidget(accent)
 
         # ── Content stack ─────────────────────────────────────────────────
@@ -583,7 +748,10 @@ class WizardWindow(QMainWindow):
         self._back_btn.setFixedWidth(100)
         self._back_btn.clicked.connect(self._go_back)
         footer_layout.addWidget(self._back_btn)
-        footer_layout.addStretch()
+        self._step_hint = QLabel("")
+        self._step_hint.setObjectName("wizard-footer-hint")
+        self._step_hint.setWordWrap(True)
+        footer_layout.addWidget(self._step_hint, 1)
 
         self._skip_btn = QPushButton("Skip for now")
         self._skip_btn.clicked.connect(self._go_next)
@@ -650,7 +818,7 @@ class WizardWindow(QMainWindow):
             )
         if not _IS_LIVE and _find_ntfs_drives():
             rows.append(
-                "Windows game drive detected. Copy Steam libraries to a Linux-formatted disk before using Proton."
+                "PC game drive detected. Copy Steam libraries to a Linux-formatted disk before using Proton."
             )
         if _detect_nvidia():
             rows.append(
@@ -692,7 +860,7 @@ class WizardWindow(QMainWindow):
         logo.setObjectName("wizard-logo")
         hero_layout.addWidget(logo)
 
-        tagline = QLabel("Your Windows games, running on Linux.")
+        tagline = QLabel("Your PC games, running on Linux.")
         tagline.setObjectName("wizard-tagline")
         hero_layout.addWidget(tagline)
 
@@ -700,8 +868,8 @@ class WizardWindow(QMainWindow):
 
         desc = QLabel(
             "KythOS runs many Steam, Epic, and GOG games through Proton, then checks "
-            "the traps Windows players usually hit first: anti-cheat blockers, "
-            "Windows-formatted game drives, drivers, and rollback. Xbox and "
+            "the traps PC players usually hit first: anti-cheat blockers, "
+            "NTFS-formatted game drives, drivers, and rollback. Xbox and "
             "PlayStation controllers connect automatically."
         )
         desc.setObjectName("wizard-desc")
@@ -720,9 +888,8 @@ class WizardWindow(QMainWindow):
         profile_row = QHBoxLayout()
         profile_row.setSpacing(10)
         for key, label, tip in (
-            ("gaming", "🎮  Gaming", "Game-ready defaults — Steam, Discord, launchers."),
-            ("work", "💼  Work", "Office apps, email, Microsoft 365, VPN, and printing."),
-            ("both", "🖥  Both", "Gaming defaults plus the work essentials."),
+            ("everyday", "Everyday", "Apps, browser, files, cloud storage, VPN, printers, and updates."),
+            ("gaming", "Gaming", "Steam, Discord, launchers, performance, and controller tools."),
         ):
             btn = QPushButton(label)
             btn.setCheckable(True)
@@ -830,7 +997,7 @@ class WizardWindow(QMainWindow):
         install_model_title.setObjectName("card-title")
         install_model_layout.addWidget(install_model_title)
         install_model_copy = QLabel(
-            "Use App Store or Flathub first. Standalone Windows .exe and .msi installers "
+            "Use App Store or Flathub first. Standalone .exe and .msi installers "
             "belong in Bottles, while downloaded .rpm packages are system packages for "
             "mutable Fedora-style installs and are usually the wrong path on KythOS."
         )
@@ -1091,12 +1258,12 @@ class WizardWindow(QMainWindow):
 
     def _make_windows_game_drive_card(self, drives: list[dict]) -> QFrame:
         card, layout = _make_card("card-accent-warn")
-        title = QLabel("Windows game drive found")
+        title = QLabel("PC game drive found")
         title.setObjectName("card-title")
         layout.addWidget(title)
         names = []
         for drive in drives[:3]:
-            label = drive.get("label") or drive.get("name") or drive.get("dev") or "Windows drive"
+            label = drive.get("label") or drive.get("name") or drive.get("dev") or "PC drive"
             size = drive.get("size") or ""
             names.append(f"{label} {size}".strip())
         listed = ", ".join(names)
@@ -1105,7 +1272,7 @@ class WizardWindow(QMainWindow):
         body = QLabel(
             f"Detected: {listed}. Do not point Steam at the NTFS library and start playing. "
             "Copy the library into Steam on a Linux-formatted disk first, then let Proton "
-            "build clean prefixes there. The migration tool below mounts Windows read-only."
+            "build clean prefixes there. The migration tool below mounts other system read-only."
         )
         body.setObjectName("card-copy")
         body.setWordWrap(True)
@@ -1128,7 +1295,7 @@ class WizardWindow(QMainWindow):
         title_lbl.setObjectName("heading")
         subtitle_lbl = QLabel(
             "Install launchers for Steam, Epic, GOG, and Battle.net below. "
-            "Then follow the Proton steps to unlock your full Windows library."
+            "Then follow the Proton steps to unlock your full game library."
         )
         subtitle_lbl.setObjectName("subheading")
         subtitle_lbl.setWordWrap(True)
@@ -1150,7 +1317,7 @@ class WizardWindow(QMainWindow):
         if windows_drives:
             ps_layout.addWidget(self._make_windows_game_drive_card(windows_drives))
 
-        proton_head = QLabel("Enable Proton — play your entire Windows library")
+        proton_head = QLabel("Enable Proton — play your entire game library")
         proton_head.setObjectName("heading")
         proton_head.setStyleSheet("font-size: 17px; font-weight: 700; color: #ffffff;")
         ps_layout.addWidget(proton_head)
@@ -1165,7 +1332,7 @@ class WizardWindow(QMainWindow):
             "2.  Steam  →  Settings  →  Compatibility",
             "3.  Turn on  Enable Steam Play for all other titles",
             "4.  Select  GE-Proton  from the version dropdown",
-            "5.  Restart Steam — your full Windows library now appears",
+            "5.  Restart Steam — your full game library now appears",
         ]:
             lbl = QLabel(step)
             lbl.setObjectName("card-copy")
@@ -1177,7 +1344,7 @@ class WizardWindow(QMainWindow):
         )
         tip.setObjectName("card-copy")
         tip.setWordWrap(True)
-        tip.setStyleSheet("color: #4cc2ff; margin-top: 6px;")
+        tip.setStyleSheet("color: #7dd3c7; margin-top: 6px;")
         pc_layout.addWidget(tip)
         ps_layout.addWidget(proton_card)
         outer.addWidget(proton_section)
@@ -1196,7 +1363,7 @@ class WizardWindow(QMainWindow):
         compat_lbl.setStyleSheet("font-weight: 600; color: #ffffff;")
         cc_layout.addWidget(compat_lbl)
         # Front-load the hard wall: kernel-level anti-cheat is the #1 reason
-        # Windows switchers give up, and no Proton setting will ever fix it.
+        # other system switchers give up, and no Proton setting will ever fix it.
         # Showing the blocked titles here beats discovering them the hard way.
         blocked = [game for game in _COMPAT_GAMES if game.status == "blocked"]
         if blocked:
@@ -1256,7 +1423,7 @@ class WizardWindow(QMainWindow):
 
         subtitle = QLabel(
             "Open Steam, go to Settings → Compatibility, and enable Proton for all titles.\n"
-            "Your full Windows library will appear and be ready to install.\n\n"
+            "Your full game library will appear and be ready to install.\n\n"
             "If an update makes games worse, open System Hub → Update and use Roll Back "
             "before reinstalling anything. The System Hub is always available from the app menu."
         )
@@ -1276,7 +1443,7 @@ class WizardWindow(QMainWindow):
             "Office apps, Microsoft 365 shortcuts, document fonts, VPN, shares, and printing."
         )
         self._finish_work_btn.clicked.connect(lambda: self._open_hub_at("Work Setup"))
-        self._finish_work_btn.setVisible(self._profile in ("work", "both"))
+        self._finish_work_btn.setVisible(self._profile == "everyday")
         btn_row.addWidget(self._finish_work_btn)
         hub_btn = QPushButton("Open System Hub")
         hub_btn.clicked.connect(lambda: (self._next_btn.click() or None))
@@ -1290,11 +1457,7 @@ class WizardWindow(QMainWindow):
 
     _PROFILE_DEFAULT_APPS = {
         "gaming": {"com.valvesoftware.Steam", "com.discordapp.Discord"},
-        "work": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
-        "both": {
-            "com.valvesoftware.Steam", "com.discordapp.Discord",
-            "org.libreoffice.LibreOffice", "eu.betterbird.Betterbird",
-        },
+        "everyday": {"org.libreoffice.LibreOffice", "eu.betterbird.Betterbird"},
     }
 
     def _on_profile_chosen(self, profile: str):
@@ -1302,6 +1465,10 @@ class WizardWindow(QMainWindow):
         for key, btn in self._profile_buttons.items():
             btn.setChecked(key == profile)
         _save_profile(profile)
+        try:
+            subprocess.Popen(["/usr/bin/kyth-apply-role-preset", profile], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)  # nosemgrep
+        except OSError:
+            pass
         # Re-seed the Pick Apps defaults to match the chosen profile. Only
         # enabled boxes are touched — already-installed apps stay locked.
         wanted = self._PROFILE_DEFAULT_APPS.get(profile, set())
@@ -1334,6 +1501,15 @@ class WizardWindow(QMainWindow):
         idx = self._current
         total = len(self._steps)
         operation_busy = self._has_running_operation()
+        hints = [
+            "Pick a focus. You can change it later from Home.",
+            "Recommended. Updates stage safely and apply after restart.",
+            "Recommended. Hardware checks catch driver, display, audio, network, and controller issues early.",
+            "Optional. Install extras now, or continue with the game-ready defaults.",
+            "Optional. Launcher and Proton tools stay available from Gaming.",
+            "System Hub stays in the app menu whenever you need it.",
+        ]
+        self._step_hint.setText(hints[idx] if idx < len(hints) else "")
 
         for i, (dot, lbl) in enumerate(self._step_label_widgets):
             if i < idx:
@@ -1354,7 +1530,7 @@ class WizardWindow(QMainWindow):
         self._skip_btn.setEnabled(not operation_busy)
         self._next_btn.setEnabled(not operation_busy)
         if hasattr(self, "_finish_work_btn"):
-            self._finish_work_btn.setVisible(self._profile in ("work", "both"))
+            self._finish_work_btn.setVisible(self._profile == "everyday")
 
         if idx == total - 1:
             self._next_btn.setText("Close")

@@ -20,7 +20,7 @@ from .qt import (  # noqa: E501
     QCheckBox, QComboBox, QDesktopServices, QFileDialog, QFrame, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QProgressBar, QPushButton, QThread, QTimer, QUrl, QVBoxLayout, Signal,
 )
 from .widgets import (  # noqa: E501
-    Page, _make_card,
+    Page, _make_card, _make_flow_step,
 )
 
 def _unlock_bitlocker_drive(dev: str, key: str) -> tuple[bool, str]:
@@ -61,13 +61,13 @@ class WindowsLibraryWorker(QThread):
         try:
             partitions = _probe_windows_partitions()
         except Exception as exc:
-            print(f"Windows library probe failed: {exc}", file=sys.stderr)
+            print(f"game library probe failed: {exc}", file=sys.stderr)
             partitions = []
         self.result.emit(partitions)
 
 
 # ── Copy My Files ─────────────────────────────────────────────────────────────
-# Windows stores profile folders under their English names on disk regardless
+# The source system stores profile folders under their English names on disk regardless
 # of display language, so these source names are locale-safe. Destinations go
 # through xdg-user-dir so localized Linux home folders are honoured.
 _XDG_FOLDER_KEYS = {
@@ -110,7 +110,7 @@ def _folder_sizes_calc(paths: dict[str, str]):
 
 
 class UserFilesCopyWorker(QThread):
-    """Copies selected Windows profile folders into the home directory via rsync."""
+    """Copies selected profile folders into the home directory via rsync."""
     status = Signal(str)
     overall = Signal(int)          # 0–100 across all folders
     done = Signal(int, int, bool)  # (ok, failed, cancelled)
@@ -185,7 +185,7 @@ class UserFilesCopyWorker(QThread):
 
 
 # ── Hardware sanity check ─────────────────────────────────────────────────────
-# "Did everything come along?" — the things Windows configured silently.
+# "Did everything come along?" — the things the previous setup configured silently.
 # Every probe degrades to skipping its row when the tool is missing.
 
 def _strip_ansi(text: str) -> str:
@@ -357,7 +357,7 @@ def _write_bookmarks_html(sources: list[dict], dest: str) -> int:
         "<!DOCTYPE NETSCAPE-Bookmark-file-1>\n",
         '<META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">\n',
         "<TITLE>Bookmarks</TITLE>\n",
-        "<H1>Bookmarks from Windows</H1>\n",
+        "<H1>Bookmarks from another system</H1>\n",
         "<DL><p>\n",
     ]
     total = 0
@@ -479,8 +479,8 @@ def _configure_dynamic_lock_service(enabled: bool) -> tuple[bool, str]:
     return True, "Dynamic Lock is on." if enabled else "Dynamic Lock is off."
 
 
-# ── Windows drive extras: wallpaper, fonts, game saves, notes, RDP ───────────
-# Everything here reads from the mounted Windows partitions found by
+# ── PC drive extras: wallpaper, fonts, game saves, notes, RDP ───────────
+# Everything here reads from the mounted system partitions found by
 # _probe_windows_partitions and never writes to them.
 
 _FONT_EXTS = (".ttf", ".ttc", ".otf")
@@ -600,7 +600,7 @@ def _read_sticky_notes(profile_path: str) -> list[str]:
     """Read note texts from the Sticky Notes app database (plum.sqlite).
 
     The database is copied to a temp dir first so sqlite's WAL replay never
-    touches the (possibly read-only) Windows drive."""
+    touches the (possibly read-only) PC drive."""
     src_dir = os.path.join(
         profile_path, "AppData", "Local", "Packages",
         "Microsoft.MicrosoftStickyNotes_8wekyb3d8bbwe", "LocalState")
@@ -659,7 +659,7 @@ def _parse_rdp_file(path: str) -> dict | None:
 
 
 def _scan_windows_extras(partitions: list) -> dict:
-    """One worker-thread pass over the mounted Windows partitions for the
+    """One worker-thread pass over the mounted system partitions for the
     wallpaper / fonts / game-saves / sticky-notes / RDP cards."""
     wallpapers: list[dict] = []
     saves: list[dict] = []
@@ -759,7 +759,7 @@ def _copy_windows_fonts(font_dirs: list[str]) -> tuple[int, int]:
 
 def _copy_game_saves(saves: list[dict]) -> tuple[int, int, str]:
     """Copy rescued save folders under ~/Documents; returns (ok, failed, dest)."""
-    base = os.path.join(_windows_folder_dest("Documents"), "Rescued Windows Saves")
+    base = os.path.join(_windows_folder_dest("Documents"), "Rescued Game Saves")
     ok = failed = 0
     for item in saves:
         sub = os.path.join(item["user"], item["label"]) if item["user"] else item["label"]
@@ -794,7 +794,7 @@ def _export_sticky_notes(sticky: list[dict]) -> tuple[int, str]:
 
 def _import_rdp_bookmarks(connections: list[dict]) -> tuple[int, int]:
     """Add rdp:// bookmarks to KRDC's bookmarks.xbel; returns (added, dupes)."""
-    import xml.etree.ElementTree as ET
+    import defusedxml.ElementTree as ET
     path = os.path.expanduser("~/.local/share/krdc/bookmarks.xbel")
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if os.path.isfile(path):
@@ -821,7 +821,7 @@ def _import_rdp_bookmarks(connections: list[dict]) -> tuple[int, int]:
     return added, dupes
 
 
-# ── Page: Move From Windows ──────────────────────────────────────────────────
+# ── Page: Move Files ──────────────────────────────────────────────────
 class WindowsMigrationPage(Page):
     def __init__(self, navigate=None):
         super().__init__()
@@ -848,8 +848,8 @@ class WindowsMigrationPage(Page):
 
         self._page_header(
             "Apps",
-            "Move From Windows",
-            "Bring your files, games, and familiar habits over without touching the Windows install.",
+            "Move Files",
+            "Bring your files, games, and familiar habits over without touching the original install.",
         )
 
         intro, intro_layout = _make_card("card-accent-ok")
@@ -857,8 +857,8 @@ class WindowsMigrationPage(Page):
         intro_title.setObjectName("card-title")
         intro_layout.addWidget(intro_title)
         intro_body = QLabel(
-            "KythOS can read Windows drives, copy personal files, import Steam libraries, "
-            "and point you toward the right app path for Windows installers. Windows drives "
+            "KythOS can read PC drives, copy personal files, import Steam libraries, "
+            "and point you toward the right app path for original installers. PC drives "
             "are treated carefully: migration tools read from them and copy into your home folder."
         )
         intro_body.setObjectName("card-copy")
@@ -882,14 +882,27 @@ class WindowsMigrationPage(Page):
         intro_layout.addLayout(intro_btns)
         self._add(intro)
 
+        flow_card, flow_layout = _make_card()
+        flow_title = QLabel("Migration path")
+        flow_title.setObjectName("card-title")
+        flow_layout.addWidget(flow_title)
+        for i, (title, copy) in enumerate((
+            ("Scan PC drives", "Detect NTFS, BitLocker, hibernation state, user folders, Steam libraries, and safe mount points."),
+            ("Choose what to copy", "Select personal folders, bookmarks, saves, or game libraries. The PC drive is the source, not the destination."),
+            ("Copy into KythOS", "Files land in your home folder or Steam library on a Linux-formatted disk. Windows stays untouched."),
+            ("Finish the habits", "Set up cloud sync, shortcuts, phone pairing, printer setup, and PowerToys equivalents from this page."),
+        ), 1):
+            flow_layout.addWidget(_make_flow_step(i, title, copy))
+        self._add(flow_card)
+
         checklist, checklist_layout = _make_card()
         checklist_title = QLabel("Windows switch checklist")
         checklist_title.setObjectName("card-title")
         checklist_layout.addWidget(checklist_title)
         for status, title, text in (
             ("ok", "Apps", "Use App Store for trending Flatpaks, starter packs, AppImages, and installed apps."),
-            ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random Windows installers directly."),
-            ("warn", "Files", "Use Copy My Files below: scan your Windows drive, then copy Documents, Pictures, Music, and Videos into your home folder."),
+            ("ok", "Games", "Use Steam, Heroic, Lutris, or Bottles instead of running random original installers directly."),
+            ("warn", "Files", "Use Copy My Files below: scan your PC drive, then copy Documents, Pictures, Music, and Videos into your home folder."),
             ("warn", "Bookmarks", "Export Chrome, Edge, or Firefox bookmarks below; passwords come across via browser sync."),
             ("warn", "Saves", "Install Ludusavi before moving large libraries or experimenting with mods."),
             ("dim", "Updates", "KythOS updates stage a new OS image. Reboot when ready; rollbacks stay available."),
@@ -897,7 +910,7 @@ class WindowsMigrationPage(Page):
             checklist_layout.addWidget(self._make_migration_row(status, title, text))
         self._add(checklist)
 
-        # Hardware sanity — the things Windows configured silently
+        # Hardware sanity — the things the previous setup configured silently
         hw_card, hw_layout = _make_card()
         hw_top = QHBoxLayout()
         hw_title = QLabel("Did everything come along? Quick hardware check")
@@ -940,7 +953,7 @@ class WindowsMigrationPage(Page):
 
         # Dual-boot clock fix card
         clock_card, clock_layout = _make_card("card-accent-warn")
-        clock_title = QLabel("Dual-booting with Windows? Fix the clock.")
+        clock_title = QLabel("Dual-booting? Fix the clock.")
         clock_title.setObjectName("card-title")
         clock_layout.addWidget(clock_title)
         clock_body = QLabel(
@@ -968,7 +981,7 @@ class WindowsMigrationPage(Page):
         shortcuts_title.setObjectName("card-title")
         shortcuts_layout.addWidget(shortcuts_title)
         shortcuts_body = QLabel(
-            "Most Windows shortcuts already work on KythOS: Win+L locks, Win+D shows the desktop, "
+            "Most familiar shortcuts already work on KythOS: Win+L locks, Win+D shows the desktop, "
             "Alt+Tab switches windows, Win+. opens the emoji picker. This adds the rest:"
         )
         shortcuts_body.setObjectName("card-copy")
@@ -998,7 +1011,7 @@ class WindowsMigrationPage(Page):
         shortcuts_layout.addWidget(self._shortcuts_status)
         shortcuts_btns = QHBoxLayout()
         shortcuts_btns.setSpacing(8)
-        shortcuts_apply_btn = QPushButton("Apply Windows Shortcuts")
+        shortcuts_apply_btn = QPushButton("Apply Familiar Shortcuts")
         shortcuts_apply_btn.setObjectName("primary")
         shortcuts_apply_btn.clicked.connect(self._apply_windows_shortcuts)
         shortcuts_btns.addWidget(shortcuts_apply_btn)
@@ -1054,6 +1067,41 @@ class WindowsMigrationPage(Page):
         self._powertoys_status.setWordWrap(True)
         powertoys_layout.addWidget(self._powertoys_status)
         self._add(powertoys_card)
+
+        # Terminal & shell tools card
+        shell_card, shell_layout = _make_card()
+        shell_title = QLabel("Terminal & Shell Tools")
+        shell_title.setObjectName("card-title")
+        shell_layout.addWidget(shell_title)
+        shell_body = QLabel(
+            "KythOS ships a pre-configured terminal experience — no manual plugin installs. "
+            "Every new account gets eza (better ls), bat (syntax-highlighted cat), fd (better find), "
+            "ripgrep (fast search), fzf (Ctrl+R fuzzy history), zoxide (smart cd that learns your habits), "
+            "git-delta (beautiful diffs), and starship (git-aware prompt). "
+            "Fish and Zsh both have autosuggestions and syntax highlighting out of the box. "
+            "To switch to fish: open Konsole → Settings → Edit Profiles → Command → /usr/bin/fish."
+        )
+        shell_body.setObjectName("card-copy")
+        shell_body.setWordWrap(True)
+        shell_layout.addWidget(shell_body)
+        for win_tool, linux_equiv in [
+            ("cmd / PowerShell", "Konsole with zsh/fish — autosuggestions + syntax highlighting"),
+            ("Terminal tabs", "Konsole profiles or zellij (modern terminal multiplexer)"),
+            ("Everything (search)", "fd / ripgrep — 10–100× faster, respects .gitignore"),
+            ("notepad.exe", "helix (hx) — modal editor with LSP, no config needed"),
+            ("grep / findstr", "rg (ripgrep) — alias: search <pattern>"),
+        ]:
+            shell_layout.addWidget(self._make_migration_row("ok", win_tool, linux_equiv))
+        shell_btns = QHBoxLayout()
+        shell_btns.setSpacing(8)
+        open_konsole_btn = QPushButton("Open Terminal")
+        open_konsole_btn.clicked.connect(
+            lambda _=False: self._run_background(["konsole"])
+        )
+        shell_btns.addWidget(open_konsole_btn)
+        shell_btns.addStretch()
+        shell_layout.addLayout(shell_btns)
+        self._add(shell_card)
 
         # OneDrive / cloud sync card
         onedrive_card, onedrive_layout = _make_card()
@@ -1214,7 +1262,7 @@ class WindowsMigrationPage(Page):
         score_title.setObjectName("card-title")
         score_layout.addWidget(score_title)
         self._migration_score_lbl = QLabel(
-            "Scan drives to estimate migration readiness. KythOS looks at launchers, save tools, Windows drives, and safe copy paths."
+            "Scan drives to estimate migration readiness. KythOS looks at launchers, save tools, PC drives, and safe copy paths."
         )
         self._migration_score_lbl.setObjectName("card-copy")
         self._migration_score_lbl.setWordWrap(True)
@@ -1230,7 +1278,7 @@ class WindowsMigrationPage(Page):
 
         drives, drives_layout = _make_card()
         drives_top = QHBoxLayout()
-        drives_title = QLabel("Windows drives")
+        drives_title = QLabel("PC drives")
         drives_title.setObjectName("card-title")
         drives_top.addWidget(drives_title)
         drives_top.addStretch()
@@ -1241,13 +1289,13 @@ class WindowsMigrationPage(Page):
         drives_layout.addLayout(drives_top)
         drives_desc = QLabel(
             "Looks for NTFS partitions, hibernation/dirty flags, Windows user folders, mount points, and Steam folders. "
-            "If a drive is hibernated, boot Windows once and choose full Shut Down before copying from it."
+            "If a drive is hibernated, boot the other system once and choose full Shut Down before copying from it."
         )
         drives_desc.setObjectName("card-copy")
         drives_desc.setWordWrap(True)
         drives_layout.addWidget(drives_desc)
         ntfs_warn = QLabel(
-            "⚠  Browse and copy files from Windows drives freely — but don't add one as a Steam "
+            "⚠  Browse and copy files from PC drives freely — but don't add one as a Steam "
             "library or launch games from it. Proton needs a Linux-formatted disk; games run "
             "straight off NTFS break in confusing ways. Use Copy Games to KythOS instead."
         )
@@ -1255,7 +1303,7 @@ class WindowsMigrationPage(Page):
         ntfs_warn.setWordWrap(True)
         ntfs_warn.setStyleSheet("color: #d4a843;")
         drives_layout.addWidget(ntfs_warn)
-        self._drive_status = QLabel("Click Scan Drives to look for Windows partitions.")
+        self._drive_status = QLabel("Click Scan Drives to look for system partitions.")
         self._drive_status.setObjectName("card-copy")
         self._drive_status.setWordWrap(True)
         drives_layout.addWidget(self._drive_status)
@@ -1270,7 +1318,7 @@ class WindowsMigrationPage(Page):
 
         # ── Copy My Files ─────────────────────────────────────────────────────
         files_card, files_layout = _make_card()
-        files_title = QLabel("Copy your files from Windows")
+        files_title = QLabel("Copy your files from another system")
         files_title.setObjectName("card-title")
         files_layout.addWidget(files_title)
         self._files_intro = QLabel(
@@ -1320,7 +1368,7 @@ class WindowsMigrationPage(Page):
         bm_title.setObjectName("card-title")
         bm_layout.addWidget(bm_title)
         bm_body = QLabel(
-            "Bookmarks are read straight off the Windows drive — Chrome, Edge, Brave, Vivaldi, "
+            "Bookmarks are read straight off the PC drive — Chrome, Edge, Brave, Vivaldi, "
             "Opera, and Firefox — and saved as one standard bookmarks file that any browser can "
             "import. Passwords can't be copied (Windows encrypts them per-machine); sign into "
             "Firefox Sync or your Google account to bring those across."
@@ -1357,7 +1405,7 @@ class WindowsMigrationPage(Page):
         wp_title.setObjectName("card-title")
         wp_layout.addWidget(wp_title)
         wp_body = QLabel(
-            "Your desktop background comes straight off the Windows drive and is saved "
+            "Your desktop background comes straight off the PC drive and is saved "
             "into Pictures — one click and the desktop feels like home."
         )
         wp_body.setObjectName("card-copy")
@@ -1381,20 +1429,20 @@ class WindowsMigrationPage(Page):
         wp_layout.addLayout(wp_btns)
         self._add(wp_card)
 
-        # ── Windows fonts ─────────────────────────────────────────────────────
+        # ── system fonts ─────────────────────────────────────────────────────
         fonts_card, fonts_layout = _make_card()
-        fonts_title = QLabel("Bring your Windows fonts")
+        fonts_title = QLabel("Bring your system fonts")
         fonts_title.setObjectName("card-title")
         fonts_layout.addWidget(fonts_title)
         fonts_body = QLabel(
             "Modern documents use Segoe UI, Calibri, and Cambria — fonts the downloadable "
-            "core-fonts set doesn't include. Copying your own fonts from the Windows install "
+            "core-fonts set doesn't include. Copying your own fonts from the original install "
             "on this PC makes documents render identically here."
         )
         fonts_body.setObjectName("card-copy")
         fonts_body.setWordWrap(True)
         fonts_layout.addWidget(fonts_body)
-        self._fonts_status = QLabel("Scan drives above — Windows font folders are found automatically.")
+        self._fonts_status = QLabel("Scan drives above — system font folders are found automatically.")
         self._fonts_status.setObjectName("card-copy")
         self._fonts_status.setWordWrap(True)
         fonts_layout.addWidget(self._fonts_status)
@@ -1411,13 +1459,13 @@ class WindowsMigrationPage(Page):
 
         # ── Game saves rescue ─────────────────────────────────────────────────
         saves_card, saves_layout = _make_card()
-        saves_title = QLabel("Rescue game saves from the Windows drive")
+        saves_title = QLabel("Rescue game saves from the PC drive")
         saves_title.setObjectName("card-title")
         saves_layout.addWidget(saves_title)
         saves_body = QLabel(
             "Saves hide in My Games, Saved Games, AppData, and Ubisoft's launcher folder. "
-            "This finds them and copies everything into Documents → Rescued Windows Saves, "
-            "so nothing is lost when the Windows drive goes away. Ludusavi can help place "
+            "This finds them and copies everything into Documents → Rescued Game Saves, "
+            "so nothing is lost when the PC drive goes away. Ludusavi can help place "
             "them into each game's new home."
         )
         saves_body.setObjectName("card-copy")
@@ -1440,7 +1488,7 @@ class WindowsMigrationPage(Page):
         self._saves_show_btn = QPushButton("Show Folder")
         self._saves_show_btn.hide()
         self._saves_show_btn.clicked.connect(lambda _=False: QDesktopServices.openUrl(
-            QUrl.fromLocalFile(os.path.join(_windows_folder_dest("Documents"), "Rescued Windows Saves"))))
+            QUrl.fromLocalFile(os.path.join(_windows_folder_dest("Documents"), "Rescued Game Saves"))))
         saves_btns.addWidget(self._saves_show_btn)
         saves_btns.addStretch()
         saves_layout.addLayout(saves_btns)
@@ -1516,7 +1564,7 @@ class WindowsMigrationPage(Page):
         exe_title.setObjectName("card-title")
         exe_layout.addWidget(exe_title)
         exe_body = QLabel(
-            "For games, start with Steam, Heroic, or Lutris. For standalone Windows apps, "
+            "For games, start with Steam, Heroic, or Lutris. For standalone compatibility apps, "
             "use Bottles so each app gets its own isolated Windows-like environment. "
             "If a native Linux or Flatpak version exists, prefer that first."
         )
@@ -1542,7 +1590,7 @@ class WindowsMigrationPage(Page):
         wsl_title.setObjectName("card-title")
         wsl_layout.addWidget(wsl_title)
         wsl_body = QLabel(
-            "On Windows, WSL gave you a Linux environment inside your OS. Here the whole OS "
+            "For Linux subsystem workflows gave you a Linux environment inside your OS. Here the whole OS "
             "is Linux — but the same workflow exists as Distrobox: full distros in containers "
             "that share your home folder, with no VM overhead. One click creates an Ubuntu "
             "environment; opening a terminal in it works just like typing wsl in PowerShell."
@@ -1625,7 +1673,7 @@ class WindowsMigrationPage(Page):
     def _apply_windows_shortcuts(self):
         if self._run_shortcut_change(delete=False):
             self._shortcuts_status.setText(
-                "✓ Windows shortcuts applied — try Win+E. If a shortcut doesn't respond, sign out and back in."
+                "✓ familiar shortcuts applied — try Win+E. If a shortcut doesn't respond, sign out and back in."
             )
 
     def _revert_windows_shortcuts(self):
@@ -1856,7 +1904,12 @@ class WindowsMigrationPage(Page):
             self._nearby_status.setText(f"Could not start Nearby Sharing: {exc}")
 
     def _open_krunner(self):
-        for cmd in (["krunner"], ["qdbus6", "org.kde.krunner", "/App", "display"]):
+        for cmd in (
+            ["krunner"],
+            ["qdbus6", "org.kde.krunner", "/App", "display"],
+            ["qdbus-qt6", "org.kde.krunner", "/App", "display"],
+            ["qdbus", "org.kde.krunner", "/App", "display"],
+        ):
             if shutil.which(cmd[0]):
                 try:
                     subprocess.Popen(cmd)
@@ -1921,12 +1974,12 @@ class WindowsMigrationPage(Page):
         self._files_profile_combo.blockSignals(True)
         self._files_profile_combo.clear()
         for part, prof in self._files_profiles:
-            where = part.get("label") or part.get("device") or "Windows drive"
+            where = part.get("label") or part.get("device") or "PC drive"
             self._files_profile_combo.addItem(f"{prof['name']} — {where}")
         self._files_profile_combo.blockSignals(False)
         if not self._files_profiles:
             self._files_intro.setText(
-                "No Windows user folders found. If the drive is hibernated, boot Windows once, "
+                "No Windows user folders found. If the drive is hibernated, boot the other system once, "
                 "choose a full Shut Down, then rescan."
             )
             self._files_profile_combo.hide()
@@ -2040,7 +2093,7 @@ class WindowsMigrationPage(Page):
                 "Copy cancelled. Files copied so far are kept; run it again to resume.", "status-warn")
         elif failed:
             self._set_files_status(
-                f"Copied {ok} folder(s); {failed} had errors. If Windows wasn't shut down fully, "
+                f"Copied {ok} folder(s); {failed} had errors. If the other system wasn't shut down fully, "
                 "boot it once, choose Shut Down, and try again.", "status-err")
         else:
             self._set_files_status(f"✓ Copied {ok} folder(s) into your home folder.", "status-ok")
@@ -2099,7 +2152,7 @@ class WindowsMigrationPage(Page):
         )
         self._bm_show_btn.show()
 
-    # ── Windows drive extras ──────────────────────────────────────────────────
+    # ── PC drive extras ──────────────────────────────────────────────────
 
     def _start_extras_scan(self, partitions: list):
         if self._extras_worker is not None and self._extras_worker.isRunning():
@@ -2110,7 +2163,7 @@ class WindowsMigrationPage(Page):
             if part.get("mountpoint") or part.get("user_profiles")
         ]
         if not usable:
-            no_drive = "No readable Windows drive — scan or unlock one above first."
+            no_drive = "No readable PC drive — scan or unlock one above first."
             for lbl in (self._wp_status, self._fonts_status, self._saves_status,
                         self._sticky_status, self._rdp_status):
                 lbl.setText(no_drive)
@@ -2121,12 +2174,12 @@ class WindowsMigrationPage(Page):
             return
         for lbl in (self._wp_status, self._fonts_status, self._saves_status,
                     self._sticky_status, self._rdp_status):
-            lbl.setText("Looking on the Windows drive…")
+            lbl.setText("Looking on the PC drive…")
         worker = DataWorker("win-extras", lambda: _scan_windows_extras(usable))
         worker.result.connect(self._on_extras)
         worker.failed.connect(
             lambda _key, message: self._wp_status.setText(
-                f"Could not read the Windows drive: {message}"))
+                f"Could not read the PC drive: {message}"))
         self._extras_worker = worker
         _release_worker_when_finished(self, "_extras_worker", worker)
         worker.start()
@@ -2148,18 +2201,18 @@ class WindowsMigrationPage(Page):
         else:
             self._wp_combo.hide()
             self._wp_apply_btn.hide()
-            self._wp_status.setText("No cached wallpaper found on the Windows drive.")
+            self._wp_status.setText("No cached wallpaper found on the PC drive.")
 
         fonts = extras.get("fonts") or {}
         if fonts.get("count"):
             self._fonts_btn.show()
             self._fonts_status.setText(
                 f"Found {fonts['count']} font files ({_human_bytes(fonts['bytes'])}) "
-                "in the Windows font folders."
+                "in the system font folders."
             )
         else:
             self._fonts_btn.hide()
-            self._fonts_status.setText("No font folders found on the Windows drive.")
+            self._fonts_status.setText("No font folders found on the PC drive.")
 
         saves = extras.get("saves") or []
         self._clear_layout(self._saves_rows)
@@ -2176,7 +2229,7 @@ class WindowsMigrationPage(Page):
             )
         else:
             self._saves_btn.hide()
-            self._saves_status.setText("No game save folders found on the Windows drive.")
+            self._saves_status.setText("No game save folders found on the PC drive.")
 
         sticky = extras.get("sticky") or []
         total_notes = sum(len(src["notes"]) for src in sticky)
@@ -2185,11 +2238,11 @@ class WindowsMigrationPage(Page):
             users = ", ".join(src["user"] for src in sticky)
             self._sticky_status.setText(
                 f"Found {total_notes} sticky note{'s' if total_notes != 1 else ''} "
-                f"from Windows user{'s' if len(sticky) != 1 else ''} {users}."
+                f"from another system user{'s' if len(sticky) != 1 else ''} {users}."
             )
         else:
             self._sticky_btn.hide()
-            self._sticky_status.setText("No Sticky Notes found on the Windows drive.")
+            self._sticky_status.setText("No Sticky Notes found on the PC drive.")
 
         rdp = extras.get("rdp") or []
         if rdp:
@@ -2202,7 +2255,7 @@ class WindowsMigrationPage(Page):
             )
         else:
             self._rdp_btn.hide()
-            self._rdp_status.setText("No saved .rdp connection files found on the Windows drive.")
+            self._rdp_status.setText("No saved .rdp connection files found on the PC drive.")
 
     def _apply_windows_wallpaper(self):
         src = self._wp_combo.currentData()
@@ -2275,7 +2328,7 @@ class WindowsMigrationPage(Page):
             home = os.path.expanduser("~")
             text = f"✓ Copied {ok} save folder{'s' if ok != 1 else ''} to {base.replace(home, '~', 1)}."
             if failed:
-                text += f" {failed} could not be read — if Windows wasn't fully shut down, boot it once and retry."
+                text += f" {failed} could not be read — if the other system wasn't fully shut down, boot it once and retry."
             self._saves_status.setText(text)
             self._saves_show_btn.show()
         worker.result.connect(_done)
@@ -2391,7 +2444,7 @@ class WindowsMigrationPage(Page):
         if not partitions:
             self._drive_status.setText("No Windows/NTFS partitions found.")
             self._drive_status.setObjectName("status-warn")
-            self._migration_score_lbl.setText("Switch readiness: 2/5. Install your launchers and Ludusavi, then connect your Windows drive or cloud backup when ready.")
+            self._migration_score_lbl.setText("Switch readiness: 2/5. Install your launchers and Ludusavi, then connect your PC drive or cloud backup when ready.")
             _restyle(self._drive_status)
             self._populate_files_card([])
             self._start_bookmark_scan([])
@@ -2438,7 +2491,7 @@ class WindowsMigrationPage(Page):
         if part.get("is_bitlocker"):
             return self._make_bitlocker_row(part)
         status = "warn" if part.get("is_dirty") or part.get("is_hibernated") else "ok"
-        label = part.get("label") or part.get("device") or "Windows drive"
+        label = part.get("label") or part.get("device") or "PC drive"
         if part.get("windows_root"):
             label = f"Windows (C:) — {label}" if part.get("label") else "Windows (C:)"
         mount = part.get("mountpoint") or "not mounted"
@@ -2488,7 +2541,7 @@ class WindowsMigrationPage(Page):
         return row
 
     def _make_bitlocker_row(self, part: dict) -> QFrame:
-        label = part.get("label") or part.get("device") or "Windows drive"
+        label = part.get("label") or part.get("device") or "PC drive"
         summary = (
             f"{part.get('device', '')} · {part.get('size', '')} · "
             "locked with BitLocker — unlock to copy files, bookmarks, and games"

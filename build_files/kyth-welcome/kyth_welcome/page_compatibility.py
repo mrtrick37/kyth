@@ -124,14 +124,14 @@ _COMPAT_AC_EXPLAINERS: list[tuple[str, str, str]] = [
     ("Easy Anti-Cheat (EAC)",
      "ok",
      "Supports Linux natively — but only when the game developer flips the switch to enable it. "
-     "EAC can run in kernel mode on Windows; those games are blocked. Check per-game status below."),
+     "EAC can run in kernel mode on another system; those games are blocked. Check per-game status below."),
     ("BattlEye",
      "ok",
      "Same story as EAC: full Linux support exists, but each developer must opt in. "
      "Most major BattlEye titles have enabled it. A few have not."),
     ("Vanguard / RICOCHET / Hyperion",
      "err",
-     "These anti-cheats load a Windows kernel driver at boot. There is no Linux equivalent "
+     "These anti-cheats load a kernel-level driver at boot. There is no Linux equivalent "
      "and the vendors have not announced plans to change this. These games are currently unplayable on Linux."),
 ]
 
@@ -236,9 +236,9 @@ class CompatibilityPage(Page):
         self._add_layout(self._games_rows_layout)
         self._rebuild_game_rows()
 
-        # ── Windows apps via Bottles / Lutris ─────────────────────────────────
+        # ── compatibility apps via Bottles / Lutris ─────────────────────────────────
         self._divider()
-        winapps_head = QLabel("Known-working Windows apps")
+        winapps_head = QLabel("Known-working compatibility apps")
         winapps_head.setObjectName("heading")
         winapps_head.setStyleSheet("font-size:17px; font-weight:700; color:#ffffff;")
         self._add(winapps_head)
@@ -334,11 +334,11 @@ class CompatibilityPage(Page):
         cloud_title.setObjectName("card-title")
         cloud_layout.addWidget(cloud_title)
         cloud_body = QLabel(
-            "The native Xbox app is Windows-only and there is no Linux client. "
+            "The native Xbox app is not available natively here and there is no Linux client. "
             "However, Xbox Cloud Gaming (xCloud) streams your Game Pass library to any "
             "browser — no install required. Performance depends on your connection, "
             "and a controller is strongly recommended. For competitive or latency-sensitive games, "
-            "keep a Windows dual-boot until a native solution ships."
+            "keep a dual-boot or VM until a native solution ships."
         )
         cloud_body.setObjectName("card-copy")
         cloud_body.setWordWrap(True)

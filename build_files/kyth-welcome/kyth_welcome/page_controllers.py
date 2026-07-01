@@ -109,7 +109,7 @@ class ControllerPage(Page):
             "For haptics and adaptive triggers in Proton games:\n"
             "  Steam → Settings → Controller → Enable PlayStation controller support\n"
             "  In each game's controller settings: enable DualSense features\n"
-            "  Avoid DS4Windows or similar emulation tools — they hide the native DualSense\n"
+            "  Avoid third-party controller emulation tools — they hide the native DualSense\n"
             "  from Proton and prevent haptic/trigger passthrough"
         )
         ps_bt_steps.setObjectName("card-copy")

@@ -229,6 +229,16 @@ check_rpm_absent() {
     fi
 }
 
+check_rpm_present() {
+    local package="$1"
+    local label="$2"
+    if rpm -q "$package" >/dev/null 2>&1; then
+        pass "$label" "$package installed"
+    else
+        fail "$label" "$package is not installed"
+    fi
+}
+
 check_desktop_trusted() {
     local path="$1"
     local label="$2"
@@ -356,6 +366,9 @@ check_system_unit_enabled kyth-selinux-relabel-home.service "SELinux home relabe
 check_system_unit_enabled kyth-first-boot-message.service "First boot message"
 check_system_unit_enabled fstrim.timer "SSD trim timer"
 check_system_unit_enabled fwupd.service "Firmware service"
+check_command python3 "Python 3"
+check_command pip3 "pip3"
+check_command pip "pip"
 
 section "Desktop Familiarity"
 if [[ "${XDG_CURRENT_DESKTOP:-}" == *KDE* || "${DESKTOP_SESSION:-}" == plasma* ]]; then
@@ -378,6 +391,11 @@ check_path_absent /usr/share/plymouth/themes/bgrt "Plymouth firmware BGRT fallba
 check_rpm_absent fedora-logos "Fedora branding package"
 check_file /usr/share/icons/hicolor/32x32/apps/fedora-logo-icon.png "Boot badge fallback override"
 check_file /usr/share/icons/hicolor/32x32/apps/kythos.png "KythOS boot badge icon"
+check_file_contains /usr/share/color-schemes/KythDark.colors "DecorationFocus=47,155,143" "KythDark teal accent" "Plasma color scheme uses the KythOS accent"
+check_file_contains /usr/share/plasma/desktoptheme/kyth-dark/widgets/panel-background.svg 'fill="#2f9b8f"' "KythDark panel accent" "panel theme matches the KythOS accent"
+check_file_contains /etc/skel/.config/kscreenlockerrc "/usr/share/wallpapers/kyth/contents/images/1920x1080.svg" "Lock screen wallpaper" "lock screen follows the KythOS wallpaper"
+check_file_contains /usr/share/sddm/themes/breeze/theme.conf.user "logo=/usr/share/pixmaps/kyth.svg" "SDDM KythOS logo" "login screen uses KythOS branding"
+check_file_contains /usr/share/sddm/themes/breeze/theme.conf.user "background=/usr/share/wallpapers/kyth/contents/images/1920x1080.svg" "SDDM KythOS background" "login screen matches the desktop wallpaper"
 check_file /usr/share/pixmaps/fedora-logo-icon.png "Legacy Fedora badge override"
 check_file /usr/share/pixmaps/system-logo-white.png "Plymouth system logo override"
 check_file_contains /etc/default/grub 'GRUB_DISTRIBUTOR="KythOS"' "GRUB distributor branding" "bootloader menu metadata uses KythOS"
@@ -402,8 +420,10 @@ check_file /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "Plymouth 
 check_file_contains /usr/lib/systemd/system/kyth-boot-splash-initramfs.service "ExecStart=/usr/libexec/kyth-refresh-boot-splash-initramfs" "Plymouth initramfs migration service" "early-boot theme repair is scheduled"
 check_file /usr/share/applications/kyth-welcome.desktop "System Hub launcher"
 check_file /etc/skel/.config/kickoffrc "Pinned app defaults"
+check_file_contains /etc/skel/.config/kickoffrc "applications:kyth-app-store.desktop" "Pinned App Store default" "KythOS App Store is a launcher favorite"
 check_file_contains /etc/skel/.config/kickoffrc "highlightNewlyInstalledApps=false" "Launcher badge quieting" "new-app badges disabled by default"
 check_file /etc/xdg/kickoffrc "System launcher defaults"
+check_file_contains /etc/xdg/kickoffrc "applications:kyth-app-store.desktop" "System App Store favorite" "KythOS App Store is a system launcher favorite"
 check_file_contains /etc/xdg/kickoffrc "highlightNewlyInstalledApps=false" "System launcher badge quieting" "new-app badges disabled by default"
 check_file /usr/bin/kyth-vscode-wallet "Browser wallet defaults helper"
 check_file_contains /etc/skel/.config/Code/argv.json '"password-store": "basic"' "VS Code wallet default" "Code uses quiet local secret storage"
@@ -418,6 +438,28 @@ check_file_contains /etc/skel/.config/kwalletrc "Default Wallet=kdewallet" "KWal
 check_file_contains /etc/skel/.config/kwalletrc "Leave Open=true" "KWallet session persistence" "wallet stays open after apps start using it"
 check_file /usr/bin/kyth-user-polish "User comfort polish"
 check_file_contains /usr/bin/kyth-user-polish "highlightNewlyInstalledApps" "User launcher badge quieting" "new-app badges disabled after updates"
+check_file /usr/bin/kyth-apply-desktop-layout "KythOS default layout helper"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "qdbus-qt6" "KythOS layout qdbus fallback" "desktop layout restore works on Fedora qdbus-qt6 installs"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "kyth-comfort-v3" "KythOS default layout version" "desktop layout preset has a versioned repair marker"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "KythComfortLayout" "KythOS default layout marker" "desktop layout preset uses KythOS comfort naming"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "panel.height = 42" "KythOS compact panel height" "default panel keeps clock and date compact"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.icontasks" "KythOS default taskbar" "preset creates an icons-only taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "maxStripes" "KythOS taskbar density" "taskbar stays single-row and scannable"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-welcome.desktop" "KythOS default pinned apps" "System Hub is pinned in the taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "applications:kyth-app-store.desktop" "KythOS default App Store pin" "KythOS App Store is pinned in the taskbar"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.systemtray" "KythOS default tray" "preset keeps the system tray in the bottom panel"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "hiddenItems" "KythOS curated tray" "low-signal tray items are hidden by default"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.plasma.clipboard" "KythOS tray clipboard" "clipboard history is visible in the curated tray"
+check_file_contains /usr/bin/kyth-apply-desktop-layout "org.kde.kdeconnect" "KythOS tray KDE Connect" "phone pairing status is visible in the curated tray"
+check_file /usr/bin/kyth-apply-role-preset "KythOS role preset helper"
+check_file_contains /usr/bin/kyth-apply-role-preset "everyday" "Everyday role preset" "everyday preset can refresh launcher pins"
+check_file_contains /usr/bin/kyth-apply-role-preset "gaming" "Gaming role preset" "gaming preset can refresh launcher pins"
+check_file_contains /usr/bin/kyth-user-polish "kyth-apply-desktop-layout --force" "User layout restore path" "System Hub force polish restores the desktop layout"
+check_file_contains /usr/bin/kyth-user-polish "kyth-apply-role-preset" "User role preset polish" "fresh users receive the saved role preset without update churn"
+check_file_contains /usr/bin/kyth-user-polish "--force" "User polish force mode" "System Hub can explicitly re-apply KythOS visual defaults"
+check_file_contains /usr/bin/kyth-user-polish "ColorScheme KythDark" "User visual polish" "existing and manual users can receive KythOS color defaults"
+check_file_contains /usr/bin/kyth-user-polish "Papirus-Dark" "User icon polish" "KythOS icon defaults are part of the shared polish path"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_plasma_wayland.py "kyth-user-polish --force" "System Hub polish path" "the Plasma polish button uses the same helper as login migrations"
 check_file_contains /etc/xdg/kwinrc "ButtonsOnRight=IAX" "Window control layout" "titlebars use minimize, maximize, close"
 check_file_contains /usr/bin/kyth-user-polish "org.kde.kdecoration2" "Window control migration" "existing users receive the standard titlebar controls"
 check_file_contains /usr/share/themes/Breeze-Dark/assets/breeze-minimize-symbolic.svg 'd="M7 24h22v2H7z"' "GTK minimize icon" "client-side titlebars use an underscore"
@@ -428,15 +470,28 @@ check_file_contains /usr/bin/kyth-user-polish "kwalletrc" "Existing-user KWallet
 check_file_contains /usr/bin/kyth-user-polish "--password-store=basic" "Brave wallet prompt prevention" "Brave launchers avoid waking KDE Wallet"
 check_file_contains /usr/bin/kyth-vscode-wallet '"password-store": "basic"' "VS Code wallet prompt prevention" "VS Code avoids waking KDE Wallet"
 check_file /etc/xdg/autostart/kyth-user-polish.desktop "Automatic user polish"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "finish setting up this PC" "First-week setup checklist" "System Hub guides users through everyday setup after first boot"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Cloud storage" "First-week cloud setup" "cloud storage is part of the first-week setup checklist"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Browser integration" "First-week browser integration" "native browser integration is part of the first-week setup checklist"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_welcome.py "Apply Preset" "Home role presets" "System Hub can apply Everyday/Gaming presets"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/core.py '_VALID_PROFILES = ("everyday", "gaming")' "Two role presets" "profile model exposes Everyday and Gaming presets"
+check_file_contains /usr/bin/kyth-user-polish "folder-templates" "Dolphin Places essentials" "Templates folder is seeded into Dolphin Places"
+check_file_contains /usr/bin/kyth-user-polish "Screenshots" "Screenshots folder default" "screenshots have a visible home in Dolphin Places"
+check_file_contains /usr/bin/kyth-user-polish "defaultSaveLocation" "Spectacle save location" "screenshots default to the Screenshots folder"
+check_file_contains /usr/bin/kyth-user-polish "BrowseThroughArchives" "Dolphin archive browsing" "Dolphin can browse archives like folders"
+check_file_contains /usr/bin/kyth-user-polish "PreviewSettings" "Dolphin thumbnail defaults" "Dolphin thumbnails are enabled for common media and document types"
+check_file /usr/share/kio/servicemenus/kyth-open-terminal-here.desktop "Dolphin Open Terminal Here action"
 check_file /etc/xdg/mimeapps.list "Default app associations"
 check_file /usr/bin/kyth-post-update-check "Post-update confidence"
 check_file_contains /usr/bin/kyth-post-update-check "kyth-welcome-done" "Post-update onboarding quieting" "automatic notifications wait for first-run onboarding"
 check_file /etc/xdg/autostart/kyth-post-update-check.desktop "Auto post-update check"
 check_file_contains /etc/xdg/autostart/kyth-post-update-check.desktop "--no-notify" "Post-update login quieting" "automatic checks run without desktop popups"
 check_rpm_absent kio-gdrive "Broken KDE Google Drive worker"
+check_rpm_present plasma-browser-integration "Plasma browser integration"
 check_file /usr/bin/kyth-firstboot-app-status "App setup notifier"
 check_file /etc/xdg/autostart/kyth-firstboot-app-status.desktop "Auto app setup notifier"
 check_file /etc/skel/Games "Games folder default"
+check_file /etc/skel/Screenshots "Screenshots folder default"
 check_file /usr/bin/kyth-windows-friendly-defaults "Windows-friendly defaults"
 check_file /usr/bin/kyth-exe-handler "Installer helper"
 check_file /usr/bin/kyth-dynamic-lock "Dynamic Lock helper"
@@ -445,6 +500,9 @@ check_file /usr/share/icons/hicolor/128x128/apps/kyth-m365-teams.png "Microsoft 
 check_file /usr/share/kwin-wayland/tabbox/thumbnail_grid/metadata.json "Thumbnail Grid Alt+Tab switcher (kyth-user-polish pins LayoutName=thumbnail_grid)"
 check_file_contains /usr/lib/systemd/user/kyth-dynamic-lock.service "ExecStart=/usr/bin/kyth-dynamic-lock" "Dynamic Lock user service" "trusted KDE Connect devices can lock the session when they leave"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/windows.py '"Discover Apps", "App Store"' "App Store navigation" "store is surfaced as a first-class System Hub page"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/windows.py "no audio" "System Hub problem search" "search routes common problem phrases"
+check_file_contains /usr/lib/kyth-welcome/kyth_welcome/windows.py "slow game" "System Hub performance search" "search routes performance problem phrases"
+check_file_contains /usr/share/applications/kyth-app-store.desktop 'Exec=/usr/bin/kyth-welcome-launch --page "App Store"' "KythOS App Store launcher" "taskbar pin opens System Hub directly to App Store"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_software.py "Trending on Kyth" "App Store trending shelf" "store front page highlights curated apps"
 check_file_contains /usr/lib/kyth-welcome/kyth_welcome/page_windows_migration.py "Use App Store for trending Flatpaks, starter packs, AppImages, and installed apps." "Software tools navigation" "software workflows are consolidated under the App Store page"
 check_file /usr/bin/kyth-report-issue "GitHub issue helper"
@@ -487,7 +545,7 @@ fi
 
 if [[ -r "${HOME}/.config/kdeglobals" ]]; then
     if grep -q '^SingleClick=false' "${HOME}/.config/kdeglobals"; then
-        pass "Double-click default" "user config uses Windows-style open behavior"
+        pass "Double-click default" "user config uses pointer-friendly open behavior"
     else
         warn "Double-click default" "run /usr/bin/kyth-user-polish or log out/in after updating"
     fi
@@ -522,6 +580,8 @@ if is_live_session; then
     check_file /usr/share/applications/kyth-install.desktop "Install app launcher"
     check_command code "VS Code command"
     check_file /usr/share/applications/code.desktop "VS Code launcher"
+    check_command headroom "Headroom command"
+    check_file /usr/lib/headroom/bin/headroom "Headroom virtualenv entrypoint"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-welcome.desktop" "System Hub favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/kyth-install.desktop" "Installer favorite" "pinned in launcher favorites"
     check_file_contains "${HOME}/.config/kickoffrc" "/usr/share/applications/code.desktop" "VS Code favorite" "pinned in launcher favorites"
@@ -632,8 +692,93 @@ check_flatpak net.lutris.Lutris "Lutris Flatpak"
 check_flatpak com.heroicgameslauncher.hgl "Heroic Flatpak"
 check_flatpak com.usebottles.bottles "Bottles Flatpak"
 check_flatpak com.github.mtkennerly.ludusavi "Ludusavi Flatpak"
+check_flatpak com.github.Matoking.protontricks "Protontricks Flatpak"
+check_flatpak net.davidotek.pupgui2 "ProtonUp-Qt Flatpak"
+check_flatpak io.github.benjamimgois.goverlay "GOverlay Flatpak"
+
+check_file_contains /etc/environment.d/proton-radv.conf "PROTON_USE_NTSYNC=1" "NTSYNC env var" "Proton is set to prefer NTSYNC"
+check_file_contains /etc/environment.d/proton-radv.conf "VKD3D_CONFIG=dxr11,dxr" "VKD3D ray tracing" "DX12 RT enabled in VKD3D-Proton"
+check_file_contains /etc/environment.d/proton-radv.conf "WINEFSYNC=1" "FSYNC fallback" "fsync fallback when NTSYNC unavailable"
+
+if [[ -f /usr/share/vulkan/implicit_layer.d/latencyflex_layer.json ]]; then
+    pass "LatencyFleX layer" "Vulkan implicit layer installed"
+else
+    warn "LatencyFleX layer" "not installed — anti-stutter latency-flex layer missing"
+fi
+
+if [[ -f /usr/share/vulkan/implicit_layer.d/VkLowLatencyLayer.json ]] \
+   || ls /usr/share/vulkan/implicit_layer.d/VkLowLatency* >/dev/null 2>&1; then
+    pass "vulkan-low-latency-layer" "AMD Anti-Lag2 / Reflex implicit layer present"
+else
+    warn "vulkan-low-latency-layer" "low-latency Vulkan layer missing (Terra repo may have failed)"
+fi
+
+if command -v dmemcg-booster >/dev/null 2>&1 \
+   || [[ -f /usr/lib/systemd/system/dmemcg-booster-system.service ]]; then
+    pass "dmemcg-booster" "VRAM foreground prioritization available"
+else
+    warn "dmemcg-booster" "not installed (Terra repo may have failed)"
+fi
+
+if [[ -d /usr/share/kyth/opticscaler ]] \
+   && find /usr/share/kyth/opticscaler -name '*.dll' -quit 2>/dev/null | grep -q '.'; then
+    pass "OptiScaler DLLs" "baked into image for offline deploy"
+else
+    warn "OptiScaler DLLs" "not baked (no checksums in release); deploy-opticscaler downloads live"
+fi
+
+section "Work Productivity"
+# Font compatibility — Carlito is the metric-compatible Calibri substitute.
+# Without it, Office documents reflow, tables shift, and PDFs print differently.
+if fc-list 2>/dev/null | grep -qi 'carlito'; then
+    pass "Carlito fonts" "Calibri-compatible fonts present"
+else
+    warn "Carlito fonts" "missing — Office document layout may differ from Windows"
+fi
+if fc-list 2>/dev/null | grep -qi 'caladea'; then
+    pass "Caladea fonts" "Cambria-compatible fonts present"
+else
+    warn "Caladea fonts" "missing — Office document layout may differ from Windows"
+fi
+if fc-list 2>/dev/null | grep -qi 'noto.*emoji\|noto emoji'; then
+    pass "Noto emoji fonts" "emoji rendering available"
+else
+    warn "Noto emoji fonts" "missing — emoji may render as boxes"
+fi
+check_optional_command fprintd "fingerprint daemon"
+if systemctl is-enabled fprintd.service &>/dev/null || systemctl is-active fprintd.service &>/dev/null; then
+    pass "fprintd service" "fingerprint login available"
+else
+    warn "fprintd service" "disabled — run authselect enable-feature with-fingerprint to activate"
+fi
+check_optional_command pcscd "smartcard daemon"
+if systemctl is-enabled pcscd.socket &>/dev/null || systemctl is-active pcscd.socket &>/dev/null; then
+    pass "pcscd.socket" "smartcard login/auth available"
+else
+    warn "pcscd.socket" "disabled — smartcard readers will not be detected on demand"
+fi
+if compgen -G "/dev/video*" >/dev/null 2>&1; then
+    pass "Camera" "video capture device present (/dev/video*)"
+else
+    warn "Camera" "no /dev/video* device detected — built-in or USB webcam may be missing/disabled"
+fi
+check_command openconnect "VPN (GlobalProtect/AnyConnect)"
+check_command vpnc "VPN (Cisco legacy)"
+if systemctl is-enabled cups-browsed.service &>/dev/null; then
+    pass "cups-browsed" "LAN printer auto-discovery enabled"
+else
+    warn "cups-browsed" "not enabled — printers require manual add"
+fi
+check_optional_command smbclient "SMB client"
+check_file_contains /usr/share/applications/kyth-exe-handler.desktop "application/x-ms-dos-executable" ".exe handler registered" ".exe files open in Bottles/Wine selector"
+if flatpak info io.missioncenter.MissionCenter &>/dev/null 2>&1; then
+    pass "Mission Center" "GPU-accelerated Task Manager installed"
+else
+    warn "Mission Center" "not installed yet — runs at first boot via kyth-default-flatpaks"
+fi
 
 section "Windows Migration And App Comfort"
+check_rpm_present fuse-libs "AppImage FUSE 2 compatibility library"
 check_command ntfs-3g "NTFS support"
 check_command rsync "Migration copy tool"
 check_file /usr/bin/kyth-exe-handler ".exe safety handler"
@@ -662,7 +807,7 @@ check_file_contains /usr/lib/systemd/system/kyth-update-watcher.timer "OnBootSec
 check_file_contains /etc/kyth/auto-update.toml "startup_grace_minutes = 20" "Auto-update grace config" "startup grace is configurable"
 check_file_contains /usr/lib/systemd/system/kyth-default-flatpaks.service "IOSchedulingClass=idle" "Default app setup priority" "first-boot Flatpak setup runs at idle I/O priority"
 check_file_contains /etc/pipewire/pipewire.conf.d/99-kyth.conf "default.clock.quantum       = 256" "PipeWire stability default" "low-latency audio keeps underrun headroom"
-check_file_contains /etc/environment.d/obs-vkcapture.conf "intentionally left unset globally" "OBS capture opt-in" "capture hooks are not injected globally"
+check_file_contains /etc/environment.d/obs-vkcapture.conf "OBS_VKCAPTURE intentionally" "OBS capture config present" "per-user opt-in via ujust install-obs"
 check_file_contains /usr/bin/kyth-sched "Do not include launcher shells" "Scheduler launcher calm" "idle launchers do not pin gaming mode"
 check_file_contains /usr/bin/kyth-performance-mode "save|restore" "Performance mode recovery" "performance mode exposes save and restore"
 check_file /usr/share/ublue-os/just/75-kyth.just "KythOS ujust recipes"
@@ -670,6 +815,34 @@ check_optional_command kyth-device-info "Support snapshot"
 check_optional_command kyth-controller-check "Controller check"
 check_optional_command kyth-resume-check "Resume check"
 check_optional_command kyth-nvidia-status "NVIDIA status check"
+
+section "Power User Tools"
+check_optional_command bat         "bat (better cat)"
+check_optional_command eza         "eza (better ls)"
+check_optional_command fd          "fd (better find)"
+check_optional_command rg          "ripgrep"
+check_optional_command fzf         "fzf (fuzzy finder)"
+check_optional_command zoxide      "zoxide (smart cd)"
+check_optional_command starship    "starship prompt"
+check_optional_command delta       "git-delta (better diff)"
+check_optional_command hx          "helix editor"
+check_optional_command fish        "fish shell"
+check_optional_command zellij      "zellij (terminal mux)"
+check_optional_command topgrade    "topgrade"
+if command -v fish >/dev/null 2>&1; then
+    if [[ -f /etc/skel/.config/fish/config.fish ]]; then
+        pass "fish skel config" "/etc/skel/.config/fish/config.fish"
+    else
+        warn "fish skel config" "no /etc/skel/.config/fish/config.fish — new users get a blank fish"
+    fi
+fi
+if command -v zsh >/dev/null 2>&1; then
+    if [[ -f /etc/skel/.zshrc ]]; then
+        pass "zsh skel config" "/etc/skel/.zshrc"
+    else
+        warn "zsh skel config" "no /etc/skel/.zshrc"
+    fi
+fi
 
 if [[ "$VERBOSE" -eq 1 ]]; then
     section "Verbose Context"
