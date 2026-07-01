@@ -272,8 +272,9 @@ def _read_lines(path: Path) -> list[str]:
 def _write_lines(path: Path, lines: list[str], mode: int) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # passwd uses the literal "x" placeholder; shadow records contain hashes.
-    # Open the file with target permissions at creation time to prevent permissions race condition.
-    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, mode)
+    # Open the file with restrictive permissions at creation time to prevent
+    # race conditions and avoid creating world/group-readable files.
+    fd = os.open(path, os.O_CREAT | os.O_WRONLY | os.O_TRUNC, mode & 0o600)
     with os.fdopen(fd, 'w') as f:
         f.write("\n".join(lines) + "\n")
 
