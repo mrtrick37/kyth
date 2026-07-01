@@ -994,7 +994,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        branch: ${{ fromJSON(format('["{0}"]', github.event_name == 'schedule' && 'latest' || github.ref_name)) }}
+        branch: ${{ github.event_name == 'schedule' && fromJSON('["main","testing"]') || fromJSON(format('["{0}"]', github.ref_name)) }}
     uses: ./.github/workflows/build-live-iso.yml
     with:
       # The live ISO is built from the Fedora variant only — it must boot the

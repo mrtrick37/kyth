@@ -431,11 +431,21 @@ jobs:
           PY
           echo "path=${NOTES}" >> "$GITHUB_OUTPUT"
 
+      - name: Free disk space
+        run: |
+          df -h
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/.ghcup || true
+          df -h
+
       - name: Download built ISO
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
-        with:
-          name: ${{ needs.build.outputs.artifact_name }}
-          path: output/live-iso
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh run download "${{ github.run_id }}" -n "${{ needs.build.outputs.artifact_name }}" -D output/live-iso
+          if [ -d "output/live-iso/${{ needs.build.outputs.artifact_name }}" ]; then
+            mv "output/live-iso/${{ needs.build.outputs.artifact_name }}"/* output/live-iso/
+            rmdir "output/live-iso/${{ needs.build.outputs.artifact_name }}"
+          fi
 
       - name: Verify transferred artifact
         run: |
