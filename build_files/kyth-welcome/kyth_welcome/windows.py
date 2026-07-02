@@ -701,7 +701,7 @@ class WizardWindow(QMainWindow):
         # Accent line
         accent = QFrame()
         accent.setFixedHeight(2)
-        accent.setStyleSheet("background: #2f9b8f; border: none;")
+        accent.setStyleSheet("background: #4f8cff; border: none;")
         root_layout.addWidget(accent)
 
         # ── Content stack ─────────────────────────────────────────────────
